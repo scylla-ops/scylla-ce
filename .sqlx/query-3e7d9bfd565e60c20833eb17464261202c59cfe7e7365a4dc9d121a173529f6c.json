@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT g.id, g.scope_kind, g.scope_id, g.role_id, r.name AS role_name,\n               o.id AS \"organization_id?\", o.name AS \"organization_name?\",\n               p.name AS \"project_name?\"\n        FROM grants g\n        JOIN roles r ON r.id = g.role_id\n        LEFT JOIN projects p ON g.scope_kind = 'project' AND p.id = g.scope_id\n        LEFT JOIN organizations o ON o.id = CASE g.scope_kind\n            WHEN 'organization' THEN g.scope_id\n            WHEN 'project' THEN p.organization_id\n        END\n        WHERE g.principal_kind = $1 AND g.principal_id = $2\n        ORDER BY g.scope_kind <> 'system', o.name, o.id,\n                 p.name NULLS FIRST, p.id NULLS FIRST, r.name, g.id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "grants",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "scope_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "grants",
+            "name": "scope_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "scope_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "grants",
+            "name": "scope_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "role_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "grants",
+            "name": "role_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "role_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "roles",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "organization_id?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "organization_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "project_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3e7d9bfd565e60c20833eb17464261202c59cfe7e7365a4dc9d121a173529f6c"
+}

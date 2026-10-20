@@ -23,12 +23,6 @@ pub struct ControlPlaneConfig {
     pub bootstrap: Option<BootstrapConfig>,
 
     #[serde(default)]
-    pub mail: Option<MailConfig>,
-
-    #[serde(default)]
-    pub oauth: OauthConfig,
-
-    #[serde(default)]
     pub secrets: Option<SecretsConfig>,
 
     #[serde(default)]
@@ -88,39 +82,23 @@ pub const MASTER_KEY_ENV: &str = "SCYLLA_MASTER_KEY";
 /// Public (committed in `config/docker.toml`): detected at startup to warn.
 pub const DEV_MASTER_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct OauthConfig {
-    #[serde(default)]
-    pub github: Option<GitHubOauthConfig>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct GitHubOauthConfig {
-    pub client_id: String,
-    pub client_secret: String,
-    pub redirect_uri: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct MailConfig {
-    pub host: String,
-    #[serde(default = "default_smtp_port")]
-    pub port: u16,
-    pub username: String,
-    pub password: String,
-    pub from: String,
-}
-
-fn default_smtp_port() -> u16 {
-    465
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerConfig {
     pub address: SocketAddr,
 
     #[serde(default)]
     pub tls: Option<TlsConfig>,
+
+    /// The origin that people open, without a trailing slash, for example
+    /// `https://scylla.example.com`. A reset link starts with it; without it the link is relative.
+    #[serde(default)]
+    pub public_url: Option<String>,
+
+    /// Set it to `true` only behind a reverse proxy that sets `x-forwarded-for` or `x-real-ip`
+    /// and replaces the values that a client sends: a client can write these headers. A new
+    /// session then records the IP address from them, not the address of the proxy.
+    #[serde(default)]
+    pub trust_forwarded_headers: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -200,14 +178,14 @@ fn default_expose_headers() -> Vec<String> {
     ]
 }
 
+/// The bootstrap finds an existing admin account by `email`, so the email is required.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BootstrapConfig {
     pub username: String,
 
     pub password: String,
 
-    #[serde(default)]
-    pub email: Option<String>,
+    pub email: String,
 }
 
 impl Default for BootstrapConfig {
@@ -215,7 +193,7 @@ impl Default for BootstrapConfig {
         Self {
             username: "admin".to_string(),
             password: "admin123".to_string(),
-            email: None,
+            email: "admin@example.com".to_string(),
         }
     }
 }
@@ -229,6 +207,8 @@ impl Default for ServerConfig {
         Self {
             address: SocketAddr::from(([127, 0, 0, 1], 8080)),
             tls: None,
+            public_url: None,
+            trust_forwarded_headers: false,
         }
     }
 }
@@ -325,6 +305,100 @@ mod tests {
         };
         config.override_master_key("   ");
         assert_eq!(config.secrets.unwrap().master_key, "real-key");
+    }
+
+    #[test]
+    fn a_section_that_the_server_does_not_know_is_ignored() {
+        let config: ControlPlaneConfig = toml::from_str(
+            r#"
+            [bootstrap]
+            username = "admin"
+            password = "admin123"
+            email = "admin@example.com"
+
+            [mail]
+            host = "smtp.example.com"
+
+            [ee.limits]
+            max_projects = 3
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.bootstrap.unwrap().email, "admin@example.com");
+    }
+
+    #[test]
+    fn the_server_trusts_the_forwarded_headers_only_when_told() {
+        let config: ControlPlaneConfig = toml::from_str(
+            r#"
+            [server]
+            address = "0.0.0.0:8080"
+            "#,
+        )
+        .unwrap();
+        assert!(!config.server.trust_forwarded_headers);
+        assert!(!ControlPlaneConfig::default().server.trust_forwarded_headers);
+
+        let config: ControlPlaneConfig = toml::from_str(
+            r#"
+            [server]
+            address = "0.0.0.0:8080"
+            trust_forwarded_headers = true
+            "#,
+        )
+        .unwrap();
+        assert!(config.server.trust_forwarded_headers);
+    }
+
+    #[test]
+    fn a_bootstrap_without_an_email_is_refused() {
+        let err = toml::from_str::<ControlPlaneConfig>(
+            r#"
+            [bootstrap]
+            username = "admin"
+            password = "admin123"
+            "#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("email"), "{err}");
+    }
+
+    #[test]
+    fn the_shipped_configs_parse() {
+        for (src, bootstrap) in [
+            (
+                include_str!("../../../binaries/scylla-ce/config/local.toml"),
+                true,
+            ),
+            (
+                include_str!("../../../binaries/scylla-ce/config/docker.toml"),
+                true,
+            ),
+            (
+                include_str!("../../../binaries/scylla-ce/config/prod.toml"),
+                false,
+            ),
+        ] {
+            let config: ControlPlaneConfig = toml::from_str(src).unwrap();
+            assert_eq!(config.bootstrap.is_some(), bootstrap);
+        }
+    }
+
+    #[test]
+    fn the_public_url_is_optional() {
+        let config: ControlPlaneConfig = toml::from_str(
+            r#"
+            [server]
+            address = "0.0.0.0:8080"
+            public_url = "https://scylla.example.com"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.server.public_url.as_deref(),
+            Some("https://scylla.example.com")
+        );
+        assert!(ControlPlaneConfig::default().server.public_url.is_none());
     }
 
     #[test]

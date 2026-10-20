@@ -18,20 +18,14 @@ pub trait SecretResolver: Send + Sync {
     ) -> DomainResult<Vec<DispatchNode>>;
 }
 
-pub struct DispatchSecretResolver<R>
-where
-    R: SecretRepository,
-{
-    secret_repo: Arc<R>,
+pub struct DispatchSecretResolver {
+    secret_repo: Arc<dyn SecretRepository>,
     cipher: Arc<dyn SecretCipher>,
 }
 
-impl<R> DispatchSecretResolver<R>
-where
-    R: SecretRepository,
-{
+impl DispatchSecretResolver {
     #[must_use]
-    pub fn new(secret_repo: Arc<R>, cipher: Arc<dyn SecretCipher>) -> Self {
+    pub fn new(secret_repo: Arc<dyn SecretRepository>, cipher: Arc<dyn SecretCipher>) -> Self {
         Self {
             secret_repo,
             cipher,
@@ -40,10 +34,7 @@ where
 }
 
 #[async_trait]
-impl<R> SecretResolver for DispatchSecretResolver<R>
-where
-    R: SecretRepository,
-{
+impl SecretResolver for DispatchSecretResolver {
     async fn resolve(
         &self,
         project_id: &ProjectId,
@@ -72,13 +63,19 @@ where
                 match ev.source() {
                     EnvSource::Literal(value) => env.push(DispatchEnv {
                         key: ev.key().to_string(),
-                        value: value.clone(),
+                        value: value.to_string(),
                         masked: false,
                     }),
                     EnvSource::Secret(name) => {
                         let ciphertext = by_name
                             .get(name.as_str())
-                            .ok_or_else(|| DomainError::not_found("secret", name.as_str()))?;
+                            .ok_or_else(|| {
+                                DomainError::NotFound(format!(
+                                    "secret '{name}' referenced by node '{}' env '{}' is not in this project",
+                                    node.id(),
+                                    ev.key()
+                                ))
+                            })?;
                         let value = self.cipher.decrypt(ciphertext)?;
                         env.push(DispatchEnv {
                             key: ev.key().to_string(),

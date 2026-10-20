@@ -31,6 +31,11 @@ impl TriggerDeliveryRepository for PgTriggerDeliveryRepository {
     ) -> DomainResult<bool> {
         queries::record_or_detect(&self.pool, trigger_id, delivery_id, received_at).await
     }
+
+    #[instrument(skip_all, fields(trigger_id = %trigger_id, delivery_id))]
+    async fn forget(&self, trigger_id: &TriggerId, delivery_id: &str) -> DomainResult<()> {
+        queries::forget(&self.pool, trigger_id, delivery_id).await
+    }
 }
 
 #[allow(clippy::wildcard_imports)]
@@ -60,5 +65,24 @@ pub mod queries {
         .await
         .to_domain()?;
         Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn forget<'e, E>(
+        executor: E,
+        trigger_id: &TriggerId,
+        delivery_id: &str,
+    ) -> DomainResult<()>
+    where
+        E: PgExecutor<'e>,
+    {
+        sqlx::query!(
+            "DELETE FROM trigger_deliveries WHERE trigger_id = $1 AND delivery_id = $2",
+            trigger_id.as_str(),
+            delivery_id,
+        )
+        .execute(executor)
+        .await
+        .to_domain()?;
+        Ok(())
     }
 }

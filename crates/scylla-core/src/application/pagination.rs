@@ -155,6 +155,12 @@ impl<T> PaginatedResult<T> {
     pub fn into_parts(self) -> (Vec<T>, PaginationMetadata) {
         (self.items, self.metadata)
     }
+
+    /// A page whose items were resolved from another page's ids keeps that page's metadata.
+    #[must_use]
+    pub fn from_parts(items: Vec<T>, metadata: PaginationMetadata) -> Self {
+        Self { items, metadata }
+    }
 }
 
 #[cfg(test)]

@@ -1,10 +1,15 @@
 target/
-.idea/
-.DS_Store
+
 .env
 .data/*.log
 /data/
 db
-.claude
-node_modules
+
+# llms
+.claude/settings.local.json
+SPEC.md
+
+# ide
+.DS_Store
+.idea/
 .vscode

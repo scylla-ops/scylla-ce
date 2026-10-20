@@ -19,6 +19,7 @@ impl OrgBuilder {
         #[builder(default = true)] is_active: bool,
         created_at: Option<DateTime<Utc>>,
         updated_at: Option<DateTime<Utc>>,
+        #[builder(default = 0)] version: u64,
     ) -> Organization {
         let now = created_at.unwrap_or_else(clock::now);
         let description =
@@ -30,6 +31,7 @@ impl OrgBuilder {
             is_active,
             now,
             updated_at.unwrap_or(now),
+            version,
         )
     }
 }

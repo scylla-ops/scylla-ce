@@ -1,7 +1,8 @@
-use crate::domain::errors::{DomainError, DomainResult};
+use crate::domain::errors::DomainResult;
 use crate::domain::ids::{SessionId, UserId};
-use crate::domain::session::Session;
+use crate::domain::session::{ACTIVITY_INTERVAL, Session, SessionClient};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use scylla_core::application::SessionRepository;
 use sqlx::{PgExecutor, PgPool};
 use tracing::instrument;
@@ -32,11 +33,6 @@ impl SessionRepository for PgSessionRepository {
         queries::find_by_token(&self.pool, token).await
     }
 
-    #[instrument(skip_all, fields(session_id = %session.id()))]
-    async fn update(&self, session: &Session) -> DomainResult<Session> {
-        queries::update(&self.pool, session).await
-    }
-
     #[instrument(skip(self, token))]
     async fn delete_by_token(&self, token: &str) -> DomainResult<()> {
         queries::delete_by_token(&self.pool, token).await
@@ -47,9 +43,9 @@ impl SessionRepository for PgSessionRepository {
         queries::delete_expired(&self.pool).await
     }
 
-    #[instrument(skip_all, fields(user_id = %user_id))]
-    async fn list_for_user(&self, user_id: &UserId) -> DomainResult<Vec<Session>> {
-        queries::list_for_user(&self.pool, user_id).await
+    #[instrument(skip(self))]
+    async fn touch(&self, id: &SessionId, at: DateTime<Utc>) -> DomainResult<bool> {
+        queries::touch(&self.pool, id, at).await
     }
 }
 
@@ -57,14 +53,18 @@ impl SessionRepository for PgSessionRepository {
 pub mod queries {
     use super::*;
 
+    /// Stores the SHA-256 of the token, never the token.
     pub async fn create<'e, E>(executor: E, session: &Session) -> DomainResult<Session>
     where
         E: PgExecutor<'e>,
     {
         sqlx::query!(
             r#"
-            INSERT INTO sessions (id, token, user_id, created_at, expires_at, last_active_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO sessions (
+                id, token_hash, user_id, created_at, expires_at, last_active_at,
+                user_agent, ip_address
+            )
+            VALUES ($1, encode(sha256(convert_to($2, 'UTF8')), 'hex'), $3, $4, $5, $6, $7, $8)
             "#,
             session.id().as_str(),
             session.token(),
@@ -72,6 +72,8 @@ pub mod queries {
             session.created_at(),
             session.expires_at(),
             session.last_active_at(),
+            session.client().user_agent(),
+            session.client().ip_address().map(|ip| ip.to_string()),
         )
         .execute(executor)
         .await
@@ -85,9 +87,9 @@ pub mod queries {
     {
         let rec = sqlx::query!(
             r#"
-            SELECT id, token, user_id, created_at, expires_at, last_active_at
+            SELECT id, user_id, created_at, expires_at, last_active_at, user_agent, ip_address
             FROM sessions
-            WHERE token = $1
+            WHERE token_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')
             "#,
             token,
         )
@@ -97,48 +99,29 @@ pub mod queries {
         .not_found_as("Session", "<token>")?;
         Ok(Session::from_persistence(
             SessionId::new(rec.id),
-            rec.token,
+            token.to_owned(),
             UserId::new(rec.user_id),
             rec.created_at,
             rec.expires_at,
             rec.last_active_at,
-        ))
-    }
-
-    pub async fn update<'e, E>(executor: E, session: &Session) -> DomainResult<Session>
-    where
-        E: PgExecutor<'e>,
-    {
-        let res = sqlx::query!(
-            r#"
-            UPDATE sessions
-            SET token = $2,
-                expires_at = $3,
-                last_active_at = $4
-            WHERE id = $1
-            "#,
-            session.id().as_str(),
-            session.token(),
-            session.expires_at(),
-            session.last_active_at(),
         )
-        .execute(executor)
-        .await
-        .to_domain()?;
-        if res.rows_affected() == 0 {
-            return Err(DomainError::not_found("Session", session.id().to_string()));
-        }
-        Ok(session.clone())
+        .with_client(SessionClient::new(
+            rec.user_agent.as_deref(),
+            rec.ip_address.as_deref(),
+        )))
     }
 
     pub async fn delete_by_token<'e, E>(executor: E, token: &str) -> DomainResult<()>
     where
         E: PgExecutor<'e>,
     {
-        sqlx::query!("DELETE FROM sessions WHERE token = $1", token)
-            .execute(executor)
-            .await
-            .to_domain()?;
+        sqlx::query!(
+            "DELETE FROM sessions WHERE token_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')",
+            token,
+        )
+        .execute(executor)
+        .await
+        .to_domain()?;
         Ok(())
     }
 
@@ -153,34 +136,20 @@ pub mod queries {
         Ok(res.rows_affected())
     }
 
-    pub async fn list_for_user<'e, E>(executor: E, user_id: &UserId) -> DomainResult<Vec<Session>>
+    /// One conditional write: two calls in the same interval move the activity once.
+    pub async fn touch<'e, E>(executor: E, id: &SessionId, at: DateTime<Utc>) -> DomainResult<bool>
     where
         E: PgExecutor<'e>,
     {
-        let rows = sqlx::query!(
-            r#"
-            SELECT id, token, user_id, created_at, expires_at, last_active_at
-            FROM sessions
-            WHERE user_id = $1
-            ORDER BY last_active_at DESC
-            "#,
-            user_id.as_str(),
+        let res = sqlx::query!(
+            "UPDATE sessions SET last_active_at = $2 WHERE id = $1 AND last_active_at <= $3",
+            id.as_str(),
+            at,
+            at - ACTIVITY_INTERVAL,
         )
-        .fetch_all(executor)
+        .execute(executor)
         .await
         .to_domain()?;
-        Ok(rows
-            .into_iter()
-            .map(|r| {
-                Session::from_persistence(
-                    SessionId::new(r.id),
-                    r.token,
-                    UserId::new(r.user_id),
-                    r.created_at,
-                    r.expires_at,
-                    r.last_active_at,
-                )
-            })
-            .collect())
+        Ok(res.rows_affected() > 0)
     }
 }

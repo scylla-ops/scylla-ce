@@ -18,14 +18,13 @@ ENV PNPM_HOME=/pnpm \
 
 WORKDIR /app
 
-COPY apps/frontend/package.json apps/frontend/pnpm-lock.yaml apps/frontend/pnpm-workspace.yaml ./
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm config set store-dir /pnpm/store && \
     pnpm install --frozen-lockfile
 
-COPY crates/scylla-proto/proto/ ../../crates/scylla-proto/proto/
-COPY apps/frontend/ .
+COPY web/ .
 
 # VITE_API_URL is deliberately unset. The transport falls back to a relative
 # base URL, so the bundle talks to whatever origin served it — which is what
@@ -85,7 +84,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 FROM src AS build-ce
 # The SPA is compiled into the binary (rust-embed), so it has to land before
 # cargo runs, at the path build.rs and the #[folder] attribute both expect.
-COPY --from=ui /app/dist ./apps/frontend/dist
+COPY --from=ui /app/dist ./web/dist
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     cargo build --release -p scylla-ce && \

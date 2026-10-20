@@ -1,5 +1,6 @@
 target
 .git
+**/.git
 .github
 .venv
 scylla-bruno
@@ -9,4 +10,4 @@ tests
 .claude
 
 # The UI reaches the build through the `ui` stage, never the build context.
-apps/frontend/dist
+web/dist

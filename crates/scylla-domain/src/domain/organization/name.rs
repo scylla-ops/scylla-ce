@@ -1,37 +1,13 @@
-use crate::domain::errors::{DomainError, DomainResult};
-use nutype::nutype;
+use crate::domain::text::{Rule, Text};
 
-const MAX_NAME_LENGTH: usize = 255;
+pub enum OrganizationNameRule {}
 
-fn validate(s: &str) -> Result<(), DomainError> {
-    if s.is_empty() {
-        return Err(DomainError::validation("Organization name cannot be empty"));
-    }
-    if s.len() > MAX_NAME_LENGTH {
-        return Err(DomainError::validation(format!(
-            "Organization name cannot exceed {MAX_NAME_LENGTH} characters"
-        )));
-    }
-    Ok(())
+impl Rule for OrganizationNameRule {
+    const LABEL: &'static str = "Organization name";
+    const MAX: usize = 255;
 }
 
-#[nutype(
-    sanitize(trim),
-    validate(with = validate, error = DomainError),
-    derive(Debug, Clone, PartialEq, Eq, Hash, AsRef, Borrow, Display, Into),
-)]
-pub struct OrganizationName(String);
-
-impl OrganizationName {
-    pub fn new(value: impl Into<String>) -> DomainResult<Self> {
-        Self::try_new(value.into())
-    }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        <Self as AsRef<str>>::as_ref(self)
-    }
-}
+pub type OrganizationName = Text<OrganizationNameRule>;
 
 #[cfg(test)]
 mod tests {
@@ -48,8 +24,8 @@ mod tests {
 
     #[test]
     fn enforces_length_bounds() {
-        let max = OrganizationName::new("a".repeat(MAX_NAME_LENGTH)).unwrap();
-        assert_eq!(max.as_str().len(), MAX_NAME_LENGTH);
-        assert!(OrganizationName::new("a".repeat(MAX_NAME_LENGTH + 1)).is_err());
+        let max = OrganizationName::new("a".repeat(OrganizationNameRule::MAX)).unwrap();
+        assert_eq!(max.as_str().len(), OrganizationNameRule::MAX);
+        assert!(OrganizationName::new("a".repeat(OrganizationNameRule::MAX + 1)).is_err());
     }
 }

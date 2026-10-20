@@ -10,6 +10,7 @@ use sqlx::{PgExecutor, PgPool, types::Json};
 use tracing::instrument;
 
 use super::super::error::{DbFieldExt, SqlxResultExt};
+use super::super::version::{from_db, to_db, written};
 
 #[derive(Clone)]
 pub struct PgPipelineRepository {
@@ -35,14 +36,28 @@ impl PipelineRepository for PgPipelineRepository {
         queries::find_by_id(&self.pool, id).await
     }
 
-    #[instrument(skip_all, fields(pipeline_id = %pipeline.id()))]
+    #[instrument(skip_all, fields(pipeline_id = %pipeline.id(), version = pipeline.version()))]
     async fn update(&self, pipeline: &Pipeline) -> DomainResult<Pipeline> {
-        queries::update(&self.pool, pipeline).await
+        let updated = queries::update(&self.pool, pipeline).await?;
+        written(
+            updated,
+            "Pipeline",
+            pipeline.id(),
+            queries::find_by_id(&self.pool, pipeline.id()),
+        )
+        .await
     }
 
-    #[instrument(skip_all, fields(pipeline_id = %id))]
-    async fn delete(&self, id: &PipelineId) -> DomainResult<()> {
-        queries::delete(&self.pool, id).await
+    #[instrument(skip_all, fields(pipeline_id = %pipeline.id(), version = pipeline.version()))]
+    async fn delete(&self, pipeline: &Pipeline) -> DomainResult<()> {
+        let deleted = queries::delete(&self.pool, pipeline).await?.then_some(());
+        written(
+            deleted,
+            "Pipeline",
+            pipeline.id(),
+            queries::find_by_id(&self.pool, pipeline.id()),
+        )
+        .await
     }
 
     #[instrument(skip(self, pagination))]
@@ -97,6 +112,7 @@ struct PipelineRow {
     nodes: Json<Vec<PipelineNode>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    version: i64,
 }
 
 impl TryFrom<PipelineRow> for Pipeline {
@@ -110,6 +126,7 @@ impl TryFrom<PipelineRow> for Pipeline {
             r.nodes.0,
             r.created_at,
             r.updated_at,
+            from_db(r.version),
         ))
     }
 }
@@ -150,7 +167,7 @@ pub mod queries {
             r#"
             SELECT id, project_id, name,
                    nodes AS "nodes: Json<Vec<PipelineNode>>",
-                   created_at, updated_at
+                   created_at, updated_at, version
             FROM pipelines
             WHERE id = $1
             "#,
@@ -158,51 +175,58 @@ pub mod queries {
         )
         .fetch_one(executor)
         .await
-        .not_found_as("Pipeline", id.to_string())?
+        .not_found_as("Pipeline", id)?
         .try_into()
     }
 
-    pub async fn update<'e, E>(executor: E, pipeline: &Pipeline) -> DomainResult<Pipeline>
+    /// `None` when no row carries the staged version.
+    pub async fn update<'e, E>(executor: E, pipeline: &Pipeline) -> DomainResult<Option<Pipeline>>
     where
         E: PgExecutor<'e>,
     {
         let nodes = Json(pipeline.nodes().to_vec());
-        let res = sqlx::query!(
+        sqlx::query_as!(
+            PipelineRow,
             r#"
             UPDATE pipelines
             SET project_id = $2,
                 name = $3,
                 nodes = $4,
-                updated_at = $5
-            WHERE id = $1
+                updated_at = $5,
+                version = version + 1
+            WHERE id = $1 AND version = $6
+            RETURNING id, project_id, name,
+                      nodes AS "nodes: Json<Vec<PipelineNode>>",
+                      created_at, updated_at, version
             "#,
             pipeline.id().as_str(),
             pipeline.project_id().as_str(),
             pipeline.name().as_str(),
             nodes as _,
             pipeline.updated_at(),
+            to_db(pipeline.version()),
+        )
+        .fetch_optional(executor)
+        .await
+        .to_domain()?
+        .map(Pipeline::try_from)
+        .transpose()
+    }
+
+    /// `false` when no row carries the staged version.
+    pub async fn delete<'e, E>(executor: E, pipeline: &Pipeline) -> DomainResult<bool>
+    where
+        E: PgExecutor<'e>,
+    {
+        let res = sqlx::query!(
+            "DELETE FROM pipelines WHERE id = $1 AND version = $2",
+            pipeline.id().as_str(),
+            to_db(pipeline.version()),
         )
         .execute(executor)
         .await
         .to_domain()?;
-        if res.rows_affected() == 0 {
-            return Err(DomainError::not_found(
-                "Pipeline",
-                pipeline.id().to_string(),
-            ));
-        }
-        Ok(pipeline.clone())
-    }
-
-    pub async fn delete<'e, E>(executor: E, id: &PipelineId) -> DomainResult<()>
-    where
-        E: PgExecutor<'e>,
-    {
-        sqlx::query!("DELETE FROM pipelines WHERE id = $1", id.as_str())
-            .execute(executor)
-            .await
-            .to_domain()?;
-        Ok(())
+        Ok(res.rows_affected() > 0)
     }
 
     pub async fn count<'e, E>(executor: E, scope: Scope<'_>) -> DomainResult<u64>
@@ -253,7 +277,7 @@ pub mod queries {
                 r#"
                 SELECT id, project_id, name,
                        nodes AS "nodes: Json<Vec<PipelineNode>>",
-                       created_at, updated_at
+                       created_at, updated_at, version
                 FROM pipelines
                 ORDER BY created_at DESC
                 LIMIT $1 OFFSET $2
@@ -269,7 +293,7 @@ pub mod queries {
                 r#"
                 SELECT id, project_id, name,
                        nodes AS "nodes: Json<Vec<PipelineNode>>",
-                       created_at, updated_at
+                       created_at, updated_at, version
                 FROM pipelines
                 WHERE project_id = $1
                 ORDER BY created_at DESC
@@ -287,7 +311,7 @@ pub mod queries {
                 r#"
                 SELECT p.id, p.project_id, p.name,
                        p.nodes AS "nodes: Json<Vec<PipelineNode>>",
-                       p.created_at, p.updated_at
+                       p.created_at, p.updated_at, p.version
                 FROM pipelines p
                 JOIN projects pr ON pr.id = p.project_id
                 WHERE pr.organization_id = $1

@@ -1,7 +1,6 @@
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{ProjectId, SecretId};
-use crate::domain::secret::Secret;
-use crate::domain::secret::SecretName;
+use crate::domain::secret::{Secret, SecretDescription, SecretName};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use scylla_core::application::secret::SecretRepository;
@@ -37,11 +36,12 @@ impl TryFrom<SecretRow> for Secret {
     type Error = DomainError;
     fn try_from(r: SecretRow) -> DomainResult<Self> {
         let name = SecretName::new(r.name).db_field("secret name")?;
+        let description = SecretDescription::new(r.description).db_field("secret description")?;
         Ok(Secret::from_persistence(
             SecretId::new(r.id),
             ProjectId::new(r.project_id),
             name,
-            r.description,
+            description,
             r.encrypted_value,
             r.created_at,
             r.updated_at,
@@ -62,7 +62,7 @@ impl SecretRepository for PgSecretRepository {
             secret.id().as_str(),
             secret.project_id().as_str(),
             secret.name().as_str(),
-            secret.description(),
+            secret.description().as_str(),
             secret.encrypted_value(),
             secret.created_at(),
             secret.updated_at(),
@@ -86,7 +86,7 @@ impl SecretRepository for PgSecretRepository {
         )
         .fetch_one(&self.pool)
         .await
-        .not_found_as("Secret", id.to_string())?
+        .not_found_as("Secret", id)?
         .try_into()
     }
 

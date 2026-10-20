@@ -24,6 +24,14 @@ pub enum BootstrapError {
     InvalidEmail(#[source] DomainError),
     #[error("failed to create bootstrap user: {0}")]
     CreateUser(#[source] DomainError),
+    #[error("failed to find bootstrap user: {0}")]
+    FindUser(#[source] DomainError),
+    #[error("the bootstrap email belongs to another account")]
+    EmailOfAnotherAccount,
+    #[error("the bootstrap username belongs to an account with another email")]
+    UsernameWithAnotherEmail,
+    #[error("failed to set the bootstrap email: {0}")]
+    UpdateEmail(#[source] DomainError),
     #[error("failed to grant admin permissions: {0}")]
     GrantPermission(#[source] DomainError),
 }
@@ -36,10 +44,6 @@ pub enum StartupError {
     Database(#[from] DomainError),
     #[error("permission service init: {0}")]
     Permission(String),
-    #[error("mail service init: {0}")]
-    Mail(String),
-    #[error("oauth service init: {0}")]
-    OAuth(String),
     #[error("bootstrap: {0}")]
     Bootstrap(#[from] BootstrapError),
     #[error("gRPC reflection: {0}")]

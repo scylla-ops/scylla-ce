@@ -4,7 +4,7 @@ use crate::domain::user::{Password, PasswordHash};
 use async_trait::async_trait;
 
 #[async_trait]
-pub trait HashService {
+pub trait HashService: Send + Sync {
     async fn hash(&self, password: &Password) -> DomainResult<PasswordHash>;
 
     async fn verify(&self, password: &Password, hash: &PasswordHash) -> DomainResult<bool>;

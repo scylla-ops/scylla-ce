@@ -17,6 +17,9 @@ pub struct Organization {
     is_active: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    /// The row version the value was read at. The store checks it on every write and bumps
+    /// it itself; the domain never changes it.
+    version: u64,
 }
 
 impl Organization {
@@ -28,6 +31,7 @@ impl Organization {
         is_active: bool,
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>,
+        version: u64,
     ) -> Self {
         Self {
             id,
@@ -36,6 +40,7 @@ impl Organization {
             is_active,
             created_at,
             updated_at,
+            version,
         }
     }
 
@@ -51,6 +56,7 @@ impl Organization {
             is_active: true,
             created_at: now,
             updated_at: now,
+            version: 0,
         })
     }
 
@@ -105,5 +111,10 @@ impl Organization {
     #[must_use]
     pub fn updated_at(&self) -> DateTime<Utc> {
         self.updated_at
+    }
+
+    #[must_use]
+    pub fn version(&self) -> u64 {
+        self.version
     }
 }

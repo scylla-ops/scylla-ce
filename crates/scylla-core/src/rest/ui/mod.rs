@@ -41,7 +41,7 @@ pub fn attach(app: Router, ui: &UiConfig) -> Router {
 
     match embedded::count() {
         0 => tracing::warn!(
-            "no web UI embedded in this binary: serving the API only. Build the frontend \
+            "no web UI embedded in this binary: serving the API only. Build the web UI \
              (`just ui-build`) and rebuild, or point [ui].dir at a dist/."
         ),
         assets => tracing::info!(assets, "serving embedded web UI"),

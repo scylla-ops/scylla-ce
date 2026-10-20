@@ -5,13 +5,18 @@ edition = "2024"
 license.workspace = true
 repository.workspace = true
 
-# The edition boundary. No workspace crate may appear here: an Enterprise build
-# compiles this crate from a pinned git tag and must not drag the domain model,
-# the database or the gRPC stack along with it. Keep it to traits and the
-# minimal types their signatures need.
+# The edition boundary. An Enterprise build compiles this crate from a pinned
+# git tag, so it carries the kernel and nothing else: no access model, no
+# database, no gRPC stack, no Cedar. A hook sees `CallerContext`, `Access`
+# and `DomainError`, never a repository or a wire type.
 [dependencies]
+scylla-domain = { workspace = true }
 async-trait = { workspace = true }
-thiserror = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
 
 [lints]
 workspace = true

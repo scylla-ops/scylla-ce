@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM organizations WHERE id = $1 AND version = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8e0eca6fda8778be9ba647cd087f5ca51fb723249273be565199e009b29b4ab3"
+}

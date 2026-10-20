@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT COUNT(*) AS \"count!\"\n                FROM jobs\n                WHERE pipeline_id = $1 AND ($2::text IS NULL OR agent_app_id = $2)\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3361b0d7235e7d31bff0671196522cf0ce96cf244d162f6686882cc7e5794868"
+}

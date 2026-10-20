@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM projects WHERE id = $1 AND version = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8f1cc494611e975523687e39baa9fc2a56e09caa0a5d49fdded399d15607ff39"
+}

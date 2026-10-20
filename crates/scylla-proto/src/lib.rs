@@ -18,24 +18,6 @@ pub mod auth {
     }
 }
 
-pub mod registration {
-    pub mod v1 {
-        tonic::include_proto!("scylla.registration.v1");
-    }
-}
-
-pub mod invitation {
-    pub mod v1 {
-        tonic::include_proto!("scylla.invitation.v1");
-    }
-}
-
-pub mod oauth {
-    pub mod v1 {
-        tonic::include_proto!("scylla.oauth.v1");
-    }
-}
-
 pub mod user {
     pub mod v1 {
         tonic::include_proto!("scylla.user.v1");
@@ -85,6 +67,9 @@ pub mod app {
 }
 
 pub mod agent {
+    pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+    pub const MAX_LOG_LINE_BYTES: usize = 64 * 1024;
+
     pub mod v1 {
         tonic::include_proto!("scylla.agent.v1");
     }

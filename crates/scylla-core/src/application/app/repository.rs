@@ -1,3 +1,4 @@
+use crate::application::grant::PrincipalAccess;
 use crate::domain::agent::Agent;
 use crate::domain::app::{App, AppCredential};
 use crate::domain::errors::DomainResult;
@@ -15,17 +16,19 @@ pub trait AppRepository: Send + Sync {
         agent: &Agent,
         grant: &Grant,
     ) -> DomainResult<()>;
-    async fn provision(
-        &self,
-        app: &App,
-        credential: &AppCredential,
-        grant: &Grant,
-    ) -> DomainResult<()>;
+    /// The App and its grant in one transaction, with no secret: the trigger runner.
+    async fn provision(&self, app: &App, grant: &Grant) -> DomainResult<()>;
     async fn find_by_id(&self, id: &AppId) -> DomainResult<App>;
+    async fn find_trigger_runner(
+        &self,
+        organization_id: &OrganizationId,
+    ) -> DomainResult<Option<AppId>>;
     async fn list_by_organization(
         &self,
         organization_id: &OrganizationId,
     ) -> DomainResult<Vec<App>>;
     async fn set_active(&self, id: &AppId, active: bool) -> DomainResult<()>;
     async fn delete(&self, id: &AppId) -> DomainResult<()>;
+    /// The system grants first, then by organization name, then by project name.
+    async fn list_access(&self, id: &AppId) -> DomainResult<Vec<PrincipalAccess>>;
 }

@@ -1,0 +1,158 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, pipeline_id, name,\n                   source AS \"source: Json<TriggerSource>\",\n                   inputs AS \"inputs: Json<Vec<TriggerInput>>\",\n                   enabled, next_fire_at, last_fired_at, last_status, created_at, updated_at,\n                   version\n            FROM pipeline_triggers\n            WHERE enabled AND kind = 'cron' AND next_fire_at IS NULL\n            ORDER BY created_at\n            FOR UPDATE SKIP LOCKED\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipeline_triggers",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "pipeline_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipeline_triggers",
+            "name": "pipeline_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipeline_triggers",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "source: Json<TriggerSource>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "pipeline_triggers",
+            "name": "source"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "inputs: Json<Vec<TriggerInput>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "pipeline_triggers",
+            "name": "inputs"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pipeline_triggers",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "next_fire_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pipeline_triggers",
+            "name": "next_fire_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "last_fired_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pipeline_triggers",
+            "name": "last_fired_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "last_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipeline_triggers",
+            "name": "last_status"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pipeline_triggers",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pipeline_triggers",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "pipeline_triggers",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3d6400b07d31cf40e2641f44b6e2424e7211666aeae63a049fdf51bea58a9285"
+}

@@ -1,40 +1,28 @@
 use crate::domain::errors::{DomainError, DomainResult};
-use nutype::nutype;
+use crate::domain::text::{Rule, Text};
 
-fn validate(s: &str) -> Result<(), DomainError> {
-    if s.is_empty() {
-        return Err(DomainError::validation("Working directory cannot be empty"));
+pub enum WorkingDirRule {}
+
+impl Rule for WorkingDirRule {
+    const LABEL: &'static str = "Working directory";
+    const MAX: usize = 4096;
+
+    fn check(s: &str) -> DomainResult<()> {
+        if s.starts_with('/') || s.starts_with('\\') {
+            return Err(DomainError::validation(
+                "Working directory must be relative to the job workspace",
+            ));
+        }
+        if s.split(['/', '\\']).any(|c| c == "..") {
+            return Err(DomainError::validation(
+                "Working directory must not contain `..`",
+            ));
+        }
+        Ok(())
     }
-    if s.starts_with('/') || s.starts_with('\\') {
-        return Err(DomainError::validation(
-            "Working directory must be relative to the job workspace",
-        ));
-    }
-    if s.split(['/', '\\']).any(|c| c == "..") {
-        return Err(DomainError::validation(
-            "Working directory must not contain `..`",
-        ));
-    }
-    Ok(())
 }
 
-#[nutype(
-    sanitize(trim),
-    validate(with = validate, error = DomainError),
-    derive(Debug, Clone, PartialEq, Eq, AsRef, Borrow, Display, Into, Serialize, Deserialize),
-)]
-pub struct WorkingDir(String);
-
-impl WorkingDir {
-    pub fn new(value: impl Into<String>) -> DomainResult<Self> {
-        Self::try_new(value.into())
-    }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        <Self as AsRef<str>>::as_ref(self)
-    }
-}
+pub type WorkingDir = Text<WorkingDirRule>;
 
 #[cfg(test)]
 mod tests {

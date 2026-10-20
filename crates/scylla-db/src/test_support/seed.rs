@@ -63,7 +63,7 @@ pub async fn seed_job_log(
     use scylla_core::application::JobLogRepository;
     let log = job_log(job_id, node_id, line);
     PgJobLogRepository::new(pool.clone())
-        .create(&log)
+        .create_many(std::slice::from_ref(&log))
         .await
         .expect("seed job log failed");
     log

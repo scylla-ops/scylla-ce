@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT g.scope_kind, g.scope_id, pr.organization_id AS \"project_organization_id?\" FROM grants g LEFT JOIN projects pr ON g.scope_kind = 'project' AND pr.id = g.scope_id WHERE g.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scope_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "grants",
+            "name": "scope_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "scope_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "grants",
+            "name": "scope_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "project_organization_id?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "organization_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "2239b06bdf369168aaa63a02614cd1a67da89678dd0c934dd453b2785837e184"
+}

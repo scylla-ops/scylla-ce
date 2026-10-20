@@ -1,17 +1,22 @@
 mod name;
+mod value;
 
 pub use name::*;
+pub use value::*;
 
 use crate::domain::clock;
 use crate::domain::ids::{ProjectId, SecretId};
+use crate::domain::text::Description;
 use chrono::{DateTime, Utc};
+
+pub type SecretDescription = Description;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Secret {
     id: SecretId,
     project_id: ProjectId,
     name: SecretName,
-    description: String,
+    description: SecretDescription,
     encrypted_value: Vec<u8>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -22,7 +27,7 @@ impl Secret {
     pub fn create(
         project_id: ProjectId,
         name: SecretName,
-        description: String,
+        description: SecretDescription,
         encrypted_value: Vec<u8>,
     ) -> Self {
         let now = clock::now();
@@ -42,7 +47,7 @@ impl Secret {
         id: SecretId,
         project_id: ProjectId,
         name: SecretName,
-        description: String,
+        description: SecretDescription,
         encrypted_value: Vec<u8>,
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>,
@@ -74,7 +79,7 @@ impl Secret {
     }
 
     #[must_use]
-    pub fn description(&self) -> &str {
+    pub fn description(&self) -> &SecretDescription {
         &self.description
     }
 

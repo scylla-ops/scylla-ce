@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::domain::clock;
 
 use crate::domain::ids::{SessionId, UserId};
-use crate::domain::session::Session;
+use crate::domain::session::{Session, SessionClient};
 
 pub struct SessionBuilder;
 
@@ -20,6 +20,7 @@ impl SessionBuilder {
         created_at: Option<DateTime<Utc>>,
         expires_at: Option<DateTime<Utc>>,
         last_active_at: Option<DateTime<Utc>>,
+        client: Option<SessionClient>,
         #[builder(default = false)] expired: bool,
     ) -> Session {
         let (created_at, expires_at, last_active_at) = if expired {
@@ -41,6 +42,7 @@ impl SessionBuilder {
             expires_at.unwrap_or(now + Duration::hours(1)),
             last_active_at.unwrap_or(now),
         )
+        .with_client(client.unwrap_or_default())
     }
 }
 

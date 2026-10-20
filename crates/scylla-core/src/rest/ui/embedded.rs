@@ -8,7 +8,7 @@ use std::convert::Infallible;
 /// `allow_missing` keeps a fresh checkout compiling with no `pnpm build`.
 /// Debug builds read from disk at request time; release builds embed.
 #[derive(rust_embed::RustEmbed)]
-#[folder = "../../apps/frontend/dist/"]
+#[folder = "../../web/dist/"]
 #[allow_missing = true]
 struct Assets;
 
@@ -60,7 +60,7 @@ fn not_bundled() -> Response {
     (
         StatusCode::SERVICE_UNAVAILABLE,
         "No web UI is bundled in this build of Scylla.\n\
-         Build the frontend (`just ui-build`) and rebuild, or set [ui].dir.\n",
+         Build the web UI (`just ui-build`) and rebuild, or set [ui].dir.\n",
     )
         .into_response()
 }

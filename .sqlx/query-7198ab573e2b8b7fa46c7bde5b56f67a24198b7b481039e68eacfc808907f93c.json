@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE sessions SET last_active_at = $2 WHERE id = $1 AND last_active_at <= $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7198ab573e2b8b7fa46c7bde5b56f67a24198b7b481039e68eacfc808907f93c"
+}

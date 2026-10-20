@@ -1,10 +1,8 @@
-use crate::application::{SecretRepository, SecretUseCases};
-use crate::extract_auth_context;
-use crate::grpc::convert::required;
-use crate::grpc::mappers::{domain_error_to_status, secret_to_proto};
-use scylla_auth::authz::PermissionService;
-use scylla_domain::domain::ids::{ProjectId, SecretId};
-use scylla_domain::domain::secret::SecretName;
+use crate::application::SecretUseCases;
+use crate::grpc::adapter::run;
+use crate::grpc::mappers::secret_to_proto;
+use derive_more::Constructor;
+use scylla_extension::Actions;
 use scylla_proto::secret::v1::{
     CreateSecretRequest, CreateSecretResponse, DeleteSecretRequest, DeleteSecretResponse,
     ListSecretsRequest, ListSecretsResponse, secret_service_server::SecretService,
@@ -12,33 +10,19 @@ use scylla_proto::secret::v1::{
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-pub struct SecretHandler<R: SecretRepository, PS: PermissionService> {
-    use_cases: Arc<SecretUseCases<R, PS>>,
-}
-
-impl<R: SecretRepository, PS: PermissionService> SecretHandler<R, PS> {
-    pub fn new(use_cases: Arc<SecretUseCases<R, PS>>) -> Self {
-        Self { use_cases }
-    }
+#[derive(Constructor)]
+pub struct SecretHandler {
+    actions: Arc<Actions>,
+    secrets: Arc<SecretUseCases>,
 }
 
 #[async_trait::async_trait]
-impl<R: SecretRepository + Send + Sync + 'static, PS: PermissionService + Send + Sync + 'static>
-    SecretService for SecretHandler<R, PS>
-{
+impl SecretService for SecretHandler {
     async fn create_secret(
         &self,
         request: Request<CreateSecretRequest>,
     ) -> Result<Response<CreateSecretResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let project_id = ProjectId::new(&required(req.project_id, "project_id")?);
-        let name = SecretName::new(&req.name).map_err(domain_error_to_status)?;
-        let secret = self
-            .use_cases
-            .create(&caller, project_id, name, req.description, req.value)
-            .await
-            .map_err(domain_error_to_status)?;
+        let secret = run(&self.actions, &*self.secrets, request).await?;
         Ok(Response::new(CreateSecretResponse {
             secret: Some(secret_to_proto(&secret)),
         }))
@@ -48,14 +32,7 @@ impl<R: SecretRepository + Send + Sync + 'static, PS: PermissionService + Send +
         &self,
         request: Request<ListSecretsRequest>,
     ) -> Result<Response<ListSecretsResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let project_id = ProjectId::new(&required(req.project_id, "project_id")?);
-        let secrets = self
-            .use_cases
-            .list(&caller, &project_id)
-            .await
-            .map_err(domain_error_to_status)?;
+        let secrets = run(&self.actions, &*self.secrets, request).await?;
         Ok(Response::new(ListSecretsResponse {
             secrets: secrets.iter().map(secret_to_proto).collect(),
         }))
@@ -65,13 +42,7 @@ impl<R: SecretRepository + Send + Sync + 'static, PS: PermissionService + Send +
         &self,
         request: Request<DeleteSecretRequest>,
     ) -> Result<Response<DeleteSecretResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let id = SecretId::new(&required(req.secret_id, "secret_id")?);
-        self.use_cases
-            .delete(&caller, &id)
-            .await
-            .map_err(domain_error_to_status)?;
+        run(&self.actions, &*self.secrets, request).await?;
         Ok(Response::new(DeleteSecretResponse {}))
     }
 }

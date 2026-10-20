@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE roles SET name = $2, description = $3, updated_at = NOW(), version = version + 1 WHERE id = $1 AND version = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "579eb268422ba2426e3538d21d7dc44a9797c8d13e66438abe9f6b23157ddd62"
+}

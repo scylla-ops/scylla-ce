@@ -1,11 +1,8 @@
-use crate::application::{
-    AppCredentialRepository, AppRepository, AppTokenRepository, AppTokenUseCases, HashService,
-};
-use crate::grpc::convert::{required, ts};
-use crate::grpc::mappers::domain_error_to_status;
+use crate::application::AppTokenUseCases;
+use crate::grpc::adapter::run_public;
+use crate::grpc::convert::ts;
 use derive_more::Constructor;
-use scylla_domain::domain::app::AppSecret;
-use scylla_domain::domain::ids::AppId;
+use scylla_extension::Actions;
 use scylla_proto::app::v1::{
     IssueTokenRequest, IssueTokenResponse, app_auth_service_server::AppAuthService,
 };
@@ -13,43 +10,21 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 #[derive(Constructor)]
-pub struct AppAuthHandler<A, T, C, H>
-where
-    A: AppRepository,
-    T: AppTokenRepository,
-    C: AppCredentialRepository,
-    H: HashService,
-{
-    use_cases: Arc<AppTokenUseCases<A, T, C, H>>,
+pub struct AppAuthHandler {
+    actions: Arc<Actions>,
+    tokens: Arc<AppTokenUseCases>,
 }
 
 #[async_trait::async_trait]
-impl<
-    A: AppRepository + Send + Sync + 'static,
-    T: AppTokenRepository + Send + Sync + 'static,
-    C: AppCredentialRepository + Send + Sync + 'static,
-    H: HashService + Send + Sync + 'static,
-> AppAuthService for AppAuthHandler<A, T, C, H>
-{
+impl AppAuthService for AppAuthHandler {
     async fn issue_token(
         &self,
         request: Request<IssueTokenRequest>,
     ) -> Result<Response<IssueTokenResponse>, Status> {
-        let req = request.into_inner();
-        let app_id = AppId::new(&required(req.app_id, "app_id")?);
-        // A malformed secret is an auth failure, so the response never says why.
-        let secret = AppSecret::new(&req.secret)
-            .map_err(|_| Status::unauthenticated("Invalid app credentials"))?;
-
-        let outcome = self
-            .use_cases
-            .issue(app_id, secret)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let token = run_public(&self.actions, &*self.tokens, request).await?;
         Ok(Response::new(IssueTokenResponse {
-            token: outcome.token,
-            expires_at: ts(outcome.expires_at),
+            token: token.token().to_string(),
+            expires_at: ts(token.expires_at()),
         }))
     }
 }

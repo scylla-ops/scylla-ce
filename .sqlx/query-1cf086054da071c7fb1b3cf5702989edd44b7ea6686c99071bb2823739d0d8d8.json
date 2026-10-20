@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT agent_app_id AS \"agent_app_id!\", stream_id AS \"stream_id!\"\n            FROM jobs\n            WHERE status = 'pending' AND agent_app_id IS NOT NULL AND stream_id IS NOT NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "agent_app_id!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "agent_app_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "stream_id!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "stream_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "1cf086054da071c7fb1b3cf5702989edd44b7ea6686c99071bb2823739d0d8d8"
+}

@@ -19,14 +19,25 @@ default:
 
 # -- Dev (local stack) --
 
-# A release `cargo build` compiles apps/frontend/dist into the control-plane
+# Use the repo git hooks (.githooks) for this clone
+[group('dev')]
+hooks:
+    git config core.hooksPath .githooks
+
+# Run the workspace tests (the sqlx tests need `just db-up` first)
+[group('dev')]
+[no-exit-message]
+test *args='--workspace':
+    DATABASE_URL={{DATABASE_URL}} cargo test {{args}}
+
+# A release `cargo build` compiles web/dist into the control-plane
 # binary, so this has to run first when building outside Docker. The image does
 # it on its own, in the Dockerfile's `ui` stage.
-# Build the web UI into apps/frontend/dist (prerequisite of a native release build)
+# Build the web UI (the scylla-web submodule) into web/dist (prerequisite of a native release build)
 [group('dev')]
 [no-exit-message]
 ui-build:
-    cd apps/frontend && pnpm install --frozen-lockfile && pnpm run build
+    cd web && pnpm install --frozen-lockfile && pnpm run build
 
 # Build all services for local dev (native arch)
 [group('dev')]
@@ -146,16 +157,16 @@ release-promote version tag:
 [group('proto')]
 [no-exit-message]
 proto-lint:
-    buf lint
+    buf lint crates/scylla-proto/proto
 
 # Rewrite every .proto in canonical buf formatting
 [group('proto')]
 [no-exit-message]
 proto-fmt:
-    buf format -w
+    buf format -w crates/scylla-proto/proto
 
-# Fail if the schema breaks wire or source compatibility with main
+# Fail if the submodule's schema breaks wire or source compatibility with the pin on main
 [group('proto')]
 [no-exit-message]
 proto-breaking:
-    buf breaking --against '.git#branch=main'
+    buf breaking crates/scylla-proto/proto --against '.git#branch=main,subdir=crates/scylla-proto/proto,recurse_submodules=true'

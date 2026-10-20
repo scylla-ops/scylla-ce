@@ -1,46 +1,35 @@
 use crate::domain::errors::{DomainError, DomainResult};
-use nutype::nutype;
+use crate::domain::text::{Rule, Text};
 
-const MAX_EMAIL_LENGTH: usize = 320; // RFC 5321
+pub enum EmailRule {}
 
-/// Light on purpose: the verification mail is the real check.
-fn validate(s: &str) -> Result<(), DomainError> {
-    if s.len() > MAX_EMAIL_LENGTH {
-        return Err(DomainError::validation(format!(
-            "Email cannot exceed {MAX_EMAIL_LENGTH} characters"
-        )));
-    }
-    let Some((local, domain)) = s.split_once('@') else {
-        return Err(DomainError::validation("Email must contain '@'"));
-    };
-    if local.is_empty()
-        || domain.is_empty()
-        || !domain.contains('.')
-        || domain.starts_with('.')
-        || domain.ends_with('.')
-    {
-        return Err(DomainError::validation("Email is not a valid address"));
-    }
-    Ok(())
-}
+/// Light on purpose: it checks only the shape of an address.
+impl Rule for EmailRule {
+    const LABEL: &'static str = "Email";
+    // RFC 5321
+    const MAX: usize = 320;
 
-#[nutype(
-    sanitize(trim, lowercase),
-    validate(with = validate, error = DomainError),
-    derive(Debug, Clone, PartialEq, Eq, Hash, AsRef, Borrow, Display, Into),
-)]
-pub struct Email(String);
-
-impl Email {
-    pub fn new(value: impl Into<String>) -> DomainResult<Self> {
-        Self::try_new(value.into())
+    fn sanitize(raw: String) -> String {
+        raw.trim().to_lowercase()
     }
 
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        <Self as AsRef<str>>::as_ref(self)
+    fn check(s: &str) -> DomainResult<()> {
+        let Some((local, domain)) = s.split_once('@') else {
+            return Err(DomainError::validation("Email must contain '@'"));
+        };
+        if local.is_empty()
+            || domain.is_empty()
+            || !domain.contains('.')
+            || domain.starts_with('.')
+            || domain.ends_with('.')
+        {
+            return Err(DomainError::validation("Email is not a valid address"));
+        }
+        Ok(())
     }
 }
+
+pub type Email = Text<EmailRule>;
 
 #[cfg(test)]
 mod tests {
@@ -54,6 +43,10 @@ mod tests {
 
     #[test]
     fn rejects_malformed() {
+        assert_eq!(
+            Email::new("  ").unwrap_err().to_string(),
+            "Validation failed: Email cannot be empty"
+        );
         assert!(Email::new("nope").is_err());
         assert!(Email::new("@example.com").is_err());
         assert!(Email::new("a@b").is_err());

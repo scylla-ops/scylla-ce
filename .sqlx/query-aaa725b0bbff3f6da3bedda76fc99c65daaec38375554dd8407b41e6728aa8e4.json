@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM sessions WHERE token_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aaa725b0bbff3f6da3bedda76fc99c65daaec38375554dd8407b41e6728aa8e4"
+}

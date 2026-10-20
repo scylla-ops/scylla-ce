@@ -3,7 +3,7 @@ use crate::domain::agent::{Agent, AgentHost};
 use crate::domain::app::{App, AppCredential};
 use crate::domain::app::{AppName, AppSecretHash, AppSecretLabel};
 use crate::domain::clock;
-use crate::domain::ids::{JobId, OrganizationId};
+use crate::domain::ids::{AppId, JobId, OrganizationId};
 use crate::domain::job::Job;
 use crate::domain::job::JobStatus;
 use crate::domain::role::RoleName;
@@ -24,7 +24,7 @@ fn default_credential(app: &App) -> AppCredential {
 }
 
 fn make_agent(org_id: &OrganizationId, name: &str) -> (App, AppCredential, Agent, Grant) {
-    let app = App::create(org_id.clone(), AppName::new(name).unwrap());
+    let app = App::create(org_id.clone(), AppName::new(name).unwrap()).unwrap();
     let credential = default_credential(&app);
     let agent = Agent::create(app.id().clone());
     let grant = Grant::new(
@@ -75,7 +75,7 @@ async fn plain_app_is_not_a_agent(pool: PgPool) {
     let app_repo = PgAppRepository::new(pool.clone());
     let agent_repo = PgAgentRepository::new(pool.clone());
 
-    let app = App::create(org.id().clone(), AppName::new("bot").unwrap());
+    let app = App::create(org.id().clone(), AppName::new("bot").unwrap()).unwrap();
     let credential = default_credential(&app);
     app_repo
         .create_app(&app, &credential)
@@ -101,7 +101,7 @@ async fn touch_last_seen_upserts_and_self_heals(pool: PgPool) {
     let app_repo = PgAppRepository::new(pool.clone());
     let agent_repo = PgAgentRepository::new(pool.clone());
 
-    let app = App::create(org.id().clone(), AppName::new("legacy").unwrap());
+    let app = App::create(org.id().clone(), AppName::new("legacy").unwrap()).unwrap();
     let credential = default_credential(&app);
     app_repo.create_app(&app, &credential).await.unwrap();
 
@@ -126,12 +126,25 @@ async fn touch_last_seen_upserts_and_self_heals(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn touch_last_seen_of_a_deleted_app_is_a_no_op(pool: PgPool) {
+    let agent_repo = PgAgentRepository::new(pool.clone());
+    let gone = AppId::new("gone");
+
+    agent_repo
+        .touch_last_seen(&gone, clock::now())
+        .await
+        .unwrap();
+
+    assert!(agent_repo.find_by_app_id(&gone).await.is_err());
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn record_host_upserts_and_fully_overwrites(pool: PgPool) {
     let org = seed_org(&pool, "Acme").await;
     let app_repo = PgAppRepository::new(pool.clone());
     let agent_repo = PgAgentRepository::new(pool.clone());
 
-    let app = App::create(org.id().clone(), AppName::new("legacy").unwrap());
+    let app = App::create(org.id().clone(), AppName::new("legacy").unwrap()).unwrap();
     app_repo
         .create_app(&app, &default_credential(&app))
         .await
@@ -221,11 +234,13 @@ async fn agent_stats_aggregate_jobs_by_status(pool: PgPool) {
             Some(app.id().clone()),
             vec![],
             vec![],
+            vec![],
             crate::domain::job::JobOrigin::App {
                 app_id: app.id().clone(),
             },
             now,
             now,
+            0,
         )
     };
     for status in [
@@ -274,11 +289,13 @@ async fn agent_stats_partition_total_and_summarize_durations(pool: PgPool) {
             Some(app.id().clone()),
             vec![],
             vec![],
+            vec![],
             crate::domain::job::JobOrigin::App {
                 app_id: app.id().clone(),
             },
             now,
             now,
+            0,
         )
     };
 
@@ -329,13 +346,7 @@ async fn agent_stats_report_no_duration_when_nothing_ran(pool: PgPool) {
         .await
         .unwrap();
 
-    let mut job = Job::create_from_pipeline(
-        &pipeline,
-        crate::domain::job::JobOrigin::App {
-            app_id: app.id().clone(),
-        },
-    );
-    job.assign_agent(app.id().clone());
+    let job = JobBuilder::new(&pipeline).agent(app.id().clone()).build();
     job_repo.create(&job).await.unwrap();
 
     let stats = agent_repo.agent_stats(app.id()).await.unwrap();
@@ -357,13 +368,7 @@ async fn deleting_agent_keeps_jobs_and_nulls_attribution(pool: PgPool) {
         .await
         .unwrap();
 
-    let mut job = Job::create_from_pipeline(
-        &pipeline,
-        crate::domain::job::JobOrigin::App {
-            app_id: app.id().clone(),
-        },
-    );
-    job.assign_agent(app.id().clone());
+    let job = JobBuilder::new(&pipeline).agent(app.id().clone()).build();
     let job = job_repo.create(&job).await.unwrap();
 
     app_repo.delete(app.id()).await.unwrap();

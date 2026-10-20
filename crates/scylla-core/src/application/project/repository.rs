@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use scylla_auth::authz::{Grant, Visibility};
 
 #[async_trait]
-pub trait ProjectRepository {
+pub trait ProjectRepository: Send + Sync {
     async fn create(&self, project: &Project) -> DomainResult<Project>;
 
     async fn provision_with_owner(&self, project: &Project, grant: &Grant) -> DomainResult<()>;
@@ -18,26 +18,25 @@ pub trait ProjectRepository {
         pagination: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<UserId>>;
 
+    /// The projects where a grant of the user on the project or on its organization gives the
+    /// permission. A System grant adds none.
     async fn list_for_user(
         &self,
         user_id: &UserId,
+        permission: &str,
         pagination: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<Project>>;
 
     async fn find_by_id(&self, id: &ProjectId) -> DomainResult<Project>;
 
-    async fn find_by_ids(&self, ids: &[ProjectId]) -> DomainResult<Vec<Project>>;
-
+    /// Writes only if the row still carries `project.version()`, and returns the row with the
+    /// bumped version. A stale value is `Stale`; a missing row is `NotFound`.
     async fn update(&self, project: &Project) -> DomainResult<Project>;
 
-    async fn delete(&self, id: &ProjectId) -> DomainResult<()>;
+    /// Same version rule as `update`.
+    async fn delete(&self, project: &Project) -> DomainResult<()>;
 
     async fn list_all(
-        &self,
-        pagination: Option<&PaginationParams>,
-    ) -> DomainResult<PaginatedResult<Project>>;
-
-    async fn list_active(
         &self,
         pagination: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<Project>>;

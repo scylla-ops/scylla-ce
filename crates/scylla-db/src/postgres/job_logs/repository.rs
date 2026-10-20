@@ -26,14 +26,9 @@ impl PgJobLogRepository {
 
 #[async_trait]
 impl JobLogRepository for PgJobLogRepository {
-    #[instrument(skip_all, fields(job_id = %log.job_id()))]
-    async fn create(&self, log: &JobLog) -> DomainResult<JobLog> {
-        queries::create(&self.pool, log).await
-    }
-
-    #[instrument(skip_all, fields(log_id = %id))]
-    async fn find_by_id(&self, id: &JobLogId) -> DomainResult<JobLog> {
-        queries::find_by_id(&self.pool, id).await
+    #[instrument(skip_all, fields(lines = logs.len()))]
+    async fn create_many(&self, logs: &[JobLog]) -> DomainResult<()> {
+        queries::create_many(&self.pool, logs).await
     }
 
     #[instrument(skip_all, fields(job_id = %job_id))]
@@ -97,53 +92,36 @@ pub mod queries {
         ))
     }
 
-    pub async fn create<'e, E>(executor: E, log: &JobLog) -> DomainResult<JobLog>
+    /// One statement for the whole batch.
+    pub async fn create_many<'e, E>(executor: E, logs: &[JobLog]) -> DomainResult<()>
     where
         E: PgExecutor<'e>,
     {
+        let column = |f: fn(&JobLog) -> &str| logs.iter().map(f).map(str::to_owned).collect();
+        let ids: Vec<String> = column(|l| l.id().as_str());
+        let jobs: Vec<String> = column(|l| l.job_id().as_str());
+        let nodes: Vec<String> = column(|l| l.node_id().as_str());
+        let streams: Vec<String> = column(|l| l.stream().as_str());
+        let lines: Vec<String> = column(JobLog::line);
+        let timestamps: Vec<DateTime<Utc>> = logs.iter().map(JobLog::timestamp).collect();
+        let created: Vec<DateTime<Utc>> = logs.iter().map(JobLog::created_at).collect();
         sqlx::query!(
             r#"
             INSERT INTO job_logs (id, job_id, node_id, stream, line, timestamp, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::timestamptz[], $7::timestamptz[])
             "#,
-            log.id().as_str(),
-            log.job_id().as_str(),
-            log.node_id().as_str(),
-            log.stream().as_str(),
-            log.line(),
-            log.timestamp(),
-            log.created_at(),
+            &ids,
+            &jobs,
+            &nodes,
+            &streams,
+            &lines,
+            &timestamps,
+            &created,
         )
         .execute(executor)
         .await
         .to_domain()?;
-        Ok(log.clone())
-    }
-
-    pub async fn find_by_id<'e, E>(executor: E, id: &JobLogId) -> DomainResult<JobLog>
-    where
-        E: PgExecutor<'e>,
-    {
-        let rec = sqlx::query!(
-            r#"
-            SELECT id, job_id, node_id, stream, line, timestamp, created_at
-            FROM job_logs
-            WHERE id = $1
-            "#,
-            id.as_str(),
-        )
-        .fetch_one(executor)
-        .await
-        .not_found_as("JobLog", id.to_string())?;
-        row_into_log(
-            rec.id,
-            rec.job_id,
-            rec.node_id,
-            rec.stream,
-            rec.line,
-            rec.timestamp,
-            rec.created_at,
-        )
+        Ok(())
     }
 
     pub async fn count_by_job<'e, E>(

@@ -21,7 +21,7 @@ pub fn timestamp(dt: DateTime<Utc>) -> Option<Timestamp> {
 }
 
 #[must_use]
-pub fn job_event_to_status(job_id: &str, event: JobEvent) -> JobStatus {
+pub fn job_event_to_status(job_id: &str, event: JobEvent, at: DateTime<Utc>) -> JobStatus {
     let node = |value: String| Some(common::NodeId { value });
     let event = match event {
         JobEvent::JobStarted => Event::JobStarted(JobStarted {}),
@@ -45,6 +45,7 @@ pub fn job_event_to_status(job_id: &str, event: JobEvent) -> JobStatus {
         job_id: Some(common::JobId {
             value: job_id.to_string(),
         }),
+        timestamp: timestamp(at),
         event: Some(event),
     }
 }
@@ -131,7 +132,7 @@ mod tests {
     #[test]
     fn every_job_event_survives_a_round_trip() {
         for event in every_variant() {
-            let wire = job_event_to_status("job-1", event.clone());
+            let wire = job_event_to_status("job-1", event.clone(), Utc::now());
             let back = status_to_job_event(&wire).expect("a built status always carries its event");
             assert_eq!(
                 format!("{event:?}"),
@@ -154,9 +155,17 @@ mod tests {
     fn a_status_without_an_event_is_rejected() {
         let empty = JobStatus {
             job_id: None,
+            timestamp: None,
             event: None,
         };
         assert!(status_to_job_event(&empty).is_none());
+    }
+
+    #[test]
+    fn a_status_carries_the_time_of_its_event() {
+        let at = DateTime::from_timestamp(1_700_000_000, 123_456_000).unwrap();
+        let wire = job_event_to_status("job-1", JobEvent::JobStarted, at);
+        assert_eq!(wire.timestamp, timestamp(at));
     }
 
     #[test]

@@ -6,9 +6,6 @@ const PROTOS: &[&str] = &[
     "scylla/common/v1/common.proto",
     "scylla/exec/v1/step.proto",
     "scylla/auth/v1/auth.proto",
-    "scylla/registration/v1/registration.proto",
-    "scylla/invitation/v1/invitation.proto",
-    "scylla/oauth/v1/oauth.proto",
     "scylla/user/v1/user.proto",
     "scylla/organization/v1/organization.proto",
     "scylla/project/v1/project.proto",
@@ -28,6 +25,10 @@ const PROTOS: &[&str] = &[
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let proto_root = manifest_dir.join("proto");
+    assert!(
+        proto_root.join("scylla").is_dir(),
+        "crates/scylla-proto/proto is empty: run `git submodule update --init`"
+    );
 
     let protos: Vec<PathBuf> = PROTOS.iter().map(|f| proto_root.join(f)).collect();
 

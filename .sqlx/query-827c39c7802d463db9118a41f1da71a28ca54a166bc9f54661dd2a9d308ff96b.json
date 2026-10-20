@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO agents (app_id, last_seen, created_at)\n            SELECT id, $2, NOW() FROM apps WHERE id = $1\n            ON CONFLICT (app_id) DO UPDATE SET last_seen = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "827c39c7802d463db9118a41f1da71a28ca54a166bc9f54661dd2a9d308ff96b"
+}

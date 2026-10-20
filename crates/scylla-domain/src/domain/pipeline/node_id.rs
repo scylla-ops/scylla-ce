@@ -1,45 +1,23 @@
 use crate::domain::errors::{DomainError, DomainResult};
-use nutype::nutype;
+use crate::domain::text::{Rule, Text};
 
-const MAX_NODE_ID_LENGTH: usize = 128;
+pub enum NodeIdRule {}
 
-fn validate(s: &str) -> Result<(), DomainError> {
-    if s.is_empty() {
-        return Err(DomainError::validation("Node ID cannot be empty"));
-    }
-    if s.len() > MAX_NODE_ID_LENGTH {
-        return Err(DomainError::validation(format!(
-            "Node ID cannot exceed {MAX_NODE_ID_LENGTH} characters"
-        )));
-    }
-    if !s
-        .chars()
-        .all(|c| (c.is_ascii_alphanumeric() && !c.is_ascii_uppercase()) || c == '-' || c == '_')
-    {
-        return Err(DomainError::validation(
-            "Node ID may only contain lowercase alphanumeric characters, hyphens, and underscores",
-        ));
-    }
-    Ok(())
-}
+impl Rule for NodeIdRule {
+    const LABEL: &'static str = "Node ID";
+    const MAX: usize = 128;
 
-#[nutype(
-    sanitize(trim),
-    validate(with = validate, error = DomainError),
-    derive(
-        Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Borrow, Display, Into,
-        Serialize, Deserialize,
-    ),
-)]
-pub struct NodeId(String);
-
-impl NodeId {
-    pub fn new(value: impl Into<String>) -> DomainResult<Self> {
-        Self::try_new(value.into())
-    }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        <Self as AsRef<str>>::as_ref(self)
+    fn check(s: &str) -> DomainResult<()> {
+        if !s
+            .chars()
+            .all(|c| (c.is_ascii_alphanumeric() && !c.is_ascii_uppercase()) || c == '-' || c == '_')
+        {
+            return Err(DomainError::validation(
+                "Node ID may only contain lowercase alphanumeric characters, hyphens, and underscores",
+            ));
+        }
+        Ok(())
     }
 }
+
+pub type NodeId = Text<NodeIdRule>;

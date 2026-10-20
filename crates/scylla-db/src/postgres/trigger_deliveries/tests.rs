@@ -46,6 +46,26 @@ async fn first_delivery_is_new_then_replays_are_duplicates(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn forget_lets_the_same_delivery_record_again(pool: PgPool) {
+    let trigger = webhook_trigger(&pool).await;
+    let repo = PgTriggerDeliveryRepository::new(pool);
+
+    assert!(
+        repo.record_or_detect(trigger.id(), "delivery-1", clock::now())
+            .await
+            .unwrap()
+    );
+    repo.forget(trigger.id(), "delivery-1").await.unwrap();
+
+    assert!(
+        repo.record_or_detect(trigger.id(), "delivery-1", clock::now())
+            .await
+            .unwrap(),
+        "a forgotten delivery is new again"
+    );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn webhook_secret_round_trips_and_is_absent_for_missing(pool: PgPool) {
     let (_, _, pipeline) = seed_org_project_pipeline(&pool, "ws").await;
     let repo = PgTriggerRepository::new(pool);

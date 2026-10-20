@@ -50,7 +50,11 @@ impl JobLog {
             job_id,
             node_id,
             stream,
-            line,
+            line: if line.contains('\0') {
+                line.replace('\0', "\u{FFFD}")
+            } else {
+                line
+            },
             timestamp,
             created_at: clock::now(),
         }
@@ -89,5 +93,22 @@ impl JobLog {
     #[must_use]
     pub fn created_at(&self) -> DateTime<Utc> {
         self.created_at
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_nul_character_is_stored_as_the_replacement_character() {
+        let log = JobLog::new(
+            JobId::generate(),
+            NodeId::new("n1").unwrap(),
+            LogStream::Stdout,
+            "x\0y".into(),
+            clock::now(),
+        );
+        assert_eq!(log.line(), "x\u{FFFD}y");
     }
 }

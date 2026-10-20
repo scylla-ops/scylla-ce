@@ -2,19 +2,27 @@ use crate::feature::{Context, Feature};
 use crate::startup::{init_services, run_server, shutdown_signal};
 use crate::surface::Surface;
 use anyhow::{Context as _, Result};
+use scylla_core::application::PasswordResetSender;
 use scylla_core::config::ControlPlaneConfig;
-use scylla_extension::Extensions;
+use scylla_core::infrastructure::LogPasswordResetSender;
+use scylla_extension::{Extension, Hooks};
 use sqlx::PgPool;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
+
+/// An agent stream or a log tail never ends by itself, so the graceful drain waits only this
+/// long. Shorter than the 10 seconds a container runtime gives before it kills the process.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
 pub struct Server {
     config: ControlPlaneConfig,
     db: PgPool,
-    extensions: Extensions,
+    hooks: Hooks,
     features: Vec<Box<dyn Feature>>,
     surface: Surface,
+    password_reset_sender: Arc<dyn PasswordResetSender>,
 }
 
 impl Server {
@@ -23,15 +31,25 @@ impl Server {
         Self {
             config,
             db,
-            extensions: Extensions::new(),
+            hooks: Hooks::new(),
             features: Vec::new(),
             surface: Surface::default(),
+            password_reset_sender: Arc::new(LogPasswordResetSender),
         }
     }
 
+    /// Replaces the default sender, which writes each reset link in the server log.
     #[must_use]
-    pub fn extension<T: ?Sized + Send + Sync + 'static>(mut self, implementation: Arc<T>) -> Self {
-        self.extensions.insert(implementation);
+    pub fn password_reset_sender(mut self, sender: Arc<dyn PasswordResetSender>) -> Self {
+        self.password_reset_sender = sender;
+        self
+    }
+
+    /// Registers before `Feature::hooks`, which runs at `serve`; within one position, hooks run
+    /// in registration order.
+    #[must_use]
+    pub fn extension<E: Extension>(mut self, extension: &Arc<E>) -> Self {
+        extension.register(&mut self.hooks);
         self
     }
 
@@ -91,13 +109,14 @@ impl Server {
         let Self {
             config,
             db,
-            mut extensions,
+            mut hooks,
             features,
             mut surface,
+            password_reset_sender,
         } = self;
 
         for feature in &features {
-            feature.extensions(&mut extensions);
+            feature.hooks(&mut hooks);
         }
         for feature in &features {
             feature
@@ -106,16 +125,16 @@ impl Server {
                 .context("feature prepare failed")?;
         }
 
-        let services = init_services(&config, db.clone(), extensions.clone())
+        let services = init_services(&config, db.clone(), Arc::new(hooks), password_reset_sender)
             .await
             .context("init_services failed")?;
 
         let ctx = Context {
             db: db.clone(),
-            extensions,
+            actions: services.actions.clone(),
             permissions: services.permission_checker.clone(),
-            policy_control: services.permission_checker.clone(),
             visibility: services.permission_checker.clone(),
+            trust_forwarded_headers: config.server.trust_forwarded_headers,
         };
         for feature in features {
             feature.install(&ctx, &mut surface);
@@ -129,10 +148,24 @@ impl Server {
         });
 
         let server_token = token.clone();
-        let result = run_server(&config, &services, surface, async move {
+        let server = run_server(&config, &services, surface, async move {
             server_token.cancelled().await;
-        })
-        .await;
+        });
+        let grace_token = token.clone();
+        let grace = async move {
+            grace_token.cancelled().await;
+            tokio::time::sleep(SHUTDOWN_GRACE).await;
+        };
+        let result = tokio::select! {
+            result = server => result,
+            () = grace => {
+                warn!(
+                    grace_secs = SHUTDOWN_GRACE.as_secs(),
+                    "connections still open after the shutdown grace period; closing them"
+                );
+                Ok(())
+            }
+        };
 
         token.cancel();
 

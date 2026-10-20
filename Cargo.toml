@@ -80,6 +80,7 @@ croner = "4"
 ulid = "3"
 uuid = { version = "1", features = ["v4"] }
 derive_more = { version = "2.1.1", features = ["full"] }
+derive-where = "1.6"
 nutype = { version = "0.7", features = ["serde"] }
 bon = "3.9"
 argon2 = "0.6"
@@ -87,29 +88,15 @@ argon2 = "0.6"
 # = 24-byte random nonce, so encrypting many secrets under one key is safe.
 # (0.11 dropped the `std` feature; default alloc + getrandom is all we use.)
 chacha20poly1305 = "0.11"
-# Webhook HMAC-SHA256 signature verification (constant-time compare via subtle).
+# Webhook HMAC-SHA256 signature verification (constant-time compare via Mac::verify_slice).
 # hmac 0.13 + sha2 0.11 share digest 0.11.
 hmac = "0.13"
 sha2 = "0.11"
-subtle = "2.6"
 hex = "0.4"
+# Reset link tokens: 32 bytes from the OS, in base64url without padding.
+getrandom = "0.4"
+base64 = "0.22"
 cedar-policy = "4"
-lettre = { version = "0.11", default-features = false, features = [
-    "smtp-transport",
-    "tokio1-rustls-tls",
-    "builder",
-    "hostname",
-] }
-# Held at 0.12: oauth2 5.0 (github oauth) links against reqwest 0.12 and its
-# `AsyncHttpClient` impl only covers that version — bump the two together.
-reqwest = { version = "0.12", default-features = false, features = [
-    "json",
-    "rustls-tls",
-] }
-oauth2 = { version = "5", default-features = false, features = [
-    "reqwest",
-    "rustls-tls",
-] }
 
 # web / tracing
 # `http2` is NOT an axum default feature. We serve through tonic's transport, so

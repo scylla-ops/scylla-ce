@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 serde = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
+derive-where = { workspace = true }
 nutype = { workspace = true }
 ulid = { workspace = true }
 thiserror = { workspace = true }

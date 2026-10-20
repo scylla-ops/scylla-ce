@@ -1,54 +1,29 @@
 use crate::application::GrantUseCases;
-use crate::extract_auth_context;
-use crate::grpc::convert::{
-    principal_ref_from_proto, principal_ref_to_proto, required, scope_kind_from_proto,
-    scope_kind_to_proto, scope_ref_from_proto, scope_ref_to_proto, wrap,
-};
-use crate::grpc::mappers::domain_error_to_status;
+use crate::grpc::adapter::run;
+use crate::grpc::mappers::{grant_to_proto, grantable_role_to_proto};
 use derive_more::Constructor;
-use scylla_auth::authz::{
-    Grant, GrantRepository, GrantableRole, PermissionService, PolicyControl, RoleKind,
-    grantable_roles,
-};
-use scylla_domain::domain::role::RoleName;
+use scylla_extension::Actions;
 use scylla_proto::authz::v1::{
-    CreateGrantRequest, CreateGrantResponse, Grant as ProtoGrant,
-    GrantableRole as ProtoGrantableRole, ListGrantableRolesRequest, ListGrantableRolesResponse,
+    CreateGrantRequest, CreateGrantResponse, ListGrantableRolesRequest, ListGrantableRolesResponse,
     ListGrantsRequest, ListGrantsResponse, RevokeAllAccessRequest, RevokeAllAccessResponse,
-    RevokeGrantRequest, RevokeGrantResponse, RoleKind as ProtoRoleKind,
-    grant_service_server::GrantService,
+    RevokeGrantRequest, RevokeGrantResponse, grant_service_server::GrantService,
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 #[derive(Constructor)]
-pub struct GrantHandler<G: GrantRepository, PC: PolicyControl, PS: PermissionService> {
-    use_cases: Arc<GrantUseCases<G, PC, PS>>,
+pub struct GrantHandler {
+    actions: Arc<Actions>,
+    grants: Arc<GrantUseCases>,
 }
 
 #[async_trait::async_trait]
-impl<
-    G: GrantRepository + Send + Sync + 'static,
-    PC: PolicyControl + Send + Sync + 'static,
-    PS: PermissionService + Send + Sync + 'static,
-> GrantService for GrantHandler<G, PC, PS>
-{
+impl GrantService for GrantHandler {
     async fn create_grant(
         &self,
         request: Request<CreateGrantRequest>,
     ) -> Result<Response<CreateGrantResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let principal = principal_ref_from_proto(req.principal)?;
-        let scope = scope_ref_from_proto(req.scope)?;
-
-        let role = RoleName::new(required(req.role, "role")?).map_err(domain_error_to_status)?;
-        let grant = Grant::new(principal, role, scope);
-        self.use_cases
-            .grant(&caller, &grant)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let grant = run(&self.actions, &*self.grants, request).await?;
         Ok(Response::new(CreateGrantResponse {
             grant: Some(grant_to_proto(&grant)),
         }))
@@ -58,15 +33,7 @@ impl<
         &self,
         request: Request<RevokeGrantRequest>,
     ) -> Result<Response<RevokeGrantResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let grant_id = required(req.grant_id, "grant_id")?;
-
-        self.use_cases
-            .revoke(&caller, &grant_id)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        run(&self.actions, &*self.grants, request).await?;
         Ok(Response::new(RevokeGrantResponse {}))
     }
 
@@ -74,17 +41,7 @@ impl<
         &self,
         request: Request<RevokeAllAccessRequest>,
     ) -> Result<Response<RevokeAllAccessResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let principal = principal_ref_from_proto(req.principal)?;
-        let scope = scope_ref_from_proto(req.scope)?;
-
-        let revoked = self
-            .use_cases
-            .revoke_all_access(&caller, &principal, &scope)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let revoked = run(&self.actions, &*self.grants, request).await?;
         Ok(Response::new(RevokeAllAccessResponse { revoked }))
     }
 
@@ -92,18 +49,7 @@ impl<
         &self,
         request: Request<ListGrantsRequest>,
     ) -> Result<Response<ListGrantsResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-
-        let grants = match req.scope {
-            Some(scope) => {
-                let scope = scope_ref_from_proto(Some(scope))?;
-                self.use_cases.list_by_scope(&caller, &scope).await
-            }
-            None => self.use_cases.list(&caller).await,
-        }
-        .map_err(domain_error_to_status)?;
-
+        let grants = run(&self.actions, &*self.grants, request).await?;
         Ok(Response::new(ListGrantsResponse {
             grants: grants.iter().map(grant_to_proto).collect(),
         }))
@@ -113,42 +59,9 @@ impl<
         &self,
         request: Request<ListGrantableRolesRequest>,
     ) -> Result<Response<ListGrantableRolesResponse>, Status> {
-        // No Cedar check: the catalog is static compile-time data.
-        let _caller = caller!(request);
-        let req = request.into_inner();
-        let filter = req.scope_kind.map(scope_kind_from_proto).transpose()?;
-
+        let roles = run(&self.actions, &*self.grants, request).await?;
         Ok(Response::new(ListGrantableRolesResponse {
-            roles: grantable_roles(filter)
-                .iter()
-                .map(grantable_role_to_proto)
-                .collect(),
+            roles: roles.iter().map(grantable_role_to_proto).collect(),
         }))
-    }
-}
-
-fn grantable_role_to_proto(r: &GrantableRole) -> ProtoGrantableRole {
-    ProtoGrantableRole {
-        role_id: wrap(r.name),
-        scope_kind: scope_kind_to_proto(r.scope) as i32,
-        kind: role_kind_to_proto(r.kind) as i32,
-        description: r.description.to_string(),
-    }
-}
-
-fn role_kind_to_proto(kind: RoleKind) -> ProtoRoleKind {
-    match kind {
-        RoleKind::Admin => ProtoRoleKind::Admin,
-        RoleKind::Member => ProtoRoleKind::Member,
-        RoleKind::Agent => ProtoRoleKind::Agent,
-    }
-}
-
-fn grant_to_proto(g: &Grant) -> ProtoGrant {
-    ProtoGrant {
-        grant_id: wrap(g.id.clone()),
-        principal: Some(principal_ref_to_proto(&g.principal)),
-        scope: Some(scope_ref_to_proto(&g.scope)),
-        role: wrap(g.role.to_string()),
     }
 }

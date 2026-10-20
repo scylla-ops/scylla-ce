@@ -54,6 +54,7 @@ impl AuthzEntityProvider for PgAuthzEntityProvider {
                         organization: Some(OrganizationId::new(r.organization_id)),
                         project: Some(ProjectId::new(r.project_id)),
                         pipeline: None,
+                        app: None,
                     }),
                     None => Ok(ResourceAncestors::default()),
                 }
@@ -76,6 +77,50 @@ impl AuthzEntityProvider for PgAuthzEntityProvider {
                         organization: Some(OrganizationId::new(r.organization_id)),
                         project: Some(ProjectId::new(r.project_id)),
                         pipeline: Some(PipelineId::new(r.pipeline_id)),
+                        app: None,
+                    }),
+                    None => Ok(ResourceAncestors::default()),
+                }
+            }
+            ResourceRef::Secret(id) => {
+                let row = sqlx::query!(
+                    "SELECT s.project_id AS \"project_id!\", pr.organization_id AS \"organization_id!\" \
+                     FROM project_secrets s JOIN projects pr ON pr.id = s.project_id \
+                     WHERE s.id = $1",
+                    id.as_str(),
+                )
+                .fetch_optional(&self.pool)
+                .await
+                .to_domain()?;
+                match row {
+                    Some(r) => Ok(ResourceAncestors {
+                        organization: Some(OrganizationId::new(r.organization_id)),
+                        project: Some(ProjectId::new(r.project_id)),
+                        pipeline: None,
+                        app: None,
+                    }),
+                    None => Ok(ResourceAncestors::default()),
+                }
+            }
+            ResourceRef::Trigger(id) => {
+                let row = sqlx::query!(
+                    "SELECT t.pipeline_id AS \"pipeline_id!\", pl.project_id AS \"project_id!\", \
+                            pr.organization_id AS \"organization_id!\" \
+                     FROM pipeline_triggers t \
+                     JOIN pipelines pl ON pl.id = t.pipeline_id \
+                     JOIN projects pr ON pr.id = pl.project_id \
+                     WHERE t.id = $1",
+                    id.as_str(),
+                )
+                .fetch_optional(&self.pool)
+                .await
+                .to_domain()?;
+                match row {
+                    Some(r) => Ok(ResourceAncestors {
+                        organization: Some(OrganizationId::new(r.organization_id)),
+                        project: Some(ProjectId::new(r.project_id)),
+                        pipeline: Some(PipelineId::new(r.pipeline_id)),
+                        app: None,
                     }),
                     None => Ok(ResourceAncestors::default()),
                 }
@@ -93,6 +138,63 @@ impl AuthzEntityProvider for PgAuthzEntityProvider {
                     ..Default::default()
                 })
             }
+            ResourceRef::AppSecret(id) => {
+                let row = sqlx::query!(
+                    "SELECT s.app_id AS \"app_id!\", a.organization_id AS \"organization_id!\" \
+                     FROM app_secrets s JOIN apps a ON a.id = s.app_id \
+                     WHERE s.id = $1",
+                    id.as_str(),
+                )
+                .fetch_optional(&self.pool)
+                .await
+                .to_domain()?;
+                match row {
+                    Some(r) => Ok(ResourceAncestors {
+                        organization: Some(OrganizationId::new(r.organization_id)),
+                        app: Some(AppId::new(r.app_id)),
+                        ..Default::default()
+                    }),
+                    None => Ok(ResourceAncestors::default()),
+                }
+            }
+            ResourceRef::Grant(id) => {
+                let row = sqlx::query!(
+                    "SELECT g.scope_kind, g.scope_id, pr.organization_id AS \"project_organization_id?\" \
+                     FROM grants g \
+                     LEFT JOIN projects pr ON g.scope_kind = 'project' AND pr.id = g.scope_id \
+                     WHERE g.id = $1",
+                    id.as_str(),
+                )
+                .fetch_optional(&self.pool)
+                .await
+                .to_domain()?;
+                Ok(match row {
+                    Some(r) if r.scope_kind == "project" => ResourceAncestors {
+                        organization: r.project_organization_id.map(OrganizationId::new),
+                        project: Some(ProjectId::new(r.scope_id)),
+                        ..Default::default()
+                    },
+                    Some(r) if r.scope_kind == "organization" => ResourceAncestors {
+                        organization: Some(OrganizationId::new(r.scope_id)),
+                        ..Default::default()
+                    },
+                    _ => ResourceAncestors::default(),
+                })
+            }
+            ResourceRef::Role(id) => {
+                let owner = sqlx::query_scalar!(
+                    "SELECT owner_org_id FROM roles WHERE id = $1",
+                    id.as_str(),
+                )
+                .fetch_optional(&self.pool)
+                .await
+                .to_domain()?
+                .flatten();
+                Ok(ResourceAncestors {
+                    organization: owner.map(OrganizationId::new),
+                    ..Default::default()
+                })
+            }
             _ => Ok(ResourceAncestors::default()),
         }
     }
@@ -106,4 +208,14 @@ impl AuthzEntityProvider for PgAuthzEntityProvider {
         // No row: the App was deleted; inactive, so an in-flight stream is denied.
         Ok(row.is_some_and(|r| r.is_active))
     }
+
+    async fn policy_version(&self) -> DomainResult<i64> {
+        sqlx::query_scalar!("SELECT version FROM authz_version")
+            .fetch_one(&self.pool)
+            .await
+            .to_domain()
+    }
 }
+
+#[cfg(test)]
+mod tests;

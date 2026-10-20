@@ -21,6 +21,7 @@ impl ProjectBuilder {
         #[builder(default = true)] is_active: bool,
         created_at: Option<DateTime<Utc>>,
         updated_at: Option<DateTime<Utc>>,
+        #[builder(default = 0)] version: u64,
     ) -> Project {
         Self::assemble_from_org_id(
             org.id().clone(),
@@ -30,6 +31,7 @@ impl ProjectBuilder {
             is_active,
             created_at,
             updated_at,
+            version,
         )
     }
 
@@ -42,6 +44,7 @@ impl ProjectBuilder {
         #[builder(default = true)] is_active: bool,
         created_at: Option<DateTime<Utc>>,
         updated_at: Option<DateTime<Utc>>,
+        #[builder(default = 0)] version: u64,
     ) -> Project {
         let now = created_at.unwrap_or_else(clock::now);
         let description =
@@ -54,6 +57,7 @@ impl ProjectBuilder {
             is_active,
             now,
             updated_at.unwrap_or(now),
+            version,
         )
     }
 }

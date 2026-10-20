@@ -5,7 +5,7 @@ use crate::domain::job::JobLog;
 use crate::domain::pipeline::NodeId;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -23,46 +23,38 @@ impl InMemoryJobLogStream {
         Self::default()
     }
 
-    fn sender_for(&self, job_id: &str) -> broadcast::Sender<JobLog> {
-        // Poisoning is recovered: plain data, and a panic here would take down log fan-out.
-        let mut map = self
-            .channels
+    // Poisoning is recovered: plain data, and a panic here would take down log fan-out.
+    fn channels(&self) -> MutexGuard<'_, HashMap<String, broadcast::Sender<JobLog>>> {
+        self.channels
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        map.entry(job_id.to_string())
-            .or_insert_with(|| broadcast::channel(CHANNEL_CAPACITY).0)
-            .clone()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Never creates one: a late subscriber must not resurrect the channel of a finished job.
     fn existing_sender(&self, job_id: &str) -> Option<broadcast::Sender<JobLog>> {
-        self.channels
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(job_id)
-            .cloned()
-    }
-
-    pub fn open(&self, job_id: &str) {
-        let _ = self.sender_for(job_id);
-    }
-
-    pub fn publish(&self, log: JobLog) {
-        let _ = self.sender_for(log.job_id().as_str()).send(log);
-    }
-
-    /// Without this the map grows by one entry per job ever streamed.
-    pub fn close(&self, job_id: &str) {
-        let mut map = self
-            .channels
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        map.remove(job_id);
+        self.channels().get(job_id).cloned()
     }
 }
 
 #[async_trait]
 impl JobLogStreamPort for InMemoryJobLogStream {
+    fn open(&self, job_id: &JobId) {
+        self.channels()
+            .entry(job_id.as_str().to_owned())
+            .or_insert_with(|| broadcast::channel(CHANNEL_CAPACITY).0);
+    }
+
+    fn publish(&self, log: &JobLog) {
+        if let Some(sender) = self.existing_sender(log.job_id().as_str()) {
+            let _ = sender.send(log.clone());
+        }
+    }
+
+    /// Without this the map grows by one entry per job ever streamed.
+    fn close(&self, job_id: &JobId) {
+        self.channels().remove(job_id.as_str());
+    }
+
     async fn subscribe(
         &self,
         job_id: &JobId,
@@ -130,18 +122,27 @@ mod tests {
     #[tokio::test]
     async fn open_then_publish_reaches_a_live_subscriber() {
         let s = InMemoryJobLogStream::new();
-        s.open("job-1");
+        s.open(&JobId::new("job-1"));
         let mut stream = s.subscribe(&JobId::new("job-1"), None).await.unwrap();
-        s.publish(log("job-1"));
+        s.publish(&log("job-1"));
         let received = stream.next().await.expect("a live line").expect("ok");
         assert_eq!(received.line(), "hello");
     }
 
     #[tokio::test]
+    async fn a_line_of_a_job_without_a_tail_opens_none() {
+        let s = InMemoryJobLogStream::new();
+
+        s.publish(&log("job-1"));
+
+        assert!(s.existing_sender("job-1").is_none());
+    }
+
+    #[tokio::test]
     async fn subscribe_after_close_does_not_resurrect_a_channel() {
         let s = InMemoryJobLogStream::new();
-        s.open("job-1");
-        s.close("job-1");
+        s.open(&JobId::new("job-1"));
+        s.close(&JobId::new("job-1"));
         let mut stream = s.subscribe(&JobId::new("job-1"), None).await.unwrap();
         assert!(
             stream.next().await.is_none(),

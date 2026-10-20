@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE jobs\n            SET agent_app_id = NULL, stream_id = NULL, version = version + 1, updated_at = now()\n            WHERE agent_app_id = $1 AND stream_id = $2 AND status = 'pending'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c53d5fbac1db90c1232a9cd66c08ac82e21916eb49efd666182865de3d250df4"
+}

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.project_id AS \"project_id!\", pr.organization_id AS \"organization_id!\" FROM project_secrets s JOIN projects pr ON pr.id = s.project_id WHERE s.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "project_id!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "project_secrets",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "organization_id!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "organization_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "d8f54f4adea6c77615c41efb1b67031dd333dfe6f13834e30ed71a5a0b073698"
+}

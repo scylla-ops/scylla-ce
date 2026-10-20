@@ -75,7 +75,7 @@ impl AgentRepository for PgAgentRepository {
         )
         .fetch_one(&self.pool)
         .await
-        .not_found_as("Agent", app_id.to_string())?;
+        .not_found_as("Agent", app_id)?;
         Ok(Agent::from_persistence(
             AppId::new(rec.app_id),
             rec.last_seen,
@@ -132,11 +132,11 @@ impl AgentRepository for PgAgentRepository {
 
     #[instrument(skip_all, fields(app_id = %app_id))]
     async fn touch_last_seen(&self, app_id: &AppId, at: DateTime<Utc>) -> DomainResult<()> {
-        // Upsert: an agent without a row (pre-migration) self-heals.
+        // Upsert: an agent without a row (pre-migration) self-heals; a deleted app is a no-op.
         sqlx::query!(
             r#"
             INSERT INTO agents (app_id, last_seen, created_at)
-            VALUES ($1, $2, NOW())
+            SELECT id, $2, NOW() FROM apps WHERE id = $1
             ON CONFLICT (app_id) DO UPDATE SET last_seen = $2
             "#,
             app_id.as_str(),
@@ -154,7 +154,7 @@ impl AgentRepository for PgAgentRepository {
             r#"
             INSERT INTO agents (app_id, created_at, agent_version, host_os, host_arch,
                                 hostname, cpu_count, total_memory_mb, host_reported_at)
-            VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7, $8)
+            SELECT id, NOW(), $2, $3, $4, $5, $6, $7, $8 FROM apps WHERE id = $1
             ON CONFLICT (app_id) DO UPDATE SET
                 agent_version    = $2,
                 host_os          = $3,

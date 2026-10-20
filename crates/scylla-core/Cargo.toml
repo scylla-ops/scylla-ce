@@ -6,19 +6,14 @@ license.workspace = true
 repository.workspace = true
 
 # This package lives exactly two directories below the workspace root, and that
-# depth is load-bearing: `src/rest/ui.rs` embeds `../../apps/frontend/dist` with
+# depth is load-bearing: `src/rest/ui.rs` embeds `../../web/dist` with
 # rust-embed and build.rs watches the same path, both resolved against
 # CARGO_MANIFEST_DIR. Moving it one level deeper silently ships no web UI.
 
 [features]
-# Public self-service signup (the gRPC RegistrationService). Off by default so a
-# deployment stays invite-only / OAuth-only unless it opts in. Forwarded by the
-# edition binaries.
-register = []
-
-# Exposes the `test_support` builders and the PermissionService / QuotaPolicy
-# doubles to downstream test code (the persistence crate's tests seed through
-# the builders).
+# Exposes the `test_support` builders, the PermissionService doubles and the
+# `actions` engine builder to downstream test code (the persistence crate's
+# tests seed through the builders).
 test-utils = []
 
 [dependencies]
@@ -26,7 +21,7 @@ test-utils = []
 scylla-domain = { workspace = true }
 # the access model (RBAC ports, scoped grants, the Cedar adapter)
 scylla-auth = { workspace = true }
-# the edition boundary: the extension traits the use cases call through
+# the edition boundary: the action pipeline every write goes through
 scylla-extension = { workspace = true }
 tokio.workspace = true
 async-trait.workspace = true
@@ -42,6 +37,7 @@ derive_more.workspace = true
 thiserror.workspace = true
 
 tokio-stream = { workspace = true }
+tokio-util.workspace = true
 futures-util.workspace = true
 serde_json.workspace = true
 
@@ -50,17 +46,14 @@ axum.workspace = true
 # the Vite build, compiled in. See build.rs and src/rest/ui.rs.
 rust-embed.workspace = true
 
-# adapters: password hashing, secret encryption, webhook HMAC, outbound mail
-# and OAuth.
+# adapters: password hashing, secret encryption, webhook HMAC.
 argon2.workspace = true
 chacha20poly1305.workspace = true
 hmac.workspace = true
 sha2.workspace = true
-subtle.workspace = true
 hex.workspace = true
-lettre.workspace = true
-oauth2.workspace = true
-reqwest.workspace = true
+getrandom.workspace = true
+base64.workspace = true
 croner.workspace = true
 humantime-serde.workspace = true
 uuid.workspace = true
@@ -70,8 +63,9 @@ futures-core.workspace = true
 # grpc
 # `tls-connect-info` is what gives us `impl Connected for TlsStream<TcpStream>`,
 # the bound `serve_with_incoming_shutdown` needs to accept our own rustls
-# acceptor (src/tls.rs).
-tonic = { workspace = true, features = ["tls-connect-info"] }
+# acceptor (src/tls.rs). `tls-ring` lets `Request::remote_addr` read the peer
+# address of such a stream too (src/grpc/client.rs); it adds no crate.
+tonic = { workspace = true, features = ["tls-connect-info", "tls-ring"] }
 tokio-rustls.workspace = true
 tonic-async-interceptor.workspace = true
 scylla-proto.workspace = true

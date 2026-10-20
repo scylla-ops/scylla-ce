@@ -15,13 +15,12 @@ scylla-proto = { workspace = true }
 # async
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
-tokio-util = { workspace = true }
+tokio-util = { workspace = true, features = ["codec"] }
+futures-util = { workspace = true }
 
-# grpc — `tls-ring` + `tls-native-roots` so the agent can dial an https://
+# grpc: `tls-ring` + `tls-native-roots` so the agent can dial an https://
 # control-plane (TLS terminated at the proxy) using the host's trust store.
 tonic = { workspace = true, features = ["tls-ring", "tls-native-roots"] }
-# well-known types: job log lines carry a `google.protobuf.Timestamp`
-prost-types.workspace = true
 
 # cli
 clap = { workspace = true, features = ["env"] }

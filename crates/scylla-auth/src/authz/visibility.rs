@@ -1,6 +1,6 @@
 use crate::authz::grant::{Grant, Scope};
 use crate::authz::role::FULL_CONTROL;
-use crate::caller::CallerContext;
+use crate::domain::caller::CallerContext;
 use crate::domain::errors::DomainResult;
 use crate::domain::ids::{OrganizationId, ProjectId};
 use async_trait::async_trait;

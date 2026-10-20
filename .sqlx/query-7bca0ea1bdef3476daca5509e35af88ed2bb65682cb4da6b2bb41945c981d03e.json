@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO grants (id, principal_kind, principal_id, role_id, scope_kind, scope_id) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (principal_kind, principal_id, role_id, scope_kind, scope_id) DO UPDATE SET id = grants.id RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "grants",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7bca0ea1bdef3476daca5509e35af88ed2bb65682cb4da6b2bb41945c981d03e"
+}

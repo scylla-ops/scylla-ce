@@ -1,6 +1,7 @@
 use scylla_proto::agent::v1::AgentHello;
+use scylla_proto::common::v1 as common;
 
-pub fn hello() -> AgentHello {
+pub fn hello(running_jobs: Vec<String>) -> AgentHello {
     AgentHello {
         version: env!("CARGO_PKG_VERSION").to_string(),
         os: std::env::consts::OS.to_string(),
@@ -8,6 +9,10 @@ pub fn hello() -> AgentHello {
         hostname: hostname(),
         cpu_count: cpu_count(),
         total_memory_mb: total_memory_mb(),
+        running_jobs: running_jobs
+            .into_iter()
+            .map(|value| common::JobId { value })
+            .collect(),
     }
 }
 
@@ -63,19 +68,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hello_describes_the_build_and_never_panics() {
-        let h = hello();
+    fn hello_describes_the_build_and_the_running_jobs() {
+        let h = hello(vec!["job-1".into()]);
         assert_eq!(h.version, env!("CARGO_PKG_VERSION"));
         assert!(!h.os.is_empty());
         assert!(!h.arch.is_empty());
         assert!(h.cpu_count >= 0);
         assert!(h.total_memory_mb >= 0);
+        assert_eq!(
+            h.running_jobs,
+            [common::JobId {
+                value: "job-1".into()
+            }]
+        );
     }
 
     #[cfg(unix)]
     #[test]
     fn probed_values_are_populated_on_unix() {
-        let h = hello();
+        let h = hello(Vec::new());
         assert!(h.cpu_count > 0, "available_parallelism returned nothing");
         assert!(h.total_memory_mb > 0, "sysconf returned no memory");
         assert!(!h.hostname.is_empty(), "gethostname returned nothing");

@@ -20,9 +20,9 @@ The workspace is a stack of library crates under `crates/` with the two binaries
 
 ```
 crates/
-  scylla-extension/   the edition boundary: extension traits + the Extensions bundle (no workspace dependency)
+  scylla-extension/   the edition boundary: the action pipeline every write goes through (depends on scylla-domain only)
   scylla-domain/      the shared kernel: domain model, JobEvent (no I/O, no crypto)
-  scylla-proto/       the wire contract: .proto files + generated bindings (also consumed by the frontend)
+  scylla-proto/       the Rust bindings and their conversions; the .proto files are the scylla-protos submodule in proto/
   scylla-auth/        the access model: RBAC ports and types, the Cedar adapter
   scylla-core/        use cases and their ports, gRPC + HTTP surfaces, server config, in-memory adapters
   scylla-db/          the Postgres adapters, the pool, the embedded migrations
@@ -30,19 +30,25 @@ crates/
 binaries/
   scylla-ce/          the Community Edition binary: a main.rs and config/*.toml
   scylla-agent/       the worker binary (depends on scylla-domain + scylla-proto only)
-apps/frontend/        the web UI, compiled into scylla-ce through scylla-core
+web/                  the scylla-web submodule: the web UI, compiled into scylla-ce through scylla-core
 migrations/           the SQL schema, embedded by scylla-db
 ```
+
+The `.proto` files are in
+[scylla-ops/scylla-protos](https://github.com/scylla-ops/scylla-protos) and the
+web UI is in [scylla-ops/scylla-web](https://github.com/scylla-ops/scylla-web).
+Both are git submodules, so clone with `--recurse-submodules`, or run
+`git submodule update --init --recursive`.
 
 Dependencies point one way, bottom to top:
 
 ```
-scylla-extension
-scylla-domain <- scylla-proto <- scylla-core <- scylla-db <- scylla-server <- scylla-ce
-scylla-domain <- scylla-auth  <- scylla-core
+scylla-domain <- scylla-proto     <- scylla-core <- scylla-db <- scylla-server <- scylla-ce
+scylla-domain <- scylla-auth      <- scylla-core
+scylla-domain <- scylla-extension <- scylla-core
 ```
 
-`scylla-core` is generic over the ports declared in `scylla-core` and `scylla-auth`; `scylla-db` implements them; `scylla-server` is the only crate that names the concrete implementations side by side. The binaries are a `main.rs` each: parse the command line, load the configuration, open the pool with `scylla_db::init_db`, then `Server::new(config, db)`, the edition's contributions as builder methods, `serve()`.
+`scylla-core` holds the ports declared in `scylla-core` and `scylla-auth` as trait objects (`Arc<dyn Port>`); `scylla-db` implements them; `scylla-server` is the only crate that names the concrete implementations side by side. The binaries are a `main.rs` each: parse the command line, load the configuration, open the pool with `scylla_db::init_db`, then `Server::new(config, db)`, the edition's contributions as builder methods, `serve()`.
 
 A WebAssembly plugin runtime is planned as `crates/scylla-wasm/`; it does not exist yet.
 
@@ -50,32 +56,33 @@ A WebAssembly plugin runtime is planned as `crates/scylla-wasm/`; it does not ex
 
 This repository is the open source core and ships the Community Edition binary, `scylla-ce`. A separate, private repository builds an Enterprise binary on top of it. The dependency is strictly one way: the private repository depends on this one by a pinned git tag, and nothing here knows it exists.
 
-The seam between the two is `crates/scylla-extension`: a small crate holding only traits and the types that appear in their signatures, with no dependency on any other workspace crate. An edition implements the traits and registers the implementations on the server, each under its trait (`Server::extension::<dyn QuotaPolicy>(...)`); they land in an `Extensions` registry keyed by trait that the core looks up, supplying its own default for any point left unregistered. The core calls through the traits and never knows which edition built it. The pool the binary opened is available to the implementations, so they share the database.
+The seam between the two is `crates/scylla-extension`, the action pipeline. Every write in the core is a command (`CreateProject { organization_id, name, description }`) that `Actions::run` moves through three typed stages: `Authorize` (the access check, run by the core for every action: the action declares `Access::Public`, `Access::Authenticated` or the permissions it requires), `Prepare` (the use case reads and builds a staged value, it does not write) and `Persist` (the store writes inside `Prepared::commit`). Every read is a query (`GetProject { id }`) that the same `Actions::run` moves through `Authorize` and `Fetch`; the trait the action implements (`Command` or `Query`) decides what follows the access check. Around each stage the `Hooks` registry runs six positions, in this order:
 
-One extension point exists today, the quota:
-
-```rust
-#[async_trait]
-pub trait QuotaPolicy: Send + Sync {
-    async fn check(&self, resource: Resource, scope: &str) -> Result<QuotaDecision, QuotaError>;
-    async fn usage(&self, resource: Resource, scope: &str) -> Result<Option<QuotaUsage>, QuotaError>;
-}
-
-pub enum QuotaDecision {
-    Allow,
-    Deny { resource: Resource, limit: u64, current: u64, upgrade_hint: Option<String> },
-}
-
-// The registry, keyed by extension trait.
-let extensions = Extensions::new().with::<dyn QuotaPolicy>(Arc::new(MyQuota));
-let policy = extensions.get::<dyn QuotaPolicy>(); // None when the edition registered nothing
+```
+Policy -> Gate<S> -> Around [ Wrap<S> [ Run ] ] -> Listener<S> -> Observer
+ veto      veto      control   control            side effect     record
+ every     one       every     one                one             every
 ```
 
-`ProjectUseCases::create` asks the policy before creating a project and turns a `Deny` into `DomainError::QuotaExceeded` (gRPC `RESOURCE_EXHAUSTED`). The Community Edition registers nothing, so it gets the core's default, `UnlimitedQuota` (`scylla_core::application::quota_policy`), which always allows and consults nothing. `scope` is the organization id as a plain string so the contract stays free of the domain model.
+`Policy`, `Around` and `Observer` are erased: registered on a stage kind, they fire for every command, including commands that do not exist yet, and see the caller, the `Access` (its permissions through `access().permissions()`) and the action id. `Gate<S>`, `Wrap<S>` and `Listener<S>` are typed: registered on one stage of one command, they see the exact phase. A veto is a `DomainError` (`quota_exceeded`, `business_rule`) and maps to gRPC like any other. The crate depends on `scylla-domain` and nothing else, so an edition builds against a pinned git tag without the access model, the database or the gRPC stack.
 
-Adding an extension point is: a trait and its boundary types in `scylla-extension`, a default implementation plus a `<point>(extensions)` accessor in `scylla-core`, and the call site that uses it. Nothing changes in the registry, the server builder or the Community binary; an edition that wants to override it adds one `.extension::<dyn Trait>(...)` line.
+An edition bundles its hooks in a type that implements `Extension` and registers it once:
 
-The same builder takes what else an edition contributes, usually bundled as a `scylla_server::Feature` (its extension implementations, its migrations on the shared pool, its services): `authenticated_grpc_service` / `grpc_service` (its own gRPC services on the same listener, behind the core's bearer-token interceptor or not), `file_descriptor_set` (so reflection lists them) and `http_routes`. A feature's `install` step receives a `Context` with the pool and the core's authorization ports, so its use cases enforce the same policies as the core's. A private edition therefore adds whole features without touching this repository.
+```rust
+impl Extension for MeteredQuota {
+    fn register(self: &Arc<Self>, hooks: &mut Hooks) {
+        hooks
+            .policy(StageKind::Prepare, self.clone())   // veto a create over the plan's limit
+            .observe(StageKind::Persist, self.clone()); // count what was stored
+    }
+}
+
+Server::new(config, db).extension(&Arc::new(MeteredQuota::new(plans))).serve()
+```
+
+The Community Edition registers nothing: the pipeline runs the access check, the stages and no hook. A use case is a struct that holds its ports and implements `Run<Prepare<C>>` and `Run<Persist<C>>` per command (`commands.rs`) and `Run<Fetch<Q>>` per query (`queries.rs`), one block per action; it has no method of its own. The gRPC handler is the adapter: each RPC is one `grpc::adapter::run` call (`run_public`, as `Anonymous`, for the services without the bearer interceptor and for HTTP routes), which parses the request into its command or query (`grpc::convert::Parse`, implemented in the aggregate's mapper), runs the engine and maps the error. The project use case and its handler are the reference; see `crates/scylla-extension/ARCHITECTURE.md` for the positions, the decision table and the failure semantics.
+
+The same builder takes what else an edition contributes, usually bundled as a `scylla_server::Feature` (its hooks, its migrations on the shared pool, its services): `authenticated_grpc_service` / `grpc_service` (its own gRPC services on the same listener, behind the core's bearer-token interceptor or not), `file_descriptor_set` (so reflection lists them) and `http_routes`. A feature's `install` step receives a `Context` with the pool, the core's `Actions` and its authorization ports, so its use cases run through the same pipeline and policies as the core's. A private edition therefore adds whole features without touching this repository.
 
 ## Prerequisites
 
@@ -109,11 +116,13 @@ docker compose pull
 docker compose up -d
 ```
 
-First boot creates the `admin` user automatically.
+The first start creates the `admin` user. The `[bootstrap]` section of the
+config sets its username, password and email. At each start, the server finds
+this account by its email and makes sure that it is a system administrator.
 
 Open **http://localhost:8080/** and sign in:
 
-- username: `admin`
+- username: `admin` (or the email `admin@example.com`)
 - password: `admin123`
 
 ## Developing
@@ -124,20 +133,19 @@ The stack above is enough to run Scylla. To work on it:
 just db-up                                        # Postgres alone
 cargo run -p scylla-ce -- \
     --config binaries/scylla-ce/config/local.toml --no-ui
-cd apps/frontend && pnpm install && pnpm dev       # http://localhost:5173
 ```
 
-`--no-ui` is what makes this work: the web UI is compiled into the release
-binary, and in dev there is nothing to compile in — Vite owns it on `:5173`.
-The flag drops the UI routes entirely so the binary serves only the API.
-(`config/local.toml` already sets `[ui].enabled = false`, so the flag is
-belt-and-braces.) `apps/frontend/.env` points the dev bundle at `:8080`;
-`local.toml` allows that origin through CORS.
+`--no-ui` drops the UI routes, so the binary serves only the API.
+(`config/local.toml` already sets `[ui].enabled = false`.) To work on the UI,
+run the dev server of [scylla-web](https://github.com/scylla-ops/scylla-web)
+against `:8080`; `local.toml` allows its origin through CORS.
 
 To run the real thing natively, build the UI first — a release `cargo build`
-embeds whatever is in `apps/frontend/dist`:
+embeds whatever is in `web/dist`. The UI and the protos are git submodules, so
+get them first (or clone with `--recurse-submodules`):
 
 ```sh
+git submodule update --init --recursive
 just ui-build
 cargo build --release -p scylla-ce
 ```
@@ -160,6 +168,54 @@ key  = "/etc/scylla/tls/privkey.pem"
 Both HTTP/2 and HTTP/1.1 are advertised over ALPN, so browsers, gRPC clients and
 plain HTTP/1.1 webhook senders all connect to the same socket.
 
+## Behind a reverse proxy
+
+Each session records the IP address of the client that signed in. The user
+sees it in the list of its sessions. By default, the server uses the peer
+address of the connection. Behind a reverse proxy, that is the address of the
+proxy. To record the address of the client, set
+`[server].trust_forwarded_headers`:
+
+```toml
+[server]
+address = "0.0.0.0:8080"
+trust_forwarded_headers = true
+```
+
+The server then uses the first entry of `x-forwarded-for`, else `x-real-ip`. A
+call without these headers keeps the peer address. The default is `false`.
+
+Set it to `true` only behind a reverse proxy that sets these headers and
+replaces the values that the client sends. A client can write these headers,
+so without such a proxy a client can record any address.
+
+## Password reset
+
+A reset link sets a new password. It opens `/reset-password` in the web UI. It
+is good for one use and expires after one hour. A user asks for a link with
+`AuthService.RequestPasswordReset`. An administrator makes a link for a user
+with `UserService.SendPasswordReset`.
+
+The Community Edition sends no mail. It writes each reset link in the server
+log, at INFO, with the user id and the username. Look for the message
+`password reset link`, for example with `just logs scylla-ce`, and give the
+link to the user. The log line does not show the email.
+
+Set `[server].public_url` to the origin that people open, without a trailing
+slash:
+
+```toml
+[server]
+address = "0.0.0.0:8080"
+public_url = "https://scylla.example.com"
+```
+
+The link is then `https://scylla.example.com/reset-password#token=...`. If you
+do not set `public_url`, the link is the relative path
+`/reset-password#token=...` and the server writes a warning when it starts.
+The shipped configs set it: `http://127.0.0.1:8080` in `local.toml` and
+`http://localhost:8080` in `docker.toml`.
+
 ## Common commands
 
 | `just`        | `docker compose`                  | What it does                                  |
@@ -178,7 +234,7 @@ Run `just --list` to see every recipe.
 
 **`scylla-ce` fails to connect to PostgreSQL.** Ensure `postgres` is `healthy` via `just status` (or `docker compose ps`). If it's stuck, run `just clean` to reset the volume and try again.
 
-**Frontend shows gRPC errors.** The UI and the API share an origin, so there is no CORS step to get wrong; check that `scylla-ce` is `healthy` (`just status`) and read its logs. `curl http://localhost:8080/healthz` should answer `ok`.
+**The web UI shows gRPC errors.** The UI and the API share an origin, so there is no CORS step to get wrong; check that `scylla-ce` is `healthy` (`just status`) and read its logs. `curl http://localhost:8080/healthz` should answer `ok`.
 
 **Agent not picking up jobs.** Agents run out-of-band (not in this compose stack). Check the agent's own logs and confirm it can reach the control plane at its `--control-plane-url` with a valid `--app-id` / `--app-secret`. In the UI the app shows as connected once its worker stream is open.
 
@@ -189,17 +245,15 @@ Run `just --list` to see every recipe.
 
 ## Optional: local development
 
-The Docker workflow above is self-contained — **Node.js and Rust are not required** to run Scylla. The sections below are only for contributors who want to iterate on the frontend or crates outside Docker.
-
-### Frontend (Vite dev server on `:5173`)
-
-Requires Node.js >= 20 and pnpm >= 9 (`corepack enable`). See [apps/frontend/README.md](apps/frontend/README.md) for setup.
+The Docker workflow above is self-contained: **Node.js and Rust are not required** to run Scylla. The section below is only for contributors who want to build the crates outside Docker.
 
 ### Building crates locally
 
 Requires the Rust toolchain. Standard Cargo workflow:
 
 ```sh
+git submodule update --init
+just hooks
 cargo build
 cargo test
 ```

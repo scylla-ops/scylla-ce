@@ -32,6 +32,9 @@ tracing.workspace = true
 
 [dev-dependencies]
 scylla-core = { workspace = true, features = ["test-utils"] }
+# tests drive project writes through the pipeline with a test policy in the hooks
+scylla-extension = { workspace = true }
+async-trait = { workspace = true }
 tokio = { workspace = true }
 
 [lints]

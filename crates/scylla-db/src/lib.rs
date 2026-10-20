@@ -10,10 +10,9 @@ pub mod test_support;
 pub use pool::{close_db, init_db};
 
 pub use postgres::{
-    PgAgentRepository, PgAppCredentialRepository, PgAppRepository, PgAppTokenRepository,
-    PgAuditLog, PgAuthzEntityProvider, PgGrantRepository, PgInvitationRepository,
-    PgJobLogRepository, PgJobRepository, PgOAuthIdentityRepository, PgOrganizationRepository,
-    PgPipelineRepository, PgProjectRepository, PgRoleRepository, PgSecretRepository,
-    PgSessionRepository, PgSignupRepository, PgTriggerDeliveryRepository, PgTriggerRepository,
-    PgUserRepository,
+    PgAccountRepository, PgAgentRepository, PgAppCredentialRepository, PgAppRepository,
+    PgAppTokenRepository, PgAuditLog, PgAuthzEntityProvider, PgGrantRepository, PgJobLogRepository,
+    PgJobRepository, PgOrganizationRepository, PgPipelineRepository, PgProjectRepository,
+    PgRoleRepository, PgSecretRepository, PgSessionRepository, PgSignupRepository,
+    PgTriggerDeliveryRepository, PgTriggerRepository, PgUserRepository,
 };

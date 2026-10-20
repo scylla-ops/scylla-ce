@@ -5,14 +5,13 @@ use tracing::error;
 /// Not a `From` impl: both types are foreign (orphan rule).
 pub fn domain_error_to_status(err: DomainError) -> Status {
     match err {
-        DomainError::NotFound { entity_type, id } => {
-            Status::not_found(format!("{} with id '{}' not found", entity_type, id))
-        }
+        DomainError::NotFound(message) => Status::not_found(message),
         DomainError::Validation(message) => Status::invalid_argument(message),
         DomainError::BusinessRule(message) => Status::failed_precondition(message),
         DomainError::Unauthorized(message) => Status::unauthenticated(message),
         DomainError::Forbidden(message) => Status::permission_denied(message),
         DomainError::Conflict(message) => Status::already_exists(message),
+        DomainError::Stale(message) => Status::aborted(message),
         DomainError::QuotaExceeded(message) => Status::resource_exhausted(message),
         DomainError::Infrastructure(message) => {
             error!("Infrastructure error: {}", message);
@@ -35,7 +34,18 @@ mod tests {
         let err = DomainError::not_found("User", "123");
         let status = domain_error_to_status(err);
         assert_eq!(status.code(), Code::NotFound);
-        assert!(status.message().contains("User"));
+        assert_eq!(status.message(), "User '123' not found");
+    }
+
+    #[test]
+    fn stale_maps_to_aborted() {
+        let status = domain_error_to_status(DomainError::stale("Project", "p1"));
+        assert_eq!(status.code(), Code::Aborted);
+        assert!(
+            status
+                .message()
+                .starts_with("Project 'p1' changed since it was read")
+        );
     }
 
     #[test]

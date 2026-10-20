@@ -1,6 +1,7 @@
 use anyhow::Context;
 use clap::Parser;
 use scylla_agent::{Agent, AgentConfig};
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 #[tokio::main]
@@ -20,21 +21,23 @@ async fn main() -> anyhow::Result<()> {
         "starting scylla-agent"
     );
 
-    let agent = Agent::new(config);
-
-    tokio::select! {
-        result = agent.run() => result.map_err(anyhow::Error::from),
-        () = shutdown_signal() => {
-            info!("shutdown signal received");
-            Ok(())
+    let agent = Agent::new(config)?;
+    let shutdown = CancellationToken::new();
+    tokio::spawn({
+        let shutdown = shutdown.clone();
+        async move {
+            shutdown_signal().await;
+            info!("shutdown signal received; stopping the running jobs");
+            shutdown.cancel();
         }
-    }
+    });
+    agent.run(shutdown).await.map_err(anyhow::Error::from)
 }
 
 fn ensure_workspace_root(root: &std::path::Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(root).with_context(|| {
         format!(
-            "workspace root {} cannot be created — pass a writable directory via \
+            "workspace root {} cannot be created: pass a writable directory via \
              --workspace-root or SCYLLA_WORKSPACE_ROOT",
             root.display()
         )
@@ -42,7 +45,7 @@ fn ensure_workspace_root(root: &std::path::Path) -> anyhow::Result<()> {
     let probe = root.join(".scylla-write-probe");
     std::fs::write(&probe, b"probe").with_context(|| {
         format!(
-            "workspace root {} is not writable — pass a writable directory via \
+            "workspace root {} is not writable: pass a writable directory via \
              --workspace-root or SCYLLA_WORKSPACE_ROOT",
             root.display()
         )

@@ -5,10 +5,7 @@ use tonic::service::RoutesBuilder;
 use tower::{Layer, Service};
 
 pub(crate) type Auth = tonic_async_interceptor::AsyncInterceptorLayer<
-    scylla_core::grpc::auth_interceptor::AuthInterceptor<
-        scylla_db::PgSessionRepository,
-        scylla_db::PgAppTokenRepository,
-    >,
+    scylla_core::grpc::auth_interceptor::AuthInterceptor,
 >;
 
 pub(crate) type GrpcService = Box<dyn FnOnce(&mut RoutesBuilder, &Auth) + Send>;

@@ -24,14 +24,21 @@ pub enum ExecutionError {
     #[error("node {node_id} was killed by signal")]
     NodeKilled { node_id: String },
 
-    #[error("node {node_id} cancelled by executor")]
-    Cancelled { node_id: String },
+    #[error("execution cancelled")]
+    Cancelled,
 
-    #[error("dangling dependencies — not all nodes could be scheduled (possible cycle)")]
+    #[error("dangling dependencies: not all nodes could be scheduled (possible cycle)")]
     DanglingDeps,
 
-    #[error("failed to spawn command: {0}")]
-    Spawn(#[source] std::io::Error),
+    #[error("failed to spawn `{program}`: {source}")]
+    Spawn {
+        program: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to wait for the step: {0}")]
+    Wait(#[source] std::io::Error),
 
     #[error("workspace I/O error: {0}")]
     Workspace(#[source] std::io::Error),

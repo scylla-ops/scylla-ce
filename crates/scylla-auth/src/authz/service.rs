@@ -1,4 +1,4 @@
-use crate::caller::CallerContext;
+use crate::domain::caller::CallerContext;
 use crate::domain::errors::DomainResult;
 use crate::domain::permission::Permission;
 

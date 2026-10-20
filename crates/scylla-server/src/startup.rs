@@ -1,177 +1,63 @@
 use crate::surface::Surface;
 use http::{HeaderName, HeaderValue, Method};
 use scylla_auth::audit::AuditLog;
-use scylla_auth::authz::RoleUseCases;
 use scylla_auth::cedar::CedarPermissionService;
-#[cfg(feature = "register")]
-use scylla_core::application::SignupUseCases;
+use scylla_core::application::user::reset::ResetLinks;
 use scylla_core::application::{
-    AgentDispatch, AgentUseCases, AppTokenUseCases, AppUseCases, AuthUseCases, BootstrapUseCases,
-    CronSchedule, DispatchSecretResolver, DispatchUseCases, GrantUseCases, InvitationUseCases,
-    JobLogStreamUseCase, JobLogUseCases, JobReaper, JobUseCases, Mailer, NoopMailer, OAuthUseCases,
-    OrganizationUseCases, PendingJobScheduler, PipelineUseCases, ProjectUseCases, SecretCipher,
-    SecretResolver, SecretUseCases, TriggerCronScheduler, TriggerFireUseCases, TriggerFiring,
-    TriggerUseCases, UserUseCases, WebhookIngressUseCases,
+    AgentUseCases, AppTokenUseCases, AppUseCases, AuthUseCases, BootstrapUseCases, CronSchedule,
+    DispatchSecretResolver, DispatchUseCases, GrantUseCases, JobLogUseCases, JobReaper,
+    JobUseCases, OrganizationUseCases, PasswordResetSender, PasswordResetUseCases,
+    PendingJobScheduler, PermissionAuthorizer, PipelineUseCases, ProjectUseCases, RoleUseCases,
+    SecretCipher, SecretResolver, SecretUseCases, SessionSweeper, TriggerCronScheduler,
+    TriggerFireUseCases, TriggerFirer, TriggerFiring, TriggerUseCases, UserUseCases,
+    WebhookIngressUseCases,
 };
 use scylla_core::config::ControlPlaneConfig;
 use scylla_core::error::StartupError;
 use scylla_core::grpc::auth_interceptor::AuthInterceptor;
 use scylla_core::infrastructure::{
-    Argon2HashService, ChaChaSecretCipher, CronScheduleService, GitHubOAuthProvider,
-    InMemoryAgentRegistry, InMemoryJobLogStream, LettreMailer,
+    Argon2HashService, ChaChaSecretCipher, CronScheduleService, InMemoryAgentRegistry,
+    InMemoryJobLogStream,
 };
 use scylla_db::{
-    PgAgentRepository, PgAppCredentialRepository, PgAppRepository, PgAppTokenRepository,
-    PgAuditLog, PgAuthzEntityProvider, PgGrantRepository, PgInvitationRepository,
-    PgJobLogRepository, PgJobRepository, PgOAuthIdentityRepository, PgOrganizationRepository,
-    PgPipelineRepository, PgProjectRepository, PgRoleRepository, PgSecretRepository,
-    PgSessionRepository, PgSignupRepository, PgTriggerDeliveryRepository, PgTriggerRepository,
-    PgUserRepository,
+    PgAccountRepository, PgAgentRepository, PgAppCredentialRepository, PgAppRepository,
+    PgAppTokenRepository, PgAuditLog, PgAuthzEntityProvider, PgGrantRepository, PgJobLogRepository,
+    PgJobRepository, PgOrganizationRepository, PgPipelineRepository, PgProjectRepository,
+    PgRoleRepository, PgSecretRepository, PgSessionRepository, PgTriggerDeliveryRepository,
+    PgTriggerRepository, PgUserRepository,
 };
-use scylla_extension::Extensions;
+use scylla_extension::{Actions, Hooks};
 use sqlx::PgPool;
 use std::future::Future;
 use std::sync::Arc;
-use tokio::sync::Notify;
+use std::time::Duration;
+use tokio::sync::mpsc;
 use tonic_async_interceptor::async_interceptor;
+use tower_http::classify::{GrpcCode, GrpcErrorsAsFailures, SharedClassifier};
 use tower_http::cors::CorsLayer;
-
-pub(crate) type PermissionChecker = CedarPermissionService<PgAuthzEntityProvider>;
-pub(crate) type SharedPermissionChecker = Arc<PermissionChecker>;
-pub(crate) type SharedGrantUc =
-    Arc<GrantUseCases<PgGrantRepository, PermissionChecker, PermissionChecker>>;
-pub(crate) type SharedRoleUc =
-    Arc<RoleUseCases<PgRoleRepository, PgGrantRepository, PermissionChecker, PermissionChecker>>;
-
-pub(crate) type SharedAuthUc =
-    Arc<AuthUseCases<PgUserRepository, PgSessionRepository, Argon2HashService>>;
-#[cfg(feature = "register")]
-pub(crate) type SharedSignupUc = Arc<
-    SignupUseCases<PgSignupRepository, PgSessionRepository, Argon2HashService, PermissionChecker>,
->;
-pub(crate) type SharedInvitationUc = Arc<
-    InvitationUseCases<
-        PgInvitationRepository,
-        PermissionChecker,
-        PgOrganizationRepository,
-        PgUserRepository,
-        Argon2HashService,
-        PgSessionRepository,
-        PermissionChecker,
-    >,
->;
-pub(crate) type SharedOAuthUc = Arc<
-    OAuthUseCases<
-        GitHubOAuthProvider,
-        PgOAuthIdentityRepository,
-        PgSignupRepository,
-        PgUserRepository,
-        PgSessionRepository,
-        Argon2HashService,
-        PermissionChecker,
-    >,
->;
-pub(crate) type SharedUserUc =
-    Arc<UserUseCases<PgUserRepository, Argon2HashService, PermissionChecker, PermissionChecker>>;
-pub(crate) type SharedOrgUc = Arc<
-    OrganizationUseCases<
-        PgOrganizationRepository,
-        PgUserRepository,
-        PermissionChecker,
-        PermissionChecker,
-    >,
->;
-pub(crate) type SharedProjectUc = Arc<
-    ProjectUseCases<PgProjectRepository, PgUserRepository, PermissionChecker, PermissionChecker>,
->;
-pub(crate) type SharedPipelineUc = Arc<
-    PipelineUseCases<PgPipelineRepository, PgProjectRepository, PgJobRepository, PermissionChecker>,
->;
-pub(crate) type SharedJobUc = Arc<JobUseCases<PgJobRepository, PermissionChecker>>;
-pub(crate) type SharedSecretUc = Arc<SecretUseCases<PgSecretRepository, PermissionChecker>>;
-pub(crate) type SharedJobLogUc = Arc<JobLogUseCases<PgJobLogRepository, PermissionChecker>>;
-pub(crate) type SharedJobLogStreamUc =
-    Arc<JobLogStreamUseCase<PgJobLogRepository, InMemoryJobLogStream, PermissionChecker>>;
-pub(crate) type SharedAppUc = Arc<
-    AppUseCases<
-        PgAppRepository,
-        PgAppCredentialRepository,
-        Argon2HashService,
-        PermissionChecker,
-        PermissionChecker,
-    >,
->;
-pub(crate) type SharedAppTokenUc = Arc<
-    AppTokenUseCases<
-        PgAppRepository,
-        PgAppTokenRepository,
-        PgAppCredentialRepository,
-        Argon2HashService,
-    >,
->;
-pub(crate) type SharedDispatchUc = Arc<DispatchUseCases<InMemoryAgentRegistry, PermissionChecker>>;
-pub(crate) type SharedAgentUc = Arc<
-    AgentUseCases<
-        PgAppRepository,
-        PgAgentRepository,
-        Argon2HashService,
-        PermissionChecker,
-        PermissionChecker,
-    >,
->;
-pub(crate) type SharedTriggerUc = Arc<
-    TriggerUseCases<
-        PgTriggerRepository,
-        PgPipelineRepository,
-        PgProjectRepository,
-        PgAppRepository,
-        Argon2HashService,
-        PermissionChecker,
-        PermissionChecker,
-    >,
->;
-pub(crate) type SharedTriggerFireUc = Arc<
-    TriggerFireUseCases<
-        PgTriggerRepository,
-        PgPipelineRepository,
-        PgProjectRepository,
-        PgAppRepository,
-        PgJobRepository,
-        PermissionChecker,
-        InMemoryAgentRegistry,
-    >,
->;
-pub(crate) type SharedWebhookIngressUc =
-    Arc<WebhookIngressUseCases<PgTriggerRepository, PgTriggerDeliveryRepository>>;
+use tower_http::trace::TraceLayer;
 
 pub(crate) struct Services {
-    pub auth_uc: SharedAuthUc,
-    #[cfg(feature = "register")]
-    pub signup_uc: SharedSignupUc,
-    pub invitation_uc: SharedInvitationUc,
-    pub oauth_uc: Option<SharedOAuthUc>,
-    pub user_uc: SharedUserUc,
-    pub org_uc: SharedOrgUc,
-    pub project_uc: SharedProjectUc,
-    pub pipeline_uc: SharedPipelineUc,
-    pub trigger_uc: SharedTriggerUc,
-    pub trigger_fire_uc: SharedTriggerFireUc,
-    pub webhook_ingress_uc: SharedWebhookIngressUc,
-    pub secret_uc: SharedSecretUc,
-    pub job_uc: SharedJobUc,
-    pub job_log_uc: SharedJobLogUc,
-    pub job_log_stream_uc: SharedJobLogStreamUc,
-    pub app_uc: SharedAppUc,
-    pub app_token_uc: SharedAppTokenUc,
-    pub agent_uc: SharedAgentUc,
-    pub agent_repo: Arc<PgAgentRepository>,
-    pub dispatch_uc: SharedDispatchUc,
+    pub auth_uc: Arc<AuthUseCases>,
+    pub user_uc: Arc<UserUseCases>,
+    pub reset_uc: Arc<PasswordResetUseCases>,
+    pub org_uc: Arc<OrganizationUseCases>,
+    pub actions: Arc<Actions>,
+    pub project_uc: Arc<ProjectUseCases>,
+    pub pipeline_uc: Arc<PipelineUseCases>,
+    pub trigger_uc: Arc<TriggerUseCases>,
+    pub trigger_fire_uc: Arc<TriggerFireUseCases>,
+    pub webhook_ingress_uc: Arc<WebhookIngressUseCases>,
+    pub secret_uc: Arc<SecretUseCases>,
+    pub job_uc: Arc<JobUseCases>,
+    pub job_log_uc: Arc<JobLogUseCases>,
+    pub app_uc: Arc<AppUseCases>,
+    pub app_token_uc: Arc<AppTokenUseCases>,
+    pub agent_uc: Arc<AgentUseCases>,
     pub agent_registry: Arc<InMemoryAgentRegistry>,
-    pub pending_signal: Arc<Notify>,
-    pub job_log_stream: Arc<InMemoryJobLogStream>,
-    pub grant_uc: SharedGrantUc,
-    pub role_uc: SharedRoleUc,
-    pub permission_checker: SharedPermissionChecker,
+    pub grant_uc: Arc<GrantUseCases>,
+    pub role_uc: Arc<RoleUseCases>,
+    pub permission_checker: Arc<CedarPermissionService<PgAuthzEntityProvider>>,
     pub session_repo: Arc<PgSessionRepository>,
     pub app_token_repo: Arc<PgAppTokenRepository>,
 }
@@ -179,9 +65,11 @@ pub(crate) struct Services {
 pub(crate) async fn init_services(
     config: &ControlPlaneConfig,
     db: PgPool,
-    extensions: Extensions,
+    hooks: Arc<Hooks>,
+    reset_sender: Arc<dyn PasswordResetSender>,
 ) -> Result<Services, StartupError> {
     let user_repo = Arc::new(PgUserRepository::new(db.clone()));
+    let account_repo = Arc::new(PgAccountRepository::new(db.clone()));
     let session_repo = Arc::new(PgSessionRepository::new(db.clone()));
     let org_repo = Arc::new(PgOrganizationRepository::new(db.clone()));
     let project_repo = Arc::new(PgProjectRepository::new(db.clone()));
@@ -193,8 +81,6 @@ pub(crate) async fn init_services(
     let app_credential_repo = Arc::new(PgAppCredentialRepository::new(db.clone()));
     let app_token_repo = Arc::new(PgAppTokenRepository::new(db.clone()));
     let agent_repo = Arc::new(PgAgentRepository::new(db.clone()));
-    let signup_repo = Arc::new(PgSignupRepository::new(db.clone()));
-    let invite_repo = Arc::new(PgInvitationRepository::new(db.clone()));
     let authz_provider = Arc::new(PgAuthzEntityProvider::new(db.clone()));
     let role_repo = Arc::new(PgRoleRepository::new(db.clone()));
     let grant_repo = Arc::new(PgGrantRepository::new(db.clone()));
@@ -220,68 +106,81 @@ pub(crate) async fn init_services(
         .await
         .map_err(|e| StartupError::Permission(e.to_string()))?,
     );
+    let actions = Arc::new(Actions::new(
+        Arc::new(PermissionAuthorizer::new(permission_checker.clone())),
+        hooks,
+    ));
 
     let auth_uc = Arc::new(AuthUseCases::new(
         user_repo.clone(),
         session_repo.clone(),
         hash_service.clone(),
     ));
-    #[cfg(feature = "register")]
-    let signup_uc = Arc::new(SignupUseCases::new(
-        signup_repo.clone(),
-        session_repo.clone(),
-        hash_service.clone(),
-        permission_checker.clone(),
-    ));
     let user_uc = Arc::new(UserUseCases::new(
         user_repo.clone(),
+        grant_repo.clone(),
         hash_service.clone(),
+        account_repo.clone(),
+    ));
+    let public_url = config.server.public_url.as_deref();
+    if public_url.is_none() {
+        tracing::warn!(
+            "[server].public_url is not set: a reset link is a relative path. Set it to the \
+             origin that people open, for example https://scylla.example.com."
+        );
+    }
+    let reset_uc = Arc::new(PasswordResetUseCases::new(
+        user_repo.clone(),
+        account_repo.clone(),
+        hash_service.clone(),
+        reset_sender,
+        ResetLinks::new(public_url),
+    ));
+    // The registry and the live tail come first: the dispatcher sends through the one and
+    // closes the other, and every use case that starts or ends a job goes through the dispatcher.
+    let (wakes, woken) = mpsc::unbounded_channel();
+    let agent_registry = Arc::new(InMemoryAgentRegistry::new(wakes));
+    let job_log_stream = Arc::new(InMemoryJobLogStream::new());
+    let dispatch_uc = Arc::new(DispatchUseCases::new(
+        agent_registry.clone(),
         permission_checker.clone(),
-        permission_checker.clone(),
+        job_repo.clone(),
+        secret_resolver.clone(),
+        job_log_stream.clone(),
     ));
     let org_uc = Arc::new(OrganizationUseCases::new(
         org_repo.clone(),
         user_repo.clone(),
-        permission_checker.clone(),
-        permission_checker.clone(),
+        app_repo.clone(),
+        dispatch_uc.clone(),
     ));
     let project_uc = Arc::new(ProjectUseCases::new(
         project_repo.clone(),
         user_repo.clone(),
         permission_checker.clone(),
-        permission_checker.clone(),
-        permission_checker.clone(),
-        scylla_core::application::quota_policy(&extensions),
+        dispatch_uc.clone(),
     ));
     let secret_uc = Arc::new(SecretUseCases::new(
         secret_repo.clone(),
         secret_cipher.clone(),
-        permission_checker.clone(),
     ));
     let pipeline_uc = Arc::new(PipelineUseCases::new(
         pipeline_repo.clone(),
         project_repo.clone(),
         job_repo.clone(),
-        permission_checker.clone(),
         secret_resolver.clone(),
+        dispatch_uc.clone(),
     ));
     let job_uc = Arc::new(JobUseCases::new(
         job_repo.clone(),
-        permission_checker.clone(),
+        job_log_stream.clone(),
+        dispatch_uc.clone(),
     ));
-    let job_log_uc = Arc::new(JobLogUseCases::new(
-        job_log_repo.clone(),
-        permission_checker.clone(),
-    ));
-    // Built before app_uc and grant_uc: they drop an app's live stream on disable, delete or revoke.
-    let agent_registry = Arc::new(InMemoryAgentRegistry::new());
     let app_uc = Arc::new(AppUseCases::new(
         app_repo.clone(),
         app_credential_repo.clone(),
         hash_service.clone(),
-        permission_checker.clone(),
         agent_registry.clone(),
-        permission_checker.clone(),
     ));
     let app_token_uc = Arc::new(AppTokenUseCases::new(
         app_repo.clone(),
@@ -292,88 +191,28 @@ pub(crate) async fn init_services(
     let agent_uc = Arc::new(AgentUseCases::new(
         app_repo.clone(),
         agent_repo.clone(),
+        job_repo.clone(),
         hash_service.clone(),
-        permission_checker.clone(),
-        permission_checker.clone(),
         agent_registry.clone(),
     ));
     let grant_uc = Arc::new(GrantUseCases::new(
         grant_repo.clone(),
         role_repo.clone(),
-        permission_checker.clone(),
-        permission_checker.clone(),
         agent_registry.clone(),
         authz_provider.clone(),
     ));
-    let role_uc = Arc::new(RoleUseCases::new(
-        role_repo.clone(),
-        grant_repo.clone(),
-        permission_checker.clone(),
-        permission_checker.clone(),
-    ));
+    let role_uc = Arc::new(RoleUseCases::new(role_repo.clone(), grant_repo.clone()));
     if let Some(cfg) = &config.bootstrap {
-        let bootstrap_uc = BootstrapUseCases::new(user_uc.clone(), grant_uc.clone());
+        let bootstrap_uc =
+            BootstrapUseCases::new(actions.clone(), user_uc.clone(), grant_uc.clone());
         scylla_core::bootstrap::bootstrap_admin(&bootstrap_uc, cfg).await?;
     }
 
-    let mailer: Arc<dyn Mailer> = match &config.mail {
-        Some(m) => Arc::new(
-            LettreMailer::new(
-                &m.host,
-                m.port,
-                m.username.clone(),
-                m.password.clone(),
-                &m.from,
-            )
-            .map_err(|e| StartupError::Mail(e.to_string()))?,
-        ),
-        None => Arc::new(NoopMailer),
-    };
-
-    let invitation_uc = Arc::new(InvitationUseCases::new(
-        invite_repo.clone(),
-        permission_checker.clone(),
-        mailer.clone(),
-        org_repo.clone(),
-        user_repo.clone(),
-        hash_service.clone(),
-        session_repo.clone(),
-        permission_checker.clone(),
-        role_repo.clone(),
-    ));
-
-    let oauth_uc = match &config.oauth.github {
-        Some(gh) => {
-            let provider = GitHubOAuthProvider::new(
-                gh.client_id.clone(),
-                gh.client_secret.clone(),
-                gh.redirect_uri.clone(),
-            )
-            .map_err(|e| StartupError::OAuth(e.to_string()))?;
-            Some(Arc::new(OAuthUseCases::new(
-                Arc::new(provider),
-                Arc::new(PgOAuthIdentityRepository::new(db.clone())),
-                signup_repo.clone(),
-                user_repo.clone(),
-                session_repo.clone(),
-                hash_service.clone(),
-                permission_checker.clone(),
-            )))
-        }
-        None => None,
-    };
-
-    let job_log_stream = Arc::new(InMemoryJobLogStream::new());
-    let job_log_stream_uc = Arc::new(JobLogStreamUseCase::new(
+    let job_log_uc = Arc::new(JobLogUseCases::new(
         job_log_repo.clone(),
         job_log_stream.clone(),
-        permission_checker.clone(),
+        job_repo.clone(),
     ));
-    let dispatch_uc = Arc::new(DispatchUseCases::new(
-        agent_registry.clone(),
-        permission_checker.clone(),
-    ));
-
     let trigger_repo = Arc::new(PgTriggerRepository::new(db.clone()));
     let trigger_delivery_repo = Arc::new(PgTriggerDeliveryRepository::new(db.clone()));
     let cron_schedule: Arc<dyn CronSchedule> = Arc::new(CronScheduleService::new());
@@ -382,35 +221,27 @@ pub(crate) async fn init_services(
         pipeline_repo.clone(),
         project_repo.clone(),
         app_repo.clone(),
-        hash_service.clone(),
-        permission_checker.clone(),
-        permission_checker.clone(),
         secret_cipher.clone(),
         cron_schedule.clone(),
     ));
-    let trigger_fire_uc = Arc::new(TriggerFireUseCases::new(
-        trigger_repo.clone(),
-        pipeline_repo.clone(),
-        project_repo.clone(),
-        app_repo.clone(),
+    let firing: Arc<dyn TriggerFiring> = Arc::new(TriggerFirer::new(
+        actions.clone(),
+        trigger_uc.clone(),
         pipeline_uc.clone(),
-        dispatch_uc.clone(),
-        permission_checker.clone(),
     ));
+    let trigger_fire_uc = Arc::new(TriggerFireUseCases::new(firing.clone()));
     let webhook_ingress_uc = Arc::new(WebhookIngressUseCases::new(
         trigger_repo.clone(),
         trigger_delivery_repo.clone(),
         secret_cipher.clone(),
-        trigger_fire_uc.clone() as Arc<dyn TriggerFiring>,
+        firing.clone(),
     ));
 
     // The first tick fires immediately so a pre-restart backlog is picked up; 15s keeps latency under cron's minute.
     {
-        let firing: Arc<dyn TriggerFiring> = trigger_fire_uc.clone();
-        let scheduler =
-            TriggerCronScheduler::new(trigger_repo.clone(), firing, cron_schedule.clone());
+        let scheduler = TriggerCronScheduler::new(actions.clone(), trigger_uc.clone(), firing);
         tokio::spawn(async move {
-            let mut tick = tokio::time::interval(std::time::Duration::from_secs(15));
+            let mut tick = tokio::time::interval(Duration::from_secs(15));
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tick.tick().await;
@@ -419,51 +250,56 @@ pub(crate) async fn init_services(
         });
     }
 
-    let pending_signal = Arc::new(Notify::new());
+    // A wake names the agents a pass is for; the tick passes over every agent. The wakes that
+    // arrived during a pass make one pass.
     {
-        let scheduler = PendingJobScheduler::new(
-            job_repo.clone(),
-            pipeline_repo.clone(),
-            dispatch_uc.clone(),
-            secret_resolver.clone(),
-        );
-        let signal = pending_signal.clone();
+        let scheduler = PendingJobScheduler::new(actions.clone(), dispatch_uc);
+        let mut woken = woken;
         tokio::spawn(async move {
-            scheduler.drain().await;
-            let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+            let mut tick = tokio::time::interval(Duration::from_secs(30));
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                tokio::select! {
-                    () = signal.notified() => {}
-                    _ = tick.tick() => {}
-                }
-                scheduler.drain().await;
+                let first = tokio::select! {
+                    Some(wake) = woken.recv() => wake,
+                    _ = tick.tick() => None,
+                };
+                scheduler
+                    .drain(PendingJobScheduler::targets(first, &mut woken))
+                    .await;
             }
         });
     }
 
     {
-        let reaper = JobReaper::new(job_repo.clone());
-        let registry = agent_registry.clone();
+        let reaper = JobReaper::new(actions.clone(), job_uc.clone());
         tokio::spawn(async move {
-            reaper.reap(&[]).await;
-            let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+            let mut tick = tokio::time::interval(Duration::from_secs(30));
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tick.tick().await;
-                reaper.reap(&registry.connected()).await;
+                reaper.reap().await;
+            }
+        });
+    }
+
+    {
+        let sweeper = SessionSweeper::new(actions.clone(), auth_uc.clone());
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(3600));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tick.tick().await;
+                sweeper.sweep().await;
             }
         });
     }
 
     Ok(Services {
         auth_uc,
-        #[cfg(feature = "register")]
-        signup_uc,
-        invitation_uc,
-        oauth_uc,
         user_uc,
+        reset_uc,
         org_uc,
+        actions,
         project_uc,
         pipeline_uc,
         trigger_uc,
@@ -472,15 +308,10 @@ pub(crate) async fn init_services(
         secret_uc,
         job_uc,
         job_log_uc,
-        job_log_stream_uc,
         app_uc,
         app_token_uc,
         agent_uc,
-        agent_repo,
-        dispatch_uc,
         agent_registry,
-        pending_signal,
-        job_log_stream,
         grant_uc,
         role_uc,
         permission_checker,
@@ -520,7 +351,7 @@ pub(crate) fn build_cors_layer(cors: &scylla_core::config::CorsConfig) -> CorsLa
         .collect();
     layer = layer.allow_headers(headers);
 
-    layer = layer.max_age(std::time::Duration::from_secs(cors.max_age_seconds));
+    layer = layer.max_age(Duration::from_secs(cors.max_age_seconds));
 
     let expose_headers: Vec<HeaderName> = cors
         .expose_headers
@@ -530,6 +361,26 @@ pub(crate) fn build_cors_layer(cors: &scylla_core::config::CorsConfig) -> CorsLa
     layer = layer.expose_headers(expose_headers);
 
     layer
+}
+
+// Client-caused statuses log at DEBUG; the server's own errors are already logged by the error mapper.
+pub(crate) fn grpc_classifier() -> GrpcErrorsAsFailures {
+    let client = [
+        GrpcCode::Cancelled,
+        GrpcCode::InvalidArgument,
+        GrpcCode::NotFound,
+        GrpcCode::AlreadyExists,
+        GrpcCode::PermissionDenied,
+        GrpcCode::ResourceExhausted,
+        GrpcCode::FailedPrecondition,
+        GrpcCode::Aborted,
+        GrpcCode::OutOfRange,
+        GrpcCode::Unauthenticated,
+    ];
+    client.into_iter().fold(
+        GrpcErrorsAsFailures::new(),
+        GrpcErrorsAsFailures::with_success,
+    )
 }
 
 pub(crate) async fn shutdown_signal() {
@@ -567,20 +418,11 @@ pub(crate) async fn run_server<F>(
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    #[cfg(feature = "register")]
-    use scylla_core::grpc::RegistrationHandler;
     use scylla_core::grpc::{
         AgentAdminHandler, AgentHandler, AppAuthHandler, AppHandler, AuthHandler, GrantHandler,
-        InvitationHandler, JobHandler, OAuthHandler, OrganizationHandler, PipelineHandler,
-        ProjectHandler, RoleHandler, SecretHandler, TriggerHandler, UserHandler,
+        JobHandler, OrganizationHandler, PipelineHandler, ProjectHandler, RoleHandler,
+        SecretHandler, TriggerHandler, UserHandler,
     };
-    use scylla_proto::invitation::v1::{
-        invitation_accept_service_server::InvitationAcceptServiceServer,
-        invitation_service_server::InvitationServiceServer,
-    };
-    use scylla_proto::oauth::v1::oauth_service_server::OauthServiceServer;
-    #[cfg(feature = "register")]
-    use scylla_proto::registration::v1::registration_service_server::RegistrationServiceServer;
     use scylla_proto::{
         agent::v1::agent_admin_service_server::AgentAdminServiceServer,
         agent::v1::agent_service_server::AgentServiceServer,
@@ -601,15 +443,25 @@ where
     use tonic::transport::Server;
     use tonic_web::GrpcWebLayer;
     use tower::ServiceBuilder;
-    use tower_http::trace::TraceLayer;
 
-    let auth_handler = AuthHandler::new(services.auth_uc.clone());
-    let user_handler = UserHandler::new(services.user_uc.clone());
-    let org_handler = OrganizationHandler::new(services.org_uc.clone());
-    let project_handler = ProjectHandler::new(services.project_uc.clone());
+    let auth_handler = AuthHandler::new(
+        services.actions.clone(),
+        services.auth_uc.clone(),
+        services.reset_uc.clone(),
+    )
+    .trust_forwarded_headers(config.server.trust_forwarded_headers);
+    let user_handler = UserHandler::new(
+        services.actions.clone(),
+        services.user_uc.clone(),
+        services.reset_uc.clone(),
+    );
+    let org_handler = OrganizationHandler::new(services.actions.clone(), services.org_uc.clone());
+    let project_handler =
+        ProjectHandler::new(services.actions.clone(), services.project_uc.clone());
     let pipeline_handler =
-        PipelineHandler::new(services.pipeline_uc.clone(), services.dispatch_uc.clone());
+        PipelineHandler::new(services.actions.clone(), services.pipeline_uc.clone());
     let trigger_handler = TriggerHandler::new(
+        services.actions.clone(),
         services.trigger_uc.clone(),
         services.trigger_fire_uc.clone(),
         config
@@ -618,25 +470,28 @@ where
             .and_then(|w| w.public_base_url.clone()),
     );
     let job_handler = JobHandler::new(
+        services.actions.clone(),
         services.job_uc.clone(),
         services.job_log_uc.clone(),
-        services.job_log_stream_uc.clone(),
     );
-    let app_handler = AppHandler::new(services.app_uc.clone());
-    let secret_handler = SecretHandler::new(services.secret_uc.clone());
-    let app_auth_handler = AppAuthHandler::new(services.app_token_uc.clone());
+    let app_handler = AppHandler::new(services.actions.clone(), services.app_uc.clone());
+    let secret_handler = SecretHandler::new(services.actions.clone(), services.secret_uc.clone());
+    let app_auth_handler =
+        AppAuthHandler::new(services.actions.clone(), services.app_token_uc.clone());
     let agent_handler = AgentHandler::new(
-        services.agent_registry.clone(),
-        services.job_log_stream.clone(),
+        services.actions.clone(),
         services.job_uc.clone(),
         services.job_log_uc.clone(),
-        services.agent_repo.clone(),
-        services.pending_signal.clone(),
+        services.agent_uc.clone(),
+        services.agent_registry.clone(),
     );
-    let agent_admin_handler = AgentAdminHandler::new(services.agent_uc.clone());
-    let grant_handler = GrantHandler::new(services.grant_uc.clone());
-    let role_handler = RoleHandler::new(services.role_uc.clone());
-    let invitation_handler = InvitationHandler::new(services.invitation_uc.clone());
+    let agent_admin_handler = AgentAdminHandler::new(
+        services.actions.clone(),
+        services.agent_uc.clone(),
+        services.app_uc.clone(),
+    );
+    let grant_handler = GrantHandler::new(services.actions.clone(), services.grant_uc.clone());
+    let role_handler = RoleHandler::new(services.actions.clone(), services.role_uc.clone());
 
     let auth_interceptor = async_interceptor(AuthInterceptor::new(
         services.session_repo.clone(),
@@ -661,17 +516,6 @@ where
     let auth_service = AuthServiceServer::new(auth_handler);
 
     let app_auth_service = AppAuthServiceServer::new(app_auth_handler);
-
-    #[cfg(feature = "register")]
-    let registration_service =
-        RegistrationServiceServer::new(RegistrationHandler::new(services.signup_uc.clone()));
-
-    let invitation_accept_service = InvitationAcceptServiceServer::new(invitation_handler.clone());
-
-    let oauth_service = services
-        .oauth_uc
-        .as_ref()
-        .map(|uc| OauthServiceServer::new(OAuthHandler::new(uc.clone())));
 
     let user_service = ServiceBuilder::new()
         .layer(auth_interceptor.clone())
@@ -707,7 +551,11 @@ where
 
     let agent_service = ServiceBuilder::new()
         .layer(auth_interceptor.clone())
-        .service(AgentServiceServer::new(agent_handler));
+        .service(
+            AgentServiceServer::new(agent_handler)
+                .max_decoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES)
+                .max_encoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES),
+        );
 
     let agent_admin_service = ServiceBuilder::new()
         .layer(auth_interceptor.clone())
@@ -720,10 +568,6 @@ where
     let role_service = ServiceBuilder::new()
         .layer(auth_interceptor.clone())
         .service(RoleServiceServer::new(role_handler));
-
-    let invitation_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(InvitationServiceServer::new(invitation_handler));
 
     let mut grpc = Routes::builder();
     grpc.add_service(reflection_v1)
@@ -741,16 +585,7 @@ where
         .add_service(agent_service)
         .add_service(agent_admin_service)
         .add_service(grant_service)
-        .add_service(role_service)
-        .add_service(invitation_service)
-        .add_service(invitation_accept_service);
-
-    #[cfg(feature = "register")]
-    grpc.add_service(registration_service);
-
-    if let Some(svc) = oauth_service {
-        grpc.add_service(svc);
-    }
+        .add_service(role_service);
 
     for add in surface.grpc {
         add(&mut grpc, &auth_interceptor);
@@ -761,14 +596,17 @@ where
         .routes()
         .into_axum_router()
         .layer(GrpcWebLayer::new())
-        .layer(TraceLayer::new_for_grpc());
+        .layer(TraceLayer::new(SharedClassifier::new(grpc_classifier())));
 
     // The webhook router sets no fallback, so merging into the tonic router (which has one) is safe.
     let http = surface
         .http
         .into_iter()
         .fold(
-            scylla_core::rest::webhook::router(services.webhook_ingress_uc.clone()),
+            scylla_core::rest::webhook::router(
+                services.actions.clone(),
+                services.webhook_ingress_uc.clone(),
+            ),
             axum::Router::merge,
         )
         .layer(TraceLayer::new_for_http());
@@ -779,8 +617,11 @@ where
     let app = scylla_core::rest::ui::attach(app, &config.ui);
 
     // CORS is no longer needed by the UI (same origin) but third-party clients and Vite on :5173 rely on it.
+    // The keepalive ends a dead agent connection in about 30 seconds.
     let mut server = Server::builder()
         .accept_http1(true)
+        .http2_keepalive_interval(Some(Duration::from_secs(20)))
+        .http2_keepalive_timeout(Some(Duration::from_secs(10)))
         .layer(build_cors_layer(&config.cors));
     let router = server.add_routes(Routes::from(app));
 
@@ -803,4 +644,35 @@ where
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::grpc_classifier;
+    use tower_http::classify::{ClassifiedResponse, ClassifyResponse};
+
+    fn fails(code: u16) -> bool {
+        let response = http::Response::builder()
+            .header("grpc-status", code)
+            .body(())
+            .unwrap();
+        matches!(
+            grpc_classifier().classify_response(&response),
+            ClassifiedResponse::Ready(Err(_))
+        )
+    }
+
+    #[test]
+    fn client_statuses_are_not_failures() {
+        for code in [0, 1, 3, 5, 6, 7, 8, 9, 10, 11, 16] {
+            assert!(!fails(code), "grpc-status {code}");
+        }
+    }
+
+    #[test]
+    fn server_statuses_are_failures() {
+        for code in [2, 4, 12, 13, 14, 15] {
+            assert!(fails(code), "grpc-status {code}");
+        }
+    }
 }

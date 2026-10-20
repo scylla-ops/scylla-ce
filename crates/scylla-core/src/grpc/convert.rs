@@ -1,7 +1,10 @@
+use crate::grpc::mappers::domain_error_to_status;
 use chrono::{DateTime, TimeZone, Utc};
 use prost_types::Timestamp;
 use scylla_auth::authz::{Principal, Scope, ScopeKind};
-use scylla_domain::domain::ids::{AppId, OrganizationId, ProjectId, UserId};
+use scylla_domain::domain::errors::DomainResult;
+use scylla_domain::domain::ids::{AppId, OrganizationId, ProjectId, SessionId, UserId};
+use scylla_domain::domain::session::SessionClient;
 use scylla_proto::authz::v1::{
     Permission, PrincipalRef, ScopeKind as ProtoScopeKind, ScopeRef, principal_ref, scope_ref,
 };
@@ -31,12 +34,12 @@ impl_wrapper!(
     common::JobLogId,
     common::AppId,
     common::AppSecretId,
-    common::InvitationId,
     common::NodeId,
     common::SecretId,
     common::TriggerId,
     common::GrantId,
     common::RoleId,
+    common::SessionId,
     common::Email,
 );
 
@@ -52,6 +55,53 @@ pub fn required<T: Wrapper>(field: Option<T>, name: &str) -> Result<String, Stat
 
 pub fn optional<T: Wrapper>(field: Option<T>) -> Option<String> {
     field.map(T::into_value)
+}
+
+/// A required id wrapper as its domain id.
+pub fn id<W: Wrapper, I: From<String>>(field: Option<W>, name: &str) -> Result<I, Status> {
+    required(field, name).map(I::from)
+}
+
+/// An optional id wrapper as its domain id. A wrapper with an empty value is invalid.
+pub fn optional_id<W: Wrapper, I: From<String>>(
+    field: Option<W>,
+    name: &str,
+) -> Result<Option<I>, Status> {
+    match optional(field) {
+        Some(value) if value.is_empty() => Err(Status::invalid_argument(format!("invalid {name}"))),
+        value => Ok(value.map(I::from)),
+    }
+}
+
+/// A domain value built from a wire string; a validation failure is the client's fault.
+pub fn valid<T>(
+    value: impl Into<String>,
+    new: impl FnOnce(String) -> DomainResult<T>,
+) -> Result<T, Status> {
+    new(value.into()).map_err(domain_error_to_status)
+}
+
+/// A request knows the command or query it becomes, so a handler never assembles one by hand.
+pub trait Parse: Sized {
+    type Into;
+
+    fn parse(self) -> Result<Self::Into, Status>;
+}
+
+/// `Parse` for a request whose action spares the session of the call: the interceptor names that
+/// session, not the request.
+pub trait ParseInSession: Sized {
+    type Into;
+
+    fn parse_in_session(self, session: Option<SessionId>) -> Result<Self::Into, Status>;
+}
+
+/// `Parse` for a request whose action opens a session: the transport names the client, not the
+/// request.
+pub trait ParseWithClient: Sized {
+    type Into;
+
+    fn parse_with_client(self, client: SessionClient) -> Result<Self::Into, Status>;
 }
 
 #[must_use]

@@ -1,66 +1,37 @@
+//! The adapter: each RPC is one `run` and its response. Parsing lives in the
+//! organization mapper, behind `Parse`; no RPC checks a permission or touches a port.
+
 use crate::application::OrganizationUseCases;
-use crate::application::{OrganizationRepository, UserRepository};
-use crate::extract_auth_context;
-use crate::grpc::convert::{required, wrap};
-use crate::grpc::mappers::{
-    domain_error_to_status, domain_to_proto_metadata, organization_to_proto,
-    proto_to_domain_pagination,
-};
+use crate::grpc::adapter::run;
+use crate::grpc::mappers::organization_to_proto;
 use derive_more::Constructor;
-use scylla_auth::authz::{PermissionService, PolicyControl};
-use scylla_domain::domain::ids::{OrganizationId, UserId};
-use scylla_domain::domain::organization::{OrganizationDescription, OrganizationName};
+use scylla_extension::Actions;
 use scylla_proto::organization::v1::{
     CreateOrganizationRequest, CreateOrganizationResponse, DeleteOrganizationRequest,
     DeleteOrganizationResponse, GetOrganizationRequest, GetOrganizationResponse,
     ListOrganizationMembersRequest, ListOrganizationMembersResponse, ListOrganizationsRequest,
     ListOrganizationsResponse, ListUserOrganizationsRequest, ListUserOrganizationsResponse,
-    Organization as ProtoOrganization, OrganizationMember, SetOrganizationActiveRequest,
-    SetOrganizationActiveResponse, UpdateOrganizationRequest, UpdateOrganizationResponse,
-    organization_service_server::OrganizationService,
+    SetOrganizationActiveRequest, SetOrganizationActiveResponse, UpdateOrganizationRequest,
+    UpdateOrganizationResponse, organization_service_server::OrganizationService,
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 #[derive(Constructor)]
-pub struct OrganizationHandler<
-    O: OrganizationRepository,
-    U: UserRepository,
-    PS: PermissionService,
-    PC: PolicyControl,
-> {
-    use_cases: Arc<OrganizationUseCases<O, U, PS, PC>>,
+pub struct OrganizationHandler {
+    actions: Arc<Actions>,
+    organizations: Arc<OrganizationUseCases>,
 }
 
 #[async_trait::async_trait]
-impl<
-    O: OrganizationRepository + Send + Sync + 'static,
-    U: UserRepository + Send + Sync + 'static,
-    PS: PermissionService + Send + Sync + 'static,
-    PC: PolicyControl + Send + Sync + 'static,
-> OrganizationService for OrganizationHandler<O, U, PS, PC>
-{
+impl OrganizationService for OrganizationHandler {
     async fn create_organization(
         &self,
         request: Request<CreateOrganizationRequest>,
     ) -> Result<Response<CreateOrganizationResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let name = OrganizationName::new(&req.name).map_err(domain_error_to_status)?;
-        let description = req
-            .description
-            .map(|d| OrganizationDescription::new(&d))
-            .transpose()
-            .map_err(domain_error_to_status)?;
-
-        let org = self
-            .use_cases
-            .create(&caller, name, description)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let organization = run(&self.actions, &*self.organizations, request).await?;
         Ok(Response::new(CreateOrganizationResponse {
-            organization: Some(organization_to_proto(&org)),
+            organization: Some(organization_to_proto(&organization)),
         }))
     }
 
@@ -68,18 +39,9 @@ impl<
         &self,
         request: Request<GetOrganizationRequest>,
     ) -> Result<Response<GetOrganizationResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let org_id = OrganizationId::new(&required(req.organization_id, "organization_id")?);
-
-        let org = self
-            .use_cases
-            .get(&caller, &org_id)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let organization = run(&self.actions, &*self.organizations, request).await?;
         Ok(Response::new(GetOrganizationResponse {
-            organization: Some(organization_to_proto(&org)),
+            organization: Some(organization_to_proto(&organization)),
         }))
     }
 
@@ -87,29 +49,9 @@ impl<
         &self,
         request: Request<UpdateOrganizationRequest>,
     ) -> Result<Response<UpdateOrganizationResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let org_id = OrganizationId::new(&required(req.organization_id, "organization_id")?);
-
-        let name = req
-            .name
-            .map(|n| OrganizationName::new(&n))
-            .transpose()
-            .map_err(domain_error_to_status)?;
-        let description = req
-            .description
-            .map(|d| OrganizationDescription::new(&d).map(Some))
-            .transpose()
-            .map_err(domain_error_to_status)?;
-
-        let org = self
-            .use_cases
-            .update(&caller, &org_id, name, description)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let organization = run(&self.actions, &*self.organizations, request).await?;
         Ok(Response::new(UpdateOrganizationResponse {
-            organization: Some(organization_to_proto(&org)),
+            organization: Some(organization_to_proto(&organization)),
         }))
     }
 
@@ -117,18 +59,9 @@ impl<
         &self,
         request: Request<SetOrganizationActiveRequest>,
     ) -> Result<Response<SetOrganizationActiveResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let org_id = OrganizationId::new(&required(req.organization_id, "organization_id")?);
-
-        let org = self
-            .use_cases
-            .set_active(&caller, &org_id, req.is_active)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let organization = run(&self.actions, &*self.organizations, request).await?;
         Ok(Response::new(SetOrganizationActiveResponse {
-            organization: Some(organization_to_proto(&org)),
+            organization: Some(organization_to_proto(&organization)),
         }))
     }
 
@@ -136,15 +69,7 @@ impl<
         &self,
         request: Request<DeleteOrganizationRequest>,
     ) -> Result<Response<DeleteOrganizationResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let org_id = OrganizationId::new(&required(req.organization_id, "organization_id")?);
-
-        self.use_cases
-            .delete(&caller, &org_id)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        run(&self.actions, &*self.organizations, request).await?;
         Ok(Response::new(DeleteOrganizationResponse {}))
     }
 
@@ -152,76 +77,23 @@ impl<
         &self,
         request: Request<ListOrganizationsRequest>,
     ) -> Result<Response<ListOrganizationsResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let pagination = proto_to_domain_pagination(req.pagination);
-
-        let result = self
-            .use_cases
-            .list(&caller, pagination.as_ref())
-            .await
-            .map_err(domain_error_to_status)?;
-
-        let (orgs, metadata) = result.into_parts();
-        let organizations: Vec<ProtoOrganization> =
-            orgs.iter().map(organization_to_proto).collect();
-
-        Ok(Response::new(ListOrganizationsResponse {
-            organizations,
-            pagination: Some(domain_to_proto_metadata(&metadata)),
-        }))
+        let page = run(&self.actions, &*self.organizations, request).await?;
+        Ok(Response::new(page.into()))
     }
 
     async fn list_organization_members(
         &self,
         request: Request<ListOrganizationMembersRequest>,
     ) -> Result<Response<ListOrganizationMembersResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let org_id = OrganizationId::new(&required(req.organization_id, "organization_id")?);
-        let pagination = proto_to_domain_pagination(req.pagination);
-
-        let (users, metadata) = self
-            .use_cases
-            .list_users(&caller, &org_id, pagination.as_ref())
-            .await
-            .map_err(domain_error_to_status)?;
-
-        let members = users
-            .iter()
-            .map(|user| OrganizationMember {
-                user_id: wrap(user.id().to_string()),
-                username: user.username().to_string(),
-            })
-            .collect();
-
-        Ok(Response::new(ListOrganizationMembersResponse {
-            members,
-            pagination: Some(domain_to_proto_metadata(&metadata)),
-        }))
+        let page = run(&self.actions, &*self.organizations, request).await?;
+        Ok(Response::new(page.into()))
     }
 
     async fn list_user_organizations(
         &self,
         request: Request<ListUserOrganizationsRequest>,
     ) -> Result<Response<ListUserOrganizationsResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let user_id = UserId::new(&required(req.user_id, "user_id")?);
-        let pagination = proto_to_domain_pagination(req.pagination);
-
-        let (orgs, metadata) = self
-            .use_cases
-            .list_user_orgs(&caller, &user_id, pagination.as_ref())
-            .await
-            .map_err(domain_error_to_status)?;
-
-        let organizations: Vec<ProtoOrganization> =
-            orgs.iter().map(organization_to_proto).collect();
-
-        Ok(Response::new(ListUserOrganizationsResponse {
-            organizations,
-            pagination: Some(domain_to_proto_metadata(&metadata)),
-        }))
+        let page = run(&self.actions, &*self.organizations, request).await?;
+        Ok(Response::new(page.into()))
     }
 }

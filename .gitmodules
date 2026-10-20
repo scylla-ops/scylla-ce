@@ -1,0 +1,7 @@
+[submodule "web"]
+	path = web
+	url = https://github.com/scylla-ops/scylla-web.git
+	branch = main
+[submodule "crates/scylla-proto/proto"]
+	path = crates/scylla-proto/proto
+	url = https://github.com/scylla-ops/scylla-protos.git

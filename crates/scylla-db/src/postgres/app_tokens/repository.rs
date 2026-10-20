@@ -2,7 +2,7 @@ use crate::domain::app::AppToken;
 use crate::domain::errors::DomainResult;
 use crate::domain::ids::{AppCredentialId, AppId, AppTokenId};
 use async_trait::async_trait;
-use scylla_core::application::app::token_repository::AppTokenRepository;
+use scylla_core::application::app::AppTokenRepository;
 use sqlx::{PgExecutor, PgPool};
 use tracing::instrument;
 
@@ -37,14 +37,15 @@ impl AppTokenRepository for PgAppTokenRepository {
 pub mod queries {
     use super::*;
 
+    /// Stores the SHA-256 of the token, never the token.
     pub async fn create<'e, E>(executor: E, token: &AppToken) -> DomainResult<()>
     where
         E: PgExecutor<'e>,
     {
         sqlx::query!(
             r#"
-            INSERT INTO app_tokens (id, token, app_id, secret_id, created_at, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO app_tokens (id, token_hash, app_id, secret_id, created_at, expires_at)
+            VALUES ($1, encode(sha256(convert_to($2, 'UTF8')), 'hex'), $3, $4, $5, $6)
             "#,
             token.id().as_str(),
             token.token(),
@@ -66,11 +67,11 @@ pub mod queries {
     {
         let rec = sqlx::query!(
             r#"
-            SELECT t.id, t.token, t.app_id, t.secret_id, t.created_at, t.expires_at
+            SELECT t.id, t.app_id, t.secret_id, t.created_at, t.expires_at
             FROM app_tokens t
             JOIN app_secrets s ON s.id = t.secret_id AND s.enabled = TRUE
             JOIN apps a ON a.id = t.app_id AND a.is_active = TRUE
-            WHERE t.token = $1
+            WHERE t.token_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')
             "#,
             token,
         )
@@ -80,7 +81,7 @@ pub mod queries {
         .not_found_as("AppToken", "<token>")?;
         Ok(AppToken::from_persistence(
             AppTokenId::new(rec.id),
-            rec.token,
+            token.to_owned(),
             AppId::new(rec.app_id),
             AppCredentialId::new(rec.secret_id),
             rec.created_at,

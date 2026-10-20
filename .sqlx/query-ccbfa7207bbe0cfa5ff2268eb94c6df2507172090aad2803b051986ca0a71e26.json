@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT COUNT(*) AS \"count!\"\n                FROM jobs j\n                JOIN pipelines p ON p.id = j.pipeline_id\n                JOIN projects pr ON pr.id = p.project_id\n                WHERE pr.organization_id = $1 AND ($2::text IS NULL OR j.agent_app_id = $2)\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ccbfa7207bbe0cfa5ff2268eb94c6df2507172090aad2803b051986ca0a71e26"
+}

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(*) AS \"count!\" FROM projects p\n            WHERE EXISTS (\n                SELECT 1 FROM grants g\n                JOIN role_permissions rp ON rp.role_id = g.role_id AND rp.permission = ANY($2)\n                WHERE g.principal_kind = 'user' AND g.principal_id = $1\n                  AND ((g.scope_kind = 'project' AND g.scope_id = p.id)\n                    OR (g.scope_kind = 'organization' AND g.scope_id = p.organization_id))\n            )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ee145ff97daf0828b57d814615af833a49e55a9f4a872a24474140edfa497829"
+}

@@ -1,7 +1,9 @@
+use std::fmt::Display;
+
 #[derive(Debug, thiserror::Error)]
 pub enum DomainError {
-    #[error("Entity not found: {entity_type} with id '{id}'")]
-    NotFound { entity_type: String, id: String },
+    #[error("{0}")]
+    NotFound(String),
 
     #[error("Validation failed: {0}")]
     Validation(String),
@@ -18,6 +20,9 @@ pub enum DomainError {
     #[error("Conflict: {0}")]
     Conflict(String),
 
+    #[error("{0}")]
+    Stale(String),
+
     #[error("Quota exceeded: {0}")]
     QuotaExceeded(String),
 
@@ -31,11 +36,8 @@ pub enum DomainError {
 pub type DomainResult<T> = Result<T, DomainError>;
 
 impl DomainError {
-    pub fn not_found(entity_type: impl Into<String>, id: impl Into<String>) -> Self {
-        Self::NotFound {
-            entity_type: entity_type.into(),
-            id: id.into(),
-        }
+    pub fn not_found(entity_type: impl Display, key: impl Display) -> Self {
+        Self::NotFound(format!("{entity_type} '{key}' not found"))
     }
 
     pub fn validation(message: impl Into<String>) -> Self {
@@ -44,6 +46,11 @@ impl DomainError {
 
     pub fn business_rule(message: impl Into<String>) -> Self {
         Self::BusinessRule(message.into())
+    }
+
+    /// A request names a resource that does not exist, as a reference and not as its target.
+    pub fn missing_reference() -> Self {
+        Self::business_rule("a referenced resource does not exist")
     }
 
     pub fn unauthorized(message: impl Into<String>) -> Self {
@@ -56,6 +63,12 @@ impl DomainError {
 
     pub fn conflict(message: impl Into<String>) -> Self {
         Self::Conflict(message.into())
+    }
+
+    pub fn stale(entity_type: impl Display, key: impl Display) -> Self {
+        Self::Stale(format!(
+            "{entity_type} '{key}' changed since it was read; read it again and retry"
+        ))
     }
 
     pub fn quota_exceeded(message: impl Into<String>) -> Self {
@@ -72,6 +85,6 @@ impl DomainError {
 
     #[must_use]
     pub fn is_not_found(&self) -> bool {
-        matches!(self, Self::NotFound { .. })
+        matches!(self, Self::NotFound(_))
     }
 }

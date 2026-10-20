@@ -33,6 +33,7 @@ impl PipelineBuilder {
         nodes: Option<Vec<PipelineNode>>,
         created_at: Option<DateTime<Utc>>,
         updated_at: Option<DateTime<Utc>>,
+        #[builder(default = 0)] version: u64,
     ) -> Pipeline {
         Self::assemble_from_project_id(
             project.id().clone(),
@@ -41,6 +42,7 @@ impl PipelineBuilder {
             nodes,
             created_at,
             updated_at,
+            version,
         )
     }
 
@@ -52,6 +54,7 @@ impl PipelineBuilder {
         nodes: Option<Vec<PipelineNode>>,
         created_at: Option<DateTime<Utc>>,
         updated_at: Option<DateTime<Utc>>,
+        #[builder(default = 0)] version: u64,
     ) -> Pipeline {
         let now = created_at.unwrap_or_else(clock::now);
         let nodes = nodes.unwrap_or_else(|| vec![node("a", &[])]);
@@ -62,6 +65,7 @@ impl PipelineBuilder {
             nodes,
             now,
             updated_at.unwrap_or(now),
+            version,
         )
     }
 }

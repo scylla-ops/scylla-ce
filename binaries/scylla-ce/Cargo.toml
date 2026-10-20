@@ -15,11 +15,6 @@ repository.workspace = true
 name = "scylla-ce"
 path = "src/main.rs"
 
-[features]
-# Public self-service signup (the gRPC RegistrationService). Off by default so a
-# deployment stays invite-only / OAuth-only unless it opts in.
-register = ["scylla-server/register"]
-
 [dependencies]
 # the configuration types
 scylla-core = { workspace = true }

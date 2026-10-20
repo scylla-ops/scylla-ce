@@ -1,0 +1,172 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT j.id, j.pipeline_id, j.status,\n                   j.nodes AS \"nodes: Json<Vec<PipelineNode>>\",\n                   j.node_executions AS \"node_executions: Json<Vec<JobNode>>\",\n                   j.inputs AS \"inputs: Json<Vec<(EnvKey, EnvValue)>>\",\n                   j.origin AS \"origin: Json<JobOrigin>\",\n                   j.agent_app_id,\n                   j.created_at, j.updated_at, j.started_at, j.finished_at, j.version\n            FROM jobs j\n            LEFT JOIN agents a ON a.app_id = j.agent_app_id\n            WHERE j.status = 'running' AND (a.last_seen IS NULL OR a.last_seen < $1)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "pipeline_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "pipeline_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "nodes: Json<Vec<PipelineNode>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "nodes"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "node_executions: Json<Vec<JobNode>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "node_executions"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "inputs: Json<Vec<(EnvKey, EnvValue)>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "inputs"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "origin: Json<JobOrigin>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "origin"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "agent_app_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "agent_app_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "c81bfb0e3f37eb21d32dc69cd4bcbfcf22194901af9403def492c95bd9934966"
+}

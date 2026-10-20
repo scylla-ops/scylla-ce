@@ -13,6 +13,7 @@ pub use webhook_spec::*;
 use crate::domain::clock;
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{PipelineId, TriggerId};
+use crate::domain::pipeline::MAX_ENV_VARS;
 use chrono::{DateTime, Utc};
 use std::collections::HashSet;
 
@@ -39,6 +40,9 @@ pub struct Trigger {
     last_observation: Option<FireObservation>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    /// The row version the value was read at. The store checks it on every edit and bumps
+    /// it itself; the domain never changes it. A fire and a schedule advance are not edits.
+    version: u64,
 }
 
 impl Trigger {
@@ -56,6 +60,7 @@ impl Trigger {
         last_status: Option<String>,
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>,
+        version: u64,
     ) -> Self {
         let activation = if enabled {
             TriggerActivation::Enabled { next_fire_at }
@@ -76,6 +81,7 @@ impl Trigger {
             last_observation,
             created_at,
             updated_at,
+            version,
         }
     }
 
@@ -98,6 +104,7 @@ impl Trigger {
             last_observation: None,
             created_at: now,
             updated_at: now,
+            version: 0,
         })
     }
 
@@ -138,15 +145,12 @@ impl Trigger {
         }
     }
 
-    pub fn mark_fired(&mut self, fired_at: DateTime<Utc>, status: impl Into<String>) {
-        self.last_observation = Some(FireObservation {
-            fired_at,
-            status: status.into(),
-        });
-        self.updated_at = clock::now();
-    }
-
     fn validate_inputs(source: &TriggerSource, inputs: &[TriggerInput]) -> DomainResult<()> {
+        if inputs.len() > MAX_ENV_VARS {
+            return Err(DomainError::validation(format!(
+                "Trigger cannot have more than {MAX_ENV_VARS} inputs"
+            )));
+        }
         let mut seen = HashSet::new();
         for input in inputs {
             if !seen.insert(input.key()) {
@@ -234,6 +238,11 @@ impl Trigger {
     pub fn updated_at(&self) -> DateTime<Utc> {
         self.updated_at
     }
+
+    #[must_use]
+    pub fn version(&self) -> u64 {
+        self.version
+    }
 }
 
 #[cfg(test)]
@@ -285,17 +294,30 @@ mod tests {
 
     #[test]
     fn cron_accepts_literal_inputs() {
-        let inputs = vec![TriggerInput::literal(key("RUN_MODE"), "nightly")];
+        let inputs = vec![TriggerInput::literal(key("RUN_MODE"), "nightly").unwrap()];
         assert!(Trigger::create(pipeline_id(), name("nightly"), cron(), inputs).is_ok());
     }
 
     #[test]
     fn rejects_duplicate_input_keys() {
         let inputs = vec![
-            TriggerInput::literal(key("RUN_MODE"), "a"),
-            TriggerInput::literal(key("RUN_MODE"), "b"),
+            TriggerInput::literal(key("RUN_MODE"), "a").unwrap(),
+            TriggerInput::literal(key("RUN_MODE"), "b").unwrap(),
         ];
         assert!(Trigger::create(pipeline_id(), name("dup"), cron(), inputs).is_err());
+    }
+
+    #[test]
+    fn rejects_too_many_inputs() {
+        let inputs = |n: usize| {
+            (0..n)
+                .map(|i| TriggerInput::literal(key(&format!("K{i}")), "v").unwrap())
+                .collect()
+        };
+        assert!(Trigger::create(pipeline_id(), name("ok"), cron(), inputs(MAX_ENV_VARS)).is_ok());
+        assert!(
+            Trigger::create(pipeline_id(), name("big"), cron(), inputs(MAX_ENV_VARS + 1)).is_err()
+        );
     }
 
     #[test]
@@ -326,14 +348,5 @@ mod tests {
 
         t.set_next_fire_at(Some(clock::now()));
         assert!(t.next_fire_at().is_none());
-    }
-
-    #[test]
-    fn mark_fired_tracks_the_observation_as_a_pair() {
-        let mut t = Trigger::create(pipeline_id(), name("nightly"), cron(), vec![]).unwrap();
-        let now = clock::now();
-        t.mark_fired(now, "ok");
-        assert_eq!(t.last_fired_at(), Some(now));
-        assert_eq!(t.last_status(), Some("ok"));
     }
 }

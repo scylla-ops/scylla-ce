@@ -64,7 +64,7 @@ impl AppCredentialRepository for PgAppCredentialRepository {
         )
         .fetch_one(&self.pool)
         .await
-        .not_found_as("AppCredential", id.to_string())?;
+        .not_found_as("AppCredential", id)?;
         row_into_credential(
             rec.id,
             rec.app_id,
@@ -140,6 +140,19 @@ impl AppCredentialRepository for PgAppCredentialRepository {
             "UPDATE app_secrets SET enabled = $2, updated_at = NOW() WHERE id = $1",
             id.as_str(),
             enabled,
+        )
+        .execute(&self.pool)
+        .await
+        .to_domain()?;
+        Ok(())
+    }
+
+    #[instrument(skip_all, fields(secret_id = %id))]
+    async fn set_label(&self, id: &AppCredentialId, label: &AppSecretLabel) -> DomainResult<()> {
+        sqlx::query!(
+            "UPDATE app_secrets SET label = $2, updated_at = NOW() WHERE id = $1",
+            id.as_str(),
+            label.as_str(),
         )
         .execute(&self.pool)
         .await

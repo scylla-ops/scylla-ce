@@ -19,6 +19,8 @@ use chrono::{DateTime, Utc};
 
 use std::collections::HashSet;
 
+pub const MAX_NODES: usize = 256;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PipelineNode {
     id: NodeId,
@@ -72,6 +74,47 @@ impl PipelineNode {
     pub fn env(&self) -> &[EnvVar] {
         &self.env
     }
+
+    fn validate(&self, ids: &HashSet<&NodeId>) -> DomainResult<()> {
+        let mut seen_deps = HashSet::new();
+        for dep_id in &self.deps {
+            if dep_id == &self.id {
+                return Err(DomainError::validation(format!(
+                    "Node '{}' cannot depend on itself",
+                    self.id
+                )));
+            }
+            if !ids.contains(dep_id) {
+                return Err(DomainError::validation(format!(
+                    "Node '{}' has invalid dependency: {}",
+                    self.id, dep_id
+                )));
+            }
+            if !seen_deps.insert(dep_id) {
+                return Err(DomainError::validation(format!(
+                    "Node '{}' has duplicate dependency: {}",
+                    self.id, dep_id
+                )));
+            }
+        }
+
+        if self.env.len() > MAX_ENV_VARS {
+            return Err(DomainError::validation(format!(
+                "Node '{}' cannot have more than {MAX_ENV_VARS} env vars",
+                self.id
+            )));
+        }
+        let mut seen_keys = HashSet::new();
+        for key in self.env.iter().map(EnvVar::key) {
+            if !seen_keys.insert(key) {
+                return Err(DomainError::validation(format!(
+                    "Node '{}' has duplicate env key: {}",
+                    self.id, key
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +125,9 @@ pub struct Pipeline {
     nodes: Vec<PipelineNode>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    /// The row version the value was read at. The store checks it on every write and bumps
+    /// it itself; the domain never changes it.
+    version: u64,
 }
 
 impl Pipeline {
@@ -93,6 +139,7 @@ impl Pipeline {
         nodes: Vec<PipelineNode>,
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>,
+        version: u64,
     ) -> Self {
         Self {
             id,
@@ -101,6 +148,7 @@ impl Pipeline {
             nodes,
             created_at,
             updated_at,
+            version,
         }
     }
 
@@ -119,6 +167,7 @@ impl Pipeline {
             nodes,
             created_at: now,
             updated_at: now,
+            version: 0,
         })
     }
 
@@ -142,6 +191,12 @@ impl Pipeline {
             ));
         }
 
+        if nodes.len() > MAX_NODES {
+            return Err(DomainError::validation(format!(
+                "Pipeline cannot have more than {MAX_NODES} nodes"
+            )));
+        }
+
         let mut node_ids = HashSet::new();
         for node in nodes {
             if !node_ids.insert(node.id()) {
@@ -153,29 +208,7 @@ impl Pipeline {
         }
 
         for node in nodes {
-            let mut seen_deps = HashSet::new();
-            for dep_id in node.deps() {
-                if dep_id == node.id() {
-                    return Err(DomainError::validation(format!(
-                        "Node '{}' cannot depend on itself",
-                        node.id()
-                    )));
-                }
-                if !node_ids.contains(dep_id) {
-                    return Err(DomainError::validation(format!(
-                        "Node '{}' has invalid dependency: {}",
-                        node.id(),
-                        dep_id
-                    )));
-                }
-                if !seen_deps.insert(dep_id) {
-                    return Err(DomainError::validation(format!(
-                        "Node '{}' has duplicate dependency: {}",
-                        node.id(),
-                        dep_id
-                    )));
-                }
-            }
+            node.validate(&node_ids)?;
         }
 
         // Cycle check last: dangling and self deps never drain either, and the checks above own their errors.
@@ -218,8 +251,8 @@ impl Pipeline {
     }
 
     #[must_use]
-    pub fn get_node(&self, node_id: &NodeId) -> Option<&PipelineNode> {
-        self.nodes.iter().find(|n| n.id() == node_id)
+    pub fn version(&self) -> u64 {
+        self.version
     }
 }
 
@@ -227,6 +260,7 @@ impl Pipeline {
 mod tests {
     use super::*;
     use crate::domain::pipeline::Step;
+    use crate::domain::secret::SecretName;
 
     fn node_id(s: &str) -> NodeId {
         NodeId::new(s).unwrap()
@@ -259,15 +293,6 @@ mod tests {
         ];
         let pipeline = Pipeline::create(pipeline_name(), project_id(), nodes).unwrap();
         assert_eq!(pipeline.nodes().len(), 3);
-    }
-
-    #[test]
-    fn get_node_returns_correct_node() {
-        let nodes = vec![action("a", &[]), action("b", &["a"])];
-        let pipeline = Pipeline::create(pipeline_name(), project_id(), nodes).unwrap();
-        let node = pipeline.get_node(&node_id("a")).unwrap();
-        assert_eq!(node.id(), &node_id("a"));
-        assert!(pipeline.get_node(&node_id("z")).is_none());
     }
 
     fn create_err(nodes: Vec<PipelineNode>) -> DomainError {
@@ -304,6 +329,76 @@ mod tests {
         assert!(matches!(create_err(nodes), DomainError::Validation(_)));
     }
 
+    fn with_env(id: &str, env: Vec<EnvVar>) -> PipelineNode {
+        PipelineNode::new(
+            node_id(id),
+            vec![],
+            Step::exec("env".into(), vec![]).unwrap(),
+            None,
+            env,
+        )
+    }
+
+    fn env_key(k: &str) -> EnvKey {
+        EnvKey::new(k).unwrap()
+    }
+
+    #[test]
+    fn rejects_too_many_nodes() {
+        let nodes = |n: usize| (0..n).map(|i| action(&format!("n{i}"), &[])).collect();
+        assert!(Pipeline::create(pipeline_name(), project_id(), nodes(MAX_NODES)).is_ok());
+        assert!(matches!(
+            create_err(nodes(MAX_NODES + 1)),
+            DomainError::Validation(_)
+        ));
+    }
+
+    #[test]
+    fn rejects_too_many_env_vars() {
+        let env = |n: usize| {
+            (0..n)
+                .map(|i| EnvVar::literal(env_key(&format!("K{i}")), "v").unwrap())
+                .collect()
+        };
+        assert!(
+            Pipeline::create(
+                pipeline_name(),
+                project_id(),
+                vec![with_env("a", env(MAX_ENV_VARS))]
+            )
+            .is_ok()
+        );
+        assert!(matches!(
+            create_err(vec![with_env("a", env(MAX_ENV_VARS + 1))]),
+            DomainError::Validation(_)
+        ));
+    }
+
+    #[test]
+    fn rejects_duplicate_env_keys() {
+        let secret = SecretName::new("TOKEN").unwrap();
+        for env in [
+            vec![
+                EnvVar::literal(env_key("K"), "1").unwrap(),
+                EnvVar::literal(env_key("K"), "2").unwrap(),
+            ],
+            vec![
+                EnvVar::literal(env_key(" K "), "1").unwrap(),
+                EnvVar::literal(env_key("K"), "2").unwrap(),
+            ],
+            vec![
+                EnvVar::literal(env_key("X"), "literal").unwrap(),
+                EnvVar::secret(env_key("X"), secret.clone()),
+            ],
+        ] {
+            let err = create_err(vec![with_env("a", env)]);
+            assert!(
+                matches!(&err, DomainError::Validation(m) if m.contains("duplicate env key")),
+                "{err}"
+            );
+        }
+    }
+
     #[test]
     fn update_nodes_preserves_on_failure() {
         let mut pipeline =
@@ -323,8 +418,8 @@ mod tests {
         pipeline.update_nodes(new_nodes).unwrap();
 
         assert_eq!(pipeline.nodes().len(), 2);
-        assert!(pipeline.get_node(&node_id("x")).is_some());
-        assert!(pipeline.get_node(&node_id("a")).is_none());
+        let ids: Vec<&NodeId> = pipeline.nodes().iter().map(PipelineNode::id).collect();
+        assert_eq!(ids, [&node_id("x"), &node_id("y")]);
     }
 
     #[test]

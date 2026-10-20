@@ -1,59 +1,31 @@
-use crate::extract_auth_context;
-use crate::grpc::convert::{
-    permission_from_key, permission_key, principal_ref_from_proto, required, scope_kind_from_proto,
-    scope_kind_to_proto, scope_ref_to_proto, wrap,
-};
-use crate::grpc::mappers::domain_error_to_status;
+use crate::application::RoleUseCases;
+use crate::grpc::adapter::run;
+use crate::grpc::mappers::{authz_action_to_proto, effective_scope_to_proto, role_to_proto};
 use derive_more::Constructor;
-use scylla_auth::authz::{
-    EffectiveScope, FULL_CONTROL, GrantRepository, PermissionService, PolicyControl, Role,
-    RoleRepository, RoleUseCases, resource_home_scope,
-};
+use scylla_extension::Actions;
 use scylla_proto::authz::v1::{
-    Access, AuthzAction, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
-    DeleteRoleResponse, EffectiveScope as ProtoEffectiveScope, GetEffectivePermissionsRequest,
-    GetEffectivePermissionsResponse, GetMyPermissionsRequest, GetMyPermissionsResponse,
-    GetRoleRequest, GetRoleResponse, ListAuthzVocabularyRequest, ListAuthzVocabularyResponse,
-    ListRolesRequest, ListRolesResponse, Permission, Role as ProtoRole, UpdateRoleRequest,
-    UpdateRoleResponse, access, role, role_service_server::RoleService,
+    CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest, DeleteRoleResponse,
+    GetEffectivePermissionsRequest, GetEffectivePermissionsResponse, GetMyPermissionsRequest,
+    GetMyPermissionsResponse, GetRoleRequest, GetRoleResponse, ListAuthzVocabularyRequest,
+    ListAuthzVocabularyResponse, ListRolesRequest, ListRolesResponse, UpdateRoleRequest,
+    UpdateRoleResponse, role_service_server::RoleService,
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 #[derive(Constructor)]
-pub struct RoleHandler<RR, GR, PS, PC>
-where
-    RR: RoleRepository,
-    GR: GrantRepository,
-    PS: PermissionService,
-    PC: PolicyControl,
-{
-    use_cases: Arc<RoleUseCases<RR, GR, PS, PC>>,
+pub struct RoleHandler {
+    actions: Arc<Actions>,
+    roles: Arc<RoleUseCases>,
 }
 
 #[async_trait::async_trait]
-impl<
-    RR: RoleRepository + Send + Sync + 'static,
-    GR: GrantRepository + Send + Sync + 'static,
-    PS: PermissionService + Send + Sync + 'static,
-    PC: PolicyControl + Send + Sync + 'static,
-> RoleService for RoleHandler<RR, GR, PS, PC>
-{
+impl RoleService for RoleHandler {
     async fn create_role(
         &self,
         request: Request<CreateRoleRequest>,
     ) -> Result<Response<CreateRoleResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let scope = scope_kind_from_proto(req.scope_kind)?;
-        let permissions = permissions_from_proto(req.access)?;
-
-        let role = self
-            .use_cases
-            .create(&caller, req.name, req.description, scope, permissions)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let role = run(&self.actions, &*self.roles, request).await?;
         Ok(Response::new(CreateRoleResponse {
             role: Some(role_to_proto(&role)),
         }))
@@ -63,17 +35,7 @@ impl<
         &self,
         request: Request<UpdateRoleRequest>,
     ) -> Result<Response<UpdateRoleResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let role_id = required(req.role_id, "role_id")?;
-        let permissions = permissions_from_proto(req.access)?;
-
-        let role = self
-            .use_cases
-            .update(&caller, &role_id, req.name, req.description, permissions)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let role = run(&self.actions, &*self.roles, request).await?;
         Ok(Response::new(UpdateRoleResponse {
             role: Some(role_to_proto(&role)),
         }))
@@ -83,15 +45,7 @@ impl<
         &self,
         request: Request<DeleteRoleRequest>,
     ) -> Result<Response<DeleteRoleResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let role_id = required(req.role_id, "role_id")?;
-
-        self.use_cases
-            .delete(&caller, &role_id)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        run(&self.actions, &*self.roles, request).await?;
         Ok(Response::new(DeleteRoleResponse {}))
     }
 
@@ -99,14 +53,7 @@ impl<
         &self,
         request: Request<ListRolesRequest>,
     ) -> Result<Response<ListRolesResponse>, Status> {
-        let caller = caller!(request);
-
-        let roles = self
-            .use_cases
-            .list(&caller)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let roles = run(&self.actions, &*self.roles, request).await?;
         Ok(Response::new(ListRolesResponse {
             roles: roles.iter().map(role_to_proto).collect(),
         }))
@@ -116,16 +63,7 @@ impl<
         &self,
         request: Request<GetRoleRequest>,
     ) -> Result<Response<GetRoleResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let role_id = required(req.role_id, "role_id")?;
-
-        let role = self
-            .use_cases
-            .get(&caller, &role_id)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let role = run(&self.actions, &*self.roles, request).await?;
         Ok(Response::new(GetRoleResponse {
             role: Some(role_to_proto(&role)),
         }))
@@ -135,16 +73,7 @@ impl<
         &self,
         request: Request<GetEffectivePermissionsRequest>,
     ) -> Result<Response<GetEffectivePermissionsResponse>, Status> {
-        let caller = caller!(request);
-        let req = request.into_inner();
-        let principal = principal_ref_from_proto(req.principal)?;
-
-        let scopes = self
-            .use_cases
-            .effective_permissions(&caller, &principal)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let scopes = run(&self.actions, &*self.roles, request).await?;
         Ok(Response::new(GetEffectivePermissionsResponse {
             scopes: scopes.iter().map(effective_scope_to_proto).collect(),
         }))
@@ -154,14 +83,7 @@ impl<
         &self,
         request: Request<GetMyPermissionsRequest>,
     ) -> Result<Response<GetMyPermissionsResponse>, Status> {
-        let caller = caller!(request);
-
-        let scopes = self
-            .use_cases
-            .my_permissions(&caller)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let scopes = run(&self.actions, &*self.roles, request).await?;
         Ok(Response::new(GetMyPermissionsResponse {
             scopes: scopes.iter().map(effective_scope_to_proto).collect(),
         }))
@@ -171,83 +93,9 @@ impl<
         &self,
         request: Request<ListAuthzVocabularyRequest>,
     ) -> Result<Response<ListAuthzVocabularyResponse>, Status> {
-        let caller = caller!(request);
-
-        let actions = self
-            .use_cases
-            .authz_vocabulary(&caller)
-            .await
-            .map_err(domain_error_to_status)?;
-
+        let actions = run(&self.actions, &*self.roles, request).await?;
         Ok(Response::new(ListAuthzVocabularyResponse {
-            // resource_type is derivable from the permission; only min_scope ships.
-            actions: actions
-                .iter()
-                .map(|(key, resource_type)| AuthzAction {
-                    permission: permission_from_key(key).map_or(0, |p| p as i32),
-                    min_scope: scope_kind_to_proto(resource_home_scope(resource_type)) as i32,
-                })
-                .collect(),
+            actions: actions.iter().map(authz_action_to_proto).collect(),
         }))
-    }
-}
-
-fn effective_scope_to_proto(es: &EffectiveScope) -> ProtoEffectiveScope {
-    ProtoEffectiveScope {
-        scope: Some(scope_ref_to_proto(&es.scope)),
-        access: Some(access_from_keys(es.full_control, &es.permissions)),
-    }
-}
-
-fn access_from_keys(full_control: bool, keys: &[String]) -> Access {
-    let inner = if full_control {
-        access::Access::FullControl(access::FullControl {})
-    } else {
-        access::Access::Restricted(access::Restricted {
-            permissions: keys
-                .iter()
-                .filter_map(|key| permission_from_key(key).map(|p| p as i32))
-                .collect(),
-        })
-    };
-    Access {
-        access: Some(inner),
-    }
-}
-
-fn permissions_from_proto(access: Option<Access>) -> Result<Vec<String>, Status> {
-    let access = access.ok_or_else(|| Status::invalid_argument("access is required"))?;
-    match access.access {
-        Some(access::Access::FullControl(_)) => Ok(vec![FULL_CONTROL.to_string()]),
-        Some(access::Access::Restricted(r)) => r
-            .permissions
-            .iter()
-            .map(|&p| {
-                let perm = Permission::try_from(p)
-                    .map_err(|_| Status::invalid_argument("unknown permission value"))?;
-                permission_key(perm)
-                    .ok_or_else(|| Status::invalid_argument("permission unspecified"))
-            })
-            .collect(),
-        None => Err(Status::invalid_argument(
-            "access is required (full_control or restricted)",
-        )),
-    }
-}
-
-fn role_to_proto(role: &Role) -> ProtoRole {
-    let origin = match &role.key {
-        Some(key) => role::Origin::Builtin(role::Builtin { key: key.clone() }),
-        None => role::Origin::Custom(role::Custom {
-            owner_organization_id: role.owner_org.as_ref().and_then(|id| wrap(id.to_string())),
-        }),
-    };
-    ProtoRole {
-        role_id: wrap(role.id.clone()),
-        name: role.name.clone(),
-        description: role.description.clone(),
-        scope_kind: scope_kind_to_proto(role.scope) as i32,
-        access: Some(access_from_keys(role.is_full_control(), &role.permissions)),
-        origin: Some(origin),
     }
 }

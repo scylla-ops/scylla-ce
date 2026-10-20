@@ -7,12 +7,6 @@ repository.workspace = true
 
 # The composition root, as a library so that every edition binary (Community
 # here, Enterprise out of tree) starts the same server with its own extensions.
-[features]
-# Public self-service signup (the gRPC RegistrationService). Off by default so a
-# deployment stays invite-only / OAuth-only unless it opts in. Forwarded by the
-# edition binaries.
-register = ["scylla-core/register"]
-
 [dependencies]
 scylla-auth = { workspace = true }
 scylla-core = { workspace = true }

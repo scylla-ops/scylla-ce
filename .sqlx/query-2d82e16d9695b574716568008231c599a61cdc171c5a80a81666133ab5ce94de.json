@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT t.id, t.app_id, t.secret_id, t.created_at, t.expires_at\n            FROM app_tokens t\n            JOIN app_secrets s ON s.id = t.secret_id AND s.enabled = TRUE\n            JOIN apps a ON a.id = t.app_id AND a.is_active = TRUE\n            WHERE t.token_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "app_tokens",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "app_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "app_tokens",
+            "name": "app_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "secret_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "app_tokens",
+            "name": "secret_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "app_tokens",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "app_tokens",
+            "name": "expires_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2d82e16d9695b574716568008231c599a61cdc171c5a80a81666133ab5ce94de"
+}

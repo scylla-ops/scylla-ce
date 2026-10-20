@@ -1,34 +1,22 @@
-use crate::domain::errors::{DomainError, DomainResult};
-use nutype::nutype;
+use crate::domain::text::{Description, Rule, Text};
 
-const MAX_NAME_LENGTH: usize = 255;
+pub enum RoleNameRule {}
 
-fn validate(s: &str) -> Result<(), DomainError> {
-    if s.is_empty() {
-        return Err(DomainError::validation("Role name cannot be empty"));
-    }
-    if s.len() > MAX_NAME_LENGTH {
-        return Err(DomainError::validation(format!(
-            "Role name cannot exceed {MAX_NAME_LENGTH} characters"
-        )));
-    }
-    Ok(())
+impl Rule for RoleNameRule {
+    const LABEL: &'static str = "Role name";
+    const MAX: usize = 255;
 }
 
-#[nutype(
-    sanitize(trim),
-    validate(with = validate, error = DomainError),
-    derive(Debug, Clone, PartialEq, Eq, Hash, AsRef, Borrow, Display, Into),
-)]
-pub struct RoleName(String);
+/// The grant's role key; the label people read is a [`RoleDisplayName`].
+pub type RoleName = Text<RoleNameRule>;
 
-impl RoleName {
-    pub fn new(value: impl Into<String>) -> DomainResult<Self> {
-        Self::try_new(value.into())
-    }
+pub enum RoleDisplayNameRule {}
 
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        <Self as AsRef<str>>::as_ref(self)
-    }
+impl Rule for RoleDisplayNameRule {
+    const LABEL: &'static str = "Role name";
+    const MAX: usize = 255;
 }
+
+pub type RoleDisplayName = Text<RoleDisplayNameRule>;
+
+pub type RoleDescription = Description;

@@ -5,7 +5,8 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait GrantRepository: Send + Sync {
     async fn list_all(&self) -> DomainResult<Vec<Grant>>;
-    async fn create(&self, grant: &Grant) -> DomainResult<()>;
+    /// Returns the stored grant: the existing one when the same grant is already there.
+    async fn create(&self, grant: &Grant) -> DomainResult<Grant>;
     async fn delete(&self, id: &str) -> DomainResult<()>;
 
     /// One statement: row by row would leave a window where part of the access survives.

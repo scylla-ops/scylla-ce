@@ -1,28 +1,33 @@
-use crate::application::job::repository::JobRepository;
-use crate::domain::ids::AppId;
+use crate::application::job::{JobUseCases, ReapOrphanedJobs};
+use crate::domain::caller::{CallerContext, ServiceIdentity};
+use scylla_extension::Actions;
 use std::sync::Arc;
 use tracing::{instrument, warn};
 
-/// Level-triggered: compares "running" against the connected set, so restarts and reconnect races need no special path.
-pub struct JobReaper<J: JobRepository> {
-    job_repo: Arc<J>,
+/// Level-triggered: compares the live jobs with the open streams and the last contact of each
+/// agent, so a restart or a reconnect needs no special path.
+pub struct JobReaper {
+    actions: Arc<Actions>,
+    job_uc: Arc<JobUseCases>,
 }
 
-impl<J: JobRepository> JobReaper<J> {
+impl JobReaper {
     #[must_use]
-    pub fn new(job_repo: Arc<J>) -> Self {
-        Self { job_repo }
+    pub fn new(actions: Arc<Actions>, job_uc: Arc<JobUseCases>) -> Self {
+        Self { actions, job_uc }
     }
 
-    #[instrument(skip_all, fields(connected = connected.len()))]
-    pub async fn reap(&self, connected: &[AppId]) -> u64 {
-        match self.job_repo.orphan_running_without_agents(connected).await {
+    #[instrument(skip_all)]
+    pub async fn reap(&self) -> u64 {
+        let caller = CallerContext::Service(ServiceIdentity::job_reaper());
+        match self
+            .actions
+            .run(&*self.job_uc, &caller, ReapOrphanedJobs)
+            .await
+        {
             Ok(0) => 0,
             Ok(n) => {
-                warn!(
-                    orphaned = n,
-                    "reaped running jobs whose agent is no longer connected"
-                );
+                warn!(jobs = n, "reaped the jobs of agents that are gone");
                 n
             }
             Err(e) => {
@@ -36,101 +41,40 @@ impl<J: JobRepository> JobReaper<J> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::pagination::{PaginatedResult, PaginationParams};
-    use crate::domain::errors::DomainResult;
-    use crate::domain::ids::{JobId, OrganizationId, PipelineId, ProjectId};
-    use crate::domain::job::Job;
-    use async_trait::async_trait;
-    use std::sync::Mutex;
+    use crate::domain::ids::AppId;
+    use crate::domain::job::JobStatus;
+    use crate::test_support::authz::{RecordingPermissionService, actions};
+    use crate::test_support::jobs::JobBuilder;
+    use crate::test_support::organizations::org;
+    use crate::test_support::pipelines::pipeline;
+    use crate::test_support::projects::project;
+    use crate::test_support::stubs::{StubJobs, StubRegistry, StubTails, dispatcher};
 
-    struct RecordingJobs {
-        orphaned: u64,
-        seen_connected: Mutex<Vec<Vec<String>>>,
-    }
-
-    #[async_trait]
-    impl JobRepository for RecordingJobs {
-        async fn orphan_running_without_agents(&self, connected: &[AppId]) -> DomainResult<u64> {
-            self.seen_connected
-                .lock()
-                .unwrap()
-                .push(connected.iter().map(|a| a.as_str().to_string()).collect());
-            Ok(self.orphaned)
-        }
-        async fn create(&self, _: &Job) -> DomainResult<Job> {
-            unimplemented!()
-        }
-        async fn find_by_id(&self, _: &JobId) -> DomainResult<Job> {
-            unimplemented!()
-        }
-        async fn update(&self, _: &Job) -> DomainResult<Job> {
-            unimplemented!()
-        }
-        async fn set_agent(&self, _: &JobId, _: &AppId) -> DomainResult<()> {
-            unimplemented!()
-        }
-        async fn list_pending_unassigned(&self) -> DomainResult<Vec<Job>> {
-            unimplemented!()
-        }
-        async fn delete(&self, _: &JobId) -> DomainResult<()> {
-            unimplemented!()
-        }
-        async fn list_all(
-            &self,
-            _: Option<&PaginationParams>,
-        ) -> DomainResult<PaginatedResult<Job>> {
-            unimplemented!()
-        }
-        async fn list_by_pipeline(
-            &self,
-            _: &PipelineId,
-            _: Option<&PaginationParams>,
-        ) -> DomainResult<PaginatedResult<Job>> {
-            unimplemented!()
-        }
-        async fn list_by_project(
-            &self,
-            _: &ProjectId,
-            _: Option<&PaginationParams>,
-        ) -> DomainResult<PaginatedResult<Job>> {
-            unimplemented!()
-        }
-        async fn list_by_organization(
-            &self,
-            _: &OrganizationId,
-            _: Option<&PaginationParams>,
-        ) -> DomainResult<PaginatedResult<Job>> {
-            unimplemented!()
-        }
+    fn reaper(jobs: Arc<StubJobs>) -> JobReaper {
+        let registry = Arc::new(StubRegistry::default());
+        let tails = Arc::new(StubTails::default());
+        JobReaper::new(
+            Arc::new(actions(Arc::new(RecordingPermissionService::new()))),
+            Arc::new(JobUseCases::new(
+                jobs.clone(),
+                tails.clone(),
+                dispatcher(registry, jobs, tails),
+            )),
+        )
     }
 
     #[tokio::test]
-    async fn reap_forwards_the_connected_set_and_returns_the_count() {
-        let jobs = Arc::new(RecordingJobs {
-            orphaned: 3,
-            seen_connected: Mutex::new(vec![]),
-        });
-        let reaper = JobReaper::new(jobs.clone());
+    async fn a_reap_returns_the_number_of_jobs_it_changed() {
+        let pl = pipeline(&project(&org("o"), "p"));
+        let running = JobBuilder::new(&pl)
+            .running(true)
+            .agent(AppId::new("agent-gone"))
+            .build();
+        let jobs = Arc::new(StubJobs::with(vec![running]));
+        let reaper = reaper(jobs.clone());
 
-        assert_eq!(reaper.reap(&[]).await, 3);
-        assert_eq!(reaper.reap(&[AppId::new("agent-1")]).await, 3);
-
-        let seen = jobs.seen_connected.lock().unwrap();
-        assert_eq!(seen.len(), 2);
-        assert!(
-            seen[0].is_empty(),
-            "boot pass reaps with an empty connected set"
-        );
-        assert_eq!(seen[1], vec!["agent-1".to_string()]);
-    }
-
-    #[tokio::test]
-    async fn reap_reports_zero_when_nothing_is_stranded() {
-        let jobs = Arc::new(RecordingJobs {
-            orphaned: 0,
-            seen_connected: Mutex::new(vec![]),
-        });
-        let reaper = JobReaper::new(jobs);
-        assert_eq!(reaper.reap(&[]).await, 0);
+        assert_eq!(reaper.reap().await, 1);
+        assert_eq!(reaper.reap().await, 0);
+        assert_eq!(jobs.rows()[0].status(), JobStatus::Orphaned);
     }
 }

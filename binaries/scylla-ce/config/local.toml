@@ -1,6 +1,8 @@
 [server]
 # One listener for everything: web UI, gRPC, gRPC-Web, reflection, webhooks.
 address = "127.0.0.1:8080"
+# The origin of the reset links. Without mail, the link is in the server log.
+public_url = "http://127.0.0.1:8080"
 
 [ui]
 # Host-native dev runs the UI on Vite (:5173), so there is no dist/ to serve.
@@ -14,7 +16,7 @@ min_connections = 1
 acquire_timeout = "30s"
 run_migrations = true
 
-# Only needed because `pnpm dev` serves the UI from :5173, a different origin.
+# Only needed because the scylla-web dev server serves the UI from :5173, a different origin.
 # A deployed instance serves both from one origin and needs none of this.
 [cors]
 allow_origins = ["*"]
@@ -33,6 +35,7 @@ expose_headers = [
 [bootstrap]
 username = "admin"
 password = "admin123"
+email = "admin@example.com"
 
 [secrets]
 # Dev-only master key for project-secret encryption. Replace + inject at deploy.

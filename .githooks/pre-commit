@@ -1,0 +1,2 @@
+#!/bin/sh
+cargo fmt --all --check >/dev/null || { echo "commit: run cargo fmt --all"; exit 1; }
