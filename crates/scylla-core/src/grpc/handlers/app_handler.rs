@@ -1,14 +1,15 @@
 use crate::application::AppUseCases;
 use crate::grpc::adapter::run;
-use crate::grpc::mappers::{app_credential_to_proto, app_to_proto};
+use crate::grpc::mappers::{app_access_to_proto, app_credential_to_proto, app_to_proto};
 use derive_more::Constructor;
 use scylla_extension::Actions;
 use scylla_proto::app::v1::{
     CreateAppRequest, CreateAppResponse, CreateAppSecretRequest, CreateAppSecretResponse,
-    DeleteAppRequest, DeleteAppResponse, GetAppRequest, GetAppResponse, ListAppSecretsRequest,
-    ListAppSecretsResponse, ListAppsRequest, ListAppsResponse, RevokeAppSecretRequest,
-    RevokeAppSecretResponse, SetAppActiveRequest, SetAppActiveResponse, SetAppSecretEnabledRequest,
-    SetAppSecretEnabledResponse, app_service_server::AppService,
+    DeleteAppRequest, DeleteAppResponse, GetAppRequest, GetAppResponse, ListAppAccessRequest,
+    ListAppAccessResponse, ListAppSecretsRequest, ListAppSecretsResponse, ListAppsRequest,
+    ListAppsResponse, RevokeAppSecretRequest, RevokeAppSecretResponse, SetAppActiveRequest,
+    SetAppActiveResponse, SetAppSecretEnabledRequest, SetAppSecretEnabledResponse,
+    SetAppSecretLabelRequest, SetAppSecretLabelResponse, app_service_server::AppService,
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
@@ -106,6 +107,26 @@ impl AppService for AppHandler {
         let credential = run(&self.actions, &*self.apps, request).await?;
         Ok(Response::new(SetAppSecretEnabledResponse {
             app_secret: Some(app_credential_to_proto(&credential)),
+        }))
+    }
+
+    async fn set_app_secret_label(
+        &self,
+        request: Request<SetAppSecretLabelRequest>,
+    ) -> Result<Response<SetAppSecretLabelResponse>, Status> {
+        let credential = run(&self.actions, &*self.apps, request).await?;
+        Ok(Response::new(SetAppSecretLabelResponse {
+            app_secret: Some(app_credential_to_proto(&credential)),
+        }))
+    }
+
+    async fn list_app_access(
+        &self,
+        request: Request<ListAppAccessRequest>,
+    ) -> Result<Response<ListAppAccessResponse>, Status> {
+        let access = run(&self.actions, &*self.apps, request).await?;
+        Ok(Response::new(ListAppAccessResponse {
+            access: access.iter().map(app_access_to_proto).collect(),
         }))
     }
 }

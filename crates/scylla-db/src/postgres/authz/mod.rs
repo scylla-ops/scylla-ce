@@ -25,19 +25,6 @@ impl AuthzEntityProvider for PgAuthzEntityProvider {
     #[instrument(skip_all, fields(resource = %resource))]
     async fn resource_ancestors(&self, resource: &ResourceRef) -> DomainResult<ResourceAncestors> {
         match resource {
-            ResourceRef::Invitation(id) => {
-                let row = sqlx::query!(
-                    "SELECT organization_id FROM organization_invites WHERE id = $1",
-                    id.as_str(),
-                )
-                .fetch_optional(&self.pool)
-                .await
-                .to_domain()?;
-                Ok(ResourceAncestors {
-                    organization: row.map(|r| OrganizationId::new(r.organization_id)),
-                    ..Default::default()
-                })
-            }
             ResourceRef::Project(id) => {
                 let row = sqlx::query!(
                     "SELECT organization_id FROM projects WHERE id = $1",

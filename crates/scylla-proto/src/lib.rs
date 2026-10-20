@@ -18,18 +18,6 @@ pub mod auth {
     }
 }
 
-pub mod invitation {
-    pub mod v1 {
-        tonic::include_proto!("scylla.invitation.v1");
-    }
-}
-
-pub mod oauth {
-    pub mod v1 {
-        tonic::include_proto!("scylla.oauth.v1");
-    }
-}
-
 pub mod user {
     pub mod v1 {
         tonic::include_proto!("scylla.user.v1");

@@ -1,8 +1,8 @@
 //! The organization's actions through the engine, on stub ports.
 
 use super::*;
-use crate::application::AppRepository;
 use crate::application::pagination::{PaginatedResult, PaginationParams};
+use crate::application::{AppRepository, PrincipalAccess};
 use crate::domain::agent::Agent;
 use crate::domain::app::{App, AppCredential, AppName};
 use crate::domain::errors::{DomainError, DomainResult};
@@ -51,6 +51,12 @@ impl OrganizationRepository for StubOrganizations {
         _: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<UserId>> {
         empty_page()
+    }
+    async fn count_members(&self, _: &OrganizationId) -> DomainResult<u64> {
+        Ok(0)
+    }
+    async fn has_member(&self, _: &OrganizationId, _: &UserId) -> DomainResult<bool> {
+        Ok(false)
     }
     async fn list_for_user(
         &self,
@@ -127,6 +133,9 @@ impl AppRepository for StubApps {
     }
     async fn delete(&self, _: &AppId) -> DomainResult<()> {
         unreachable!("an organization action writes no app")
+    }
+    async fn list_access(&self, _: &AppId) -> DomainResult<Vec<PrincipalAccess>> {
+        unreachable!("an organization action reads no app access")
     }
 }
 

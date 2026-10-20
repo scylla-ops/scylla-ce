@@ -2,29 +2,29 @@ use crate::surface::Surface;
 use http::{HeaderName, HeaderValue, Method};
 use scylla_auth::audit::AuditLog;
 use scylla_auth::cedar::CedarPermissionService;
+use scylla_core::application::user::reset::ResetLinks;
 use scylla_core::application::{
     AgentUseCases, AppTokenUseCases, AppUseCases, AuthUseCases, BootstrapUseCases, CronSchedule,
-    DispatchSecretResolver, DispatchUseCases, GrantUseCases, InvitationAcceptUseCases,
-    InvitationUseCases, JobLogUseCases, JobReaper, JobUseCases, Mailer, NoopMailer, OAuthUseCases,
-    OrganizationUseCases, PendingJobScheduler, PermissionAuthorizer, PipelineUseCases,
-    ProjectUseCases, RoleUseCases, SecretCipher, SecretResolver, SecretUseCases, SessionSweeper,
-    TriggerCronScheduler, TriggerFireUseCases, TriggerFirer, TriggerFiring, TriggerUseCases,
-    UserUseCases, WebhookIngressUseCases,
+    DispatchSecretResolver, DispatchUseCases, GrantUseCases, JobLogUseCases, JobReaper,
+    JobUseCases, OrganizationUseCases, PasswordResetSender, PasswordResetUseCases,
+    PendingJobScheduler, PermissionAuthorizer, PipelineUseCases, ProjectUseCases, RoleUseCases,
+    SecretCipher, SecretResolver, SecretUseCases, SessionSweeper, TriggerCronScheduler,
+    TriggerFireUseCases, TriggerFirer, TriggerFiring, TriggerUseCases, UserUseCases,
+    WebhookIngressUseCases,
 };
 use scylla_core::config::ControlPlaneConfig;
 use scylla_core::error::StartupError;
 use scylla_core::grpc::auth_interceptor::AuthInterceptor;
 use scylla_core::infrastructure::{
-    Argon2HashService, ChaChaSecretCipher, CronScheduleService, GitHubOAuthProvider,
-    InMemoryAgentRegistry, InMemoryJobLogStream, LettreMailer,
+    Argon2HashService, ChaChaSecretCipher, CronScheduleService, InMemoryAgentRegistry,
+    InMemoryJobLogStream,
 };
 use scylla_db::{
-    PgAgentRepository, PgAppCredentialRepository, PgAppRepository, PgAppTokenRepository,
-    PgAuditLog, PgAuthzEntityProvider, PgGrantRepository, PgInvitationRepository,
-    PgJobLogRepository, PgJobRepository, PgOAuthIdentityRepository, PgOrganizationRepository,
-    PgPipelineRepository, PgProjectRepository, PgRoleRepository, PgSecretRepository,
-    PgSessionRepository, PgSignupRepository, PgTriggerDeliveryRepository, PgTriggerRepository,
-    PgUserRepository,
+    PgAccountRepository, PgAgentRepository, PgAppCredentialRepository, PgAppRepository,
+    PgAppTokenRepository, PgAuditLog, PgAuthzEntityProvider, PgGrantRepository, PgJobLogRepository,
+    PgJobRepository, PgOrganizationRepository, PgPipelineRepository, PgProjectRepository,
+    PgRoleRepository, PgSecretRepository, PgSessionRepository, PgTriggerDeliveryRepository,
+    PgTriggerRepository, PgUserRepository,
 };
 use scylla_extension::{Actions, Hooks};
 use sqlx::PgPool;
@@ -39,10 +39,8 @@ use tower_http::trace::TraceLayer;
 
 pub(crate) struct Services {
     pub auth_uc: Arc<AuthUseCases>,
-    pub invitation_uc: Arc<InvitationUseCases>,
-    pub invitation_accept_uc: Arc<InvitationAcceptUseCases>,
-    pub oauth_uc: Option<Arc<OAuthUseCases>>,
     pub user_uc: Arc<UserUseCases>,
+    pub reset_uc: Arc<PasswordResetUseCases>,
     pub org_uc: Arc<OrganizationUseCases>,
     pub actions: Arc<Actions>,
     pub project_uc: Arc<ProjectUseCases>,
@@ -68,8 +66,10 @@ pub(crate) async fn init_services(
     config: &ControlPlaneConfig,
     db: PgPool,
     hooks: Arc<Hooks>,
+    reset_sender: Arc<dyn PasswordResetSender>,
 ) -> Result<Services, StartupError> {
     let user_repo = Arc::new(PgUserRepository::new(db.clone()));
+    let account_repo = Arc::new(PgAccountRepository::new(db.clone()));
     let session_repo = Arc::new(PgSessionRepository::new(db.clone()));
     let org_repo = Arc::new(PgOrganizationRepository::new(db.clone()));
     let project_repo = Arc::new(PgProjectRepository::new(db.clone()));
@@ -81,8 +81,6 @@ pub(crate) async fn init_services(
     let app_credential_repo = Arc::new(PgAppCredentialRepository::new(db.clone()));
     let app_token_repo = Arc::new(PgAppTokenRepository::new(db.clone()));
     let agent_repo = Arc::new(PgAgentRepository::new(db.clone()));
-    let signup_repo = Arc::new(PgSignupRepository::new(db.clone()));
-    let invite_repo = Arc::new(PgInvitationRepository::new(db.clone()));
     let authz_provider = Arc::new(PgAuthzEntityProvider::new(db.clone()));
     let role_repo = Arc::new(PgRoleRepository::new(db.clone()));
     let grant_repo = Arc::new(PgGrantRepository::new(db.clone()));
@@ -122,6 +120,21 @@ pub(crate) async fn init_services(
         user_repo.clone(),
         grant_repo.clone(),
         hash_service.clone(),
+        account_repo.clone(),
+    ));
+    let public_url = config.server.public_url.as_deref();
+    if public_url.is_none() {
+        tracing::warn!(
+            "[server].public_url is not set: a reset link is a relative path. Set it to the \
+             origin that people open, for example https://scylla.example.com."
+        );
+    }
+    let reset_uc = Arc::new(PasswordResetUseCases::new(
+        user_repo.clone(),
+        account_repo.clone(),
+        hash_service.clone(),
+        reset_sender,
+        ResetLinks::new(public_url),
     ));
     // The registry and the live tail come first: the dispatcher sends through the one and
     // closes the other, and every use case that starts or ends a job goes through the dispatcher.
@@ -194,54 +207,6 @@ pub(crate) async fn init_services(
             BootstrapUseCases::new(actions.clone(), user_uc.clone(), grant_uc.clone());
         scylla_core::bootstrap::bootstrap_admin(&bootstrap_uc, cfg).await?;
     }
-
-    let mailer: Arc<dyn Mailer> = match &config.mail {
-        Some(m) => Arc::new(
-            LettreMailer::new(
-                &m.host,
-                m.port,
-                m.username.clone(),
-                m.password.clone(),
-                &m.from,
-            )
-            .map_err(|e| StartupError::Mail(e.to_string()))?,
-        ),
-        None => Arc::new(NoopMailer),
-    };
-
-    let invitation_uc = Arc::new(InvitationUseCases::new(
-        invite_repo.clone(),
-        org_repo.clone(),
-        role_repo.clone(),
-        grant_repo.clone(),
-        mailer.clone(),
-    ));
-    let invitation_accept_uc = Arc::new(InvitationAcceptUseCases::new(
-        invite_repo.clone(),
-        user_repo.clone(),
-        hash_service.clone(),
-        session_repo.clone(),
-    ));
-
-    let oauth_uc = match &config.oauth.github {
-        Some(gh) => {
-            let provider = GitHubOAuthProvider::new(
-                gh.client_id.clone(),
-                gh.client_secret.clone(),
-                gh.redirect_uri.clone(),
-            )
-            .map_err(|e| StartupError::OAuth(e.to_string()))?;
-            Some(Arc::new(OAuthUseCases::new(
-                Arc::new(provider),
-                Arc::new(PgOAuthIdentityRepository::new(db.clone())),
-                signup_repo.clone(),
-                user_repo.clone(),
-                session_repo.clone(),
-                hash_service.clone(),
-            )))
-        }
-        None => None,
-    };
 
     let job_log_uc = Arc::new(JobLogUseCases::new(
         job_log_repo.clone(),
@@ -331,10 +296,8 @@ pub(crate) async fn init_services(
 
     Ok(Services {
         auth_uc,
-        invitation_uc,
-        invitation_accept_uc,
-        oauth_uc,
         user_uc,
+        reset_uc,
         org_uc,
         actions,
         project_uc,
@@ -457,14 +420,9 @@ where
 {
     use scylla_core::grpc::{
         AgentAdminHandler, AgentHandler, AppAuthHandler, AppHandler, AuthHandler, GrantHandler,
-        InvitationAcceptHandler, InvitationHandler, JobHandler, OAuthHandler, OrganizationHandler,
-        PipelineHandler, ProjectHandler, RoleHandler, SecretHandler, TriggerHandler, UserHandler,
+        JobHandler, OrganizationHandler, PipelineHandler, ProjectHandler, RoleHandler,
+        SecretHandler, TriggerHandler, UserHandler,
     };
-    use scylla_proto::invitation::v1::{
-        invitation_accept_service_server::InvitationAcceptServiceServer,
-        invitation_service_server::InvitationServiceServer,
-    };
-    use scylla_proto::oauth::v1::oauth_service_server::OauthServiceServer;
     use scylla_proto::{
         agent::v1::agent_admin_service_server::AgentAdminServiceServer,
         agent::v1::agent_service_server::AgentServiceServer,
@@ -486,8 +444,17 @@ where
     use tonic_web::GrpcWebLayer;
     use tower::ServiceBuilder;
 
-    let auth_handler = AuthHandler::new(services.actions.clone(), services.auth_uc.clone());
-    let user_handler = UserHandler::new(services.actions.clone(), services.user_uc.clone());
+    let auth_handler = AuthHandler::new(
+        services.actions.clone(),
+        services.auth_uc.clone(),
+        services.reset_uc.clone(),
+    )
+    .trust_forwarded_headers(config.server.trust_forwarded_headers);
+    let user_handler = UserHandler::new(
+        services.actions.clone(),
+        services.user_uc.clone(),
+        services.reset_uc.clone(),
+    );
     let org_handler = OrganizationHandler::new(services.actions.clone(), services.org_uc.clone());
     let project_handler =
         ProjectHandler::new(services.actions.clone(), services.project_uc.clone());
@@ -525,8 +492,6 @@ where
     );
     let grant_handler = GrantHandler::new(services.actions.clone(), services.grant_uc.clone());
     let role_handler = RoleHandler::new(services.actions.clone(), services.role_uc.clone());
-    let invitation_handler =
-        InvitationHandler::new(services.actions.clone(), services.invitation_uc.clone());
 
     let auth_interceptor = async_interceptor(AuthInterceptor::new(
         services.session_repo.clone(),
@@ -551,17 +516,6 @@ where
     let auth_service = AuthServiceServer::new(auth_handler);
 
     let app_auth_service = AppAuthServiceServer::new(app_auth_handler);
-
-    let invitation_accept_service =
-        InvitationAcceptServiceServer::new(InvitationAcceptHandler::new(
-            services.actions.clone(),
-            services.invitation_accept_uc.clone(),
-        ));
-
-    let oauth_service = services
-        .oauth_uc
-        .as_ref()
-        .map(|uc| OauthServiceServer::new(OAuthHandler::new(services.actions.clone(), uc.clone())));
 
     let user_service = ServiceBuilder::new()
         .layer(auth_interceptor.clone())
@@ -615,10 +569,6 @@ where
         .layer(auth_interceptor.clone())
         .service(RoleServiceServer::new(role_handler));
 
-    let invitation_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(InvitationServiceServer::new(invitation_handler));
-
     let mut grpc = Routes::builder();
     grpc.add_service(reflection_v1)
         .add_service(reflection_v1alpha)
@@ -635,13 +585,7 @@ where
         .add_service(agent_service)
         .add_service(agent_admin_service)
         .add_service(grant_service)
-        .add_service(role_service)
-        .add_service(invitation_service)
-        .add_service(invitation_accept_service);
-
-    if let Some(svc) = oauth_service {
-        grpc.add_service(svc);
-    }
+        .add_service(role_service);
 
     for add in surface.grpc {
         add(&mut grpc, &auth_interceptor);

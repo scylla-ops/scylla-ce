@@ -110,7 +110,7 @@ impl ScopeKind {
     }
 }
 
-/// One gate for `CreateGrant` and `CreateInvitation`: what can be granted equals what can be invited.
+/// The one gate of `CreateGrant`: the role, its scope kind, an agent role for a user, and escalation.
 pub fn check_grantable(
     roles: &[Role],
     grants: &[Grant],
@@ -120,6 +120,26 @@ pub fn check_grantable(
     scope: &Scope,
     organization: Option<&OrganizationId>,
 ) -> DomainResult<()> {
+    let wanted = grantable_role(roles, grantee, role, scope, organization)?;
+    ensure_no_escalation(
+        roles,
+        grants,
+        delegator,
+        &wanted.permissions,
+        scope,
+        organization,
+    )
+}
+
+/// `check_grantable` without the escalation rule: the role exists and is usable in the
+/// organization, its scope kind is the kind of `scope`, and an agent role goes to an app only.
+pub fn grantable_role<'r>(
+    roles: &'r [Role],
+    grantee: PrincipalKind,
+    role: &RoleName,
+    scope: &Scope,
+    organization: Option<&OrganizationId>,
+) -> DomainResult<&'r Role> {
     let wanted = roles
         .iter()
         .find(|r| r.id == role.as_str() && r.usable_in(organization))
@@ -138,14 +158,7 @@ pub fn check_grantable(
             role.as_str()
         )));
     }
-    ensure_no_escalation(
-        roles,
-        grants,
-        delegator,
-        &wanted.permissions,
-        scope,
-        organization,
-    )
+    Ok(wanted)
 }
 
 /// The delegator holds every wanted permission through a grant at System, at the organization or
@@ -289,13 +302,8 @@ mod tests {
             .collect()
     }
 
-    fn grantable(
-        caller: &CallerContext,
-        held: &[(&str, &str, &str)],
-        role: &str,
-        on: &str,
-    ) -> DomainResult<()> {
-        let roles = [
+    fn roles() -> [Role; 6] {
+        [
             (ADMIN, ScopeKind::Organization, &[FULL_CONTROL][..]),
             (
                 ORGANIZATION_AGENT_ROLE,
@@ -330,9 +338,17 @@ mod tests {
             builtin: false,
             permissions: permissions.iter().map(ToString::to_string).collect(),
             version: 0,
-        });
+        })
+    }
+
+    fn grantable(
+        caller: &CallerContext,
+        held: &[(&str, &str, &str)],
+        role: &str,
+        on: &str,
+    ) -> DomainResult<()> {
         check_grantable(
-            &roles,
+            &roles(),
             &grants(held),
             caller,
             PrincipalKind::User,
@@ -369,6 +385,54 @@ mod tests {
             );
         }
         assert!(grantable(&service, &[], ADMIN, "o1").is_ok());
+    }
+
+    #[test]
+    fn grantable_role_gives_the_role_without_the_escalation_rule() {
+        let roles = roles();
+        let o1 = OrganizationId::new("o1");
+        let lookup = |grantee, role: &str, on: &str| {
+            grantable_role(
+                &roles,
+                grantee,
+                &RoleName::new(role).unwrap(),
+                &scope(on),
+                Some(&o1),
+            )
+            .map(|r| r.id.clone())
+        };
+
+        assert_eq!(lookup(PrincipalKind::User, ADMIN, "o1").unwrap(), ADMIN);
+        assert_eq!(
+            lookup(PrincipalKind::App, ORGANIZATION_AGENT_ROLE, "o1").unwrap(),
+            ORGANIZATION_AGENT_ROLE
+        );
+        for (grantee, wanted, on) in [
+            (PrincipalKind::User, "no-such-role", "o1"),
+            (PrincipalKind::User, PROJECT_ADMIN_ROLE, "o1"),
+            (PrincipalKind::User, ORGANIZATION_AGENT_ROLE, "o1"),
+        ] {
+            let err = lookup(grantee, wanted, on).unwrap_err();
+            assert!(
+                matches!(err, DomainError::Validation(_)),
+                "{wanted}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_role_of_another_organization_is_unknown() {
+        let mut role = roles()[0].clone();
+        role.id = "o2-role".to_string();
+        role.owner_org = Some(OrganizationId::new("o2"));
+        let result = grantable_role(
+            std::slice::from_ref(&role),
+            PrincipalKind::User,
+            &RoleName::new("o2-role").unwrap(),
+            &scope("o1"),
+            Some(&OrganizationId::new("o1")),
+        );
+        assert!(matches!(result, Err(DomainError::Validation(_))));
     }
 
     #[test]

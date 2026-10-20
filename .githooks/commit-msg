@@ -1,0 +1,4 @@
+#!/bin/sh
+msg=$(sed '/^#/d' "$1")
+[ "$(printf '%s' "$msg" | wc -l)" -eq 0 ] || { echo "commit: one line only"; exit 1; }
+printf '%s' "$msg" | grep -Eq '^(feat|fix|refactor|docs|test|chore|perf|ci)(\([a-z0-9-]+\))?: .+' || { echo "commit: <type>[(<scope>)]: <description>"; exit 1; }

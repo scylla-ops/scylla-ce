@@ -92,7 +92,7 @@ impl Role {
 
 pub fn resource_home_scope(resource_type: &str) -> ScopeKind {
     match resource_type {
-        "organization" | "invitation" | "app" | "app_secret" => ScopeKind::Organization,
+        "organization" | "app" | "app_secret" => ScopeKind::Organization,
         "project" | "pipeline" | "job" | "secret" | "trigger" => ScopeKind::Project,
         _ => ScopeKind::System,
     }
@@ -131,8 +131,7 @@ pub struct EffectiveScope {
     pub permissions: Vec<String>,
 }
 
-pub const ROLE_IN_USE: &str =
-    "role is still granted or offered in a pending invitation; revoke those first";
+pub const ROLE_IN_USE: &str = "role is still granted; revoke those grants first";
 
 #[async_trait]
 pub trait RoleRepository: Send + Sync {
@@ -140,10 +139,10 @@ pub trait RoleRepository: Send + Sync {
     async fn get(&self, id: &str) -> DomainResult<Option<Role>>;
     async fn create(&self, role: &Role) -> DomainResult<()>;
     async fn update(&self, role: &Role) -> DomainResult<()>;
-    /// A business rule error, `ROLE_IN_USE`, when a grant or an invitation names the role at
-    /// the time of the delete.
+    /// A business rule error, `ROLE_IN_USE`, when a grant names the role at the time of the
+    /// delete.
     async fn delete(&self, role: &Role) -> DomainResult<()>;
-    /// Granted, or offered in a pending invitation.
+    /// Granted.
     async fn in_use(&self, id: &str) -> DomainResult<bool>;
 }
 

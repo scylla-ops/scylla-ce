@@ -51,11 +51,14 @@ pub(crate) fn app_only(caller: &CallerContext) -> DomainResult<AppId> {
     }
 }
 
-/// The guard of an action that records its user: an invitation names the user who sent it.
+/// The guard of an action on the caller's own account: the target is the caller, and an app or a
+/// service has no account.
 pub(crate) fn user_only(caller: &CallerContext) -> DomainResult<UserId> {
     match caller {
         CallerContext::User(user_id) => Ok(user_id.clone()),
-        _ => Err(DomainError::forbidden("only a user sends an invitation")),
+        _ => Err(DomainError::forbidden(
+            "only a user acts on its own account",
+        )),
     }
 }
 

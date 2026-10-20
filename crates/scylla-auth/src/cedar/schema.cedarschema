@@ -2,7 +2,7 @@
 //
 // Entities form the tenancy hierarchy Pipeline ∈ Project ∈ Organization,
 // Job ∈ Pipeline, Trigger ∈ Pipeline, Secret ∈ Project,
-// Invitation ∈ Organization, AppSecret ∈ App, Grant ∈ its scope and Role ∈ its owner. Principals carry no attributes: what someone may
+// AppSecret ∈ App, Grant ∈ its scope and Role ∈ its owner. Principals carry no attributes: what someone may
 // do comes entirely from the grants linked into the policy set. Actions are
 // fine-grained (one per use-case operation) so `appliesTo` pins the resource
 // type and policies stay readable.
@@ -29,7 +29,6 @@ namespace Scylla {
     entity Job in [Pipeline, System];
     entity Secret in [Project, System];
     entity Trigger in [Pipeline, System];
-    entity Invitation in [Organization, System];
     entity AppSecret in [App, System];
     entity Grant in [Project, Organization, System];
     // A role with no owner is a platform role and sits under System.
@@ -86,12 +85,6 @@ namespace Scylla {
            "listProjectsByOrganization", "listPipelinesByOrganization", "listJobsByOrganization",
            "listAppsByOrganization", "listAgents"
         appliesTo { principal: [User, Service], resource: [Organization] };
-
-    // ── Organization- or invitation-targeted ───────────────────────────
-    // A revoke is checked on the invitation, which is in its organization, so
-    // a grant on the organization reaches it.
-    action "manageInvitations"
-        appliesTo { principal: [User, Service], resource: [Organization, Invitation] };
 
     // ── Project-targeted ───────────────────────────────────────────────
     action "readProject", "updateProject", "deleteProject",

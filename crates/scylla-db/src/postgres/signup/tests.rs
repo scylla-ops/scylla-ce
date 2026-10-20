@@ -6,7 +6,7 @@ use crate::postgres::{
 use crate::test_support::prelude::*;
 use scylla_auth::authz::{Grant, GrantRepository, ORGANIZATION_ADMIN_ROLE, Principal, Scope};
 use scylla_core::application::signup::repository::SignupRepository;
-use scylla_core::application::{OrganizationRepository, UserRepository};
+use scylla_core::application::{NewAccount, OrganizationRepository, UserRepository};
 use sqlx::PgPool;
 
 fn org_admin_grant(
@@ -127,6 +127,7 @@ async fn login_by_email_or_username(pool: PgPool) {
             Login {
                 identifier: identifier.to_string(),
                 password: Password::new(password).unwrap(),
+                client: crate::domain::session::SessionClient::default(),
             },
         )
     };
@@ -156,7 +157,6 @@ async fn a_provisioned_account_is_admin_of_its_own_org_only(pool: PgPool) {
     use scylla_auth::audit::NoopAuditLog;
     use scylla_auth::authz::{ORGANIZATION_CREATOR_ROLE, PermissionService, Scope};
     use scylla_auth::cedar::CedarPermissionService;
-    use scylla_core::application::NewAccount;
     use std::sync::Arc;
 
     let foreign = seed_org(&pool, "Foreign Corp").await;
@@ -214,5 +214,59 @@ async fn a_provisioned_account_is_admin_of_its_own_org_only(pool: PgPool) {
     assert!(
         matches!(err, crate::domain::errors::DomainError::Forbidden(_)),
         "expected Forbidden on cross-tenant access, got {err:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn an_account_without_an_organization_writes_the_user_and_its_grants(pool: PgPool) {
+    use scylla_auth::authz::ORGANIZATION_CREATOR_ROLE;
+
+    let account = NewAccount::without_organization(user("solo")).with_grant(
+        RoleName::new(ORGANIZATION_CREATOR_ROLE).unwrap(),
+        Scope::System,
+    );
+    PgSignupRepository::new(pool.clone())
+        .provision_user(&account.user, &account.grants)
+        .await
+        .expect("provision");
+
+    PgUserRepository::new(pool.clone())
+        .find_by_id(account.user.id())
+        .await
+        .expect("user persisted");
+    let grants = PgGrantRepository::new(pool.clone())
+        .list_all()
+        .await
+        .unwrap();
+    assert_eq!(grants.len(), 1);
+    assert_eq!(grants[0].id, account.grants[0].id);
+    let organizations: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM organizations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(organizations, 0);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn a_grant_that_fails_rolls_back_the_account_without_an_organization(pool: PgPool) {
+    let account = NewAccount::without_organization(user("solo")).with_grant(
+        RoleName::new(ORGANIZATION_ADMIN_ROLE).unwrap(),
+        Scope::Organization(crate::domain::ids::OrganizationId::new("missing")),
+    );
+
+    let err = PgSignupRepository::new(pool.clone())
+        .provision_user(&account.user, &account.grants)
+        .await
+        .expect_err("a grant on a missing organization must fail");
+
+    assert!(
+        matches!(err, crate::domain::errors::DomainError::BusinessRule(_)),
+        "{err:?}"
+    );
+    assert!(
+        PgUserRepository::new(pool)
+            .find_by_id(account.user.id())
+            .await
+            .is_err()
     );
 }

@@ -4,7 +4,8 @@ use crate::domain::errors::DomainResult;
 use crate::domain::ids::{AppId, OrganizationId};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use scylla_auth::authz::Grant;
+use scylla_auth::authz::{Grant, Principal};
+use scylla_core::application::PrincipalAccess;
 use scylla_core::application::app::AppRepository;
 use sqlx::{PgExecutor, PgPool};
 use tracing::instrument;
@@ -90,6 +91,11 @@ impl AppRepository for PgAppRepository {
     #[instrument(skip_all, fields(app_id = %id))]
     async fn delete(&self, id: &AppId) -> DomainResult<()> {
         queries::delete(&self.pool, id).await
+    }
+
+    #[instrument(skip_all, fields(app_id = %id))]
+    async fn list_access(&self, id: &AppId) -> DomainResult<Vec<PrincipalAccess>> {
+        grants::list_access(&self.pool, &Principal::App(id.clone())).await
     }
 }
 

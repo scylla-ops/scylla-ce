@@ -148,6 +148,19 @@ impl AppCredentialRepository for PgAppCredentialRepository {
     }
 
     #[instrument(skip_all, fields(secret_id = %id))]
+    async fn set_label(&self, id: &AppCredentialId, label: &AppSecretLabel) -> DomainResult<()> {
+        sqlx::query!(
+            "UPDATE app_secrets SET label = $2, updated_at = NOW() WHERE id = $1",
+            id.as_str(),
+            label.as_str(),
+        )
+        .execute(&self.pool)
+        .await
+        .to_domain()?;
+        Ok(())
+    }
+
+    #[instrument(skip_all, fields(secret_id = %id))]
     async fn delete(&self, id: &AppCredentialId) -> DomainResult<()> {
         sqlx::query!("DELETE FROM app_secrets WHERE id = $1", id.as_str())
             .execute(&self.pool)

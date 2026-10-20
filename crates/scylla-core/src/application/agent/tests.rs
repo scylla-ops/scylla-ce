@@ -1,8 +1,9 @@
 //! The agent's admin actions through the engine, on stub ports.
 
 use super::*;
+use crate::application::PrincipalAccess;
 use crate::domain::agent::{Agent, AgentHost};
-use crate::domain::app::{App, AppCredential, AppName, TRIGGER_RUNNER_APP_NAME};
+use crate::domain::app::{App, AppCredential, AppName, AppSecretLabel, TRIGGER_RUNNER_APP_NAME};
 use crate::domain::caller::CallerContext;
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{AppId, OrganizationId, ProjectId};
@@ -76,6 +77,9 @@ impl AppRepository for StubApps {
             .retain(|a| a.app_id() != id);
         Ok(())
     }
+    async fn list_access(&self, _: &AppId) -> DomainResult<Vec<PrincipalAccess>> {
+        unreachable!("no app access in an agent action")
+    }
 }
 
 #[derive(Default)]
@@ -147,6 +151,7 @@ impl Lab {
                 CreateAgent {
                     organization_id: org(),
                     name: AppName::new("runner-1").unwrap(),
+                    secret_label: None,
                 },
             )
             .await?;
@@ -205,12 +210,33 @@ async fn a_create_provisions_the_app_its_secret_its_agent_row_and_its_grant() {
     assert!(lab.apps.rows.lock().unwrap().contains_key(&id));
     let credentials = lab.apps.credentials.lock().unwrap();
     assert_eq!(credentials.len(), 1);
-    assert_eq!(credentials[0].label().as_str(), "default");
+    assert_eq!(credentials[0].label().as_str(), "runner-1");
     assert_eq!(lab.agents.rows.lock().unwrap()[0].app_id(), &id);
     let grants = lab.apps.grants.lock().unwrap();
     assert_eq!(grants[0].principal, Principal::App(id));
     assert_eq!(grants[0].role.as_str(), ORGANIZATION_AGENT_ROLE);
     assert_eq!(grants[0].scope, Scope::Organization(org()));
+}
+
+#[tokio::test]
+async fn a_create_with_a_secret_label_names_the_first_secret_with_it() {
+    let lab = lab(Arc::new(RecordingPermissionService::new()));
+
+    lab.actions
+        .run(
+            &lab.uc,
+            &alice(),
+            CreateAgent {
+                organization_id: org(),
+                name: AppName::new("runner-1").unwrap(),
+                secret_label: Some(AppSecretLabel::new("build-01.example.com").unwrap()),
+            },
+        )
+        .await
+        .unwrap();
+
+    let credentials = lab.apps.credentials.lock().unwrap();
+    assert_eq!(credentials[0].label().as_str(), "build-01.example.com");
 }
 
 #[tokio::test]
@@ -324,6 +350,7 @@ async fn the_runner_name_is_refused() {
     let reserved = CreateAgent {
         organization_id: org(),
         name: AppName::new(TRIGGER_RUNNER_APP_NAME).unwrap(),
+        secret_label: None,
     };
     let create = lab
         .actions

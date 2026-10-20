@@ -1,3 +1,4 @@
+use crate::application::grant::PrincipalAccess;
 use crate::domain::agent::Agent;
 use crate::domain::app::{App, AppCredential};
 use crate::domain::errors::DomainResult;
@@ -28,4 +29,6 @@ pub trait AppRepository: Send + Sync {
     ) -> DomainResult<Vec<App>>;
     async fn set_active(&self, id: &AppId, active: bool) -> DomainResult<()>;
     async fn delete(&self, id: &AppId) -> DomainResult<()>;
+    /// The system grants first, then by organization name, then by project name.
+    async fn list_access(&self, id: &AppId) -> DomainResult<Vec<PrincipalAccess>>;
 }

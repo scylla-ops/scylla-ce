@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM sessions WHERE user_id = $1 AND ($2::text IS NULL OR id <> $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3f9f6fce11ecc95a102468df905dc093faf54dbc05987c5d35d25720412bef41"
+}

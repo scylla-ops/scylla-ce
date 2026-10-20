@@ -1,7 +1,11 @@
 use super::PgSessionRepository;
+use crate::domain::clock;
 use crate::domain::errors::DomainError;
+use crate::domain::ids::SessionId;
+use crate::domain::session::{ACTIVITY_INTERVAL, SessionClient};
 use crate::postgres::PgUserRepository;
 use crate::test_support::prelude::*;
+use chrono::Duration;
 use scylla_core::application::{SessionRepository, UserRepository};
 use sqlx::PgPool;
 
@@ -85,4 +89,75 @@ async fn the_store_keeps_a_digest_and_a_revoke_by_token_removes_the_session(pool
         repo.find_by_token(session.token()).await,
         Err(DomainError::NotFound(_))
     ));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn a_session_keeps_the_client_that_opened_it(pool: PgPool) {
+    let user = seed_user(&pool, "alice").await;
+    let repo = PgSessionRepository::new(pool);
+    let client = SessionClient::new(Some("Mozilla/5.0 (X11; Linux x86_64)"), Some("2001:db8::7"));
+    let with = SessionBuilder::new(user.id())
+        .client(client.clone())
+        .build();
+    let without = SessionBuilder::new(user.id()).build();
+
+    repo.create(&with).await.unwrap();
+    repo.create(&without).await.unwrap();
+
+    assert_eq!(
+        repo.find_by_token(with.token()).await.unwrap().client(),
+        &client
+    );
+    assert_eq!(
+        repo.find_by_token(without.token()).await.unwrap().client(),
+        &SessionClient::default()
+    );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn a_touch_moves_the_activity_at_most_once_in_the_interval(pool: PgPool) {
+    let user = seed_user(&pool, "touchy").await;
+    let repo = PgSessionRepository::new(pool);
+    let now = clock::now();
+    let idle = SessionBuilder::new(user.id())
+        .created_at(now - Duration::hours(1))
+        .expires_at(now + Duration::hours(1))
+        .last_active_at(now - ACTIVITY_INTERVAL)
+        .build();
+    let fresh = SessionBuilder::new(user.id())
+        .last_active_at(now - ACTIVITY_INTERVAL + Duration::seconds(1))
+        .build();
+    repo.create(&idle).await.unwrap();
+    repo.create(&fresh).await.unwrap();
+
+    assert!(repo.touch(idle.id(), now).await.unwrap());
+    assert!(
+        !repo
+            .touch(idle.id(), now + Duration::minutes(1))
+            .await
+            .unwrap()
+    );
+    assert!(!repo.touch(fresh.id(), now).await.unwrap());
+    assert!(!repo.touch(&SessionId::new("unknown"), now).await.unwrap());
+
+    let moved = repo.find_by_token(idle.token()).await.unwrap();
+    assert_eq!(moved.last_active_at(), now);
+    assert_eq!(moved.created_at(), idle.created_at());
+    assert_eq!(
+        repo.find_by_token(fresh.token())
+            .await
+            .unwrap()
+            .last_active_at(),
+        fresh.last_active_at()
+    );
+
+    let later = now + ACTIVITY_INTERVAL;
+    assert!(repo.touch(idle.id(), later).await.unwrap());
+    assert_eq!(
+        repo.find_by_token(idle.token())
+            .await
+            .unwrap()
+            .last_active_at(),
+        later
+    );
 }

@@ -13,6 +13,7 @@ use chrono::{Duration, Utc};
 use scylla_auth::authz::{Grant, ORGANIZATION_AGENT_ROLE, Principal, Scope, Visibility};
 use scylla_core::application::agent::AgentStream;
 use scylla_core::application::job::JobScope;
+use scylla_core::application::pagination::PaginationParams;
 use scylla_core::application::{AgentRepository, AppRepository, JobRepository, PipelineRepository};
 use sqlx::PgPool;
 
@@ -403,13 +404,79 @@ async fn list_by_organization_joins_through_pipeline_and_project(pool: PgPool) {
     repo.create(&job(&pipeline_other)).await.unwrap();
 
     assert_eq!(
-        repo.list_by_organization(org_target.id(), None)
+        repo.list_by_organization(org_target.id(), None, None)
             .await
             .unwrap()
             .metadata()
             .total_count(),
         2,
     );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn list_by_organization_with_an_agent_lists_only_its_jobs_newest_first(pool: PgPool) {
+    let (org, _, pipeline) = seed_org_project_pipeline(&pool, "agent").await;
+    let (_, _, elsewhere) = seed_org_project_pipeline(&pool, "else").await;
+    let agent = seed_agent(&pool, &org, "runner").await;
+    let other = seed_agent(&pool, &org, "other").await;
+    let repo = PgJobRepository::new(pool.clone());
+    let at = |minutes: i64| clock::now() - Duration::minutes(minutes);
+    let placed = JobBuilder::new(&pipeline)
+        .agent(agent.clone())
+        .created_at(at(1))
+        .build();
+    let running = JobBuilder::new(&pipeline)
+        .running(true)
+        .agent(agent.clone())
+        .created_at(at(2))
+        .build();
+    let done = JobBuilder::new(&pipeline)
+        .terminated(JobStatus::Completed)
+        .agent(agent.clone())
+        .created_at(at(3))
+        .build();
+    let on_other = JobBuilder::new(&pipeline)
+        .agent(other.clone())
+        .created_at(at(4))
+        .build();
+    let pooled = JobBuilder::new(&pipeline).created_at(at(5)).build();
+    let outside = JobBuilder::new(&elsewhere)
+        .agent(agent.clone())
+        .created_at(at(6))
+        .build();
+    for job in [&placed, &running, &done, &on_other, &pooled, &outside] {
+        repo.create(job).await.unwrap();
+    }
+
+    let first = repo
+        .list_by_organization(
+            org.id(),
+            Some(&agent),
+            Some(&PaginationParams::new(1, 2).unwrap()),
+        )
+        .await
+        .unwrap();
+    let second = repo
+        .list_by_organization(
+            org.id(),
+            Some(&agent),
+            Some(&PaginationParams::new(2, 2).unwrap()),
+        )
+        .await
+        .unwrap();
+    let all = repo
+        .list_by_organization(org.id(), None, None)
+        .await
+        .unwrap();
+
+    let page = |jobs: &[Job]| jobs.iter().map(|j| j.id().clone()).collect::<Vec<_>>();
+    assert_eq!(first.metadata().total_count(), 3);
+    assert_eq!(
+        page(first.items()),
+        [placed.id().clone(), running.id().clone()]
+    );
+    assert_eq!(page(second.items()), [done.id().clone()]);
+    assert_eq!(all.metadata().total_count(), 5);
 }
 
 #[sqlx::test(migrations = "../../migrations")]

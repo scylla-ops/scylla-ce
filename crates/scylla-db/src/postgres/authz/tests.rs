@@ -1,15 +1,12 @@
 use super::PgAuthzEntityProvider;
 use crate::domain::app::{App, AppCredential, AppName, AppSecretHash, AppSecretLabel};
-use crate::domain::ids::{AppCredentialId, GrantId, InvitationId, SecretId, TriggerId};
-use crate::domain::invitation::Invitation;
+use crate::domain::ids::{AppCredentialId, GrantId, SecretId, TriggerId};
 use crate::domain::permission::ResourceRef;
 use crate::domain::role::RoleName;
 use crate::domain::secret::{Secret, SecretDescription, SecretName};
 use crate::domain::trigger::{CronSpec, Trigger, TriggerName, TriggerSource};
-use crate::domain::user::Email;
 use crate::postgres::{
-    PgAppRepository, PgGrantRepository, PgInvitationRepository, PgSecretRepository,
-    PgTriggerRepository,
+    PgAppRepository, PgGrantRepository, PgSecretRepository, PgTriggerRepository,
 };
 use crate::test_support::prelude::*;
 use scylla_auth::authz::{
@@ -18,7 +15,6 @@ use scylla_auth::authz::{
 };
 use scylla_core::application::TriggerRepository;
 use scylla_core::application::app::AppRepository;
-use scylla_core::application::invitation::InvitationRepository;
 use scylla_core::application::secret::SecretRepository;
 use sqlx::PgPool;
 
@@ -107,41 +103,6 @@ async fn an_unknown_trigger_has_no_ancestors(pool: PgPool) {
     assert!(ancestors.organization.is_none());
     assert!(ancestors.project.is_none());
     assert!(ancestors.pipeline.is_none());
-}
-
-#[sqlx::test(migrations = "../../migrations")]
-async fn an_invitation_resolves_to_its_organization(pool: PgPool) {
-    let org = seed_org(&pool, "invitation").await;
-    let inviter = seed_user(&pool, "inviter").await;
-    let invitation = Invitation::create(
-        org.id().clone(),
-        Email::new("newbie@example.com").unwrap(),
-        None,
-        inviter.id().clone(),
-    );
-    PgInvitationRepository::new(pool.clone())
-        .create(&invitation, "token")
-        .await
-        .unwrap();
-
-    let ancestors = PgAuthzEntityProvider::new(pool)
-        .resource_ancestors(&ResourceRef::Invitation(invitation.id().clone()))
-        .await
-        .unwrap();
-
-    assert_eq!(ancestors.organization.as_ref(), Some(org.id()));
-    assert!(ancestors.project.is_none());
-    assert!(ancestors.pipeline.is_none());
-}
-
-#[sqlx::test(migrations = "../../migrations")]
-async fn an_unknown_invitation_has_no_ancestors(pool: PgPool) {
-    let ancestors = PgAuthzEntityProvider::new(pool)
-        .resource_ancestors(&ResourceRef::Invitation(InvitationId::new("missing")))
-        .await
-        .unwrap();
-
-    assert!(ancestors.organization.is_none());
 }
 
 #[sqlx::test(migrations = "../../migrations")]

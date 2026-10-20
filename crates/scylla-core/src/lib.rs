@@ -16,7 +16,8 @@ pub mod grpc;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_support;
 
-pub use grpc::middleware::extract_auth_context;
+pub use grpc::client::session_client;
+pub use grpc::middleware::{caller_session, extract_auth_context};
 
 pub use config::{BootstrapConfig, ControlPlaneConfig, CorsConfig, ServerConfig, UiConfig};
 pub use error::{BootstrapError, ConfigError, StartupError};

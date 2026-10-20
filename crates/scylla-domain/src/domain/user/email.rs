@@ -3,7 +3,7 @@ use crate::domain::text::{Rule, Text};
 
 pub enum EmailRule {}
 
-/// Light on purpose: the verification mail is the real check.
+/// Light on purpose: it checks only the shape of an address.
 impl Rule for EmailRule {
     const LABEL: &'static str = "Email";
     // RFC 5321

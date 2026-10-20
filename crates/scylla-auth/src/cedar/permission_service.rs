@@ -235,10 +235,9 @@ impl<EP: AuthzEntityProvider> CedarPermissionService<EP> {
         let nearest = match resource {
             ResourceRef::Job(_) | ResourceRef::Trigger(_) => pipeline_uid.as_ref(),
             ResourceRef::Pipeline(_) | ResourceRef::Secret(_) => project_uid.as_ref(),
-            ResourceRef::Project(_)
-            | ResourceRef::App(_)
-            | ResourceRef::Invitation(_)
-            | ResourceRef::Role(_) => org_uid.as_ref(),
+            ResourceRef::Project(_) | ResourceRef::App(_) | ResourceRef::Role(_) => {
+                org_uid.as_ref()
+            }
             ResourceRef::AppSecret(_) => app_uid.as_ref(),
             ResourceRef::Grant(_) => project_uid.as_ref().or(org_uid.as_ref()),
             ResourceRef::Organization(_) | ResourceRef::User(_) | ResourceRef::System => None,
@@ -406,8 +405,8 @@ mod tests {
     use crate::authz::role::{FULL_CONTROL, RoleKind};
     use crate::domain::caller::ServiceIdentity;
     use crate::domain::ids::{
-        AppCredentialId, AppId, GrantId, InvitationId, JobId, OrganizationId, PipelineId,
-        ProjectId, SecretId, TriggerId, UserId,
+        AppCredentialId, AppId, GrantId, JobId, OrganizationId, PipelineId, ProjectId, SecretId,
+        TriggerId, UserId,
     };
     use crate::domain::role::{RoleDescription, RoleDisplayName, RoleName};
     use std::sync::Mutex;
@@ -1094,60 +1093,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn listing_members_does_not_confer_invitation_management() {
-        let viewer = service(
-            ResourceAncestors::default(),
-            vec![Grant::new(
-                Principal::User(UserId::new("viewer")),
-                role(ORGANIZATION_VIEWER_ROLE),
-                Scope::Organization(OrganizationId::new("o1")),
-            )],
-        )
-        .await;
-        let viewer_caller = CallerContext::User(UserId::new("viewer"));
-        assert!(
-            viewer
-                .check(
-                    &viewer_caller,
-                    Permission::ListOrganizationMembers(OrganizationId::new("o1"))
-                )
-                .await
-                .is_ok(),
-            "an organization viewer can list its people"
-        );
-        assert!(
-            viewer
-                .check(
-                    &viewer_caller,
-                    Permission::ManageInvitations(OrganizationId::new("o1"))
-                )
-                .await
-                .is_err(),
-            "but must NOT manage its invitations"
-        );
-
-        let admin = service(
-            ResourceAncestors::default(),
-            vec![Grant::new(
-                Principal::User(UserId::new("admin")),
-                role(ORGANIZATION_ADMIN_ROLE),
-                Scope::Organization(OrganizationId::new("o1")),
-            )],
-        )
-        .await;
-        assert!(
-            admin
-                .check(
-                    &CallerContext::User(UserId::new("admin")),
-                    Permission::ManageInvitations(OrganizationId::new("o1"))
-                )
-                .await
-                .is_ok(),
-            "an org admin manages its invitations"
-        );
-    }
-
-    #[tokio::test]
     async fn org_admin_manages_project_grants_under_its_org() {
         let grant = Grant::new(
             Principal::User(UserId::new("u1")),
@@ -1368,7 +1313,7 @@ mod tests {
         );
     }
 
-    fn invitation_in(organization: &str) -> ResourceAncestors {
+    fn in_organization(organization: &str) -> ResourceAncestors {
         ResourceAncestors {
             organization: Some(OrganizationId::new(organization)),
             project: None,
@@ -1383,27 +1328,6 @@ mod tests {
             role(role_name),
             Scope::Organization(OrganizationId::new("o1")),
         )]
-    }
-
-    #[tokio::test]
-    async fn an_invitation_revoke_is_reached_through_the_invitation_organization() {
-        let caller = CallerContext::User(UserId::new("u1"));
-        let revoke = || Permission::RevokeInvitation(InvitationId::new("i1"));
-
-        let own = service(invitation_in("o1"), org_grant(ORGANIZATION_ADMIN_ROLE)).await;
-        assert!(own.check(&caller, revoke()).await.is_ok());
-
-        let other = service(invitation_in("o2"), org_grant(ORGANIZATION_ADMIN_ROLE)).await;
-        assert!(
-            other.check(&caller, revoke()).await.is_err(),
-            "a grant on o1 confers nothing on an invitation of o2"
-        );
-
-        let viewer = service(invitation_in("o1"), org_grant(ORGANIZATION_VIEWER_ROLE)).await;
-        assert!(
-            viewer.check(&caller, revoke()).await.is_err(),
-            "an organization viewer does not manage invitations"
-        );
     }
 
     fn app_secret_in(organization: &str) -> ResourceAncestors {
@@ -1453,7 +1377,6 @@ mod tests {
             Permission::ReadApp(AppId::new("missing")),
             Permission::DeleteSecret(SecretId::new("missing")),
             Permission::ManageTrigger(TriggerId::new("missing")),
-            Permission::RevokeInvitation(InvitationId::new("missing")),
             Permission::ManageAppSecret(AppCredentialId::new("missing")),
             Permission::RevokeGrant(GrantId::new("missing")),
         ];
@@ -1496,7 +1419,7 @@ mod tests {
     #[tokio::test]
     async fn an_app_with_organization_admin_reads_itself() {
         let svc = service(
-            invitation_in("o1"),
+            in_organization("o1"),
             vec![Grant::new(
                 Principal::App(AppId::new("a1")),
                 role(ORGANIZATION_ADMIN_ROLE),

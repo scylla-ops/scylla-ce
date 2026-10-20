@@ -1,6 +1,7 @@
 mod error;
 mod version;
 
+pub mod accounts;
 pub mod agents;
 pub mod app_secrets;
 pub mod app_tokens;
@@ -8,10 +9,8 @@ pub mod apps;
 pub mod audit;
 pub mod authz;
 pub mod grants;
-pub mod invitations;
 pub mod job_logs;
 pub mod jobs;
-pub mod oauth_identities;
 pub mod organizations;
 pub mod pipelines;
 pub mod project_secrets;
@@ -24,6 +23,7 @@ pub mod triggers;
 pub mod users;
 pub mod visibility;
 
+pub use accounts::PgAccountRepository;
 pub use agents::PgAgentRepository;
 pub use app_secrets::PgAppCredentialRepository;
 pub use app_tokens::PgAppTokenRepository;
@@ -31,10 +31,8 @@ pub use apps::PgAppRepository;
 pub use audit::PgAuditLog;
 pub use authz::PgAuthzEntityProvider;
 pub use grants::PgGrantRepository;
-pub use invitations::PgInvitationRepository;
 pub use job_logs::PgJobLogRepository;
 pub use jobs::PgJobRepository;
-pub use oauth_identities::PgOAuthIdentityRepository;
 pub use organizations::PgOrganizationRepository;
 pub use pipelines::PgPipelineRepository;
 pub use project_secrets::PgSecretRepository;

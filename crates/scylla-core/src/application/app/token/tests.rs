@@ -1,6 +1,7 @@
 //! The app token exchange through the engine, on stub ports.
 
 use super::*;
+use crate::application::PrincipalAccess;
 use crate::domain::agent::Agent;
 use crate::domain::app::AppToken;
 use crate::domain::app::{
@@ -56,6 +57,9 @@ impl AppRepository for OneApp {
     async fn delete(&self, _: &AppId) -> DomainResult<()> {
         unreachable!("no app write in the token exchange")
     }
+    async fn list_access(&self, _: &AppId) -> DomainResult<Vec<PrincipalAccess>> {
+        unreachable!("no app access in the token exchange")
+    }
 }
 
 struct EnabledCredentials(Vec<AppCredential>);
@@ -75,6 +79,9 @@ impl AppCredentialRepository for EnabledCredentials {
         Ok(self.0.clone())
     }
     async fn set_enabled(&self, _: &AppCredentialId, _: bool) -> DomainResult<()> {
+        unreachable!("no secret write in the token exchange")
+    }
+    async fn set_label(&self, _: &AppCredentialId, _: &AppSecretLabel) -> DomainResult<()> {
         unreachable!("no secret write in the token exchange")
     }
     async fn delete(&self, _: &AppCredentialId) -> DomainResult<()> {

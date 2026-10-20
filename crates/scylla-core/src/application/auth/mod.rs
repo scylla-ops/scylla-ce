@@ -11,12 +11,14 @@ pub use session_repository::SessionRepository;
 pub use sweeper::SessionSweeper;
 
 use crate::application::UserRepository;
+use crate::domain::clock;
 use crate::domain::errors::DomainResult;
 use crate::domain::ids::UserId;
 use crate::domain::session::Session;
 use chrono::Duration;
 use derive_more::Constructor;
 use std::sync::Arc;
+use tracing::warn;
 use uuid::Uuid;
 
 const SESSION_TTL_HOURS: i64 = 24;
@@ -48,6 +50,18 @@ pub async fn look_up_session(
         Ok(session) => Ok(SessionLookup::Live(session)),
         Err(e) if e.is_not_found() => Ok(SessionLookup::Unknown),
         Err(e) => Err(e),
+    }
+}
+
+/// Moves the last activity of a live session, at most once every `session::ACTIVITY_INTERVAL`,
+/// so most calls write nothing. A failure is logged and does not refuse the call.
+pub async fn record_activity(sessions: &dyn SessionRepository, session: &Session) {
+    let now = clock::now();
+    if !session.activity_due(now) {
+        return;
+    }
+    if let Err(error) = sessions.touch(session.id(), now).await {
+        warn!(session_id = %session.id(), %error, "cannot record the session activity");
     }
 }
 

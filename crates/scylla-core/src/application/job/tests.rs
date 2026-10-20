@@ -402,6 +402,7 @@ async fn each_read_checks_its_own_permission() {
             &caller,
             ListOrganizationJobs {
                 organization_id: OrganizationId::new("acme"),
+                agent_id: None,
                 pagination: None,
             },
         )
@@ -418,6 +419,49 @@ async fn each_read_checks_its_own_permission() {
             Permission::ListJobsByProject(ProjectId::new("p")),
             Permission::ListJobsByOrganization(OrganizationId::new("acme")),
         ]
+    );
+}
+
+#[tokio::test]
+async fn an_organization_list_with_an_agent_keeps_its_permission_and_lists_only_that_agent() {
+    let permissions = Arc::new(RecordingPermissionService::new());
+    let lab = lab(permissions.clone());
+    let pipeline = two_nodes();
+    let on_agent = lab.insert(&placed(&pipeline));
+    let ended = lab.insert(
+        &JobBuilder::new(&pipeline)
+            .terminated(JobStatus::Completed)
+            .agent(agent_id())
+            .build(),
+    );
+    lab.insert(
+        &JobBuilder::new(&pipeline)
+            .agent(AppId::new("other"))
+            .build(),
+    );
+    lab.insert(&job(&pipeline));
+
+    let page = lab
+        .actions
+        .run(
+            &lab.uc,
+            &alice(),
+            ListOrganizationJobs {
+                organization_id: OrganizationId::new("acme"),
+                agent_id: Some(agent_id()),
+                pagination: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let ids: Vec<&JobId> = page.items().iter().map(Job::id).collect();
+    assert_eq!(ids, [on_agent.id(), ended.id()]);
+    assert_eq!(
+        permissions.permissions(),
+        [Permission::ListJobsByOrganization(OrganizationId::new(
+            "acme"
+        ))]
     );
 }
 

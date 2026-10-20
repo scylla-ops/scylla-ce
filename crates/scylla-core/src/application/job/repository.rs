@@ -72,6 +72,7 @@ pub trait JobRepository: Send + Sync {
     async fn list_by_organization(
         &self,
         organization_id: &OrganizationId,
+        agent: Option<&AppId>,
         pagination: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<Job>>;
 }

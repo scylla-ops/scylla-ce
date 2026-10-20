@@ -80,7 +80,7 @@ impl Extension for MeteredQuota {
 Server::new(config, db).extension(&Arc::new(MeteredQuota::new(plans))).serve()
 ```
 
-The Community Edition registers nothing: the pipeline runs the access check, the stages and no hook. A use case is a struct that holds its ports and implements `Run<Prepare<C>>` and `Run<Persist<C>>` per command (`commands.rs`) and `Run<Fetch<Q>>` per query (`queries.rs`), one block per action; it has no method of its own. The gRPC handler is the adapter: each RPC is one `grpc::adapter::run` call (`run_public`, as `Anonymous`, for the services without the bearer interceptor and for HTTP routes), which parses the request into its command or query (`grpc::convert::Parse`, implemented in the aggregate's mapper), runs the engine and maps the error. The project use case and its handler are the reference; see `crates/scylla-extension/AGENTS.md` for the positions, the decision table and the failure semantics.
+The Community Edition registers nothing: the pipeline runs the access check, the stages and no hook. A use case is a struct that holds its ports and implements `Run<Prepare<C>>` and `Run<Persist<C>>` per command (`commands.rs`) and `Run<Fetch<Q>>` per query (`queries.rs`), one block per action; it has no method of its own. The gRPC handler is the adapter: each RPC is one `grpc::adapter::run` call (`run_public`, as `Anonymous`, for the services without the bearer interceptor and for HTTP routes), which parses the request into its command or query (`grpc::convert::Parse`, implemented in the aggregate's mapper), runs the engine and maps the error. The project use case and its handler are the reference; see `crates/scylla-extension/ARCHITECTURE.md` for the positions, the decision table and the failure semantics.
 
 The same builder takes what else an edition contributes, usually bundled as a `scylla_server::Feature` (its hooks, its migrations on the shared pool, its services): `authenticated_grpc_service` / `grpc_service` (its own gRPC services on the same listener, behind the core's bearer-token interceptor or not), `file_descriptor_set` (so reflection lists them) and `http_routes`. A feature's `install` step receives a `Context` with the pool, the core's `Actions` and its authorization ports, so its use cases run through the same pipeline and policies as the core's. A private edition therefore adds whole features without touching this repository.
 
@@ -116,11 +116,13 @@ docker compose pull
 docker compose up -d
 ```
 
-First boot creates the `admin` user automatically.
+The first start creates the `admin` user. The `[bootstrap]` section of the
+config sets its username, password and email. At each start, the server finds
+this account by its email and makes sure that it is a system administrator.
 
 Open **http://localhost:8080/** and sign in:
 
-- username: `admin`
+- username: `admin` (or the email `admin@example.com`)
 - password: `admin123`
 
 ## Developing
@@ -166,6 +168,54 @@ key  = "/etc/scylla/tls/privkey.pem"
 Both HTTP/2 and HTTP/1.1 are advertised over ALPN, so browsers, gRPC clients and
 plain HTTP/1.1 webhook senders all connect to the same socket.
 
+## Behind a reverse proxy
+
+Each session records the IP address of the client that signed in. The user
+sees it in the list of its sessions. By default, the server uses the peer
+address of the connection. Behind a reverse proxy, that is the address of the
+proxy. To record the address of the client, set
+`[server].trust_forwarded_headers`:
+
+```toml
+[server]
+address = "0.0.0.0:8080"
+trust_forwarded_headers = true
+```
+
+The server then uses the first entry of `x-forwarded-for`, else `x-real-ip`. A
+call without these headers keeps the peer address. The default is `false`.
+
+Set it to `true` only behind a reverse proxy that sets these headers and
+replaces the values that the client sends. A client can write these headers,
+so without such a proxy a client can record any address.
+
+## Password reset
+
+A reset link sets a new password. It opens `/reset-password` in the web UI. It
+is good for one use and expires after one hour. A user asks for a link with
+`AuthService.RequestPasswordReset`. An administrator makes a link for a user
+with `UserService.SendPasswordReset`.
+
+The Community Edition sends no mail. It writes each reset link in the server
+log, at INFO, with the user id and the username. Look for the message
+`password reset link`, for example with `just logs scylla-ce`, and give the
+link to the user. The log line does not show the email.
+
+Set `[server].public_url` to the origin that people open, without a trailing
+slash:
+
+```toml
+[server]
+address = "0.0.0.0:8080"
+public_url = "https://scylla.example.com"
+```
+
+The link is then `https://scylla.example.com/reset-password#token=...`. If you
+do not set `public_url`, the link is the relative path
+`/reset-password#token=...` and the server writes a warning when it starts.
+The shipped configs set it: `http://127.0.0.1:8080` in `local.toml` and
+`http://localhost:8080` in `docker.toml`.
+
 ## Common commands
 
 | `just`        | `docker compose`                  | What it does                                  |
@@ -203,6 +253,7 @@ Requires the Rust toolchain. Standard Cargo workflow:
 
 ```sh
 git submodule update --init
+just hooks
 cargo build
 cargo test
 ```

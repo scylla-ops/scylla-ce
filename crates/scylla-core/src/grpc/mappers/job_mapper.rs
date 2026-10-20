@@ -133,6 +133,7 @@ parse!(ListProjectJobsRequest => ListProjectJobs {
 
 parse!(ListOrganizationJobsRequest => ListOrganizationJobs {
     organization_id: id(organization_id),
+    agent_id: optional_id(agent_id),
     pagination: page,
 });
 
@@ -216,5 +217,41 @@ mod tests {
 
         assert_eq!(query.pipeline_id.as_str(), "pipe-1");
         assert!(query.pagination.is_none());
+    }
+
+    #[test]
+    fn an_organization_list_request_carries_its_agent() {
+        let query = ListOrganizationJobsRequest {
+            organization_id: wrap("acme"),
+            pagination: None,
+            agent_id: wrap("agent-1"),
+        }
+        .parse()
+        .unwrap();
+        let unfiltered = ListOrganizationJobsRequest {
+            organization_id: wrap("acme"),
+            pagination: None,
+            agent_id: None,
+        }
+        .parse()
+        .unwrap();
+
+        assert_eq!(query.organization_id.as_str(), "acme");
+        assert_eq!(query.agent_id.unwrap().as_str(), "agent-1");
+        assert!(unfiltered.agent_id.is_none());
+    }
+
+    #[test]
+    fn an_empty_agent_id_is_an_invalid_argument() {
+        let err = ListOrganizationJobsRequest {
+            organization_id: wrap("acme"),
+            pagination: None,
+            agent_id: wrap(""),
+        }
+        .parse()
+        .unwrap_err();
+
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert_eq!(err.message(), "invalid agent_id");
     }
 }

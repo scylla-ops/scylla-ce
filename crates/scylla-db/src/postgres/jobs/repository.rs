@@ -110,8 +110,8 @@ impl JobRepository for PgJobRepository {
         pagination: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<Job>> {
         let params = pagination.copied().unwrap_or_default();
-        let total = queries::count(&self.pool, JobScope::All).await?;
-        let items = queries::list_page(&self.pool, &params, JobScope::All).await?;
+        let total = queries::count(&self.pool, JobScope::All, None).await?;
+        let items = queries::list_page(&self.pool, &params, JobScope::All, None).await?;
         Ok(PaginatedResult::new(items, &params, total))
     }
 
@@ -123,8 +123,8 @@ impl JobRepository for PgJobRepository {
     ) -> DomainResult<PaginatedResult<Job>> {
         let params = pagination.copied().unwrap_or_default();
         let scope = JobScope::Pipeline(pipeline_id);
-        let total = queries::count(&self.pool, scope).await?;
-        let items = queries::list_page(&self.pool, &params, scope).await?;
+        let total = queries::count(&self.pool, scope, None).await?;
+        let items = queries::list_page(&self.pool, &params, scope, None).await?;
         Ok(PaginatedResult::new(items, &params, total))
     }
 
@@ -136,8 +136,8 @@ impl JobRepository for PgJobRepository {
     ) -> DomainResult<PaginatedResult<Job>> {
         let params = pagination.copied().unwrap_or_default();
         let scope = JobScope::Project(project_id);
-        let total = queries::count(&self.pool, scope).await?;
-        let items = queries::list_page(&self.pool, &params, scope).await?;
+        let total = queries::count(&self.pool, scope, None).await?;
+        let items = queries::list_page(&self.pool, &params, scope, None).await?;
         Ok(PaginatedResult::new(items, &params, total))
     }
 
@@ -145,12 +145,13 @@ impl JobRepository for PgJobRepository {
     async fn list_by_organization(
         &self,
         organization_id: &OrganizationId,
+        agent: Option<&AppId>,
         pagination: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<Job>> {
         let params = pagination.copied().unwrap_or_default();
         let scope = JobScope::Organization(organization_id);
-        let total = queries::count(&self.pool, scope).await?;
-        let items = queries::list_page(&self.pool, &params, scope).await?;
+        let total = queries::count(&self.pool, scope, agent).await?;
+        let items = queries::list_page(&self.pool, &params, scope, agent).await?;
         Ok(PaginatedResult::new(items, &params, total))
     }
 }
@@ -556,18 +557,35 @@ pub mod queries {
         rows.into_iter().map(Job::try_from).collect()
     }
 
-    pub async fn count<'e, E>(executor: E, scope: JobScope<'_>) -> DomainResult<u64>
+    pub async fn count<'e, E>(
+        executor: E,
+        scope: JobScope<'_>,
+        agent: Option<&AppId>,
+    ) -> DomainResult<u64>
     where
         E: PgExecutor<'e>,
     {
+        let agent = agent.map(AppId::as_str);
         let count: i64 = match scope {
-            JobScope::All => sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM jobs"#)
-                .fetch_one(executor)
-                .await
-                .to_domain()?,
+            JobScope::All => sqlx::query_scalar!(
+                r#"
+                SELECT COUNT(*) AS "count!"
+                FROM jobs
+                WHERE ($1::text IS NULL OR agent_app_id = $1)
+                "#,
+                agent,
+            )
+            .fetch_one(executor)
+            .await
+            .to_domain()?,
             JobScope::Pipeline(pipeline_id) => sqlx::query_scalar!(
-                r#"SELECT COUNT(*) AS "count!" FROM jobs WHERE pipeline_id = $1"#,
+                r#"
+                SELECT COUNT(*) AS "count!"
+                FROM jobs
+                WHERE pipeline_id = $1 AND ($2::text IS NULL OR agent_app_id = $2)
+                "#,
                 pipeline_id.as_str(),
+                agent,
             )
             .fetch_one(executor)
             .await
@@ -577,9 +595,10 @@ pub mod queries {
                 SELECT COUNT(*) AS "count!"
                 FROM jobs j
                 JOIN pipelines p ON p.id = j.pipeline_id
-                WHERE p.project_id = $1
+                WHERE p.project_id = $1 AND ($2::text IS NULL OR j.agent_app_id = $2)
                 "#,
                 project_id.as_str(),
+                agent,
             )
             .fetch_one(executor)
             .await
@@ -590,9 +609,10 @@ pub mod queries {
                 FROM jobs j
                 JOIN pipelines p ON p.id = j.pipeline_id
                 JOIN projects pr ON pr.id = p.project_id
-                WHERE pr.organization_id = $1
+                WHERE pr.organization_id = $1 AND ($2::text IS NULL OR j.agent_app_id = $2)
                 "#,
                 org_id.as_str(),
+                agent,
             )
             .fetch_one(executor)
             .await
@@ -606,12 +626,14 @@ pub mod queries {
         executor: E,
         params: &PaginationParams,
         scope: JobScope<'_>,
+        agent: Option<&AppId>,
     ) -> DomainResult<Vec<Job>>
     where
         E: PgExecutor<'e>,
     {
         let limit = i64::try_from(params.limit()).unwrap_or(i64::MAX);
         let offset = i64::try_from(params.offset()).unwrap_or(i64::MAX);
+        let agent = agent.map(AppId::as_str);
         let rows: Vec<JobRow> = match scope {
             JobScope::All => sqlx::query_as!(
                 JobRow,
@@ -624,9 +646,11 @@ pub mod queries {
                        agent_app_id,
                        created_at, updated_at, started_at, finished_at, version
                 FROM jobs
+                WHERE ($1::text IS NULL OR agent_app_id = $1)
                 ORDER BY created_at DESC
-                LIMIT $1 OFFSET $2
+                LIMIT $2 OFFSET $3
                 "#,
+                agent,
                 limit,
                 offset,
             )
@@ -644,11 +668,12 @@ pub mod queries {
                        agent_app_id,
                        created_at, updated_at, started_at, finished_at, version
                 FROM jobs
-                WHERE pipeline_id = $1
+                WHERE pipeline_id = $1 AND ($2::text IS NULL OR agent_app_id = $2)
                 ORDER BY created_at DESC
-                LIMIT $2 OFFSET $3
+                LIMIT $3 OFFSET $4
                 "#,
                 pipeline_id.as_str(),
+                agent,
                 limit,
                 offset,
             )
@@ -667,11 +692,12 @@ pub mod queries {
                        j.created_at, j.updated_at, j.started_at, j.finished_at, j.version
                 FROM jobs j
                 JOIN pipelines p ON p.id = j.pipeline_id
-                WHERE p.project_id = $1
+                WHERE p.project_id = $1 AND ($2::text IS NULL OR j.agent_app_id = $2)
                 ORDER BY j.created_at DESC
-                LIMIT $2 OFFSET $3
+                LIMIT $3 OFFSET $4
                 "#,
                 project_id.as_str(),
+                agent,
                 limit,
                 offset,
             )
@@ -691,11 +717,12 @@ pub mod queries {
                 FROM jobs j
                 JOIN pipelines p ON p.id = j.pipeline_id
                 JOIN projects pr ON pr.id = p.project_id
-                WHERE pr.organization_id = $1
+                WHERE pr.organization_id = $1 AND ($2::text IS NULL OR j.agent_app_id = $2)
                 ORDER BY j.created_at DESC
-                LIMIT $2 OFFSET $3
+                LIMIT $3 OFFSET $4
                 "#,
                 org_id.as_str(),
+                agent,
                 limit,
                 offset,
             )

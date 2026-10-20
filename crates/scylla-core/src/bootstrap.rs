@@ -2,7 +2,6 @@ use crate::application::BootstrapUseCases;
 use crate::config::BootstrapConfig;
 use crate::error::BootstrapError;
 use scylla_auth::authz::SYSTEM_ADMIN_ROLE;
-use scylla_domain::domain::errors::DomainError;
 use scylla_domain::domain::role::RoleName;
 use scylla_domain::domain::user::{Email, Password, Username};
 
@@ -19,19 +18,10 @@ pub async fn bootstrap_admin(
 
     let username = Username::new(&cfg.username).map_err(BootstrapError::InvalidUsername)?;
     let password = Password::new(&cfg.password).map_err(BootstrapError::InvalidPassword)?;
-    let email = cfg
-        .email
-        .as_deref()
-        .map(Email::new)
-        .transpose()
-        .map_err(BootstrapError::InvalidEmail)?;
+    let email = Email::new(&cfg.email).map_err(BootstrapError::InvalidEmail)?;
     let role = RoleName::new(SYSTEM_ADMIN_ROLE).map_err(BootstrapError::GrantPermission)?;
 
     bootstrap_uc
         .bootstrap_admin(username, email, password, role)
         .await
-        .map_err(|e| match e {
-            DomainError::Forbidden(_) => BootstrapError::GrantPermission(e),
-            _ => BootstrapError::CreateUser(e),
-        })
 }

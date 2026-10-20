@@ -1,7 +1,7 @@
 use crate::domain::errors::DomainResult;
 use crate::domain::ids::UserId;
 use crate::domain::user::User;
-use crate::domain::user::{Email, PasswordHash, Username};
+use crate::domain::user::{DisplayName, Email, PasswordHash, Username};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use scylla_core::application::UserRepository;
@@ -41,12 +41,12 @@ impl UserRepository for PgUserRepository {
         queries::find_by_ids(&self.pool, ids).await
     }
 
-    #[instrument(skip_all, fields(username = %username))]
+    #[instrument(skip_all)]
     async fn find_by_username(&self, username: &Username) -> DomainResult<User> {
         queries::find_by_username(&self.pool, username).await
     }
 
-    #[instrument(skip_all, fields(email = %email))]
+    #[instrument(skip_all)]
     async fn find_by_email(&self, email: &Email) -> DomainResult<User> {
         queries::find_by_email(&self.pool, email).await
     }
@@ -96,6 +96,7 @@ pub mod queries {
         id: String,
         username: String,
         email: Option<String>,
+        display_name: Option<String>,
         password_hash: String,
         is_active: bool,
         created_at: DateTime<Utc>,
@@ -104,11 +105,16 @@ pub mod queries {
     ) -> DomainResult<User> {
         let username = Username::new(username).db_field("username")?;
         let email = email.map(Email::new).transpose().db_field("email")?;
+        let display_name = display_name
+            .map(DisplayName::new)
+            .transpose()
+            .db_field("display name")?;
         let password_hash = PasswordHash::new(password_hash).db_field("password hash")?;
         Ok(User::from_persistence(
             UserId::new(id),
             username,
             email,
+            display_name,
             password_hash,
             is_active,
             created_at,
@@ -123,12 +129,13 @@ pub mod queries {
     {
         sqlx::query!(
             r#"
-            INSERT INTO users (id, username, email, password_hash, is_active, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO users (id, username, email, display_name, password_hash, is_active, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
             user.id().as_str(),
             user.username().as_str(),
             user.email().map(Email::as_str),
+            user.display_name().map(DisplayName::as_str),
             user.password_hash().as_str(),
             user.is_active(),
             user.created_at(),
@@ -146,7 +153,7 @@ pub mod queries {
     {
         let rec = sqlx::query!(
             r#"
-            SELECT id, username, email, password_hash, is_active, created_at, updated_at, version
+            SELECT id, username, email, display_name, password_hash, is_active, created_at, updated_at, version
             FROM users
             WHERE id = $1
             "#,
@@ -159,6 +166,7 @@ pub mod queries {
             rec.id,
             rec.username,
             rec.email,
+            rec.display_name,
             rec.password_hash,
             rec.is_active,
             rec.created_at,
@@ -177,7 +185,7 @@ pub mod queries {
         let id_strs: Vec<String> = ids.iter().map(|i| i.as_str().to_owned()).collect();
         let rows = sqlx::query!(
             r#"
-            SELECT id, username, email, password_hash, is_active, created_at, updated_at, version
+            SELECT id, username, email, display_name, password_hash, is_active, created_at, updated_at, version
             FROM users
             WHERE id = ANY($1::text[])
             "#,
@@ -192,6 +200,7 @@ pub mod queries {
                     r.id,
                     r.username,
                     r.email,
+                    r.display_name,
                     r.password_hash,
                     r.is_active,
                     r.created_at,
@@ -208,7 +217,7 @@ pub mod queries {
     {
         let rec = sqlx::query!(
             r#"
-            SELECT id, username, email, password_hash, is_active, created_at, updated_at, version
+            SELECT id, username, email, display_name, password_hash, is_active, created_at, updated_at, version
             FROM users
             WHERE username = $1
             "#,
@@ -222,6 +231,7 @@ pub mod queries {
             rec.id,
             rec.username,
             rec.email,
+            rec.display_name,
             rec.password_hash,
             rec.is_active,
             rec.created_at,
@@ -236,7 +246,7 @@ pub mod queries {
     {
         let rec = sqlx::query!(
             r#"
-            SELECT id, username, email, password_hash, is_active, created_at, updated_at, version
+            SELECT id, username, email, display_name, password_hash, is_active, created_at, updated_at, version
             FROM users
             WHERE email = $1
             "#,
@@ -250,6 +260,7 @@ pub mod queries {
             rec.id,
             rec.username,
             rec.email,
+            rec.display_name,
             rec.password_hash,
             rec.is_active,
             rec.created_at,
@@ -268,16 +279,18 @@ pub mod queries {
             UPDATE users
             SET username = $2,
                 email = $3,
-                password_hash = $4,
-                is_active = $5,
-                updated_at = $6,
+                display_name = $4,
+                password_hash = $5,
+                is_active = $6,
+                updated_at = $7,
                 version = version + 1
-            WHERE id = $1 AND version = $7
-            RETURNING id, username, email, password_hash, is_active, created_at, updated_at, version
+            WHERE id = $1 AND version = $8
+            RETURNING id, username, email, display_name, password_hash, is_active, created_at, updated_at, version
             "#,
             user.id().as_str(),
             user.username().as_str(),
             user.email().map(Email::as_str),
+            user.display_name().map(DisplayName::as_str),
             user.password_hash().as_str(),
             user.is_active(),
             user.updated_at(),
@@ -291,6 +304,7 @@ pub mod queries {
                 r.id,
                 r.username,
                 r.email,
+                r.display_name,
                 r.password_hash,
                 r.is_active,
                 r.created_at,
@@ -336,7 +350,7 @@ pub mod queries {
         let offset = i64::try_from(params.offset()).unwrap_or(i64::MAX);
         let rows = sqlx::query!(
             r#"
-            SELECT id, username, email, password_hash, is_active, created_at, updated_at, version
+            SELECT id, username, email, display_name, password_hash, is_active, created_at, updated_at, version
             FROM users
             ORDER BY created_at DESC
             LIMIT $1 OFFSET $2
@@ -353,6 +367,7 @@ pub mod queries {
                     r.id,
                     r.username,
                     r.email,
+                    r.display_name,
                     r.password_hash,
                     r.is_active,
                     r.created_at,

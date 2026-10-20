@@ -58,8 +58,6 @@ impl Cli {
         tracing::info!(
             ui = config.ui.enabled,
             secrets = config.secrets.is_some(),
-            mail = config.mail.is_some(),
-            github_oauth = config.oauth.github.is_some(),
             webhook = config.webhook.is_some(),
             "configuration loaded",
         );

@@ -1,7 +1,7 @@
 use super::PgUserRepository;
 use crate::domain::errors::DomainError;
 use crate::domain::ids::UserId;
-use crate::domain::user::{Email, Username};
+use crate::domain::user::{DisplayName, Email, Username};
 use crate::test_support::prelude::*;
 use scylla_core::application::UserRepository;
 use scylla_core::application::pagination::PaginationParams;
@@ -53,6 +53,20 @@ async fn find_by_email_returns_persisted_user(pool: PgPool) {
     let found = repo.find_by_email(&email).await.expect("find by email");
     assert_eq!(found.id(), user.id());
     assert_eq!(found.email().map(Email::as_str), Some("heidi@example.com"));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn an_update_writes_the_email_of_a_user_that_had_none(pool: PgPool) {
+    let repo = PgUserRepository::new(pool);
+    let mut stored = repo.create(&user("nora")).await.expect("create");
+    let email = Email::new("nora@example.com").unwrap();
+
+    stored.update_email(email.clone());
+    repo.update(&stored).await.expect("update");
+
+    let found = repo.find_by_email(&email).await.expect("find by email");
+    assert_eq!(found.id(), stored.id());
+    assert_eq!(found.version(), 1);
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -211,4 +225,33 @@ async fn a_write_on_a_missing_row_is_not_found(pool: PgPool) {
         repo.delete(&never_persisted).await,
         Err(DomainError::NotFound(_))
     ));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn a_display_name_round_trips_and_an_update_removes_it(pool: PgPool) {
+    let repo = PgUserRepository::new(pool);
+    let user = UserBuilder::new("ada").display_name("Ada Lovelace").build();
+    repo.create(&user).await.expect("create");
+
+    let mut found = repo.find_by_id(user.id()).await.expect("find");
+    assert_eq!(
+        found.display_name().map(DisplayName::as_str),
+        Some("Ada Lovelace")
+    );
+
+    found.set_display_name(None);
+    repo.update(&found).await.expect("update");
+    let page = repo.list_all(None).await.expect("list");
+    assert!(page.items()[0].display_name().is_none());
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn two_users_share_a_display_name(pool: PgPool) {
+    let repo = PgUserRepository::new(pool);
+    repo.create(&UserBuilder::new("ada").display_name("Ada").build())
+        .await
+        .expect("first");
+    repo.create(&UserBuilder::new("ada2").display_name("Ada").build())
+        .await
+        .expect("a display name is not unique");
 }

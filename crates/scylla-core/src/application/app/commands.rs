@@ -1,11 +1,14 @@
 //! The app's writes. One block per command, in the order it runs: the struct, its access,
 //! its payload types, what `Prepare` builds, what `Persist` writes. `DeleteApp` and
 //! `SetAppActive` read the App to refuse the trigger runner, then stage its id; `CreateAppSecret`
-//! refuses it too, so the runner never holds a secret.
+//! refuses it too, so the runner never holds a secret. Without a label, `CreateApp` names its
+//! first secret with `default_secret_label`.
 
 use super::AppUseCases;
 use super::mint_app_secret;
-use crate::domain::app::{App, AppCredential, AppName, AppSecret, AppSecretLabel};
+use crate::domain::app::{
+    App, AppCredential, AppName, AppSecret, AppSecretLabel, default_secret_label,
+};
 use crate::domain::errors::DomainResult;
 use crate::domain::ids::{AppCredentialId, AppId, OrganizationId};
 use crate::domain::permission::Permission;
@@ -15,12 +18,11 @@ use scylla_extension::{
     Run,
 };
 
-const DEFAULT_SECRET_LABEL: &str = "default";
-
 #[derive(Debug)]
 pub struct CreateApp {
     pub organization_id: OrganizationId,
     pub name: AppName,
+    pub secret_label: Option<AppSecretLabel>,
 }
 
 /// No `Debug`: `secret` is the plaintext the caller sees once.
@@ -53,11 +55,11 @@ impl Run<Prepare<CreateApp>> for AppUseCases {
         let app = App::create(cmd.organization_id.clone(), cmd.name.clone())?;
         let secret = mint_app_secret();
         let secret_hash = self.hash_service.hash_secret(&secret).await?;
-        let credential = AppCredential::create(
-            app.id().clone(),
-            AppSecretLabel::new(DEFAULT_SECRET_LABEL)?,
-            secret_hash,
-        );
+        let label = cmd
+            .secret_label
+            .clone()
+            .unwrap_or_else(|| default_secret_label(cmd.name.as_str()));
+        let credential = AppCredential::create(app.id().clone(), label, secret_hash);
         Ok(input.prepared(Draft::new(NewApp {
             app,
             credential,
@@ -314,6 +316,52 @@ impl Run<Persist<SetAppSecretEnabled>> for AppUseCases {
                 if !enabled {
                     self.registry.disconnect(credential.app_id());
                 }
+                self.credential_repo.find_by_id(credential.id()).await
+            })
+            .await
+    }
+}
+
+#[derive(Debug)]
+pub struct SetAppSecretLabel {
+    pub id: AppCredentialId,
+    pub label: AppSecretLabel,
+}
+
+impl Describe for SetAppSecretLabel {
+    fn access(&self) -> Access {
+        Access::Requires(Permission::ManageAppSecret(self.id.clone()))
+    }
+}
+
+impl Command for SetAppSecretLabel {
+    type Staged = AppCredential;
+    type Committed = AppCredential;
+}
+
+#[async_trait]
+impl Run<Prepare<SetAppSecretLabel>> for AppUseCases {
+    async fn run(
+        &self,
+        input: Authorized<SetAppSecretLabel>,
+    ) -> DomainResult<Prepared<SetAppSecretLabel>> {
+        let credential = self.credential_repo.find_by_id(&input.command().id).await?;
+        Ok(input.prepared(credential))
+    }
+}
+
+#[async_trait]
+impl Run<Persist<SetAppSecretLabel>> for AppUseCases {
+    async fn run(
+        &self,
+        input: Prepared<SetAppSecretLabel>,
+    ) -> DomainResult<Committed<SetAppSecretLabel>> {
+        let label = input.command().label.clone();
+        input
+            .commit(async |credential| {
+                self.credential_repo
+                    .set_label(credential.id(), &label)
+                    .await?;
                 self.credential_repo.find_by_id(credential.id()).await
             })
             .await

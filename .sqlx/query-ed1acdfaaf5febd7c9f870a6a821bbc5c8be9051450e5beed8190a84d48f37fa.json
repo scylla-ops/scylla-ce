@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE password_resets SET used_at = $2\n            WHERE id = $1 AND used_at IS NULL AND expires_at > $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ed1acdfaaf5febd7c9f870a6a821bbc5c8be9051450e5beed8190a84d48f37fa"
+}

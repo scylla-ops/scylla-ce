@@ -2,12 +2,13 @@ use super::PgAppRepository;
 use crate::domain::app::{App, AppCredential, AppKind, TRIGGER_RUNNER_APP_NAME};
 use crate::domain::app::{AppName, AppSecretHash, AppSecretLabel};
 use crate::domain::errors::DomainError;
-use crate::domain::ids::OrganizationId;
+use crate::domain::ids::{AppId, OrganizationId};
 use crate::domain::role::RoleName;
 use crate::postgres::{PgGrantRepository, PgOrganizationRepository};
 use crate::test_support::prelude::*;
 use scylla_auth::authz::{
-    Grant, GrantRepository, ORGANIZATION_TRIGGER_RUNNER_ROLE, Principal, Scope,
+    Grant, GrantRepository, ORGANIZATION_ADMIN_ROLE, ORGANIZATION_AGENT_ROLE,
+    ORGANIZATION_TRIGGER_RUNNER_ROLE, PROJECT_AGENT_ROLE, Principal, SYSTEM_ADMIN_ROLE, Scope,
 };
 use scylla_core::application::app::AppRepository;
 use sqlx::PgPool;
@@ -168,4 +169,103 @@ async fn cascade_org_delete_removes_apps(pool: PgPool) {
         repo.find_by_id(app.id()).await.is_err(),
         "deleting the org cascades to its apps"
     );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn the_access_list_of_an_app_names_each_of_its_grants_in_order(pool: PgPool) {
+    let acme = seed_org(&pool, "Acme").await;
+    let web = seed_project(&pool, &acme, "Web").await;
+    let api = seed_project(&pool, &acme, "Api").await;
+    let repo = PgAppRepository::new(pool.clone());
+    let (app, credential) = standard(acme.id(), "ci-bot");
+    repo.create_app(&app, &credential).await.unwrap();
+    let (other, other_credential) = standard(acme.id(), "other");
+    repo.create_app(&other, &other_credential).await.unwrap();
+    let user = seed_user(&pool, "kevin").await;
+    let grants = PgGrantRepository::new(pool.clone());
+    let grant = |principal: &Principal, role: &str, scope: Scope| {
+        Grant::new(principal.clone(), RoleName::new(role).unwrap(), scope)
+    };
+    let principal = Principal::App(app.id().clone());
+    for g in [
+        grant(
+            &principal,
+            PROJECT_AGENT_ROLE,
+            Scope::Project(web.id().clone()),
+        ),
+        grant(
+            &principal,
+            ORGANIZATION_AGENT_ROLE,
+            Scope::Organization(acme.id().clone()),
+        ),
+        grant(
+            &principal,
+            PROJECT_AGENT_ROLE,
+            Scope::Project(api.id().clone()),
+        ),
+        grant(&principal, SYSTEM_ADMIN_ROLE, Scope::System),
+        grant(
+            &Principal::App(other.id().clone()),
+            ORGANIZATION_AGENT_ROLE,
+            Scope::Organization(acme.id().clone()),
+        ),
+        grant(
+            &Principal::User(user.id().clone()),
+            ORGANIZATION_ADMIN_ROLE,
+            Scope::Organization(acme.id().clone()),
+        ),
+    ] {
+        grants.create(&g).await.unwrap();
+    }
+
+    let access = repo.list_access(app.id()).await.unwrap();
+    let unknown = repo.list_access(&AppId::new("ghost")).await.unwrap();
+
+    let rows: Vec<(String, String, String, &str)> = access
+        .iter()
+        .map(|a| {
+            (
+                a.scope.to_string(),
+                a.organization_name
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+                a.project_name
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+                a.role.as_str(),
+            )
+        })
+        .collect();
+    let row = |scope: String, org: &str, project: &str, role| {
+        (scope, org.to_owned(), project.to_owned(), role)
+    };
+    assert_eq!(
+        rows,
+        vec![
+            row("system".into(), "", "", SYSTEM_ADMIN_ROLE),
+            row(
+                format!("organization:{}", acme.id()),
+                "Acme",
+                "",
+                ORGANIZATION_AGENT_ROLE
+            ),
+            row(
+                format!("project:{}", api.id()),
+                "Acme",
+                "Api",
+                PROJECT_AGENT_ROLE
+            ),
+            row(
+                format!("project:{}", web.id()),
+                "Acme",
+                "Web",
+                PROJECT_AGENT_ROLE
+            ),
+        ]
+    );
+    assert_eq!(access[0].organization_id, None);
+    assert_eq!(access[3].organization_id.as_ref(), Some(acme.id()));
+    assert!(unknown.is_empty());
 }

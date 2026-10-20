@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM password_resets WHERE user_id = $1 AND ($2::text IS NULL OR id <> $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6c2479b74166c21830bfa562492ac12128275cad0fea97a250b0ff5b48655b70"
+}

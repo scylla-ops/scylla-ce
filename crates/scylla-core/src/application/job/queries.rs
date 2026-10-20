@@ -4,7 +4,7 @@
 use super::JobUseCases;
 use crate::application::pagination::{PaginatedResult, PaginationParams};
 use crate::domain::errors::DomainResult;
-use crate::domain::ids::{JobId, OrganizationId, PipelineId, ProjectId};
+use crate::domain::ids::{AppId, JobId, OrganizationId, PipelineId, ProjectId};
 use crate::domain::job::Job;
 use crate::domain::permission::Permission;
 use async_trait::async_trait;
@@ -121,9 +121,11 @@ impl Run<Fetch<ListProjectJobs>> for JobUseCases {
     }
 }
 
+/// With `agent_id`, only the jobs placed on that agent.
 #[derive(Debug)]
 pub struct ListOrganizationJobs {
     pub organization_id: OrganizationId,
+    pub agent_id: Option<AppId>,
     pub pagination: Option<PaginationParams>,
 }
 
@@ -148,7 +150,11 @@ impl Run<Fetch<ListOrganizationJobs>> for JobUseCases {
         let query = input.command();
         let page = self
             .job_repo
-            .list_by_organization(&query.organization_id, query.pagination.as_ref())
+            .list_by_organization(
+                &query.organization_id,
+                query.agent_id.as_ref(),
+                query.pagination.as_ref(),
+            )
             .await?;
         Ok(input.fetched(page))
     }

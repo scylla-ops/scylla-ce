@@ -4,23 +4,27 @@ use crate::application::agent::{
 use crate::application::job::JobScope;
 use crate::application::pagination::{PaginatedResult, PaginationParams};
 use crate::application::{
-    DispatchUseCases, HashService, JobLogLiveStream, JobLogStreamPort, JobRepository,
-    PipelineRepository, ProjectRepository, SecretResolver, SessionRepository, SignupRepository,
-    UserRepository,
+    AccountRepository, DispatchUseCases, HashService, JobLogLiveStream, JobLogStreamPort,
+    JobRepository, PipelineRepository, PrincipalAccess, ProjectRepository, SecretResolver,
+    SessionRepository, UserRepository, UserSession,
 };
 use crate::domain::app::{AppSecret, AppSecretHash};
 use crate::domain::caller::CallerContext;
+use crate::domain::clock;
 use crate::domain::errors::{DomainError, DomainResult};
-use crate::domain::ids::{AppId, JobId, OrganizationId, PipelineId, ProjectId, StreamId, UserId};
+use crate::domain::ids::{
+    AppId, JobId, OrganizationId, PipelineId, ProjectId, SessionId, StreamId, UserId,
+};
 use crate::domain::job::{Job, JobLog, JobStatus};
-use crate::domain::organization::Organization;
 use crate::domain::pipeline::{NodeId, Pipeline, PipelineNode};
 use crate::domain::project::Project;
-use crate::domain::session::Session;
-use crate::domain::user::{Email, Password, PasswordHash, User, Username};
+use crate::domain::session::{ACTIVITY_INTERVAL, Session, SessionClient};
+use crate::domain::user::{
+    Email, Password, PasswordHash, PasswordReset, ResetToken, User, Username, reset_link_invalid,
+};
 use crate::test_support::jobs::stored;
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use scylla_auth::authz::{
     Grant, GrantRepository, Principal, Role, RoleRepository, Scope, Visibility, VisibilityResolver,
 };
@@ -44,6 +48,7 @@ pub fn empty_page<T>() -> DomainResult<PaginatedResult<T>> {
 enum Hashes {
     Passwords,
     Secrets,
+    Plain,
 }
 
 pub struct StubHash {
@@ -66,23 +71,42 @@ impl StubHash {
         }
     }
 
+    /// A password hashes to `plain_hash(password)`, and a check compares the two.
+    pub fn plain() -> Self {
+        Self {
+            kind: Hashes::Plain,
+            hashed: Mutex::default(),
+        }
+    }
+
     pub fn hashed(&self) -> usize {
         *self.hashed.lock().unwrap()
     }
 }
 
+pub fn plain_hash(password: &str) -> PasswordHash {
+    PasswordHash::new(format!("$plain${password}")).unwrap()
+}
+
 #[async_trait]
 impl HashService for StubHash {
-    async fn hash(&self, _: &Password) -> DomainResult<PasswordHash> {
+    async fn hash(&self, password: &Password) -> DomainResult<PasswordHash> {
         assert!(
-            matches!(self.kind, Hashes::Passwords),
+            matches!(self.kind, Hashes::Passwords | Hashes::Plain),
             "no password in this action"
         );
         *self.hashed.lock().unwrap() += 1;
-        PasswordHash::new(HASH)
+        match self.kind {
+            Hashes::Plain => Ok(plain_hash(password.as_str())),
+            Hashes::Passwords | Hashes::Secrets => PasswordHash::new(HASH),
+        }
     }
-    async fn verify(&self, _: &Password, _: &PasswordHash) -> DomainResult<bool> {
-        unreachable!("no password check in this action")
+    async fn verify(&self, password: &Password, hash: &PasswordHash) -> DomainResult<bool> {
+        assert!(
+            matches!(self.kind, Hashes::Plain),
+            "no password check in this action"
+        );
+        Ok(&plain_hash(password.as_str()) == hash)
     }
     async fn hash_secret(&self, _: &AppSecret) -> DomainResult<AppSecretHash> {
         assert!(
@@ -213,6 +237,7 @@ impl AgentDispatch for StubRegistry {
 /// store does. `claim_next` places the oldest pending job on an idle agent that sees anything,
 /// `release` returns only the jobs of its stream, and `list_live` filters a pipeline scope
 /// only. `list_stranded` returns every running job: the stub keeps no last contact.
+/// `list_by_organization` filters on the agent only, in one page.
 #[derive(Default)]
 pub struct StubJobs {
     rows: Mutex<Vec<Job>>,
@@ -422,9 +447,17 @@ impl JobRepository for StubJobs {
     async fn list_by_organization(
         &self,
         _: &OrganizationId,
-        _: Option<&PaginationParams>,
+        agent: Option<&AppId>,
+        pagination: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<Job>> {
-        empty_page()
+        let params = pagination.copied().unwrap_or_default();
+        let jobs: Vec<Job> = self
+            .rows()
+            .into_iter()
+            .filter(|j| agent.is_none_or(|a| j.agent_app_id() == Some(a)))
+            .collect();
+        let total = jobs.len() as u64;
+        Ok(PaginatedResult::new(jobs, &params, total))
     }
 }
 
@@ -665,7 +698,7 @@ impl PipelineRepository for OnePipeline {
     }
 }
 
-/// `used` holds the roles that a grant or a pending invitation still names.
+/// `used` holds the roles that a grant still names.
 #[derive(Default)]
 pub struct StubRoles {
     rows: Mutex<Vec<Role>>,
@@ -828,17 +861,100 @@ impl UserRepository for OneUser {
     }
 }
 
+/// Keeps its users in memory. A write that takes the username or the email of another user is a
+/// `Conflict`, as in the store.
+#[derive(Default)]
+pub struct StubUsers {
+    rows: Mutex<HashMap<UserId, User>>,
+}
+
+impl StubUsers {
+    pub fn with(users: impl IntoIterator<Item = User>) -> Self {
+        let stub = Self::default();
+        for user in users {
+            stub.insert(user);
+        }
+        stub
+    }
+
+    pub fn insert(&self, user: User) {
+        self.rows.lock().unwrap().insert(user.id().clone(), user);
+    }
+
+    pub fn rows(&self) -> HashMap<UserId, User> {
+        self.rows.lock().unwrap().clone()
+    }
+
+    fn find(&self, matches: impl Fn(&User) -> bool) -> Option<User> {
+        self.rows
+            .lock()
+            .unwrap()
+            .values()
+            .find(|u| matches(u))
+            .cloned()
+    }
+}
+
+#[async_trait]
+impl UserRepository for StubUsers {
+    async fn create(&self, user: &User) -> DomainResult<User> {
+        let mut rows = self.rows.lock().unwrap();
+        let others = || rows.values().filter(|u| u.id() != user.id());
+        if others().any(|u| u.username() == user.username()) {
+            return Err(DomainError::conflict("Username already exists"));
+        }
+        if others().any(|u| u.email().is_some() && u.email() == user.email()) {
+            return Err(DomainError::conflict("Email already exists"));
+        }
+        rows.insert(user.id().clone(), user.clone());
+        Ok(user.clone())
+    }
+    async fn find_by_id(&self, id: &UserId) -> DomainResult<User> {
+        self.find(|u| u.id() == id)
+            .ok_or_else(|| DomainError::not_found("User", id))
+    }
+    async fn find_by_ids(&self, ids: &[UserId]) -> DomainResult<Vec<User>> {
+        let rows = self.rows.lock().unwrap();
+        Ok(ids
+            .iter()
+            .rev()
+            .filter_map(|id| rows.get(id).cloned())
+            .collect())
+    }
+    async fn find_by_username(&self, username: &Username) -> DomainResult<User> {
+        self.find(|u| u.username() == username)
+            .ok_or_else(|| DomainError::not_found("User", "<username>"))
+    }
+    async fn find_by_email(&self, email: &Email) -> DomainResult<User> {
+        self.find(|u| u.email() == Some(email))
+            .ok_or_else(|| DomainError::not_found("User", "<email>"))
+    }
+    async fn update(&self, user: &User) -> DomainResult<User> {
+        self.create(user).await
+    }
+    async fn delete(&self, user: &User) -> DomainResult<()> {
+        self.rows.lock().unwrap().remove(user.id());
+        Ok(())
+    }
+    async fn list_all(&self, _: Option<&PaginationParams>) -> DomainResult<PaginatedResult<User>> {
+        empty_page()
+    }
+}
+
+/// `touch` follows the rule of the store: it writes only when the stored activity is
+/// `ACTIVITY_INTERVAL` old or older, and `touched` records each write.
 #[derive(Default)]
 pub struct StubSessions {
     rows: Mutex<Vec<Session>>,
     deleted: Mutex<Vec<String>>,
+    touched: Mutex<Vec<SessionId>>,
 }
 
 impl StubSessions {
     pub fn with(session: Session) -> Self {
         Self {
             rows: Mutex::new(vec![session]),
-            deleted: Mutex::default(),
+            ..Self::default()
         }
     }
 
@@ -848,6 +964,10 @@ impl StubSessions {
 
     pub fn deleted(&self) -> Vec<String> {
         self.deleted.lock().unwrap().clone()
+    }
+
+    pub fn touched(&self) -> Vec<SessionId> {
+        self.touched.lock().unwrap().clone()
     }
 }
 
@@ -877,50 +997,216 @@ impl SessionRepository for StubSessions {
         rows.retain(|s| !s.is_expired());
         Ok((before - rows.len()) as u64)
     }
+    async fn touch(&self, id: &SessionId, at: DateTime<Utc>) -> DomainResult<bool> {
+        let mut rows = self.rows.lock().unwrap();
+        let Some(row) = rows
+            .iter_mut()
+            .find(|s| s.id() == id && at - s.last_active_at() >= ACTIVITY_INTERVAL)
+        else {
+            return Ok(false);
+        };
+        *row = Session::from_persistence(
+            row.id().clone(),
+            row.token().to_owned(),
+            row.user_id().clone(),
+            row.created_at(),
+            row.expires_at(),
+            at,
+        )
+        .with_client(row.client().clone());
+        self.touched.lock().unwrap().push(id.clone());
+        Ok(true)
+    }
 }
 
-/// Each provisioned account, with the provider identity when there is one.
-#[derive(Default)]
-pub struct StubSignups {
-    provisioned: Mutex<Vec<(User, Organization, Vec<Grant>, Option<String>)>>,
+/// The sessions and the reset links of the users of a `StubUsers`, in memory. A write of a user
+/// goes to the `StubUsers`, as the store writes both in one transaction.
+pub struct StubAccounts {
+    users: Arc<StubUsers>,
+    sessions: Mutex<Vec<(UserId, UserSession)>>,
+    resets: Mutex<Vec<PasswordReset>>,
+    access: Mutex<Vec<(UserId, PrincipalAccess)>>,
 }
 
-impl StubSignups {
-    pub fn provisioned(&self) -> Vec<(User, Organization, Vec<Grant>, Option<String>)> {
-        self.provisioned.lock().unwrap().clone()
+impl StubAccounts {
+    pub fn new(users: Arc<StubUsers>) -> Self {
+        Self {
+            users,
+            sessions: Mutex::default(),
+            resets: Mutex::default(),
+            access: Mutex::default(),
+        }
+    }
+
+    /// A session that started now and expires in one hour.
+    pub fn open_session(&self, user_id: &UserId) -> SessionId {
+        let now = clock::now();
+        let id = SessionId::generate();
+        self.put_session(
+            user_id,
+            UserSession {
+                id: id.clone(),
+                created_at: now,
+                last_active_at: now,
+                expires_at: now + Duration::hours(1),
+                client: SessionClient::default(),
+                current: false,
+            },
+        );
+        id
+    }
+
+    pub fn put_session(&self, user_id: &UserId, session: UserSession) {
+        self.sessions
+            .lock()
+            .unwrap()
+            .push((user_id.clone(), session));
+    }
+
+    pub fn sessions(&self, user_id: &UserId) -> Vec<SessionId> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(owner, _)| owner == user_id)
+            .map(|(_, session)| session.id.clone())
+            .collect()
+    }
+
+    pub fn put_reset(&self, reset: PasswordReset) {
+        self.resets.lock().unwrap().push(reset);
+    }
+
+    pub fn resets(&self, user_id: &UserId) -> Vec<PasswordReset> {
+        self.resets
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.user_id() == user_id)
+            .cloned()
+            .collect()
+    }
+
+    pub fn grant_access(&self, user_id: &UserId, access: PrincipalAccess) {
+        self.access.lock().unwrap().push((user_id.clone(), access));
+    }
+
+    fn sign_out(&self, user_id: &UserId, keep: Option<&SessionId>) -> u64 {
+        let mut sessions = self.sessions.lock().unwrap();
+        let before = sessions.len();
+        sessions.retain(|(owner, session)| owner != user_id || Some(&session.id) == keep);
+        (before - sessions.len()) as u64
     }
 }
 
 #[async_trait]
-impl SignupRepository for StubSignups {
-    async fn provision_account(
-        &self,
-        user: &User,
-        organization: &Organization,
-        grants: &[Grant],
-    ) -> DomainResult<()> {
-        self.provisioned.lock().unwrap().push((
-            user.clone(),
-            organization.clone(),
-            grants.to_vec(),
-            None,
-        ));
-        Ok(())
+impl AccountRepository for StubAccounts {
+    async fn update_signed_out(&self, user: &User, keep: Option<&SessionId>) -> DomainResult<User> {
+        let user = self.users.update(user).await?;
+        self.sign_out(user.id(), keep);
+        self.resets
+            .lock()
+            .unwrap()
+            .retain(|r| r.user_id() != user.id());
+        Ok(user)
     }
-    async fn provision_account_with_identity(
+    async fn revoke_sessions(
         &self,
-        user: &User,
-        organization: &Organization,
-        grants: &[Grant],
-        _: &str,
-        provider_user_id: &str,
-    ) -> DomainResult<()> {
-        self.provisioned.lock().unwrap().push((
-            user.clone(),
-            organization.clone(),
-            grants.to_vec(),
-            Some(provider_user_id.to_string()),
-        ));
-        Ok(())
+        user_id: &UserId,
+        keep: Option<&SessionId>,
+    ) -> DomainResult<u64> {
+        Ok(self.sign_out(user_id, keep))
+    }
+    async fn list_sessions(&self, user_id: &UserId) -> DomainResult<Vec<UserSession>> {
+        let now = clock::now();
+        let mut live: Vec<UserSession> = self
+            .sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(owner, session)| owner == user_id && session.expires_at >= now)
+            .map(|(_, session)| UserSession {
+                current: false,
+                ..session.clone()
+            })
+            .collect();
+        live.sort_by(|a, b| {
+            (b.last_active_at, b.created_at, b.id.as_str()).cmp(&(
+                a.last_active_at,
+                a.created_at,
+                a.id.as_str(),
+            ))
+        });
+        Ok(live)
+    }
+    async fn revoke_session(&self, user_id: &UserId, id: &SessionId) -> DomainResult<bool> {
+        let now = clock::now();
+        let mut sessions = self.sessions.lock().unwrap();
+        let before = sessions.len();
+        sessions.retain(|(owner, session)| {
+            !(owner == user_id && &session.id == id && session.expires_at >= now)
+        });
+        Ok(sessions.len() < before)
+    }
+    async fn issue_reset(
+        &self,
+        reset: &PasswordReset,
+        cooldown: Option<Duration>,
+    ) -> DomainResult<bool> {
+        let mut resets = self.resets.lock().unwrap();
+        let mine = |r: &PasswordReset| r.user_id() == reset.user_id();
+        if let Some(cooldown) = cooldown
+            && resets
+                .iter()
+                .any(|r| mine(r) && r.created_at() > reset.created_at() - cooldown)
+        {
+            return Ok(false);
+        }
+        resets.retain(|r| !mine(r));
+        resets.push(reset.clone());
+        Ok(true)
+    }
+    async fn find_reset(&self, token: &ResetToken) -> DomainResult<PasswordReset> {
+        self.resets
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.token() == token)
+            .cloned()
+            .ok_or_else(|| DomainError::not_found("PasswordReset", "<token>"))
+    }
+    async fn redeem_reset(&self, reset: &PasswordReset, user: &User) -> DomainResult<User> {
+        {
+            let mut resets = self.resets.lock().unwrap();
+            let stored = resets
+                .iter()
+                .find(|r| r.id() == reset.id())
+                .cloned()
+                .ok_or_else(reset_link_invalid)?;
+            stored.ensure_redeemable()?;
+            let used = PasswordReset::from_persistence(
+                stored.id().clone(),
+                stored.token().clone(),
+                stored.user_id().clone(),
+                stored.created_at(),
+                stored.expires_at(),
+                Some(clock::now()),
+            );
+            resets.retain(|r| r.user_id() != user.id());
+            resets.push(used);
+        }
+        let user = self.users.update(user).await?;
+        self.sign_out(user.id(), None);
+        Ok(user)
+    }
+    async fn list_access(&self, user_id: &UserId) -> DomainResult<Vec<PrincipalAccess>> {
+        Ok(self
+            .access
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(owner, _)| owner == user_id)
+            .map(|(_, access)| access.clone())
+            .collect())
     }
 }

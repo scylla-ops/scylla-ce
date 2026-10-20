@@ -1,8 +1,9 @@
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::OrganizationId;
+use crate::domain::permission::permission_resource_type;
 use crate::domain::role::{RoleDescription, RoleDisplayName};
 use async_trait::async_trait;
-use scylla_auth::authz::{ROLE_IN_USE, Role, RoleKind, RoleRepository, ScopeKind};
+use scylla_auth::authz::{FULL_CONTROL, ROLE_IN_USE, Role, RoleKind, RoleRepository, ScopeKind};
 use sqlx::{PgConnection, PgPool};
 use tracing::instrument;
 
@@ -65,12 +66,20 @@ impl PgRoleRepository {
                     kind,
                     owner_org: r.owner_org_id.map(OrganizationId::new),
                     builtin: r.builtin,
-                    permissions: r.permissions,
+                    permissions: known_permissions(r.permissions),
                     version: from_db(r.version),
                 })
             })
             .collect()
     }
+}
+
+/// A key that the code no longer knows stays in its row but gives nothing: the role keeps its
+/// other permissions, and its next update drops the key.
+fn known_permissions(keys: Vec<String>) -> Vec<String> {
+    keys.into_iter()
+        .filter(|key| key == FULL_CONTROL || permission_resource_type(key).is_some())
+        .collect()
 }
 
 impl PgRoleRepository {
@@ -164,8 +173,8 @@ impl RoleRepository for PgRoleRepository {
     #[instrument(skip_all, fields(role_id = %role.id, version = role.version))]
     async fn delete(&self, role: &Role) -> DomainResult<()> {
         let mut tx = self.pool.begin().await.to_domain()?;
-        // FOR UPDATE waits for a grant or an invitation that is being written with this role,
-        // and holds back the next one, so the use check below cannot go stale.
+        // FOR UPDATE waits for a grant that is being written with this role, and holds back the
+        // next one, so the use check below cannot go stale.
         let version = sqlx::query_scalar!(
             "SELECT version FROM roles WHERE id = $1 FOR UPDATE",
             role.id,
@@ -195,10 +204,7 @@ impl RoleRepository for PgRoleRepository {
 
 async fn used<'e>(executor: impl sqlx::PgExecutor<'e>, id: &str) -> DomainResult<bool> {
     sqlx::query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM grants WHERE role_id = $1) \
-             OR EXISTS (SELECT 1 FROM organization_invites \
-                        WHERE role_name = $1 AND status = 'pending' AND expires_at > NOW()) \
-         AS \"used!\"",
+        "SELECT EXISTS (SELECT 1 FROM grants WHERE role_id = $1) AS \"used!\"",
         id,
     )
     .fetch_one(executor)
@@ -226,6 +232,62 @@ mod tests {
                 .permissions
                 .contains(&"listProjectMembers".to_string())
         );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_key_that_the_code_does_not_know_is_dropped_and_the_role_keeps_working(pool: PgPool) {
+        use crate::domain::caller::CallerContext;
+        use crate::domain::permission::Permission;
+        use crate::postgres::{PgAuthzEntityProvider, PgGrantRepository};
+        use crate::test_support::prelude::*;
+        use scylla_auth::audit::NoopAuditLog;
+        use scylla_auth::authz::{Grant, GrantRepository, PermissionService, Principal, Scope};
+        use scylla_auth::cedar::CedarPermissionService;
+        use std::sync::Arc;
+
+        let org = seed_org(&pool, "legacy").await;
+        let user = seed_user(&pool, "erin").await;
+        sqlx::query(
+            "INSERT INTO roles (id, name, scope_kind) VALUES ('legacy', 'Legacy', 'organization')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO role_permissions (role_id, permission) VALUES \
+             ('legacy', 'retiredPermission'), ('legacy', 'readOrganization')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        PgGrantRepository::new(pool.clone())
+            .create(&Grant::new(
+                Principal::User(user.id().clone()),
+                RoleName::new("legacy").unwrap(),
+                Scope::Organization(org.id().clone()),
+            ))
+            .await
+            .unwrap();
+
+        let roles = PgRoleRepository::new(pool.clone());
+        let role = roles.get("legacy").await.unwrap().unwrap();
+        assert_eq!(role.permissions, ["readOrganization"]);
+
+        let permissions = CedarPermissionService::new(
+            Arc::new(PgAuthzEntityProvider::new(pool.clone())),
+            Arc::new(roles),
+            Arc::new(PgGrantRepository::new(pool)),
+            Arc::new(NoopAuditLog),
+        )
+        .await
+        .unwrap();
+        permissions
+            .check(
+                &CallerContext::User(user.id().clone()),
+                Permission::ReadOrganization(org.id().clone()),
+            )
+            .await
+            .expect("the known permission of the role still applies");
     }
 
     #[sqlx::test(migrations = "../../migrations")]

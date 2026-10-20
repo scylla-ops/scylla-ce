@@ -1,15 +1,18 @@
 //! The app's actions through the engine, on stub ports.
 
 use super::*;
+use crate::application::PrincipalAccess;
 use crate::domain::agent::Agent;
 use crate::domain::app::{App, AppCredential, AppName, AppSecretLabel, TRIGGER_RUNNER_APP_NAME};
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{AppCredentialId, AppId, OrganizationId};
+use crate::domain::organization::OrganizationName;
 use crate::domain::permission::Permission;
+use crate::domain::role::{RoleDisplayName, RoleName};
 use crate::test_support::authz::{DenyingPermissionService, RecordingPermissionService, actions};
 use crate::test_support::stubs::{StubHash, StubRegistry, alice};
 use async_trait::async_trait;
-use scylla_auth::authz::{Grant, PermissionService};
+use scylla_auth::authz::{Grant, ORGANIZATION_AGENT_ROLE, PermissionService, Scope};
 use scylla_extension::{Actions, Deleted};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -18,6 +21,7 @@ use std::sync::Mutex;
 struct StubApps {
     rows: Mutex<HashMap<AppId, App>>,
     credentials: Mutex<Vec<AppCredential>>,
+    access: Mutex<Vec<(AppId, PrincipalAccess)>>,
 }
 
 #[async_trait]
@@ -88,6 +92,16 @@ impl AppRepository for StubApps {
         self.rows.lock().unwrap().remove(id);
         Ok(())
     }
+    async fn list_access(&self, id: &AppId) -> DomainResult<Vec<PrincipalAccess>> {
+        Ok(self
+            .access
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(app, _)| app == id)
+            .map(|(_, access)| access.clone())
+            .collect())
+    }
 }
 
 #[derive(Default)]
@@ -143,6 +157,33 @@ impl AppCredentialRepository for StubCredentials {
         }
         Ok(())
     }
+    async fn set_label(&self, id: &AppCredentialId, label: &AppSecretLabel) -> DomainResult<()> {
+        let mut rows = self.rows.lock().unwrap();
+        let Some(c) = rows.get(id).cloned() else {
+            return Ok(());
+        };
+        if rows
+            .values()
+            .any(|o| o.id() != id && o.app_id() == c.app_id() && o.label() == label)
+        {
+            return Err(DomainError::conflict(
+                "App secret label already exists on this app",
+            ));
+        }
+        rows.insert(
+            id.clone(),
+            AppCredential::from_persistence(
+                c.id().clone(),
+                c.app_id().clone(),
+                label.clone(),
+                c.secret_hash().clone(),
+                c.is_enabled(),
+                c.created_at(),
+                c.updated_at(),
+            ),
+        );
+        Ok(())
+    }
     async fn delete(&self, id: &AppCredentialId) -> DomainResult<()> {
         self.rows.lock().unwrap().remove(id);
         Ok(())
@@ -164,13 +205,38 @@ impl Lab {
     }
 
     async fn create_secret(&self, app_id: &AppId) -> DomainResult<CreatedAppSecret> {
+        self.create_secret_labelled(app_id, "ci").await
+    }
+
+    async fn create_secret_labelled(
+        &self,
+        app_id: &AppId,
+        label: &str,
+    ) -> DomainResult<CreatedAppSecret> {
         self.actions
             .run(
                 &self.uc,
                 &alice(),
                 CreateAppSecret {
                     app_id: app_id.clone(),
-                    label: AppSecretLabel::new("ci").unwrap(),
+                    label: AppSecretLabel::new(label).unwrap(),
+                },
+            )
+            .await
+    }
+
+    async fn set_secret_label(
+        &self,
+        id: &AppCredentialId,
+        label: &str,
+    ) -> DomainResult<AppCredential> {
+        self.actions
+            .run(
+                &self.uc,
+                &alice(),
+                SetAppSecretLabel {
+                    id: id.clone(),
+                    label: AppSecretLabel::new(label).unwrap(),
                 },
             )
             .await
@@ -228,6 +294,7 @@ fn create() -> CreateApp {
     CreateApp {
         organization_id: org(),
         name: AppName::new("ci-bot").unwrap(),
+        secret_label: None,
     }
 }
 
@@ -247,7 +314,35 @@ async fn a_create_checks_the_permission_then_stores_the_app_with_its_default_sec
     let credentials = lab.apps.credentials.lock().unwrap();
     assert_eq!(credentials.len(), 1);
     assert_eq!(credentials[0].app_id(), created.app.id());
-    assert_eq!(credentials[0].label().as_str(), "default");
+    assert_eq!(credentials[0].label().as_str(), "ci-bot");
+}
+
+#[tokio::test]
+async fn a_create_with_a_secret_label_names_the_first_secret_with_it() {
+    let lab = lab(Arc::new(RecordingPermissionService::new()));
+
+    let labelled = CreateApp {
+        secret_label: Some(AppSecretLabel::new("build-01.example.com").unwrap()),
+        ..create()
+    };
+    lab.actions.run(&lab.uc, &alice(), labelled).await.unwrap();
+
+    let credentials = lab.apps.credentials.lock().unwrap();
+    assert_eq!(credentials[0].label().as_str(), "build-01.example.com");
+}
+
+#[tokio::test]
+async fn a_create_without_a_label_cuts_a_long_name_to_the_label_limit() {
+    let lab = lab(Arc::new(RecordingPermissionService::new()));
+
+    let long = CreateApp {
+        name: AppName::new("b".repeat(100)).unwrap(),
+        ..create()
+    };
+    lab.actions.run(&lab.uc, &alice(), long).await.unwrap();
+
+    let credentials = lab.apps.credentials.lock().unwrap();
+    assert_eq!(credentials[0].label().as_str(), "b".repeat(64));
 }
 
 #[tokio::test]
@@ -558,6 +653,50 @@ async fn enabling_a_secret_keeps_the_stream() {
 }
 
 #[tokio::test]
+async fn a_rename_checks_the_permission_on_the_secret_and_keeps_the_stream() {
+    let permissions = Arc::new(RecordingPermissionService::new());
+    let lab = lab(permissions.clone());
+    let created = lab.create().await.unwrap();
+    let secret = lab.create_secret(created.app.id()).await.unwrap();
+    let secret_id = secret.credential.id().clone();
+
+    let credential = lab
+        .set_secret_label(&secret_id, "build-01.example.com")
+        .await
+        .unwrap();
+
+    assert_eq!(credential.id(), &secret_id);
+    assert_eq!(credential.label().as_str(), "build-01.example.com");
+    assert!(credential.is_enabled());
+    assert!(lab.registry.disconnected().is_empty());
+    assert_eq!(
+        permissions.permissions()[2],
+        Permission::ManageAppSecret(secret_id)
+    );
+}
+
+#[tokio::test]
+async fn a_rename_to_a_label_of_the_same_app_conflicts_and_keeps_the_label() {
+    let lab = lab(Arc::new(RecordingPermissionService::new()));
+    let created = lab.create().await.unwrap();
+    let id = created.app.id().clone();
+    let first = lab.create_secret_labelled(&id, "first").await.unwrap();
+    lab.create_secret_labelled(&id, "second").await.unwrap();
+
+    let err = lab
+        .set_secret_label(first.credential.id(), "second")
+        .await
+        .unwrap_err();
+    let same = lab
+        .set_secret_label(first.credential.id(), "first")
+        .await
+        .unwrap();
+
+    assert!(matches!(err, DomainError::Conflict(_)));
+    assert_eq!(same.label().as_str(), "first");
+}
+
+#[tokio::test]
 async fn a_denied_secret_action_never_reads_or_writes() {
     let lab = lab(Arc::new(DenyingPermissionService::new()));
     let credential = AppCredential::create(
@@ -572,14 +711,21 @@ async fn a_denied_secret_action_never_reads_or_writes() {
         .set_secret_enabled(credential.id(), false)
         .await
         .unwrap_err();
+    let rename = lab
+        .set_secret_label(credential.id(), "renamed")
+        .await
+        .unwrap_err();
 
     assert!(matches!(revoke, DomainError::Forbidden(_)));
     assert!(matches!(disable, DomainError::Forbidden(_)));
+    assert!(matches!(rename, DomainError::Forbidden(_)));
     assert!(lab.registry.disconnected().is_empty());
+    let kept = lab.credentials.rows.lock().unwrap()[credential.id()].clone();
     assert!(
-        lab.credentials.rows.lock().unwrap()[credential.id()].is_enabled(),
+        kept.is_enabled(),
         "a denied action leaves the secret as it was"
     );
+    assert_eq!(kept.label().as_str(), "ci");
 }
 
 #[tokio::test]
@@ -589,8 +735,62 @@ async fn an_allowed_action_on_an_unknown_secret_is_not_found() {
 
     let revoke = lab.revoke_secret(&missing).await.unwrap_err();
     let disable = lab.set_secret_enabled(&missing, false).await.unwrap_err();
+    let rename = lab.set_secret_label(&missing, "renamed").await.unwrap_err();
 
     assert!(matches!(revoke, DomainError::NotFound(_)));
     assert!(matches!(disable, DomainError::NotFound(_)));
+    assert!(matches!(rename, DomainError::NotFound(_)));
     assert!(lab.registry.disconnected().is_empty());
+}
+
+fn agent_access(app_id: &AppId) -> PrincipalAccess {
+    PrincipalAccess {
+        grant_id: format!("{app_id}-acme"),
+        scope: Scope::Organization(org()),
+        organization_id: Some(org()),
+        organization_name: Some(OrganizationName::new("Acme").unwrap()),
+        project_name: None,
+        role: RoleName::new(ORGANIZATION_AGENT_ROLE).unwrap(),
+        role_name: RoleDisplayName::new("Organization agent").unwrap(),
+    }
+}
+
+#[tokio::test]
+async fn the_access_list_needs_read_app_and_an_unknown_app_holds_nothing() {
+    let permissions = Arc::new(RecordingPermissionService::new());
+    let lab = lab(permissions.clone());
+    let created = lab.create().await.unwrap();
+    let id = created.app.id().clone();
+    lab.apps
+        .access
+        .lock()
+        .unwrap()
+        .push((id.clone(), agent_access(&id)));
+
+    let access = lab
+        .actions
+        .run(&lab.uc, &alice(), ListAppAccess { app_id: id.clone() })
+        .await
+        .unwrap();
+    let ghost = lab
+        .actions
+        .run(
+            &lab.uc,
+            &alice(),
+            ListAppAccess {
+                app_id: AppId::new("ghost"),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(access, vec![agent_access(&id)]);
+    assert!(ghost.is_empty());
+    assert_eq!(
+        permissions.permissions()[1..],
+        [
+            Permission::ReadApp(id),
+            Permission::ReadApp(AppId::new("ghost")),
+        ]
+    );
 }

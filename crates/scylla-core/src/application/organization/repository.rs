@@ -15,11 +15,19 @@ pub trait OrganizationRepository: Send + Sync {
         grant: &Grant,
     ) -> DomainResult<()>;
 
+    /// The members: each user with a grant on the organization or on one of its projects. An app
+    /// is not a member.
     async fn list_principals(
         &self,
         org_id: &OrganizationId,
         pagination: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<UserId>>;
+
+    /// The number of users that `list_principals` gives.
+    async fn count_members(&self, org_id: &OrganizationId) -> DomainResult<u64>;
+
+    /// `user_id` is in `list_principals`.
+    async fn has_member(&self, org_id: &OrganizationId, user_id: &UserId) -> DomainResult<bool>;
 
     /// System-scoped grants are not expanded: an operator is not a member of every organization.
     async fn list_for_user(

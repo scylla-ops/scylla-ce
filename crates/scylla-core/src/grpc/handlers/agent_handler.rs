@@ -470,7 +470,9 @@ mod tests {
         use crate::application::agent::DispatchPendingJobs;
         use crate::application::agent::{AgentRepository, AgentStats};
         use crate::application::pagination::{PaginatedResult, PaginationParams};
-        use crate::application::{AppRepository, DispatchUseCases, JobLogRepository};
+        use crate::application::{
+            AppRepository, DispatchUseCases, JobLogRepository, PrincipalAccess,
+        };
         use crate::domain::agent::Agent;
         use crate::domain::app::{App, AppCredential};
         use crate::domain::caller::ServiceIdentity;
@@ -548,6 +550,9 @@ mod tests {
             }
             async fn delete(&self, _: &AppId) -> DomainResult<()> {
                 unreachable!("the stream writes no app")
+            }
+            async fn list_access(&self, _: &AppId) -> DomainResult<Vec<PrincipalAccess>> {
+                unreachable!("the stream reads no app access")
             }
         }
 

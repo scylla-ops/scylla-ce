@@ -41,8 +41,8 @@ impl Run<Fetch<ListGrants>> for GrantUseCases {
     }
 }
 
-/// The roles a grant or an invitation may bind: the platform roles, and with an organization the
-/// roles of that organization, which its members may read.
+/// The roles a grant may bind: the platform roles, and with an organization the roles of that
+/// organization, which its members may read.
 #[derive(Debug)]
 pub struct ListGrantableRoles {
     pub scope_kind: Option<ScopeKind>,

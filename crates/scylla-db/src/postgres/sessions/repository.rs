@@ -1,7 +1,8 @@
 use crate::domain::errors::DomainResult;
 use crate::domain::ids::{SessionId, UserId};
-use crate::domain::session::Session;
+use crate::domain::session::{ACTIVITY_INTERVAL, Session, SessionClient};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use scylla_core::application::SessionRepository;
 use sqlx::{PgExecutor, PgPool};
 use tracing::instrument;
@@ -41,6 +42,11 @@ impl SessionRepository for PgSessionRepository {
     async fn delete_expired(&self) -> DomainResult<u64> {
         queries::delete_expired(&self.pool).await
     }
+
+    #[instrument(skip(self))]
+    async fn touch(&self, id: &SessionId, at: DateTime<Utc>) -> DomainResult<bool> {
+        queries::touch(&self.pool, id, at).await
+    }
 }
 
 #[allow(clippy::wildcard_imports)]
@@ -54,8 +60,11 @@ pub mod queries {
     {
         sqlx::query!(
             r#"
-            INSERT INTO sessions (id, token_hash, user_id, created_at, expires_at, last_active_at)
-            VALUES ($1, encode(sha256(convert_to($2, 'UTF8')), 'hex'), $3, $4, $5, $6)
+            INSERT INTO sessions (
+                id, token_hash, user_id, created_at, expires_at, last_active_at,
+                user_agent, ip_address
+            )
+            VALUES ($1, encode(sha256(convert_to($2, 'UTF8')), 'hex'), $3, $4, $5, $6, $7, $8)
             "#,
             session.id().as_str(),
             session.token(),
@@ -63,6 +72,8 @@ pub mod queries {
             session.created_at(),
             session.expires_at(),
             session.last_active_at(),
+            session.client().user_agent(),
+            session.client().ip_address().map(|ip| ip.to_string()),
         )
         .execute(executor)
         .await
@@ -76,7 +87,7 @@ pub mod queries {
     {
         let rec = sqlx::query!(
             r#"
-            SELECT id, user_id, created_at, expires_at, last_active_at
+            SELECT id, user_id, created_at, expires_at, last_active_at, user_agent, ip_address
             FROM sessions
             WHERE token_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')
             "#,
@@ -93,7 +104,11 @@ pub mod queries {
             rec.created_at,
             rec.expires_at,
             rec.last_active_at,
-        ))
+        )
+        .with_client(SessionClient::new(
+            rec.user_agent.as_deref(),
+            rec.ip_address.as_deref(),
+        )))
     }
 
     pub async fn delete_by_token<'e, E>(executor: E, token: &str) -> DomainResult<()>
@@ -119,5 +134,22 @@ pub mod queries {
             .await
             .to_domain()?;
         Ok(res.rows_affected())
+    }
+
+    /// One conditional write: two calls in the same interval move the activity once.
+    pub async fn touch<'e, E>(executor: E, id: &SessionId, at: DateTime<Utc>) -> DomainResult<bool>
+    where
+        E: PgExecutor<'e>,
+    {
+        let res = sqlx::query!(
+            "UPDATE sessions SET last_active_at = $2 WHERE id = $1 AND last_active_at <= $3",
+            id.as_str(),
+            at,
+            at - ACTIVITY_INTERVAL,
+        )
+        .execute(executor)
+        .await
+        .to_domain()?;
+        Ok(res.rows_affected() > 0)
     }
 }

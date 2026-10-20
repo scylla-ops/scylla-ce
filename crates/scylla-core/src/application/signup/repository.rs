@@ -1,4 +1,4 @@
-use crate::domain::errors::DomainResult;
+use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::organization::Organization;
 use crate::domain::user::User;
 use async_trait::async_trait;
@@ -13,13 +13,13 @@ pub trait SignupRepository: Send + Sync {
         grants: &[Grant],
     ) -> DomainResult<()>;
 
-    /// Same transaction as the account: an account with no linked identity and no email would be unrecoverable.
-    async fn provision_account_with_identity(
-        &self,
-        user: &User,
-        organization: &Organization,
-        grants: &[Grant],
-        provider: &str,
-        provider_user_id: &str,
-    ) -> DomainResult<()>;
+    /// Writes an account without an organization: the user and its grants, in one transaction.
+    /// The default refuses, so a store that existed before this method still compiles; the
+    /// Postgres store writes the account.
+    async fn provision_user(&self, user: &User, grants: &[Grant]) -> DomainResult<()> {
+        let _ = (user, grants);
+        Err(DomainError::internal(
+            "this signup store cannot write an account without an organization",
+        ))
+    }
 }

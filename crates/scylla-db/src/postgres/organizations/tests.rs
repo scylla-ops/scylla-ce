@@ -211,3 +211,82 @@ async fn a_write_on_a_missing_row_is_not_found(pool: PgPool) {
         Err(DomainError::NotFound(_))
     ));
 }
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn the_members_are_the_users_with_a_grant_on_the_organization_or_on_its_projects(
+    pool: PgPool,
+) {
+    use crate::domain::app::{App, AppName};
+    use crate::domain::role::RoleName;
+    use crate::postgres::{PgAppRepository, PgGrantRepository};
+    use scylla_auth::authz::{
+        Grant, GrantRepository, ORGANIZATION_AGENT_ROLE, ORGANIZATION_MEMBER_ROLE,
+        PROJECT_DEVELOPER_ROLE, Principal, SYSTEM_ADMIN_ROLE, Scope,
+    };
+    use scylla_core::application::AppRepository;
+
+    let org = seed_org(&pool, "acme").await;
+    let other_org = seed_org(&pool, "globex").await;
+    let project = seed_project(&pool, &org, "apollo").await;
+    let member = seed_user(&pool, "member").await;
+    let developer = seed_user(&pool, "developer").await;
+    let outsider = seed_user(&pool, "outsider").await;
+    let operator = seed_user(&pool, "operator").await;
+
+    let grants = PgGrantRepository::new(pool.clone());
+    let role = |name: &str| RoleName::new(name).unwrap();
+    for grant in [
+        Grant::new(
+            Principal::User(member.id().clone()),
+            role(ORGANIZATION_MEMBER_ROLE),
+            Scope::Organization(org.id().clone()),
+        ),
+        Grant::new(
+            Principal::User(developer.id().clone()),
+            role(PROJECT_DEVELOPER_ROLE),
+            Scope::Project(project.id().clone()),
+        ),
+        Grant::new(
+            Principal::User(outsider.id().clone()),
+            role(ORGANIZATION_MEMBER_ROLE),
+            Scope::Organization(other_org.id().clone()),
+        ),
+        Grant::new(
+            Principal::User(operator.id().clone()),
+            role(SYSTEM_ADMIN_ROLE),
+            Scope::System,
+        ),
+    ] {
+        grants.create(&grant).await.unwrap();
+    }
+    let agent = App::create(org.id().clone(), AppName::new("agent").unwrap()).unwrap();
+    PgAppRepository::new(pool.clone())
+        .provision(
+            &agent,
+            &Grant::new(
+                Principal::App(agent.id().clone()),
+                role(ORGANIZATION_AGENT_ROLE),
+                Scope::Organization(org.id().clone()),
+            ),
+        )
+        .await
+        .unwrap();
+
+    let repo = PgOrganizationRepository::new(pool);
+    assert_eq!(repo.count_members(org.id()).await.unwrap(), 2);
+    for (user, expected) in [
+        (&member, true),
+        (&developer, true),
+        (&outsider, false),
+        (&operator, false),
+    ] {
+        assert_eq!(
+            repo.has_member(org.id(), user.id()).await.unwrap(),
+            expected,
+            "{}",
+            user.username().as_str()
+        );
+    }
+    let agent_as_user = crate::domain::ids::UserId::new(agent.id().as_str());
+    assert!(!repo.has_member(org.id(), &agent_as_user).await.unwrap());
+}

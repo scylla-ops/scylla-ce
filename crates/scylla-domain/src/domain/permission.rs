@@ -3,8 +3,8 @@ mod resource_ref;
 pub use resource_ref::*;
 
 use crate::domain::ids::{
-    AppCredentialId, AppId, GrantId, InvitationId, JobId, OrganizationId, PipelineId, ProjectId,
-    SecretId, TriggerId, UserId,
+    AppCredentialId, AppId, GrantId, JobId, OrganizationId, PipelineId, ProjectId, SecretId,
+    TriggerId, UserId,
 };
 use crate::domain::role::RoleName;
 use std::sync::LazyLock;
@@ -23,10 +23,6 @@ pub enum Permission {
     DeleteOrganization(OrganizationId),
     ListOrganizations,
     ListOrganizationMembers(OrganizationId),
-    /// Separate from member listing so a plain member cannot enumerate invitee emails.
-    ManageInvitations(OrganizationId),
-    /// `manageInvitations` on the invitation's organization. Shares its key, so it is not in the catalog.
-    RevokeInvitation(InvitationId),
     ListUserOrganizations(UserId),
 
     CreateProject(OrganizationId),
@@ -112,7 +108,6 @@ impl Permission {
             Self::DeleteOrganization(_) => "deleteOrganization",
             Self::ListOrganizations => "listOrganizations",
             Self::ListOrganizationMembers(_) => "listOrganizationMembers",
-            Self::ManageInvitations(_) | Self::RevokeInvitation(_) => "manageInvitations",
             Self::ListUserOrganizations(_) => "listUserOrganizations",
 
             Self::CreateProject(_) => "createProject",
@@ -194,7 +189,6 @@ impl Permission {
             | Self::UpdateOrganization(id)
             | Self::DeleteOrganization(id)
             | Self::ListOrganizationMembers(id)
-            | Self::ManageInvitations(id)
             | Self::CreateProject(id)
             | Self::ListProjectsByOrganization(id)
             | Self::ListPipelinesByOrganization(id)
@@ -205,8 +199,6 @@ impl Permission {
             | Self::ListAgents(id)
             | Self::ManageOrgGrants(id)
             | Self::ManageOrgRoles(id) => ResourceRef::Organization(id.clone()),
-
-            Self::RevokeInvitation(id) => ResourceRef::Invitation(id.clone()),
 
             Self::ReadProject(id)
             | Self::UpdateProject(id)
@@ -262,7 +254,6 @@ pub const RESOURCE_TYPES: &[&str] = &[
     "system",
     "user",
     "organization",
-    "invitation",
     "project",
     "pipeline",
     "job",
@@ -294,7 +285,6 @@ fn catalog_variants() -> Vec<Permission> {
         Permission::DeleteOrganization(org.clone()),
         Permission::ListOrganizations,
         Permission::ListOrganizationMembers(org.clone()),
-        Permission::ManageInvitations(org.clone()),
         Permission::ListUserOrganizations(user.clone()),
         Permission::CreateProject(org.clone()),
         Permission::ReadProject(project.clone()),
@@ -364,7 +354,7 @@ mod catalog_tests {
     use super::{
         PERMISSION_CATALOG, Permission, RESOURCE_TYPES, catalog_variants, permission_resource_type,
     };
-    use crate::domain::ids::{AppCredentialId, GrantId, InvitationId, TriggerId};
+    use crate::domain::ids::{AppCredentialId, GrantId, TriggerId};
     use crate::domain::role::RoleName;
     use std::collections::HashSet;
 
@@ -397,13 +387,6 @@ mod catalog_tests {
         ] {
             assert!(is_known_permission(permission.key()));
         }
-    }
-
-    #[test]
-    fn invitation_permissions_reuse_catalog_keys() {
-        assert!(is_known_permission(
-            Permission::RevokeInvitation(InvitationId::new("_")).key()
-        ));
     }
 
     #[test]

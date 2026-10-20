@@ -8,7 +8,9 @@ use super::AgentUseCases;
 use crate::application::actions::app_only;
 use crate::application::app::mint_app_secret;
 use crate::domain::agent::{Agent, AgentHost};
-use crate::domain::app::{App, AppCredential, AppName, AppSecret, AppSecretLabel};
+use crate::domain::app::{
+    App, AppCredential, AppName, AppSecret, AppSecretLabel, default_secret_label,
+};
 use crate::domain::clock;
 use crate::domain::errors::DomainResult;
 use crate::domain::ids::{AppId, OrganizationId};
@@ -21,12 +23,11 @@ use scylla_extension::{
     Access, Authorized, Command, Committed, Describe, Draft, Persist, Prepare, Prepared, Run,
 };
 
-const DEFAULT_SECRET_LABEL: &str = "default";
-
 #[derive(Debug)]
 pub struct CreateAgent {
     pub organization_id: OrganizationId,
     pub name: AppName,
+    pub secret_label: Option<AppSecretLabel>,
 }
 
 /// No `Debug`: `secret` is the plaintext the caller sees once.
@@ -61,11 +62,11 @@ impl Run<Prepare<CreateAgent>> for AgentUseCases {
         let app = App::create(cmd.organization_id.clone(), cmd.name.clone())?;
         let secret = mint_app_secret();
         let secret_hash = self.hash_service.hash_secret(&secret).await?;
-        let credential = AppCredential::create(
-            app.id().clone(),
-            AppSecretLabel::new(DEFAULT_SECRET_LABEL)?,
-            secret_hash,
-        );
+        let label = cmd
+            .secret_label
+            .clone()
+            .unwrap_or_else(|| default_secret_label(cmd.name.as_str()));
+        let credential = AppCredential::create(app.id().clone(), label, secret_hash);
         let agent = Agent::create(app.id().clone());
         let grant = Grant::new(
             Principal::App(app.id().clone()),

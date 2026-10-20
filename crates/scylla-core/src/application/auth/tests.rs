@@ -4,6 +4,7 @@ use super::*;
 use crate::domain::app::{AppSecret, AppSecretHash};
 use crate::domain::caller::{CallerContext, ServiceIdentity};
 use crate::domain::errors::{DomainError, DomainResult};
+use crate::domain::session::{ACTIVITY_INTERVAL, SessionClient};
 use crate::domain::user::{Password, PasswordHash};
 use crate::test_support::authz::{DenyingPermissionService, actions};
 use crate::test_support::sessions::SessionBuilder;
@@ -40,9 +41,20 @@ struct Lab {
 
 impl Lab {
     async fn login(&self, identifier: &str, password: &str) -> DomainResult<Session> {
+        self.login_from(identifier, password, SessionClient::default())
+            .await
+    }
+
+    async fn login_from(
+        &self,
+        identifier: &str,
+        password: &str,
+        client: SessionClient,
+    ) -> DomainResult<Session> {
         let login = Login {
             identifier: identifier.to_string(),
             password: Password::new(password).unwrap(),
+            client,
         };
         self.actions
             .run(&self.uc, &CallerContext::Anonymous, login)
@@ -91,14 +103,31 @@ async fn a_login_by_username_or_email_stores_a_session_without_asking_a_permissi
 }
 
 #[tokio::test]
+async fn a_login_records_the_client_of_the_call_on_the_new_session() {
+    let lab = lab(true, StubSessions::default());
+    let client = SessionClient::new(Some("Firefox/131.0"), Some("203.0.113.7"));
+
+    let session = lab
+        .login_from("kevin", PASSWORD, client.clone())
+        .await
+        .unwrap();
+
+    assert_eq!(session.client(), &client);
+    assert_eq!(lab.sessions.rows()[0].client(), &client);
+}
+
+#[tokio::test]
 async fn a_wrong_password_or_an_unknown_account_gives_one_opaque_error() {
     let lab = lab(true, StubSessions::default());
 
-    for (identifier, password) in [("kevin", "WrongPass123!"), ("ghost", PASSWORD)] {
+    for (identifier, password) in [
+        ("kevin", "WrongPass123!"),
+        ("kevin@example.com", "WrongPass123!"),
+        ("ghost", PASSWORD),
+        ("ghost@example.com", PASSWORD),
+    ] {
         let err = lab.login(identifier, password).await.unwrap_err();
-        assert!(
-            matches!(&err, DomainError::Unauthorized(m) if m == "Invalid username or password")
-        );
+        assert!(matches!(&err, DomainError::Unauthorized(m) if m == "Invalid credentials"));
     }
     assert!(lab.sessions.rows().is_empty());
 }
@@ -110,6 +139,17 @@ async fn an_inactive_account_cannot_log_in() {
     let err = lab.login("kevin", PASSWORD).await.unwrap_err();
 
     assert!(matches!(&err, DomainError::Unauthorized(m) if m == "User account is inactive"));
+    assert!(lab.sessions.rows().is_empty());
+}
+
+#[tokio::test]
+async fn an_inactive_account_with_a_wrong_password_gives_the_opaque_error() {
+    let lab = lab(false, StubSessions::default());
+
+    for identifier in ["kevin", "kevin@example.com"] {
+        let err = lab.login(identifier, "WrongPass123!").await.unwrap_err();
+        assert!(matches!(&err, DomainError::Unauthorized(m) if m == "Invalid credentials"));
+    }
     assert!(lab.sessions.rows().is_empty());
 }
 
@@ -195,4 +235,69 @@ async fn a_revoke_deletes_the_session() {
 
     assert!(lab.sessions.rows().is_empty());
     assert_eq!(lab.sessions.deleted(), vec!["t".to_string()]);
+}
+
+#[tokio::test]
+async fn an_activity_moves_at_most_once_in_the_interval() {
+    let user_id = UserId::new("kevin");
+    let now = crate::domain::clock::now();
+    let fresh = SessionBuilder::new(&user_id)
+        .last_active_at(now - ACTIVITY_INTERVAL + chrono::Duration::seconds(30))
+        .expires_at(now + chrono::Duration::hours(1))
+        .build();
+    let idle = SessionBuilder::new(&user_id)
+        .last_active_at(now - ACTIVITY_INTERVAL - chrono::Duration::seconds(1))
+        .expires_at(now + chrono::Duration::hours(1))
+        .build();
+    let sessions = StubSessions::with(fresh.clone());
+    sessions.create(&idle).await.unwrap();
+
+    record_activity(&sessions, &fresh).await;
+    record_activity(&sessions, &idle).await;
+    let moved = sessions.find_by_token(idle.token()).await.unwrap();
+    record_activity(&sessions, &moved).await;
+
+    assert_eq!(sessions.touched(), vec![idle.id().clone()]);
+    assert!(moved.last_active_at() >= now);
+    assert_eq!(
+        sessions
+            .find_by_token(fresh.token())
+            .await
+            .unwrap()
+            .last_active_at(),
+        fresh.last_active_at()
+    );
+}
+
+#[tokio::test]
+async fn a_store_that_cannot_record_the_activity_does_not_fail_the_call() {
+    struct Silent;
+
+    #[async_trait]
+    impl SessionRepository for Silent {
+        async fn create(&self, _: &Session) -> DomainResult<Session> {
+            unreachable!()
+        }
+        async fn find_by_token(&self, _: &str) -> DomainResult<Session> {
+            unreachable!()
+        }
+        async fn delete_by_token(&self, _: &str) -> DomainResult<()> {
+            unreachable!()
+        }
+        async fn delete_expired(&self) -> DomainResult<u64> {
+            unreachable!()
+        }
+    }
+
+    let idle = SessionBuilder::new(&UserId::new("kevin"))
+        .last_active_at(crate::domain::clock::now() - ACTIVITY_INTERVAL * 2)
+        .build();
+
+    assert!(
+        Silent
+            .touch(idle.id(), crate::domain::clock::now())
+            .await
+            .is_err()
+    );
+    record_activity(&Silent, &idle).await;
 }

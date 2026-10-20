@@ -4,7 +4,7 @@ use crate::domain::user::User;
 use async_trait::async_trait;
 use scylla_auth::authz::Grant;
 use scylla_core::application::signup::repository::SignupRepository;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use tracing::instrument;
 
 use super::super::error::SqlxResultExt;
@@ -43,31 +43,25 @@ impl SignupRepository for PgSignupRepository {
         Ok(())
     }
 
-    #[instrument(skip_all, fields(user_id = %user.id(), org_id = %organization.id(), provider))]
-    async fn provision_account_with_identity(
-        &self,
-        user: &User,
-        organization: &Organization,
-        account_grants: &[Grant],
-        provider: &str,
-        provider_user_id: &str,
-    ) -> DomainResult<()> {
+    #[instrument(skip_all, fields(user_id = %user.id()))]
+    async fn provision_user(&self, user: &User, account_grants: &[Grant]) -> DomainResult<()> {
         let mut tx = self.pool.begin().await.to_domain()?;
-
-        users::repository::queries::create(&mut *tx, user).await?;
-        organizations::repository::queries::create(&mut *tx, organization).await?;
-        for grant in account_grants {
-            grants::insert(&mut *tx, grant).await?;
-        }
-        super::super::oauth_identities::repository::queries::link(
-            &mut *tx,
-            user.id(),
-            provider,
-            provider_user_id,
-        )
-        .await?;
-
+        provision_user_in(&mut tx, user, account_grants).await?;
         tx.commit().await.to_domain()?;
         Ok(())
     }
+}
+
+/// `provision_user` in a transaction that the caller owns: an edition writes its own rows in the
+/// same transaction, then commits. A taken username or email is `Conflict`.
+pub async fn provision_user_in(
+    tx: &mut Transaction<'_, Postgres>,
+    user: &User,
+    account_grants: &[Grant],
+) -> DomainResult<()> {
+    users::repository::queries::create(&mut **tx, user).await?;
+    for grant in account_grants {
+        grants::insert(&mut **tx, grant).await?;
+    }
+    Ok(())
 }

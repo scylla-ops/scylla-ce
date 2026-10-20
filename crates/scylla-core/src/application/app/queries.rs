@@ -2,6 +2,7 @@
 //! output type, what `Fetch` reads.
 
 use super::AppUseCases;
+use crate::application::grant::PrincipalAccess;
 use crate::domain::app::{App, AppCredential};
 use crate::domain::errors::DomainResult;
 use crate::domain::ids::{AppId, OrganizationId};
@@ -86,5 +87,29 @@ impl Run<Fetch<ListAppSecrets>> for AppUseCases {
             .list_by_app(&input.command().app_id)
             .await?;
         Ok(input.fetched(secrets))
+    }
+}
+
+/// An unknown App gives an empty list: the store reads only the grants.
+#[derive(Debug)]
+pub struct ListAppAccess {
+    pub app_id: AppId,
+}
+
+impl Describe for ListAppAccess {
+    fn access(&self) -> Access {
+        Access::Requires(Permission::ReadApp(self.app_id.clone()))
+    }
+}
+
+impl Query for ListAppAccess {
+    type Output = Vec<PrincipalAccess>;
+}
+
+#[async_trait]
+impl Run<Fetch<ListAppAccess>> for AppUseCases {
+    async fn run(&self, input: Authorized<ListAppAccess>) -> DomainResult<Fetched<ListAppAccess>> {
+        let access = self.app_repo.list_access(&input.command().app_id).await?;
+        Ok(input.fetched(access))
     }
 }

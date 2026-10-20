@@ -2,7 +2,9 @@ use crate::feature::{Context, Feature};
 use crate::startup::{init_services, run_server, shutdown_signal};
 use crate::surface::Surface;
 use anyhow::{Context as _, Result};
+use scylla_core::application::PasswordResetSender;
 use scylla_core::config::ControlPlaneConfig;
+use scylla_core::infrastructure::LogPasswordResetSender;
 use scylla_extension::{Extension, Hooks};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -20,6 +22,7 @@ pub struct Server {
     hooks: Hooks,
     features: Vec<Box<dyn Feature>>,
     surface: Surface,
+    password_reset_sender: Arc<dyn PasswordResetSender>,
 }
 
 impl Server {
@@ -31,7 +34,15 @@ impl Server {
             hooks: Hooks::new(),
             features: Vec::new(),
             surface: Surface::default(),
+            password_reset_sender: Arc::new(LogPasswordResetSender),
         }
+    }
+
+    /// Replaces the default sender, which writes each reset link in the server log.
+    #[must_use]
+    pub fn password_reset_sender(mut self, sender: Arc<dyn PasswordResetSender>) -> Self {
+        self.password_reset_sender = sender;
+        self
     }
 
     /// Registers before `Feature::hooks`, which runs at `serve`; within one position, hooks run
@@ -101,6 +112,7 @@ impl Server {
             mut hooks,
             features,
             mut surface,
+            password_reset_sender,
         } = self;
 
         for feature in &features {
@@ -113,7 +125,7 @@ impl Server {
                 .context("feature prepare failed")?;
         }
 
-        let services = init_services(&config, db.clone(), Arc::new(hooks))
+        let services = init_services(&config, db.clone(), Arc::new(hooks), password_reset_sender)
             .await
             .context("init_services failed")?;
 
@@ -122,6 +134,7 @@ impl Server {
             actions: services.actions.clone(),
             permissions: services.permission_checker.clone(),
             visibility: services.permission_checker.clone(),
+            trust_forwarded_headers: config.server.trust_forwarded_headers,
         };
         for feature in features {
             feature.install(&ctx, &mut surface);

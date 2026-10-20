@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM sessions WHERE id = $1 AND user_id = $2 AND expires_at >= $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "130e776f27ef4adc49642a50d6973116e05c05fc7ae2d6749ea794489cb16975"
+}

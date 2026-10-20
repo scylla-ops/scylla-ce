@@ -58,6 +58,16 @@ impl OrganizationRepository for PgOrganizationRepository {
         Ok(PaginatedResult::new(items, &params, total))
     }
 
+    #[instrument(skip_all, fields(org_id = %org_id))]
+    async fn count_members(&self, org_id: &OrganizationId) -> DomainResult<u64> {
+        queries::count_principals(&self.pool, org_id).await
+    }
+
+    #[instrument(skip_all, fields(org_id = %org_id, user_id = %user_id))]
+    async fn has_member(&self, org_id: &OrganizationId, user_id: &UserId) -> DomainResult<bool> {
+        queries::has_principal(&self.pool, org_id, user_id).await
+    }
+
     #[instrument(skip_all, fields(user_id = %user_id))]
     async fn list_for_user(
         &self,
@@ -136,6 +146,32 @@ pub mod queries {
         .await
         .to_domain()?;
         Ok(u64::try_from(row.count).unwrap_or(0))
+    }
+
+    pub async fn has_principal<'e, E>(
+        executor: E,
+        org_id: &OrganizationId,
+        user_id: &UserId,
+    ) -> DomainResult<bool>
+    where
+        E: PgExecutor<'e>,
+    {
+        sqlx::query_scalar!(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM grants g
+                WHERE g.principal_kind = 'user' AND g.principal_id = $2
+                  AND ((g.scope_kind = 'organization' AND g.scope_id = $1)
+                    OR (g.scope_kind = 'project' AND g.scope_id IN
+                          (SELECT id FROM projects WHERE organization_id = $1)))
+            ) AS "member!"
+            "#,
+            org_id.as_str(),
+            user_id.as_str(),
+        )
+        .fetch_one(executor)
+        .await
+        .to_domain()
     }
 
     pub async fn list_principals_page<'e, E>(

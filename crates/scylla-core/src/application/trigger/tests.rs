@@ -1,7 +1,7 @@
 //! The trigger's actions through the engine, on stub ports.
 
 use super::*;
-use crate::application::PipelineUseCases;
+use crate::application::{PipelineUseCases, PrincipalAccess};
 use crate::domain::agent::Agent;
 use crate::domain::app::{AppCredential, AppKind, AppName};
 use crate::domain::caller::{CallerContext, ServiceIdentity};
@@ -194,6 +194,9 @@ impl AppRepository for StubApps {
     }
     async fn delete(&self, _: &AppId) -> DomainResult<()> {
         unreachable!("no app delete in a trigger action")
+    }
+    async fn list_access(&self, _: &AppId) -> DomainResult<Vec<PrincipalAccess>> {
+        unreachable!("no app access in a trigger action")
     }
 }
 

@@ -1,12 +1,15 @@
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{AppId, OrganizationId, ProjectId, UserId};
-use crate::domain::role::RoleName;
+use crate::domain::organization::OrganizationName;
+use crate::domain::project::ProjectName;
+use crate::domain::role::{RoleDisplayName, RoleName};
 use async_trait::async_trait;
 use scylla_auth::authz::{Grant, GrantRepository, Principal, Scope};
+use scylla_core::application::PrincipalAccess;
 use sqlx::{PgExecutor, PgPool};
 use tracing::instrument;
 
-use super::error::SqlxResultExt;
+use super::error::{DbFieldExt, SqlxResultExt};
 
 const SCOPE_SYSTEM: &str = "system";
 const SCOPE_ORGANIZATION: &str = "organization";
@@ -15,6 +18,17 @@ const SCOPE_PROJECT: &str = "project";
 const SYSTEM_SCOPE_ID: &str = "system";
 const PRINCIPAL_USER: &str = "user";
 const PRINCIPAL_APP: &str = "app";
+
+fn scope_from_row(kind: &str, id: String) -> DomainResult<Scope> {
+    match kind {
+        SCOPE_SYSTEM => Ok(Scope::System),
+        SCOPE_ORGANIZATION => Ok(Scope::Organization(OrganizationId::new(id))),
+        SCOPE_PROJECT => Ok(Scope::Project(ProjectId::new(id))),
+        other => Err(DomainError::Infrastructure(format!(
+            "unknown grant scope_kind '{other}'"
+        ))),
+    }
+}
 
 /// Returns the stored id: the existing one when the same grant is already there.
 pub async fn insert<'e, E>(executor: E, grant: &Grant) -> DomainResult<String>
@@ -98,6 +112,58 @@ where
     Ok(result.to_domain()?.rows_affected())
 }
 
+pub async fn list_access<'e, E>(
+    executor: E,
+    principal: &Principal,
+) -> DomainResult<Vec<PrincipalAccess>>
+where
+    E: PgExecutor<'e>,
+{
+    let rows = sqlx::query!(
+        r#"
+        SELECT g.id, g.scope_kind, g.scope_id, g.role_id, r.name AS role_name,
+               o.id AS "organization_id?", o.name AS "organization_name?",
+               p.name AS "project_name?"
+        FROM grants g
+        JOIN roles r ON r.id = g.role_id
+        LEFT JOIN projects p ON g.scope_kind = 'project' AND p.id = g.scope_id
+        LEFT JOIN organizations o ON o.id = CASE g.scope_kind
+            WHEN 'organization' THEN g.scope_id
+            WHEN 'project' THEN p.organization_id
+        END
+        WHERE g.principal_kind = $1 AND g.principal_id = $2
+        ORDER BY g.scope_kind <> 'system', o.name, o.id,
+                 p.name NULLS FIRST, p.id NULLS FIRST, r.name, g.id
+        "#,
+        principal.kind().as_str(),
+        principal.id(),
+    )
+    .fetch_all(executor)
+    .await
+    .to_domain()?;
+    rows.into_iter()
+        .map(|r| {
+            Ok(PrincipalAccess {
+                grant_id: r.id,
+                scope: scope_from_row(&r.scope_kind, r.scope_id)?,
+                organization_id: r.organization_id.map(OrganizationId::new),
+                organization_name: r
+                    .organization_name
+                    .map(OrganizationName::new)
+                    .transpose()
+                    .db_field("organization name")?,
+                project_name: r
+                    .project_name
+                    .map(ProjectName::new)
+                    .transpose()
+                    .db_field("project name")?,
+                role: RoleName::new(r.role_id).db_field("role id")?,
+                role_name: RoleDisplayName::new(r.role_name).db_field("role name")?,
+            })
+        })
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct PgGrantRepository {
     pool: PgPool,
@@ -132,21 +198,11 @@ impl GrantRepository for PgGrantRepository {
                         )));
                     }
                 };
-                let scope = match r.scope_kind.as_str() {
-                    SCOPE_SYSTEM => Scope::System,
-                    SCOPE_ORGANIZATION => Scope::Organization(OrganizationId::new(r.scope_id)),
-                    SCOPE_PROJECT => Scope::Project(ProjectId::new(r.scope_id)),
-                    other => {
-                        return Err(DomainError::Infrastructure(format!(
-                            "unknown grant scope_kind '{other}'"
-                        )));
-                    }
-                };
                 Ok(Grant {
                     id: r.id,
                     principal,
                     role: RoleName::new(r.role_id)?,
-                    scope,
+                    scope: scope_from_row(&r.scope_kind, r.scope_id)?,
                 })
             })
             .collect()

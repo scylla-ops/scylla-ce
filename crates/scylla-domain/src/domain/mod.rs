@@ -9,7 +9,6 @@ pub mod text;
 pub mod agent;
 pub mod app;
 pub mod caller;
-pub mod invitation;
 pub mod job;
 pub mod organization;
 pub mod permission;

@@ -5,7 +5,7 @@ use crate::application::app::DeleteApp;
 use crate::application::{AgentStats, AgentView};
 use crate::grpc::convert::{Parse, id, ts, valid, wrap};
 use scylla_domain::domain::agent::AgentHost;
-use scylla_domain::domain::app::{App, AppName};
+use scylla_domain::domain::app::{App, AppName, AppSecretLabel};
 use scylla_proto::agent::v1::{
     Agent as ProtoAgent, AgentHost as ProtoAgentHost, AgentStats as ProtoAgentStats,
     CreateAgentRequest, DailyOutcome as ProtoDailyOutcome, DeleteAgentRequest, GetAgentRequest,
@@ -85,6 +85,10 @@ impl Parse for CreateAgentRequest {
         Ok(CreateAgent {
             organization_id: id(self.organization_id, "organization_id")?,
             name: valid(self.name, AppName::new)?,
+            secret_label: self
+                .secret_label
+                .map(|label| valid(label, AppSecretLabel::new))
+                .transpose()?,
         })
     }
 }
@@ -105,12 +109,31 @@ mod tests {
         let command = CreateAgentRequest {
             organization_id: wrap("acme"),
             name: "runner-1".into(),
+            secret_label: Some("Build-01.example.com".into()),
         }
         .parse()
         .unwrap();
 
         assert_eq!(command.organization_id.as_str(), "acme");
         assert_eq!(command.name.as_str(), "runner-1");
+        assert_eq!(
+            command.secret_label.unwrap().as_str(),
+            "Build-01.example.com"
+        );
+    }
+
+    #[test]
+    fn an_invalid_first_label_is_an_invalid_argument() {
+        let Err(err) = CreateAgentRequest {
+            organization_id: wrap("acme"),
+            name: "runner-1".into(),
+            secret_label: Some("a".repeat(65)),
+        }
+        .parse() else {
+            panic!("a label over 64 bytes must not parse");
+        };
+
+        assert_eq!(err.code(), Code::InvalidArgument);
     }
 
     #[test]
@@ -153,6 +176,7 @@ mod tests {
         let Err(err) = CreateAgentRequest {
             organization_id: wrap("acme"),
             name: String::new(),
+            secret_label: None,
         }
         .parse() else {
             panic!("an empty name must not parse");

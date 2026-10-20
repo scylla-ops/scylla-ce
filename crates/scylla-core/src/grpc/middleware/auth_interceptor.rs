@@ -1,6 +1,7 @@
-use crate::application::auth::{SessionLookup, look_up_session};
+use crate::application::auth::{SessionLookup, look_up_session, record_activity};
 use crate::application::{AppTokenRepository, SessionRepository};
 use crate::domain::caller::CallerContext;
+use crate::domain::ids::SessionId;
 use crate::grpc::mappers::domain_error_to_status;
 use derive_more::Constructor;
 use std::sync::Arc;
@@ -20,6 +21,18 @@ pub fn extract_auth_context<T>(request: &Request<T>) -> Result<AuthContext, Stat
             Status::internal("Auth context not found — interceptor may not be configured")
         })
         .cloned()
+}
+
+/// The session behind the bearer token of a user caller. An action that must spare the session of
+/// the call reads it; an app token has none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallerSession(pub SessionId);
+
+pub fn caller_session<T>(request: &Request<T>) -> Option<SessionId> {
+    request
+        .extensions()
+        .get::<CallerSession>()
+        .map(|session| session.0.clone())
 }
 
 fn extract_bearer_token<T>(request: &Request<T>) -> Result<String, Status> {
@@ -73,11 +86,12 @@ impl AsyncInterceptor for AuthInterceptor {
                 .map_err(domain_error_to_status)?
             {
                 SessionLookup::Live(session) => {
-                    request
-                        .extensions_mut()
-                        .insert(AuthContext::new(CallerContext::User(
-                            session.user_id().clone(),
-                        )));
+                    record_activity(&*session_repo, &session).await;
+                    let extensions = request.extensions_mut();
+                    extensions.insert(AuthContext::new(CallerContext::User(
+                        session.user_id().clone(),
+                    )));
+                    extensions.insert(CallerSession(session.id().clone()));
                     return Ok(request);
                 }
                 SessionLookup::Expired => return Err(Status::unauthenticated("Token has expired")),
@@ -109,12 +123,15 @@ impl AsyncInterceptor for AuthInterceptor {
 mod tests {
     use super::*;
     use crate::application::{AppTokenRepository, SessionRepository};
+    use crate::test_support::sessions::SessionBuilder;
+    use crate::test_support::stubs::StubSessions;
     use async_trait::async_trait;
     use chrono::Duration;
     use scylla_domain::domain::app::AppToken;
+    use scylla_domain::domain::clock;
     use scylla_domain::domain::errors::{DomainError, DomainResult};
     use scylla_domain::domain::ids::{AppCredentialId, AppId, UserId};
-    use scylla_domain::domain::session::Session;
+    use scylla_domain::domain::session::{ACTIVITY_INTERVAL, Session};
     use std::sync::Arc;
     use tonic_async_interceptor::AsyncInterceptor;
 
@@ -211,6 +228,50 @@ mod tests {
         let req = result.unwrap();
         let ctx = req.extensions().get::<AuthContext>().unwrap();
         assert_eq!(ctx.caller, CallerContext::User(user_id));
+        assert_eq!(caller_session(&req).as_ref(), Some(session.id()));
+    }
+
+    fn bearer(token: &str) -> Request<()> {
+        let mut req = Request::new(());
+        req.metadata_mut()
+            .insert("authorization", format!("Bearer {token}").parse().unwrap());
+        req
+    }
+
+    #[tokio::test]
+    async fn a_call_moves_the_activity_of_an_idle_session_once_in_the_interval() {
+        let user_id = UserId::generate();
+        let idle = SessionBuilder::new(&user_id)
+            .token("idle")
+            .last_active_at(clock::now() - ACTIVITY_INTERVAL - Duration::seconds(1))
+            .build();
+        let fresh = SessionBuilder::new(&user_id).token("fresh").build();
+        let sessions = Arc::new(StubSessions::with(idle.clone()));
+        sessions.create(&fresh).await.unwrap();
+        let mut interceptor = AuthInterceptor::new(sessions.clone(), no_app_tokens());
+
+        for token in ["idle", "idle", "fresh"] {
+            interceptor.call(bearer(token)).await.unwrap();
+        }
+
+        assert_eq!(sessions.touched(), vec![idle.id().clone()]);
+    }
+
+    #[tokio::test]
+    async fn a_store_that_cannot_record_the_activity_does_not_refuse_the_call() {
+        let idle = SessionBuilder::new(&UserId::generate())
+            .token("idle")
+            .last_active_at(clock::now() - ACTIVITY_INTERVAL * 2)
+            .build();
+        let s = idle.clone();
+        let repo = Arc::new(StubSessionRepo {
+            find_by_token_fn: Box::new(move |_| Ok(s.clone())),
+        });
+        let mut interceptor = AuthInterceptor::new(repo, no_app_tokens());
+
+        let req = interceptor.call(bearer("idle")).await.unwrap();
+
+        assert_eq!(caller_session(&req).as_ref(), Some(idle.id()));
     }
 
     #[tokio::test]
@@ -241,6 +302,7 @@ mod tests {
         let req = result.unwrap();
         let ctx = req.extensions().get::<AuthContext>().unwrap();
         assert_eq!(ctx.caller, CallerContext::App(app_id));
+        assert_eq!(caller_session(&req), None);
     }
 
     #[tokio::test]

@@ -4,18 +4,20 @@
 use super::{AuthUseCases, new_session};
 use crate::application::actions::service_only;
 use crate::domain::errors::{DomainError, DomainResult};
-use crate::domain::session::Session;
+use crate::domain::session::{Session, SessionClient};
 use crate::domain::user::{Email, Password, Username};
 use async_trait::async_trait;
 use scylla_extension::{
     Access, Authorized, Command, Committed, Describe, Draft, Persist, Prepare, Prepared, Run,
 };
 
-/// `identifier` is a username or an email.
+/// `identifier` is a username or an email. `client` is the client of the call: the new session
+/// records it.
 #[derive(Debug)]
 pub struct Login {
     pub identifier: String,
     pub password: Password,
+    pub client: SessionClient,
 }
 
 impl Describe for Login {
@@ -29,12 +31,13 @@ impl Command for Login {
     type Committed = Session;
 }
 
-/// Same opaque error for both paths so callers cannot probe which accounts exist.
+/// One opaque error for an unknown account and a wrong password, so a caller cannot probe which
+/// accounts exist. Only a caller with the right password learns that the account is inactive.
 #[async_trait]
 impl Run<Prepare<Login>> for AuthUseCases {
     async fn run(&self, input: Authorized<Login>) -> DomainResult<Prepared<Login>> {
         let cmd = input.command();
-        let invalid = || DomainError::unauthorized("Invalid username or password");
+        let invalid = || DomainError::unauthorized("Invalid credentials");
         let lookup = if cmd.identifier.contains('@') {
             let email = Email::new(&cmd.identifier).map_err(|_| invalid())?;
             self.user_repo.find_by_email(&email).await
@@ -44,9 +47,6 @@ impl Run<Prepare<Login>> for AuthUseCases {
         };
         let user = lookup.map_err(|_| invalid())?;
 
-        if !user.is_active() {
-            return Err(DomainError::unauthorized("User account is inactive"));
-        }
         if !self
             .hash_service
             .verify(&cmd.password, user.password_hash())
@@ -54,7 +54,10 @@ impl Run<Prepare<Login>> for AuthUseCases {
         {
             return Err(invalid());
         }
-        let session = new_session(user.id().clone());
+        if !user.is_active() {
+            return Err(DomainError::unauthorized("User account is inactive"));
+        }
+        let session = new_session(user.id().clone()).with_client(cmd.client.clone());
         Ok(input.prepared(Draft::new(session)))
     }
 }

@@ -19,6 +19,17 @@ default:
 
 # -- Dev (local stack) --
 
+# Use the repo git hooks (.githooks) for this clone
+[group('dev')]
+hooks:
+    git config core.hooksPath .githooks
+
+# Run the workspace tests (the sqlx tests need `just db-up` first)
+[group('dev')]
+[no-exit-message]
+test *args='--workspace':
+    DATABASE_URL={{DATABASE_URL}} cargo test {{args}}
+
 # A release `cargo build` compiles web/dist into the control-plane
 # binary, so this has to run first when building outside Docker. The image does
 # it on its own, in the Dockerfile's `ui` stage.
