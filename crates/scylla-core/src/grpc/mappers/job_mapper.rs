@@ -3,6 +3,7 @@
 use crate::application::job::{
     CancelJob, DeleteJob, GetJob, ListJobs, ListOrganizationJobs, ListPipelineJobs, ListProjectJobs,
 };
+use crate::application::pipeline::RerunJob;
 use crate::grpc::convert::{ts, wrap};
 use scylla_domain::domain::job::JobOrigin;
 use scylla_domain::domain::job::{
@@ -12,8 +13,8 @@ use scylla_proto::job::v1::{
     CancelJobRequest, DeleteJobRequest, GetJobRequest, Job as ProtoJob, JobNode as ProtoJobNode,
     JobOutcome, ListJobsRequest, ListJobsResponse, ListOrganizationJobsRequest,
     ListOrganizationJobsResponse, ListPipelineJobsRequest, ListPipelineJobsResponse,
-    ListProjectJobsRequest, ListProjectJobsResponse, NodeOutcome as ProtoNodeOutcome, job,
-    job_node,
+    ListProjectJobsRequest, ListProjectJobsResponse, NodeOutcome as ProtoNodeOutcome,
+    RerunJobRequest, job, job_node,
 };
 
 pub fn job_to_proto(job: &Job) -> ProtoJob {
@@ -23,7 +24,7 @@ pub fn job_to_proto(job: &Job) -> ProtoJob {
         node_executions: job
             .node_executions()
             .iter()
-            .map(job_node_to_proto)
+            .map(|node| job_node_to_proto(node, job.max_attempts(node.node_id())))
             .collect(),
         created_at: ts(job.created_at()),
         updated_at: ts(job.updated_at()),
@@ -82,27 +83,33 @@ fn origin_to_proto(origin: &JobOrigin) -> job::Origin {
     }
 }
 
-pub fn job_node_to_proto(node: &JobNode) -> ProtoJobNode {
+pub fn job_node_to_proto(node: &JobNode, max_attempts: u32) -> ProtoJobNode {
     ProtoJobNode {
         node_id: wrap(node.node_id().to_string()),
-        execution: Some(node_execution_to_proto(node.execution())),
+        max_attempts,
+        execution: Some(node_execution_to_proto(node)),
     }
 }
 
-fn node_execution_to_proto(execution: &NodeExecution) -> job_node::Execution {
-    match execution {
+fn node_execution_to_proto(node: &JobNode) -> job_node::Execution {
+    match node.execution() {
         NodeExecution::Pending => job_node::Execution::Pending(job_node::Pending {}),
-        NodeExecution::Running { started_at } => job_node::Execution::Running(job_node::Running {
-            started_at: ts(*started_at),
-        }),
+        NodeExecution::Running { started_at, .. } => {
+            job_node::Execution::Running(job_node::Running {
+                started_at: ts(*started_at),
+                attempt: node.attempts(),
+            })
+        }
         NodeExecution::Finished {
             started_at,
             finished_at,
             outcome,
+            ..
         } => job_node::Execution::Finished(job_node::Finished {
             outcome: node_outcome_to_proto(*outcome) as i32,
             started_at: started_at.and_then(ts),
             finished_at: ts(*finished_at),
+            attempts: node.attempts(),
         }),
     }
 }
@@ -119,6 +126,7 @@ fn node_outcome_to_proto(outcome: NodeOutcome) -> ProtoNodeOutcome {
 parse!(GetJobRequest => GetJob { id: id(job_id) });
 parse!(CancelJobRequest => CancelJob { id: id(job_id) });
 parse!(DeleteJobRequest => DeleteJob { id: id(job_id) });
+parse!(RerunJobRequest => RerunJob { id: id(job_id) });
 parse!(ListJobsRequest => ListJobs { pagination: page });
 
 parse!(ListPipelineJobsRequest => ListPipelineJobs {

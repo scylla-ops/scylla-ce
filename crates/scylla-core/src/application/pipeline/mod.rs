@@ -3,7 +3,7 @@ pub mod queries;
 pub mod repository;
 
 pub use commands::{
-    CreatePipeline, DeletePipeline, RunPipeline, RunPipelineWithInputs, UpdatePipeline,
+    CreatePipeline, DeletePipeline, RerunJob, RunPipeline, RunPipelineWithInputs, UpdatePipeline,
 };
 pub use queries::{GetPipeline, ListOrganizationPipelines, ListPipelines, ListProjectPipelines};
 pub use repository::PipelineRepository;
@@ -11,7 +11,7 @@ pub use repository::PipelineRepository;
 use crate::application::agent::dispatch::assemble_dispatch;
 use crate::application::{DispatchUseCases, JobRepository, ProjectRepository, SecretResolver};
 use crate::domain::errors::DomainResult;
-use crate::domain::ids::PipelineId;
+use crate::domain::ids::{JobId, PipelineId, ProjectId};
 use crate::domain::job::{Job, JobOrigin};
 use crate::domain::pipeline::{EnvKey, EnvValue};
 use derive_more::Constructor;
@@ -40,8 +40,28 @@ impl PipelineUseCases {
     ) -> DomainResult<Job> {
         let pipeline = self.pipeline_repo.find_by_id(id).await?;
         let job = Job::create_from_pipeline(&pipeline, origin).with_inputs(inputs);
-        assemble_dispatch(&*self.secret_resolver, pipeline.project_id(), &job).await?;
+        self.ensure_dispatchable(pipeline.project_id(), &job)
+            .await?;
         Ok(job)
+    }
+
+    async fn rerun_job(&self, id: &JobId, origin: JobOrigin) -> DomainResult<Job> {
+        let job = self.job_repo.find_by_id(id).await?.rerun(origin)?;
+        let pipeline = self.pipeline_repo.find_by_id(job.pipeline_id()).await?;
+        self.ensure_dispatchable(pipeline.project_id(), &job)
+            .await?;
+        Ok(job)
+    }
+
+    async fn ensure_dispatchable(&self, project_id: &ProjectId, job: &Job) -> DomainResult<()> {
+        assemble_dispatch(
+            &*self.secret_resolver,
+            project_id,
+            job,
+            self.dispatch.default_node_timeout(),
+        )
+        .await?;
+        Ok(())
     }
 
     async fn start(&self, job: &Job) -> DomainResult<Job> {

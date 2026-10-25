@@ -5,9 +5,10 @@ use crate::application::pipeline::{
     ListProjectPipelines, RunPipeline, UpdatePipeline,
 };
 use crate::grpc::convert::{Parse, id, required, ts, valid, wrap};
-use crate::grpc::mappers::domain_error_to_status;
+use crate::grpc::mappers::{domain_error_to_status, proto_to_domain_pagination};
 use scylla_domain::domain::pipeline::{
-    EnvKey, EnvSource, EnvVar as DomainEnvVar, NodeId, PipelineName, Step, WorkingDir,
+    EnvKey, EnvSource, EnvVar as DomainEnvVar, NodeId, NodeRetries, NodeTimeout, PipelineName,
+    Step, WorkingDir,
 };
 use scylla_domain::domain::pipeline::{Pipeline, PipelineNode as DomainPipelineNode};
 use scylla_domain::domain::secret::SecretName;
@@ -63,6 +64,8 @@ pub fn pipeline_node_to_proto(node: &DomainPipelineNode) -> PipelineNode {
             .map(|wd| wd.as_str().to_string())
             .unwrap_or_default(),
         env: node.env().iter().map(env_to_proto).collect(),
+        timeout_seconds: node.timeout().map(NodeTimeout::seconds),
+        retries: node.retries().get(),
         step: Some(step_to_proto(node.step())),
     }
 }
@@ -128,13 +131,16 @@ fn proto_node_to_domain(n: PipelineNode) -> Result<DomainPipelineNode, Status> {
                 return Err(Status::invalid_argument("missing step (exec or script)"));
             }
         };
-        Ok(DomainPipelineNode::new(
-            node_id,
-            deps,
-            step,
-            working_dir,
-            env,
-        ))
+        let timeout = n
+            .timeout_seconds
+            .map(NodeTimeout::new)
+            .transpose()
+            .map_err(domain_error_to_status)?;
+        let retries = NodeRetries::new(n.retries).map_err(domain_error_to_status)?;
+        Ok(
+            DomainPipelineNode::new(node_id, deps, step, working_dir, env)
+                .with_attempts(timeout, retries),
+        )
     };
     node().map_err(within(context))
 }
@@ -190,10 +196,20 @@ parse!(DeletePipelineRequest => DeletePipeline { id: id(pipeline_id) });
 parse!(RunPipelineRequest => RunPipeline { id: id(pipeline_id) });
 parse!(ListPipelinesRequest => ListPipelines { pagination: page });
 
-parse!(ListProjectPipelinesRequest => ListProjectPipelines {
-    project_id: id(project_id),
-    pagination: page,
-});
+impl Parse for ListProjectPipelinesRequest {
+    type Into = ListProjectPipelines;
+
+    fn parse(self) -> Result<ListProjectPipelines, Status> {
+        Ok(ListProjectPipelines {
+            project_id: id(self.project_id, "project_id")?,
+            pagination: proto_to_domain_pagination(self.pagination),
+            secret_ref: self
+                .secret_ref
+                .map(|name| valid(name, SecretName::new))
+                .transpose()?,
+        })
+    }
+}
 
 parse!(ListOrganizationPipelinesRequest => ListOrganizationPipelines {
     organization_id: id(organization_id),
@@ -217,6 +233,8 @@ mod tests {
             node_id: wrap(id),
             deps: Vec::new(),
             working_dir: String::new(),
+            timeout_seconds: None,
+            retries: 0,
             env: vec![EnvVar {
                 key: "TOKEN".into(),
                 source: Some(env_var::Source::SecretRef("API_TOKEN".into())),
@@ -245,6 +263,57 @@ mod tests {
             command.nodes[0].env()[0].source(),
             EnvSource::Secret(name) if name.as_str() == "API_TOKEN"
         ));
+    }
+
+    #[test]
+    fn a_node_keeps_its_timeout_and_its_retries_both_ways() {
+        let command = CreatePipelineRequest {
+            project_id: wrap("proj-1"),
+            name: "build".into(),
+            nodes: vec![
+                PipelineNode {
+                    timeout_seconds: Some(30),
+                    retries: 2,
+                    ..exec_node("a")
+                },
+                exec_node("b"),
+            ],
+        }
+        .parse()
+        .unwrap();
+
+        let wire: Vec<PipelineNode> = command.nodes.iter().map(pipeline_node_to_proto).collect();
+        assert_eq!((wire[0].timeout_seconds, wire[0].retries), (Some(30), 2));
+        assert_eq!((wire[1].timeout_seconds, wire[1].retries), (None, 0));
+    }
+
+    #[test]
+    fn a_timeout_or_retries_out_of_range_is_an_invalid_argument() {
+        for node in [
+            PipelineNode {
+                timeout_seconds: Some(0),
+                ..exec_node("a")
+            },
+            PipelineNode {
+                timeout_seconds: Some(604_801),
+                ..exec_node("a")
+            },
+            PipelineNode {
+                retries: 11,
+                ..exec_node("a")
+            },
+        ] {
+            let err = CreatePipelineRequest {
+                project_id: wrap("proj-1"),
+                name: "build".into(),
+                nodes: vec![node],
+            }
+            .parse()
+            .unwrap_err();
+
+            assert_eq!(err.code(), Code::InvalidArgument);
+            assert!(err.message().starts_with("node 'a': "), "{}", err.message());
+        }
     }
 
     #[test]
@@ -333,6 +402,30 @@ mod tests {
         assert_eq!(command.id.as_str(), "pl-1");
         assert!(command.name.is_none());
         assert!(command.nodes.is_none());
+    }
+
+    #[test]
+    fn a_project_list_filters_on_a_valid_secret_name_only() {
+        let list = |secret_ref: Option<&str>| {
+            ListProjectPipelinesRequest {
+                project_id: wrap("proj-1"),
+                pagination: None,
+                secret_ref: secret_ref.map(Into::into),
+            }
+            .parse()
+        };
+
+        assert!(list(None).unwrap().secret_ref.is_none());
+        assert_eq!(
+            list(Some(" API_TOKEN "))
+                .unwrap()
+                .secret_ref
+                .unwrap()
+                .as_str(),
+            "API_TOKEN"
+        );
+        let err = list(Some("bad name")).unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
     }
 
     #[test]

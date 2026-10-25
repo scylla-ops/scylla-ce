@@ -2,7 +2,7 @@ use crate::application::secret::SecretResolver;
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::ProjectId;
 use crate::domain::job::Job;
-use crate::domain::pipeline::{EnvKey, EnvValue, Step};
+use crate::domain::pipeline::{EnvKey, EnvValue, NodeRetries, NodeTimeout, Step};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -23,6 +23,8 @@ pub struct DispatchNode {
     pub working_dir: Option<String>,
     pub step: Step,
     pub env: Vec<DispatchEnv>,
+    pub timeout: Option<NodeTimeout>,
+    pub retries: NodeRetries,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,8 +70,12 @@ pub async fn assemble_dispatch(
     secret_resolver: &dyn SecretResolver,
     project_id: &ProjectId,
     job: &Job,
+    default_timeout: Option<NodeTimeout>,
 ) -> DomainResult<JobDispatch> {
-    let nodes = secret_resolver.resolve(project_id, job.nodes()).await?;
+    let mut nodes = secret_resolver.resolve(project_id, job.nodes()).await?;
+    for node in &mut nodes {
+        node.timeout = node.timeout.or(default_timeout);
+    }
     let dispatch = JobDispatch {
         job_id: job.id().to_string(),
         pipeline_id: job.pipeline_id().to_string(),
@@ -136,7 +142,7 @@ mod tests {
             .update_nodes(vec![pipeline_node("new", &[])])
             .unwrap();
 
-        let dispatch = assemble_dispatch(&EchoResolver, pipeline.project_id(), &job)
+        let dispatch = assemble_dispatch(&EchoResolver, pipeline.project_id(), &job, None)
             .await
             .unwrap();
 
@@ -144,6 +150,37 @@ mod tests {
         assert_eq!(ids, ["old1", "old2"]);
         assert_eq!(dispatch.job_id, job.id().to_string());
         assert_eq!(dispatch.pipeline_id, pipeline.id().to_string());
+    }
+
+    #[tokio::test]
+    async fn the_default_timeout_applies_only_to_a_node_without_its_own() {
+        let timeout = |s| Some(NodeTimeout::new(s).unwrap());
+        let retries = NodeRetries::new(2).unwrap();
+        let pipeline = PipelineBuilder::for_project_id(ProjectId::new("p"))
+            .nodes(vec![
+                pipeline_node("own", &[]).with_attempts(timeout(5), retries),
+                pipeline_node("bare", &[]),
+            ])
+            .build();
+        let job = job(&pipeline);
+        let attempts = |dispatch: &JobDispatch| -> Vec<(Option<NodeTimeout>, u32)> {
+            dispatch
+                .nodes
+                .iter()
+                .map(|n| (n.timeout, n.retries.get()))
+                .collect()
+        };
+
+        let with_default =
+            assemble_dispatch(&EchoResolver, pipeline.project_id(), &job, timeout(60))
+                .await
+                .unwrap();
+        let without = assemble_dispatch(&EchoResolver, pipeline.project_id(), &job, None)
+            .await
+            .unwrap();
+
+        assert_eq!(attempts(&with_default), [(timeout(5), 2), (timeout(60), 0)]);
+        assert_eq!(attempts(&without), [(timeout(5), 2), (None, 0)]);
     }
 
     #[tokio::test]
@@ -156,7 +193,7 @@ mod tests {
             .nodes(nodes)
             .build();
 
-        let err = assemble_dispatch(&EchoResolver, pipeline.project_id(), &job(&pipeline))
+        let err = assemble_dispatch(&EchoResolver, pipeline.project_id(), &job(&pipeline), None)
             .await
             .unwrap_err();
 
@@ -177,6 +214,8 @@ mod tests {
                     masked: false,
                 })
                 .collect(),
+            timeout: None,
+            retries: NodeRetries::default(),
         }
     }
 

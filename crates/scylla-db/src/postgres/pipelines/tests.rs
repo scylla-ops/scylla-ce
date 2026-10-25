@@ -61,7 +61,7 @@ async fn list_by_project_filters(pool: PgPool) {
     repo.create(&pipeline(&project_b)).await.unwrap();
 
     assert_eq!(
-        repo.list_by_project(project_a.id(), None)
+        repo.list_by_project(project_a.id(), None, None)
             .await
             .unwrap()
             .metadata()
@@ -193,4 +193,66 @@ async fn a_write_on_a_missing_row_is_not_found(pool: PgPool) {
         repo.delete(&never_persisted).await,
         Err(DomainError::NotFound(_))
     ));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn a_project_list_with_a_secret_keeps_the_pipelines_that_name_it(pool: PgPool) {
+    use crate::domain::pipeline::{EnvKey, EnvVar, PipelineNode, Step};
+    use crate::domain::secret::SecretName;
+    let org = seed_org(&pool, "acme").await;
+    let project = seed_project(&pool, &org, "rocket").await;
+    let other_project = seed_project(&pool, &org, "other").await;
+    let repo = PgPipelineRepository::new(pool);
+    let using = |secret: &str| {
+        PipelineNode::new(
+            NodeId::new("uses").unwrap(),
+            vec![],
+            Step::exec("env".into(), vec![]).unwrap(),
+            None,
+            vec![
+                EnvVar::literal(EnvKey::new("MODE").unwrap(), "API_TOKEN").unwrap(),
+                EnvVar::secret(
+                    EnvKey::new("TOKEN").unwrap(),
+                    SecretName::new(secret).unwrap(),
+                ),
+            ],
+        )
+    };
+    let user = PipelineBuilder::new(&project)
+        .nodes(vec![node("a", &[]), using("API_TOKEN")])
+        .build();
+    repo.create(&user).await.unwrap();
+    repo.create(
+        &PipelineBuilder::new(&project)
+            .nodes(vec![using("API_TOKEN_2")])
+            .build(),
+    )
+    .await
+    .unwrap();
+    repo.create(&pipeline(&project)).await.unwrap();
+    repo.create(
+        &PipelineBuilder::new(&other_project)
+            .nodes(vec![using("API_TOKEN")])
+            .build(),
+    )
+    .await
+    .unwrap();
+    let name = SecretName::new("API_TOKEN").unwrap();
+
+    let page = repo
+        .list_by_project(project.id(), Some(&name), None)
+        .await
+        .unwrap();
+
+    assert_eq!(page.metadata().total_count(), 1);
+    let ids: Vec<&str> = page.items().iter().map(|p| p.id().as_str()).collect();
+    assert_eq!(ids, [user.id().as_str()]);
+    assert_eq!(
+        repo.list_by_project(project.id(), None, None)
+            .await
+            .unwrap()
+            .metadata()
+            .total_count(),
+        3,
+    );
 }

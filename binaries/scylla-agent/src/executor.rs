@@ -12,7 +12,7 @@ use tracing::{error, info, warn};
 
 use scylla_domain::JobEvent;
 use scylla_domain::domain::job::LogStream;
-use scylla_domain::domain::pipeline::{DagPlan, ExecArg, PipelineNode, Shell, Step};
+use scylla_domain::domain::pipeline::{DagPlan, ExecArg, NodeTimeout, PipelineNode, Shell, Step};
 
 use crate::error::ExecutionError;
 use crate::output::{self, NodeLog, Secrets};
@@ -114,8 +114,9 @@ impl Executor {
                     let spec = plan.lookup(id).clone();
                     let log = NodeLog::new(publisher.clone(), id.to_owned(), self.secrets.clone());
                     let (workspace, stop) = (workspace.to_path_buf(), stop.clone());
+                    let publisher = publisher.clone();
                     running.spawn(async move {
-                        let result = run_node(&spec, log, &workspace, stop).await;
+                        let result = run_node(&spec, log, &workspace, &stop, &publisher).await;
                         (spec.id().to_string(), result)
                     });
                 }
@@ -197,7 +198,40 @@ async fn run_node(
     spec: &PipelineNode,
     mut log: NodeLog,
     workspace: &Path,
-    cancel: CancellationToken,
+    stop: &CancellationToken,
+    publisher: &StatusPublisher,
+) -> Result<(), ExecutionError> {
+    let attempts = spec.retries().max_attempts();
+    let mut attempt = 1;
+    loop {
+        let err = match run_attempt(spec, &mut log, workspace, stop).await {
+            Ok(()) => return Ok(()),
+            Err(err) if matches!(err, ExecutionError::Cancelled) || attempt == attempts => {
+                return Err(err);
+            }
+            Err(_) if stop.is_cancelled() => return Err(ExecutionError::Cancelled),
+            Err(err) => err,
+        };
+        log.send(
+            LogStream::Stderr,
+            &format!("attempt {attempt}/{attempts} failed: {err}; retrying"),
+        )
+        .await;
+        attempt += 1;
+        publisher
+            .emit(JobEvent::NodeRetrying {
+                node_id: spec.id().to_string(),
+                attempt,
+            })
+            .await?;
+    }
+}
+
+async fn run_attempt(
+    spec: &PipelineNode,
+    log: &mut NodeLog,
+    workspace: &Path,
+    stop: &CancellationToken,
 ) -> Result<(), ExecutionError> {
     let (mut child, group) = match spawn(spec, log.job_id(), workspace).await {
         Ok(spawned) => spawned,
@@ -209,23 +243,49 @@ async fn run_node(
     // INVARIANT: spawn pipes stdout and stderr.
     let stdout = child.stdout.take().expect("stdout is piped");
     let stderr = child.stderr.take().expect("stderr is piped");
-    let output = tokio::spawn(output::forward(log, stdout, stderr));
+    let output = tokio::spawn(output::forward(log.clone(), stdout, stderr));
+    let deadline = async {
+        match spec.timeout() {
+            Some(timeout) => tokio::time::sleep(timeout.duration()).await,
+            None => std::future::pending().await,
+        }
+    };
 
     let result = tokio::select! {
         biased;
         status = child.wait() => exit_status_to_result(spec.id().as_str(), status),
-        () = cancel.cancelled() => {
-            group.signal(Signal::Term);
-            if tokio::time::timeout(TERM_GRACE, child.wait()).await.is_err() {
-                group.signal(Signal::Kill);
-                let _ = child.wait().await;
-            }
+        () = stop.cancelled() => {
+            terminate(&mut child, &group).await;
             Err(ExecutionError::Cancelled)
+        }
+        () = deadline => {
+            terminate(&mut child, &group).await;
+            Err(ExecutionError::TimedOut {
+                node_id: spec.id().to_string(),
+                seconds: spec.timeout().map_or(0, NodeTimeout::seconds),
+            })
         }
     };
     group.kill().await;
-    let _ = output.await;
+    if let Ok(forwarded) = output.await {
+        *log = forwarded;
+    }
+    if let Err(ExecutionError::TimedOut { seconds, .. }) = &result {
+        log.send(LogStream::Stderr, &format!("timed out after {seconds}s"))
+            .await;
+    }
     result
+}
+
+async fn terminate(child: &mut Child, group: &ProcessGroup) {
+    group.signal(Signal::Term);
+    if tokio::time::timeout(TERM_GRACE, child.wait())
+        .await
+        .is_err()
+    {
+        group.signal(Signal::Kill);
+        let _ = child.wait().await;
+    }
 }
 
 async fn spawn(
@@ -452,7 +512,7 @@ fn exit_status_to_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scylla_domain::domain::pipeline::{EnvKey, EnvVar, NodeId, WorkingDir};
+    use scylla_domain::domain::pipeline::{EnvKey, EnvVar, NodeId, NodeRetries, WorkingDir};
     use scylla_proto::agent::v1::job_status::Event;
     use scylla_proto::agent::v1::{JobLogLine, JobStatus, agent_up};
     use std::time::Instant;
@@ -496,6 +556,7 @@ mod tests {
             Event::NodeCompleted(n) => format!("node_completed:{}", node(&n.node_id)),
             Event::NodeFailed(n) => format!("node_failed:{}", node(&n.node_id)),
             Event::NodeSkipped(n) => format!("node_skipped:{}", node(&n.node_id)),
+            Event::NodeRetrying(n) => format!("node_retrying:{}:{}", node(&n.node_id), n.attempt),
         }
     }
 
@@ -761,6 +822,77 @@ mod tests {
         assert!(run.has("node_completed:b"), "{:?}", run.events());
         assert!(run.has("node_failed:a"), "{:?}", run.events());
         assert_eq!(run.events().last().unwrap(), "job_failed");
+    }
+
+    fn with_attempts(node: PipelineNode, timeout: u32, retries: u32) -> PipelineNode {
+        let timeout = (timeout > 0).then(|| NodeTimeout::new(timeout).unwrap());
+        node.with_attempts(timeout, NodeRetries::new(retries).unwrap())
+    }
+
+    #[tokio::test]
+    async fn a_failed_attempt_with_an_attempt_left_writes_one_line_and_retries() {
+        let run = simple(
+            "retry",
+            vec![with_attempts(script_node("n1", &[], "exit 3"), 0, 1)],
+        )
+        .await;
+
+        assert!(matches!(
+            run.result,
+            Err(ExecutionError::NodeFailed { exit_code: 3, .. })
+        ));
+        assert_eq!(
+            run.events(),
+            [
+                "job_started",
+                "node_started:n1",
+                "node_retrying:n1:2",
+                "node_failed:n1",
+                "job_failed"
+            ]
+        );
+        assert_eq!(
+            run.text(),
+            "attempt 1/2 failed: node n1 failed with exit code 3; retrying\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_timeout_stops_the_attempt_and_writes_one_line() {
+        let started = Instant::now();
+        let run = simple(
+            "timeout",
+            vec![with_attempts(script_node("n1", &[], "sleep 10"), 1, 0)],
+        )
+        .await;
+
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(matches!(
+            run.result,
+            Err(ExecutionError::TimedOut { seconds: 1, .. })
+        ));
+        assert_eq!(run.text(), "timed out after 1s\n");
+        assert!(run.has("node_failed:n1"));
+    }
+
+    #[tokio::test]
+    async fn a_node_stopped_by_the_failure_of_another_is_skipped_with_no_retry() {
+        let run = simple(
+            "stop-retry",
+            vec![
+                script_node("a", &[], "sleep 0.3; exit 1"),
+                with_attempts(script_node("b", &[], "sleep 30"), 0, 3),
+            ],
+        )
+        .await;
+
+        assert!(run.has("node_failed:a"));
+        assert!(run.has("node_skipped:b"), "{:?}", run.events());
+        assert!(
+            !run.events().iter().any(|e| e.starts_with("node_retrying")),
+            "{:?}",
+            run.events()
+        );
     }
 
     #[tokio::test]

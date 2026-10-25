@@ -2,10 +2,10 @@
 //! access, its payload types, what `Prepare` builds, what `Persist` writes.
 
 use super::SecretUseCases;
-use crate::domain::errors::DomainResult;
+use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{ProjectId, SecretId};
 use crate::domain::permission::Permission;
-use crate::domain::secret::{Secret, SecretDescription, SecretName, SecretValue};
+use crate::domain::secret::{Secret, SecretChange, SecretDescription, SecretName, SecretValue};
 use async_trait::async_trait;
 use scylla_extension::{
     Access, Authorized, Command, Committed, Deleted, Describe, Draft, Persist, Prepare, Prepared,
@@ -91,6 +91,53 @@ impl Run<Persist<DeleteSecret>> for SecretUseCases {
                 self.secret_repo.delete(secret.id()).await?;
                 Ok(Deleted::new(secret))
             })
+            .await
+    }
+}
+
+#[derive(Debug)]
+pub struct UpdateSecret {
+    pub id: SecretId,
+    pub value: Option<SecretValue>,
+    pub description: Option<SecretDescription>,
+}
+
+impl Describe for UpdateSecret {
+    fn access(&self) -> Access {
+        Access::Requires(Permission::UpdateSecret(self.id.clone()))
+    }
+}
+
+impl Command for UpdateSecret {
+    type Staged = Draft<SecretChange>;
+    type Committed = Secret;
+}
+
+#[async_trait]
+impl Run<Prepare<UpdateSecret>> for SecretUseCases {
+    async fn run(&self, input: Authorized<UpdateSecret>) -> DomainResult<Prepared<UpdateSecret>> {
+        let cmd = input.command();
+        if cmd.value.is_none() && cmd.description.is_none() {
+            return Err(DomainError::validation(
+                "An update needs a value or a description",
+            ));
+        }
+        let secret = self.secret_repo.find_by_id(&cmd.id).await?;
+        let encrypted = cmd
+            .value
+            .as_ref()
+            .map(|value| self.cipher.encrypt(value.as_str()))
+            .transpose()?;
+        let change = SecretChange::new(secret.id().clone(), cmd.description.clone(), encrypted);
+        Ok(input.prepared(Draft::new(change)))
+    }
+}
+
+#[async_trait]
+impl Run<Persist<UpdateSecret>> for SecretUseCases {
+    async fn run(&self, input: Prepared<UpdateSecret>) -> DomainResult<Committed<UpdateSecret>> {
+        input
+            .commit(async |draft| self.secret_repo.update(&draft.into_inner()).await)
             .await
     }
 }

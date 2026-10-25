@@ -82,6 +82,7 @@ fn label(event: &Event) -> &'static str {
         Event::NodeCompleted(_) => "node_completed",
         Event::NodeFailed(_) => "node_failed",
         Event::NodeSkipped(_) => "node_skipped",
+        Event::NodeRetrying(_) => "node_retrying",
     }
 }
 
@@ -172,6 +173,10 @@ fn start_agent(url: &str, tag: &str) -> (CancellationToken, tokio::task::JoinHan
 }
 
 fn dispatch(job_id: &str, script: &str) -> agent_down::Payload {
+    attempts(job_id, script, 0, 0)
+}
+
+fn attempts(job_id: &str, script: &str, timeout_seconds: u32, retries: u32) -> agent_down::Payload {
     agent_down::Payload::Dispatch(JobDispatch {
         job_id: Some(common::JobId {
             value: job_id.into(),
@@ -182,12 +187,18 @@ fn dispatch(job_id: &str, script: &str) -> agent_down::Payload {
             deps: vec![],
             working_dir: String::new(),
             env: vec![],
+            timeout_seconds,
+            retries,
             step: Some(agent_node::Step::Script(ScriptStep {
                 script: script.into(),
                 shell: Shell::Sh as i32,
             })),
         }],
     })
+}
+
+fn count(plane: &ControlPlane, frame: &Frame) -> usize {
+    plane.frames().iter().filter(|(_, f)| f == frame).count()
 }
 
 fn cancel(job_id: &str) -> agent_down::Payload {
@@ -254,4 +265,81 @@ async fn a_job_runs_on_across_a_lost_stream_and_reports_on_the_next_one() {
         .await
         .unwrap()
         .unwrap();
+}
+
+#[tokio::test]
+async fn a_node_that_fails_twice_then_passes_completes_on_its_third_attempt() {
+    let (plane, url) = control_plane().await;
+    let (shutdown, agent) = start_agent(&url, "retry");
+    plane.wait_for(0, Frame::Hello(vec![])).await;
+
+    let script =
+        "n=$(cat tries 2>/dev/null || echo 0); n=$((n + 1)); echo $n > tries; [ $n -ge 3 ]";
+    plane.send(0, attempts("job-1", script, 0, 2)).await;
+    plane.wait_for(0, status("job-1", "job_completed")).await;
+    shutdown.cancel();
+    tokio::time::timeout(Duration::from_secs(11), agent)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(count(&plane, &status("job-1", "node_started")), 1);
+    assert_eq!(count(&plane, &status("job-1", "node_retrying")), 2);
+    assert_eq!(count(&plane, &status("job-1", "node_completed")), 1);
+    assert!(!plane.has(&status("job-1", "node_failed")));
+}
+
+#[tokio::test]
+async fn a_node_that_passes_its_timeout_fails_before_its_step_ends() {
+    let (plane, url) = control_plane().await;
+    let (shutdown, agent) = start_agent(&url, "timeout");
+    plane.wait_for(0, Frame::Hello(vec![])).await;
+
+    let started = std::time::Instant::now();
+    plane.send(0, attempts("job-1", "sleep 10", 1, 0)).await;
+    plane.wait_for(0, status("job-1", "job_failed")).await;
+    let elapsed = started.elapsed();
+    shutdown.cancel();
+    tokio::time::timeout(Duration::from_secs(11), agent)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(elapsed < Duration::from_secs(10), "took {elapsed:?}");
+    assert!(plane.has(&status("job-1", "node_failed")));
+    assert!(!plane.has(&status("job-1", "node_retrying")));
+}
+
+#[tokio::test]
+async fn a_cancel_during_a_retry_starts_no_new_attempt() {
+    let (plane, url) = control_plane().await;
+    let (shutdown, agent) = start_agent(&url, "retry-cancel");
+    plane.wait_for(0, Frame::Hello(vec![])).await;
+    let marks = std::env::temp_dir().join(format!(
+        "scylla-agent-retry-cancel-{}.marks",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&marks);
+
+    let script = format!(
+        "echo attempt >> '{}'; [ \"$(wc -l < '{}')\" -ge 2 ] || exit 1; sleep 30",
+        marks.display(),
+        marks.display()
+    );
+    plane.send(0, attempts("job-1", &script, 0, 5)).await;
+    plane.wait_for(0, status("job-1", "node_retrying")).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    plane.send(0, cancel("job-1")).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    shutdown.cancel();
+    tokio::time::timeout(Duration::from_secs(11), agent)
+        .await
+        .unwrap()
+        .unwrap();
+    let attempts_run = std::fs::read_to_string(&marks).unwrap().lines().count();
+    let _ = std::fs::remove_file(&marks);
+
+    assert_eq!(attempts_run, 2);
+    assert_eq!(count(&plane, &status("job-1", "node_retrying")), 1);
+    assert!(!plane.has(&status("job-1", "job_completed")));
 }

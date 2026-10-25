@@ -53,11 +53,13 @@ pub enum Permission {
     CreateSecret(ProjectId),
     ListSecrets(ProjectId),
     DeleteSecret(SecretId),
+    UpdateSecret(SecretId),
 
     CreateJob,
     ReadJob(JobId),
     UpdateJob(JobId),
     DeleteJob(JobId),
+    RerunJob(JobId),
     ListJobs,
     ListJobsByPipeline(PipelineId),
     ListJobsByProject(ProjectId),
@@ -123,7 +125,7 @@ impl Permission {
             Self::ReadPipeline(_) => "readPipeline",
             Self::UpdatePipeline(_) => "updatePipeline",
             Self::DeletePipeline(_) => "deletePipeline",
-            Self::RunPipeline(_) | Self::RunTriggerPipeline(_) => "runPipeline",
+            Self::RunPipeline(_) | Self::RunTriggerPipeline(_) | Self::RerunJob(_) => "runPipeline",
             Self::ExecuteJob(_) => "executeJob",
             Self::ManageTriggers(_) | Self::ManageTrigger(_) => "manageTriggers",
             Self::ListPipelines => "listPipelines",
@@ -133,6 +135,7 @@ impl Permission {
             Self::CreateSecret(_) => "createSecret",
             Self::ListSecrets(_) => "listSecrets",
             Self::DeleteSecret(_) => "deleteSecret",
+            Self::UpdateSecret(_) => "updateSecret",
 
             Self::CreateJob => "createJob",
             Self::ReadJob(_) => "readJob",
@@ -222,12 +225,13 @@ impl Permission {
             Self::ReadJob(id)
             | Self::UpdateJob(id)
             | Self::DeleteJob(id)
+            | Self::RerunJob(id)
             | Self::ReadJobLogs(id)
             | Self::WriteJobLogs(id)
             | Self::WriteJobStatus(id)
             | Self::AppendJobLog(id) => ResourceRef::Job(id.clone()),
 
-            Self::DeleteSecret(id) => ResourceRef::Secret(id.clone()),
+            Self::DeleteSecret(id) | Self::UpdateSecret(id) => ResourceRef::Secret(id.clone()),
 
             Self::ManageTrigger(id) | Self::RunTriggerPipeline(id) => {
                 ResourceRef::Trigger(id.clone())
@@ -306,7 +310,8 @@ fn catalog_variants() -> Vec<Permission> {
         Permission::ListPipelinesByOrganization(org.clone()),
         Permission::CreateSecret(project.clone()),
         Permission::ListSecrets(project.clone()),
-        Permission::DeleteSecret(secret),
+        Permission::DeleteSecret(secret.clone()),
+        Permission::UpdateSecret(secret),
         Permission::CreateJob,
         Permission::ReadJob(job.clone()),
         Permission::UpdateJob(job.clone()),
@@ -354,7 +359,7 @@ mod catalog_tests {
     use super::{
         PERMISSION_CATALOG, Permission, RESOURCE_TYPES, catalog_variants, permission_resource_type,
     };
-    use crate::domain::ids::{AppCredentialId, GrantId, TriggerId};
+    use crate::domain::ids::{AppCredentialId, GrantId, JobId, PipelineId, TriggerId};
     use crate::domain::role::RoleName;
     use std::collections::HashSet;
 
@@ -387,6 +392,17 @@ mod catalog_tests {
         ] {
             assert!(is_known_permission(permission.key()));
         }
+    }
+
+    #[test]
+    fn rerun_job_reuses_the_run_pipeline_key() {
+        assert_eq!(
+            Permission::RerunJob(JobId::new("_")).key(),
+            Permission::RunPipeline(PipelineId::new("_")).key()
+        );
+        assert!(is_known_permission(
+            Permission::RerunJob(JobId::new("_")).key()
+        ));
     }
 
     #[test]

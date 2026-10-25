@@ -40,3 +40,9 @@ email = "admin@example.com"
 [secrets]
 # Dev-only master key for project-secret encryption. Replace + inject at deploy.
 master_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+# The time limit of each attempt of a node that has no timeout of its own, in
+# seconds: 1 to 604800. The server applies it when it sends a job to an agent.
+# Unset: such a node has no time limit.
+# [jobs]
+# default_node_timeout_seconds = 3600

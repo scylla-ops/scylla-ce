@@ -12,6 +12,50 @@ use chrono::{DateTime, Utc};
 pub type SecretDescription = Description;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretChange {
+    id: SecretId,
+    description: Option<SecretDescription>,
+    encrypted_value: Option<Vec<u8>>,
+    updated_at: DateTime<Utc>,
+}
+
+impl SecretChange {
+    #[must_use]
+    pub fn new(
+        id: SecretId,
+        description: Option<SecretDescription>,
+        encrypted_value: Option<Vec<u8>>,
+    ) -> Self {
+        Self {
+            id,
+            description,
+            encrypted_value,
+            updated_at: clock::now(),
+        }
+    }
+
+    #[must_use]
+    pub fn id(&self) -> &SecretId {
+        &self.id
+    }
+
+    #[must_use]
+    pub fn description(&self) -> Option<&SecretDescription> {
+        self.description.as_ref()
+    }
+
+    #[must_use]
+    pub fn encrypted_value(&self) -> Option<&[u8]> {
+        self.encrypted_value.as_deref()
+    }
+
+    #[must_use]
+    pub fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Secret {
     id: SecretId,
     project_id: ProjectId,

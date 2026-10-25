@@ -7,7 +7,8 @@ use scylla_domain::domain::pipeline::Shell;
 
 use crate::agent::v1::JobStatus;
 use crate::agent::v1::job_status::{
-    Event, JobCompleted, JobFailed, JobStarted, NodeCompleted, NodeFailed, NodeSkipped, NodeStarted,
+    Event, JobCompleted, JobFailed, JobStarted, NodeCompleted, NodeFailed, NodeRetrying,
+    NodeSkipped, NodeStarted,
 };
 use crate::common::v1 as common;
 use crate::exec::v1 as exec;
@@ -38,6 +39,10 @@ pub fn job_event_to_status(job_id: &str, event: JobEvent, at: DateTime<Utc>) -> 
         JobEvent::NodeSkipped { node_id } => Event::NodeSkipped(NodeSkipped {
             node_id: node(node_id),
         }),
+        JobEvent::NodeRetrying { node_id, attempt } => Event::NodeRetrying(NodeRetrying {
+            node_id: node(node_id),
+            attempt,
+        }),
         JobEvent::JobCompleted => Event::JobCompleted(JobCompleted {}),
         JobEvent::JobFailed { error } => Event::JobFailed(JobFailed { error }),
     };
@@ -67,6 +72,10 @@ pub fn status_to_job_event(status: &JobStatus) -> Option<JobEvent> {
         },
         Event::NodeSkipped(e) => JobEvent::NodeSkipped {
             node_id: node_id(&e.node_id),
+        },
+        Event::NodeRetrying(e) => JobEvent::NodeRetrying {
+            node_id: node_id(&e.node_id),
+            attempt: e.attempt,
         },
         Event::JobCompleted(_) => JobEvent::JobCompleted,
         Event::JobFailed(e) => JobEvent::JobFailed {
@@ -122,6 +131,10 @@ mod tests {
                 error: "exit 1".to_string(),
             },
             JobEvent::NodeSkipped { node_id: node() },
+            JobEvent::NodeRetrying {
+                node_id: node(),
+                attempt: 2,
+            },
             JobEvent::JobCompleted,
             JobEvent::JobFailed {
                 error: "cancelled".to_string(),
@@ -146,7 +159,7 @@ mod tests {
     fn every_variant_is_covered() {
         assert_eq!(
             every_variant().len(),
-            7,
+            8,
             "add the new JobEvent variant here"
         );
     }

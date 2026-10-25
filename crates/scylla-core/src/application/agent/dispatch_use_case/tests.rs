@@ -56,6 +56,7 @@ fn lab_with(
             jobs.clone(),
             resolver,
             tails.clone(),
+            None,
         ),
         registry,
         jobs,
@@ -303,4 +304,45 @@ async fn a_recall_stops_the_live_jobs_only_after_the_delete() {
         .await
         .unwrap();
     assert_eq!(lab.registry.cancelled(), [(agent, running.id().clone())]);
+}
+
+#[tokio::test]
+async fn a_pass_sends_the_default_node_timeout_to_a_node_without_its_own() {
+    use crate::domain::pipeline::{NodeRetries, NodeTimeout};
+    let timeout = |seconds| Some(NodeTimeout::new(seconds).unwrap());
+    let pl = PipelineBuilder::for_project_id(ProjectId::new("p"))
+        .nodes(vec![
+            node("bare", &[]),
+            node("own", &[]).with_attempts(timeout(5), NodeRetries::new(1).unwrap()),
+        ])
+        .build();
+    let registry = Arc::new(StubRegistry::accepting());
+    registry.connect(&AppId::new("agent-1"));
+    let uc = DispatchUseCases::new(
+        registry.clone(),
+        Arc::new(ScopesByAgent::everything()),
+        Arc::new(StubJobs::with(vec![job(&pl)])),
+        Arc::new(EchoResolver),
+        Arc::new(StubTails::default()),
+        timeout(60),
+    );
+
+    actions(Arc::new(RecordingPermissionService::new()))
+        .run(&uc, &dispatcher(), DispatchPendingJobs { agents: None })
+        .await
+        .unwrap();
+
+    let sent: Vec<_> = registry.dispatched()[0]
+        .1
+        .nodes
+        .iter()
+        .map(|n| (n.id.clone(), n.timeout, n.retries.get()))
+        .collect();
+    assert_eq!(
+        sent,
+        [
+            ("bare".to_string(), timeout(60), 0),
+            ("own".to_string(), timeout(5), 1),
+        ]
+    );
 }

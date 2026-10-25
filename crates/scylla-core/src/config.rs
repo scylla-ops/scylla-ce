@@ -1,3 +1,4 @@
+use crate::domain::pipeline::NodeTimeout;
 use crate::error::ConfigError;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -27,6 +28,15 @@ pub struct ControlPlaneConfig {
 
     #[serde(default)]
     pub webhook: Option<WebhookConfig>,
+
+    #[serde(default)]
+    pub jobs: JobsConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct JobsConfig {
+    #[serde(default)]
+    pub default_node_timeout_seconds: Option<NodeTimeout>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -381,6 +391,32 @@ mod tests {
         ] {
             let config: ControlPlaneConfig = toml::from_str(src).unwrap();
             assert_eq!(config.bootstrap.is_some(), bootstrap);
+        }
+    }
+
+    #[test]
+    fn the_default_node_timeout_is_optional_and_bounded() {
+        assert!(
+            ControlPlaneConfig::default()
+                .jobs
+                .default_node_timeout_seconds
+                .is_none()
+        );
+        let config: ControlPlaneConfig =
+            toml::from_str("[jobs]\ndefault_node_timeout_seconds = 3600\n").unwrap();
+        assert_eq!(
+            config
+                .jobs
+                .default_node_timeout_seconds
+                .map(NodeTimeout::seconds),
+            Some(3600)
+        );
+        for refused in ["0", "604801", "-1"] {
+            let err = toml::from_str::<ControlPlaneConfig>(&format!(
+                "[jobs]\ndefault_node_timeout_seconds = {refused}\n"
+            ))
+            .unwrap_err();
+            assert!(err.to_string().contains("timeout"), "{err}");
         }
     }
 

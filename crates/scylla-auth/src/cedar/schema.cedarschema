@@ -100,14 +100,14 @@ namespace Scylla {
     action "readPipeline", "executeJob"
         appliesTo { principal: [User, Service, App], resource: [Pipeline] };
 
-    // ── Pipeline- or trigger-targeted ──────────────────────────────────
+    // ── Pipeline-, trigger- or job-targeted ────────────────────────────
     // An action on one trigger is checked on the trigger, which is in its
     // pipeline, so a grant on the pipeline's project reaches it. A
     // trigger-runner App runs the pipeline (runPipeline) when a trigger fires.
     action "manageTriggers"
         appliesTo { principal: [User, Service], resource: [Pipeline, Trigger] };
     action "runPipeline"
-        appliesTo { principal: [User, Service, App], resource: [Pipeline, Trigger] };
+        appliesTo { principal: [User, Service, App], resource: [Pipeline, Trigger, Job] };
 
     // ── Job-targeted ───────────────────────────────────────────────────
     action "readJob", "updateJob", "deleteJob", "readJobLogs", "writeJobLogs"
@@ -119,7 +119,7 @@ namespace Scylla {
         appliesTo { principal: [User, Service, App], resource: [Job] };
 
     // ── Secret-targeted ────────────────────────────────────────────────
-    action "deleteSecret"
+    action "deleteSecret", "updateSecret"
         appliesTo { principal: [User, Service], resource: [Secret] };
 
     // ── App-targeted (manage a specific app within its org) ─────────────

@@ -5,7 +5,7 @@ pub mod repository;
 pub mod resolver;
 
 pub use cipher::SecretCipher;
-pub use commands::{CreateSecret, DeleteSecret};
+pub use commands::{CreateSecret, DeleteSecret, UpdateSecret};
 pub use queries::ListSecrets;
 pub use repository::SecretRepository;
 pub use resolver::{DispatchSecretResolver, SecretResolver};
