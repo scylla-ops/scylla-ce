@@ -1,14 +1,11 @@
-//! The app's reads. One block per query, in the order it runs: the struct, its access, its
-//! output type, what `Fetch` reads.
+//! The app's reads. Each query, its access and its output type. The strata module of the slice runs
+//! it.
 
-use super::AppUseCases;
 use crate::application::grant::PrincipalAccess;
 use crate::domain::app::{App, AppCredential};
-use crate::domain::errors::DomainResult;
 use crate::domain::ids::{AppId, OrganizationId};
 use crate::domain::permission::Permission;
-use async_trait::async_trait;
-use scylla_extension::{Access, Authorized, Describe, Fetch, Fetched, Query, Run};
+use scylla_extension::{Access, Describe, Query};
 
 #[derive(Debug)]
 pub struct GetApp {
@@ -23,14 +20,6 @@ impl Describe for GetApp {
 
 impl Query for GetApp {
     type Output = App;
-}
-
-#[async_trait]
-impl Run<Fetch<GetApp>> for AppUseCases {
-    async fn run(&self, input: Authorized<GetApp>) -> DomainResult<Fetched<GetApp>> {
-        let app = self.app_repo.find_by_id(&input.command().id).await?;
-        Ok(input.fetched(app))
-    }
 }
 
 #[derive(Debug)]
@@ -50,17 +39,6 @@ impl Query for ListApps {
     type Output = Vec<App>;
 }
 
-#[async_trait]
-impl Run<Fetch<ListApps>> for AppUseCases {
-    async fn run(&self, input: Authorized<ListApps>) -> DomainResult<Fetched<ListApps>> {
-        let apps = self
-            .app_repo
-            .list_by_organization(&input.command().organization_id)
-            .await?;
-        Ok(input.fetched(apps))
-    }
-}
-
 #[derive(Debug)]
 pub struct ListAppSecrets {
     pub app_id: AppId,
@@ -74,20 +52,6 @@ impl Describe for ListAppSecrets {
 
 impl Query for ListAppSecrets {
     type Output = Vec<AppCredential>;
-}
-
-#[async_trait]
-impl Run<Fetch<ListAppSecrets>> for AppUseCases {
-    async fn run(
-        &self,
-        input: Authorized<ListAppSecrets>,
-    ) -> DomainResult<Fetched<ListAppSecrets>> {
-        let secrets = self
-            .credential_repo
-            .list_by_app(&input.command().app_id)
-            .await?;
-        Ok(input.fetched(secrets))
-    }
 }
 
 /// An unknown App gives an empty list: the store reads only the grants.
@@ -104,12 +68,4 @@ impl Describe for ListAppAccess {
 
 impl Query for ListAppAccess {
     type Output = Vec<PrincipalAccess>;
-}
-
-#[async_trait]
-impl Run<Fetch<ListAppAccess>> for AppUseCases {
-    async fn run(&self, input: Authorized<ListAppAccess>) -> DomainResult<Fetched<ListAppAccess>> {
-        let access = self.app_repo.list_access(&input.command().app_id).await?;
-        Ok(input.fetched(access))
-    }
 }

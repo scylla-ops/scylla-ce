@@ -4,8 +4,7 @@ pub mod sender;
 pub use commands::{RequestPasswordReset, ResetPassword, SendPasswordReset};
 pub use sender::{PasswordResetDelivery, PasswordResetMessage, PasswordResetSender};
 
-use super::{AccountRepository, UserRepository};
-use crate::application::HashService;
+use super::AccountRepository;
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::user::{Email, PasswordReset, ResetToken, User};
 use base64::Engine;
@@ -51,7 +50,7 @@ pub fn mint_reset_token() -> DomainResult<ResetToken> {
     ResetToken::new(URL_SAFE_NO_PAD.encode(bytes))
 }
 
-/// A link to store and its message, made in `Prepare`.
+/// A link to store and its message.
 #[derive(Debug, Clone)]
 pub struct NewReset {
     pub reset: PasswordReset,
@@ -62,9 +61,7 @@ pub struct NewReset {
 /// `SendPasswordReset` for an administrator or the user.
 #[derive(Constructor)]
 pub struct PasswordResetUseCases {
-    user_repo: Arc<dyn UserRepository>,
     accounts: Arc<dyn AccountRepository>,
-    hash_service: Arc<dyn HashService>,
     sender: Arc<dyn PasswordResetSender>,
     links: ResetLinks,
 }

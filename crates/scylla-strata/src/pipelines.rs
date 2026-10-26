@@ -1,7 +1,7 @@
 use crate::access::CallerOf;
 use crate::ports::JobDispatch;
-use scylla_core::application::actions::user_or_app;
 use scylla_core::application::agent::dispatch::assemble_dispatch;
+use scylla_core::application::guards::user_or_app;
 use scylla_core::application::job::JobScope;
 use scylla_core::application::pagination::PaginatedResult;
 use scylla_core::application::pipeline::{

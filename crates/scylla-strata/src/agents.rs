@@ -1,11 +1,11 @@
 use crate::access::CallerOf;
 use scylla_auth::authz::{Grant, ORGANIZATION_AGENT_ROLE, Principal, Scope};
-use scylla_core::application::actions::app_only;
 use scylla_core::application::agent::{
     AgentView, CreateAgent, CreatedAgent, GetAgent, GetAgentStats, ListAgents, RecordAgentHost,
     TouchAgent,
 };
 use scylla_core::application::app::mint_app_secret;
+use scylla_core::application::guards::app_only;
 use scylla_core::application::{AgentRepository, AgentStats, JobRepository};
 use scylla_core::infrastructure::InMemoryAgentRegistry;
 use scylla_domain::domain::agent::{Agent, AgentHost};

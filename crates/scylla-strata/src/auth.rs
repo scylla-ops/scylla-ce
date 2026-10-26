@@ -1,9 +1,9 @@
 use crate::access::CallerOf;
-use scylla_core::application::actions::service_only;
 use scylla_core::application::auth::{
     Login, PurgeExpiredSessions, RevokeToken, SessionLookup, ValidateToken, look_up_session,
     new_session,
 };
+use scylla_core::application::guards::service_only;
 use scylla_core::application::user::reset::{
     RequestPasswordReset, ResetLinks as Links, ResetPassword,
 };
@@ -51,9 +51,7 @@ pub trait Auth: crate::Access {
 
     fn resets(&self) -> PasswordResetUseCases {
         PasswordResetUseCases::new(
-            self.auth_users().clone(),
             self.auth_accounts().clone(),
-            self.auth_hasher().clone(),
             self.auth_reset_sender().clone(),
             self.auth_links().0.clone(),
         )

@@ -2,9 +2,9 @@ use crate::access::{AccessModel, CallerOf};
 use crate::ports::JobDispatch;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use scylla_auth::authz::{Visibility, VisibilityResolver};
-use scylla_core::application::actions::{app_only, service_only};
 use scylla_core::application::agent::dispatch::assemble_dispatch;
 use scylla_core::application::agent::{AgentDispatch, AgentStream, DispatchPendingJobs};
+use scylla_core::application::guards::{app_only, service_only};
 use scylla_core::application::job::{
     AppendJobLogs, CancelJob, DeleteJob, GetJob, JobEvent, ListJobLogs, ListJobs,
     ListOrganizationJobs, ListPipelineJobs, ListProjectJobs, ORPHAN_GRACE, ReapOrphanedJobs,

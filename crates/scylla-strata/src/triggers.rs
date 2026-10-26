@@ -1,5 +1,5 @@
 use crate::access::{CallerOf, Permissions};
-use scylla_core::application::actions::service_only;
+use scylla_core::application::guards::service_only;
 use scylla_core::application::pipeline::RunPipelineWithInputs;
 use scylla_core::application::trigger::commands::generate_webhook_secret;
 use scylla_core::application::trigger::fire::resolve_inputs;
@@ -53,10 +53,10 @@ impl Component for TriggerWebhookLinks {
     }
 }
 
-/// The action name of the run of a fire, as the CE `TriggerFirer` runs it.
+/// The action name of the run of a fire, as the `FireAudit` slot sees it.
 pub const RUN_PIPELINE_WITH_INPUTS: &str = "run_pipeline_with_inputs";
 
-/// The action name of the record of a fire, as the CE `TriggerFirer` runs it.
+/// The action name of the record of a fire, as the `FireAudit` slot sees it.
 pub const RECORD_TRIGGER_FIRE: &str = "record_trigger_fire";
 
 /// The audit of the inner runs of a fire. A fire runs the pipeline and records its outcome as
@@ -119,11 +119,9 @@ pub trait Triggers: crate::Pipelines {
 
     fn trigger_rules(&self) -> TriggerUseCases {
         TriggerUseCases::new(
-            self.trigger_repo().clone(),
             self.trigger_pipelines().clone(),
             self.trigger_projects().clone(),
             self.trigger_apps().clone(),
-            self.trigger_cipher().clone(),
             self.trigger_schedule().clone(),
         )
     }

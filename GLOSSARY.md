@@ -318,18 +318,18 @@ The hexagon is split across several crates. The model sits in the kernel; the us
 
 `crates/scylla-core/src/`:
 
-- `application/<feature>/repository.rs`: the ports; `mod.rs`: the use case struct; `commands.rs` / `queries.rs`: the actions and their `Run` impls.
+- `application/<feature>/repository.rs`: the ports; `mod.rs`: the shared rules; `commands.rs` / `queries.rs`: the commands and queries and their access rule (`Describe`).
 - `infrastructure/`: the adapters that need no database, `messaging/*` (in-process dispatch and log fan-out), `services/argon2_hash_service.rs`, and the rest.
-- `grpc/` and `rest/` — the inbound adapters.
+- `grpc/`: the mappers, the conversions, the auth interceptor and the agent stream frames; `rest/`: the webhook, health and UI routes. The gRPC services are in `crates/scylla-strata/src/grpc/`.
 - `config.rs`: the server configuration and its TOML loader.
 
 `crates/scylla-auth/src/`: `authz/` (the permission, role, grant and visibility ports and types), `audit.rs`, and `cedar/` (the Cedar adapter with its schema and policies).
 
 `crates/scylla-db/src/`: `postgres/<aggregate>/` (one `Pg…Repository` per aggregate) and `pool.rs` (the pool and the embedded migrations).
 
-`crates/scylla-server/src/`: `server.rs` (the `Server` builder, the public entry point), `startup.rs` (the `Services` struct and `init_services`, the one place that names every concrete adapter, plus `run_server`; all crate-private) and `cli.rs` (the command line, config loading and tracing setup shared by the edition binaries).
+`crates/scylla-server/src/`: `server.rs` (the `Server` builder, the public entry point), `startup.rs` (the `Services` struct and `init_services`, the one place that names every concrete adapter, `strata_shared`, plus `run_server`, which mounts every slice of the strata edition) and `cli.rs` (the command line, config loading and tracing setup shared by the edition binaries).
 
-`crates/scylla-extension/src/`: the action pipeline, see [Extension point](#extension-point) and `crates/scylla-extension/ARCHITECTURE.md`.
+`crates/scylla-strata/src/`: the CE backend on strata, one module per slice, see [Extension point](#extension-point) and `crates/scylla-strata/ARCHITECTURE.md`. `crates/scylla-extension/src/`: `Describe` and `Access`, and the action pipeline that only the Enterprise features still run (`crates/scylla-extension/ARCHITECTURE.md`).
 
 Every crate re-exports the kernel's `domain` module, so `crate::domain::...` names the model from anywhere even though it lives in another crate. That is the only re-export of its kind: the access model is reached as `scylla_auth::authz`, and the Postgres adapters import the ports they implement from `scylla_core::application`.
 
@@ -337,10 +337,10 @@ Every crate re-exports the kernel's `domain` module, so `crate::domain::...` nam
 A trait describing something the use cases need from the outside world (persistence, hashing, permission checks), declared next to its use case in `application/<feature>/`. Examples: `PipelineRepository`, `HashService`. `PermissionService` is declared in `scylla-auth`.
 
 ### Adapter
-A concrete implementation of a port. **Driven** adapters, the ones the use cases call out to, live in the crate that owns their dependency: `scylla-db/src/postgres/*` for repositories, `scylla-auth/src/cedar/` for the policy engine, `scylla-core/src/infrastructure/` for the rest (hashing, encryption, cron schedules, in-process messaging). **Driving** adapters, the ones that call into the use cases, sit in `scylla-core`: `grpc/` and `rest/`.
+A concrete implementation of a port. **Driven** adapters, the ones the use cases call out to, live in the crate that owns their dependency: `scylla-db/src/postgres/*` for repositories, `scylla-auth/src/cedar/` for the policy engine, `scylla-core/src/infrastructure/` for the rest (hashing, encryption, cron schedules, in-process messaging). **Driving** adapters, the ones that call into the use cases, are the gRPC services of `scylla-strata/src/grpc/` and the HTTP routes of `scylla-core/src/rest/`.
 
 ### Use case
-A struct in `application/<feature>/mod.rs` (e.g. `PipelineUseCases`, `JobUseCases`) that holds `Arc<dyn Port>` fields and implements the `Run` stages of its commands and queries. It has no methods. Handlers run the actions through `Actions` (`grpc::adapter::run`).
+A `#[usecase]` method of a strata module in `crates/scylla-strata/src/<slice>.rs` (e.g. `Projects::create_project`). Its parameter is a command or query type of `application/<feature>/` (e.g. `CreateProject`); it checks the access rule of that type, then reads and writes through the components of the module (the ports). The gRPC adapter of the slice (`crates/scylla-strata/src/grpc/`) calls it.
 
 ### Entity
 A domain object with an identity and mutable state (e.g. `Pipeline`, `Job`, `App`, `Organization`). Defined in `domain/<aggregate>.rs`.
@@ -354,7 +354,7 @@ Each bounded string is a `Text<R>` from `domain/text.rs`. The marker `R` is a `R
 A port describing persistence for one aggregate (`PipelineRepository`, `JobRepository`, ...). The trait lives in `application/<feature>/repository.rs`; the PostgreSQL implementation lives in `scylla-db/src/postgres/` (one `Pg…Repository` per aggregate, queries via `sqlx::query!` / `query_as!`).
 
 ### Domain error
-`DomainError` from `domain/errors.rs` with variants like `validation`, `business_rule`, `not_found`. Returned as `DomainResult<T>` from the kernel and mapped to gRPC statuses by the control plane's handlers.
+`DomainError` from `domain/errors.rs` with variants like `validation`, `business_rule`, `not_found`. Returned as `DomainResult<T>` from the kernel and mapped to gRPC statuses by `domain_error_to_status`.
 
 ### `JobEvent`
 The lifecycle vocabulary a running agent reports: `JobStarted`, `NodeStarted`, `NodeCompleted`, `NodeFailed`, `NodeSkipped`, `JobCompleted`, `JobFailed`. Defined in the kernel because both binaries must agree on it: the agent emits it, the gRPC adapter maps it to and from its wire form, and the agent stream sends it as `RecordJobStatus`, which applies it to the `Job` aggregate.
@@ -366,5 +366,5 @@ The topological-sort routine behind `DagPlan` (`domain/pipeline/dag.rs`). One im
 One in the whole workspace. `test-utils` exposes the `test_support` builders (`scylla-core`) and seeders (`scylla-db`) to downstream test code. `scylla-domain`, `scylla-agent`, `scylla-proto`, `scylla-auth`, `scylla-extension`, `scylla-server` and `scylla-ce` have none.
 
 ### Extension point
-A position in the action pipeline (`scylla-extension`). Every write is a command that `Actions::run` moves through `Authorize`, `Prepare` and `Persist`, every read a query that the same `run` moves through `Authorize` and `Fetch`; around each stage the `Hooks` registry runs `Policy`, `Gate`, `Around`, `Wrap`, `Listener` and `Observer`. An edition implements `Extension` and registers it on the `Server` builder (`.extension(&Arc::new(MeteredQuota))`); the core runs the hooks and never knows which edition built it. The Community Edition registers nothing. `scylla-extension` depends on `scylla-domain` only, so a private Enterprise build implements the hooks against a pinned git tag.
+A hook of a strata edition on a use case of the core: `#[before(scylla_strata::Grants::create_grant)]` on one use case, `#[before(scylla_strata::Projects::writes)]` on every write of a module, and `#[after(...)]`. It runs after the access check. An edition extends `ScyllaCeOnDb`, overrides a component or adds a module, and gives its host to the `Server` builder (`.strata(EditionHost::<MyEdition>::new(Slice::ALL))`); the core never knows which edition built it. The Community Edition adds no hook. The older action pipeline of `scylla-extension` (`Actions`, `Hooks`, `Server::extension`) serves only the Enterprise features that did not move to strata.
 

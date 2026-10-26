@@ -535,19 +535,13 @@ impl VisibilityResolver for ScopesByAgent {
     }
 }
 
-/// A dispatcher on stubs: every agent sees everything and each secret resolves to itself.
+/// A dispatcher on stubs.
 pub fn dispatcher(
     registry: Arc<dyn AgentDispatch>,
     jobs: Arc<dyn JobRepository>,
     tails: Arc<StubTails>,
 ) -> Arc<DispatchUseCases> {
-    Arc::new(DispatchUseCases::new(
-        registry,
-        Arc::new(ScopesByAgent::everything()),
-        jobs,
-        Arc::new(EchoResolver),
-        tails,
-    ))
+    Arc::new(DispatchUseCases::new(registry, jobs, tails))
 }
 
 pub struct EchoResolver;

@@ -10,14 +10,14 @@ libraries they link.
 
 | Path | What it is |
 |---|---|
-| `crates/scylla-extension` | the edition boundary: the action pipeline (commands, stages, `Hooks`); depends on `scylla-domain` only. Guide: [`crates/scylla-extension/ARCHITECTURE.md`](./crates/scylla-extension/ARCHITECTURE.md) |
+| `crates/scylla-extension` | the access rule of each command and query (`Describe`, `Access`), which the strata modules read, and the action pipeline (`Actions`, `Hooks`) that only the Enterprise features still run; depends on `scylla-domain` only. Guide: [`crates/scylla-extension/ARCHITECTURE.md`](./crates/scylla-extension/ARCHITECTURE.md) |
 | `crates/scylla-domain` | dependency-light shared kernel (domain model, `JobEvent`) |
 | `crates/scylla-proto` | the wire contract: the Rust bindings and their conversions; the protos are the `scylla-protos` git submodule in `proto/scylla/<domain>/v1/` |
 | `crates/scylla-auth` | the access model: RBAC ports and types, the Cedar adapter |
-| `crates/scylla-core` | use cases and ports, gRPC + HTTP surfaces, config, in-memory adapters |
+| `crates/scylla-core` | the commands, queries and ports, the shared rules, the gRPC mappers and interceptor, the HTTP routes, config, in-memory adapters |
 | `crates/scylla-db` | the Postgres adapters, the pool, the embedded migrations |
-| `crates/scylla-strata` | the CE slices on the strata framework: one module per slice, its gRPC adapter, the edition host and the per-slice switch. Guide: [`crates/scylla-strata/ARCHITECTURE.md`](./crates/scylla-strata/ARCHITECTURE.md) |
-| `crates/scylla-server` | the composition root: the `Server` builder (hook extensions, extra gRPC/HTTP services) and the `cli` every edition binary shares |
+| `crates/scylla-strata` | the CE backend on the strata framework, its only engine: one module per slice, its gRPC adapter, the workers and the edition host. Guide: [`crates/scylla-strata/ARCHITECTURE.md`](./crates/scylla-strata/ARCHITECTURE.md) |
+| `crates/scylla-server` | the composition root: the `Server` builder (the strata edition, the Enterprise features, extra gRPC/HTTP services) and the `cli` every edition binary shares |
 | `binaries/scylla-ce` | the Community Edition binary: a `main.rs` and the config files |
 | `binaries/scylla-agent` | the worker installed per machine |
 | `binaries/scylla-parity` | the parity client: one fixed gRPC scenario, the client contract checks, and the compare of two outputs. Guide: [`binaries/scylla-parity/ARCHITECTURE.md`](./binaries/scylla-parity/ARCHITECTURE.md) |
@@ -37,7 +37,8 @@ them that depth is load-bearing: `sqlx::migrate!("../../migrations")`
 | Topic | Where |
 |---|---|
 | **Publishing release images** | [`RELEASING.md`](./RELEASING.md) |
-| The action pipeline (commands, stages, hooks) | [`crates/scylla-extension/ARCHITECTURE.md`](./crates/scylla-extension/ARCHITECTURE.md) |
+| The CE slices on strata | [`crates/scylla-strata/ARCHITECTURE.md`](./crates/scylla-strata/ARCHITECTURE.md) |
+| The action pipeline of the Enterprise features (commands, stages, hooks) | [`crates/scylla-extension/ARCHITECTURE.md`](./crates/scylla-extension/ARCHITECTURE.md) |
 | Domain vocabulary | [`GLOSSARY.md`](./GLOSSARY.md) |
 | Running the stack | [`README.md`](./README.md) |
 | The parity client (`just parity`) | [`binaries/scylla-parity/ARCHITECTURE.md`](./binaries/scylla-parity/ARCHITECTURE.md) |

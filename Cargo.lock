@@ -2748,7 +2748,6 @@ dependencies = [
  "scylla-auth",
  "scylla-core",
  "scylla-domain",
- "scylla-extension",
  "sqlx",
  "tokio",
  "tracing",

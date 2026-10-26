@@ -1,4 +1,4 @@
-use crate::feature::{Context, Feature};
+use crate::feature::{Context, Feature, PermissionAuthorizer};
 use crate::startup::{bootstrap, init_services, run_server, shutdown_signal};
 use crate::surface::Surface;
 use anyhow::{Context as _, Result};
@@ -6,8 +6,8 @@ use scylla_core::application::PasswordResetSender;
 use scylla_core::config::ControlPlaneConfig;
 use scylla_core::error::StartupError;
 use scylla_core::infrastructure::LogPasswordResetSender;
-use scylla_extension::{Extension, Hooks};
-use scylla_strata::Host;
+use scylla_extension::{Actions, Extension, Hooks};
+use scylla_strata::{EditionHost, Host, ScyllaCeOnDb, Slice};
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,7 +25,7 @@ pub struct Server {
     features: Vec<Box<dyn Feature>>,
     surface: Surface,
     password_reset_sender: Arc<dyn PasswordResetSender>,
-    strata: Option<Box<dyn Host>>,
+    strata: Box<dyn Host>,
 }
 
 impl Server {
@@ -38,14 +38,15 @@ impl Server {
             features: Vec::new(),
             surface: Surface::default(),
             password_reset_sender: Arc::new(LogPasswordResetSender),
-            strata: None,
+            strata: Box::new(EditionHost::<ScyllaCeOnDb>::new(Slice::ALL)),
         }
     }
 
-    /// The strata edition of the binary. `[strata].slices` chooses the slices that it serves.
+    /// The strata edition of the binary. It serves every slice. Without a call, the server serves
+    /// the CE edition `ScyllaCeOnDb`.
     #[must_use]
     pub fn strata(mut self, host: impl Host) -> Self {
-        self.strata = Some(Box::new(host));
+        self.strata = Box::new(host);
         self
     }
 
@@ -57,7 +58,7 @@ impl Server {
     }
 
     /// Registers before `Feature::hooks`, which runs at `serve`; within one position, hooks run
-    /// in registration order.
+    /// in registration order. The hooks run in `Context::actions` only: no CE slice runs a hook.
     #[must_use]
     pub fn extension<E: Extension>(mut self, extension: &Arc<E>) -> Self {
         extension.register(&mut self.hooks);
@@ -127,10 +128,15 @@ impl Server {
             strata,
         } = self;
 
-        let ready = strata.as_ref().map_or(&[][..], |host| host.ready());
-        let slices =
-            scylla_strata::switched(&config.strata.slices, ready).context("[strata].slices")?;
-        scylla_strata::log_engines(&slices);
+        warn_ignored_slices(&config);
+        let missing = missing_slices(strata.ready());
+        if !missing.is_empty() {
+            anyhow::bail!(
+                "the strata edition does not serve the slices {}: no other engine serves them",
+                missing.join(",")
+            );
+        }
+        scylla_strata::log_engines();
 
         for feature in &features {
             feature.hooks(&mut hooks);
@@ -142,32 +148,25 @@ impl Server {
                 .context("feature prepare failed")?;
         }
 
-        let mut services = init_services(
-            &config,
-            db.clone(),
-            Arc::new(hooks),
-            password_reset_sender,
-            &slices,
-        )
-        .await
-        .context("init_services failed")?;
+        let mut services = init_services(&config, db.clone(), password_reset_sender)
+            .await
+            .context("init_services failed")?;
 
-        let built = match &strata {
-            Some(host) if !slices.is_empty() => Some(
-                host.build(&services.shared)
-                    .await
-                    .map_err(|e| StartupError::Strata(format!("{e:#}")))
-                    .context("strata edition build failed")?,
-            ),
-            _ => None,
-        };
-        bootstrap(&config, &services, built.as_deref(), &slices)
+        let built = strata
+            .build(&services.shared)
+            .await
+            .map_err(|e| StartupError::Strata(format!("{e:#}")))
+            .context("strata edition build failed")?;
+        bootstrap(&config, &*built)
             .await
             .context("bootstrap failed")?;
 
         let ctx = Context {
             db: db.clone(),
-            actions: services.actions.clone(),
+            actions: Arc::new(Actions::new(
+                Arc::new(PermissionAuthorizer(services.permission_checker.clone())),
+                Arc::new(hooks),
+            )),
             permissions: services.permission_checker.clone(),
             visibility: services.permission_checker.clone(),
             trust_forwarded_headers: config.server.trust_forwarded_headers,
@@ -184,7 +183,6 @@ impl Server {
         });
 
         let server_token = token.clone();
-        let strata = built.as_deref().map(|built| (built, slices.as_slice()));
         let in_flight = strata::InFlight::waiting(strata::InFlight::DEFAULT_MAX);
         let workers = scylla_strata::Workers {
             wakes: services.wakes.take(),
@@ -194,7 +192,7 @@ impl Server {
             &config,
             &services,
             surface,
-            strata,
+            &*built,
             &in_flight,
             workers,
             async move {
@@ -234,5 +232,66 @@ impl Server {
 
         result.context("run_server failed")?;
         Ok(())
+    }
+}
+
+/// `[strata].slices` and `SCYLLA_STRATA_SLICES` chose the slices of strata before every slice ran
+/// on it. The server accepts them, ignores them and writes one warning. True when it warns.
+pub(crate) fn warn_ignored_slices(config: &ControlPlaneConfig) -> bool {
+    if config.strata.slices.is_empty() {
+        return false;
+    }
+    warn!("[strata].slices is ignored: every slice runs on strata");
+    true
+}
+
+/// The keys of the slices of `Slice::ALL` that `ready` does not hold.
+pub(crate) fn missing_slices(ready: &[Slice]) -> Vec<&'static str> {
+    Slice::ALL
+        .iter()
+        .filter(|slice| !ready.contains(slice))
+        .map(|slice| slice.key())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{missing_slices, warn_ignored_slices};
+    use scylla_core::config::ControlPlaneConfig;
+    use scylla_strata::Slice;
+
+    const OLD_CONFIG: &str = r#"
+[server]
+address = "127.0.0.1:8080"
+
+[strata]
+slices = ["projects", "secrets", "not-a-slice"]
+"#;
+
+    #[test]
+    fn an_old_config_with_strata_slices_starts_with_one_warning() {
+        let path = std::env::temp_dir().join(format!("scylla-old-{}.toml", std::process::id()));
+        std::fs::write(&path, OLD_CONFIG).unwrap();
+        let config = ControlPlaneConfig::from_file(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        assert_eq!(config.strata.slices.len(), 3);
+        assert!(warn_ignored_slices(&config));
+    }
+
+    #[test]
+    fn the_env_switch_is_also_ignored_with_one_warning() {
+        let mut config = ControlPlaneConfig::default();
+        assert!(!warn_ignored_slices(&config));
+
+        config.override_strata_slices("projects,jobs");
+
+        assert!(warn_ignored_slices(&config));
+    }
+
+    #[test]
+    fn an_edition_must_serve_every_slice() {
+        assert!(missing_slices(Slice::ALL).is_empty());
+        assert_eq!(missing_slices(&Slice::ALL[1..]), [Slice::ALL[0].key()]);
     }
 }

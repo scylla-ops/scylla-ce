@@ -4,7 +4,6 @@ pub mod fire;
 pub mod queries;
 pub mod repository;
 pub mod schedule;
-pub mod scheduler;
 pub mod webhook;
 
 pub use commands::{
@@ -12,16 +11,13 @@ pub use commands::{
     ScheduleCronTriggers, SetTriggerEnabled, UpdateTrigger,
 };
 pub use delivery::TriggerDeliveryRepository;
-pub use fire::{FireTriggerNow, TriggerFireUseCases, TriggerFirer, TriggerFiring};
+pub use fire::FireTriggerNow;
 pub use queries::{GetTrigger, ListPipelineTriggers, ResolveTriggerRun, TriggerRun};
 pub use repository::{NextFire, TriggerRepository};
 pub use schedule::{CronSchedule, next_fire_time};
-pub use scheduler::TriggerCronScheduler;
-pub use webhook::{
-    DEFAULT_SIGNATURE_HEADER, IngestOutcome, IngestWebhook, WebhookIngressUseCases, verified_digest,
-};
+pub use webhook::{DEFAULT_SIGNATURE_HEADER, IngestOutcome, IngestWebhook, verified_digest};
 
-use crate::application::{AppRepository, PipelineRepository, ProjectRepository, SecretCipher};
+use crate::application::{AppRepository, PipelineRepository, ProjectRepository};
 use crate::domain::app::{App, TRIGGER_RUNNER_APP_NAME};
 use crate::domain::clock;
 use crate::domain::errors::{DomainError, DomainResult};
@@ -34,17 +30,13 @@ use scylla_auth::authz::{Grant, ORGANIZATION_TRIGGER_RUNNER_ROLE, Principal, Sco
 use std::sync::Arc;
 use tracing::warn;
 
-/// The trigger aggregate's stage runners, one block per action in `commands.rs` and
-/// `queries.rs`. It has no public method; `Actions::run` drives it, also for the reads and the
-/// writes of the cron scheduler and of the trigger firer.
+/// The trigger rules that the Triggers module of strata reads: the next fire time and the runner
+/// app of an organization.
 #[derive(Constructor)]
 pub struct TriggerUseCases {
-    pub(super) trigger_repo: Arc<dyn TriggerRepository>,
     pub(super) pipeline_repo: Arc<dyn PipelineRepository>,
     pub(super) project_repo: Arc<dyn ProjectRepository>,
     pub(super) app_repo: Arc<dyn AppRepository>,
-    /// Reversible: HMAC verification needs the plaintext back.
-    pub(super) cipher: Arc<dyn SecretCipher>,
     pub(super) schedule: Arc<dyn CronSchedule>,
 }
 
@@ -112,6 +104,3 @@ impl TriggerUseCases {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

@@ -331,7 +331,11 @@ impl Plan<'_> {
                 env.extend(b_env.iter().cloned());
                 let (side, out) = self.side(b_server, &env, "run-b").await?;
                 ok &= side.scenario_ok && side.contract_ok;
-                ok &= mounted(&self.out_dir.join("run-b").join("server.log"), b_env)?;
+                ok &= mounted(
+                    &self.out_dir.join("run-b").join("server.log"),
+                    self.edition,
+                    b_env,
+                )?;
                 contracts.push(format!("B: {}", side.contract));
                 Some(out)
             }
@@ -369,27 +373,90 @@ impl Plan<'_> {
     }
 }
 
-fn mounted(log: &Path, b_env: &[(String, String)]) -> Result<bool> {
-    let Some((_, keys)) = b_env.iter().find(|(k, _)| k == "SCYLLA_STRATA_SLICES") else {
-        return Ok(true);
-    };
+/// The B server serves every slice of the edition on strata, and the strata engine runs each
+/// worker and the webhook ingress. A key of `--b-env SCYLLA_STRATA_SLICES` must also be served.
+fn mounted(log: &Path, edition: &Edition, b_env: &[(String, String)]) -> Result<bool> {
     let text = crate::server_log::strip_ansi(&std::fs::read_to_string(log)?);
-    let served: Vec<&str> = text
+    let check = strata_check(&text, edition, b_env);
+    if check.missing.is_empty() && check.on_ce.is_empty() {
+        println!("==> B serves on strata: {}", check.served.join(","));
+        return Ok(true);
+    }
+    if !check.missing.is_empty() {
+        println!(
+            "==> B does not serve on strata: {}",
+            check.missing.join(",")
+        );
+    }
+    for line in &check.on_ce {
+        println!("==> B runs on the CE engine: {line}");
+    }
+    Ok(false)
+}
+
+struct StrataCheck {
+    served: Vec<String>,
+    missing: Vec<String>,
+    on_ce: Vec<String>,
+}
+
+const SERVES: &str = "strata serves the slice";
+const RUNS_WORKER: &str = "the engine runs the worker";
+const RUNS_WEBHOOK: &str = "the engine runs the webhook ingress";
+
+fn strata_check(text: &str, edition: &Edition, b_env: &[(String, String)]) -> StrataCheck {
+    let field = |line: &str, message: &str, key: &str| {
+        crate::server_log::fields(line, message)
+            .get(key)
+            .and_then(|v| v.as_str().map(str::to_owned))
+    };
+    let served: Vec<String> = text
         .lines()
-        .filter(|line| line.contains("strata serves the slice"))
-        .filter_map(|line| line.split("slice=").nth(1)?.split_whitespace().next())
+        .filter(|line| line.contains(SERVES))
+        .filter_map(|line| field(line, SERVES, "slice"))
         .collect();
-    let missing: Vec<&str> = keys
-        .split(',')
-        .map(str::trim)
-        .filter(|key| !key.is_empty() && !served.contains(key))
+    let on_strata = |line: &str, message: &str| {
+        line.contains(message) && field(line, message, "engine").as_deref() == Some("strata")
+    };
+    let switched = b_env
+        .iter()
+        .find(|(k, _)| k == "SCYLLA_STRATA_SLICES")
+        .map(|(_, keys)| keys.split(',').map(str::trim).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let mut missing: Vec<String> = edition
+        .strata_slices
+        .iter()
+        .copied()
+        .chain(switched)
+        .filter(|key| !key.is_empty() && !served.iter().any(|s| s == key))
+        .map(|key| format!("slice={key}"))
         .collect();
-    if missing.is_empty() {
-        println!("==> B serves on strata: {}", served.join(","));
-        Ok(true)
-    } else {
-        println!("==> B does not serve on strata: {}", missing.join(","));
-        Ok(false)
+    missing.dedup();
+    for worker in &edition.strata_workers {
+        let runs = text.lines().any(|line| {
+            on_strata(line, RUNS_WORKER)
+                && field(line, RUNS_WORKER, "worker").as_deref() == Some(worker)
+        });
+        if !runs {
+            missing.push(format!("worker={worker}"));
+        }
+    }
+    if !text.lines().any(|line| on_strata(line, RUNS_WEBHOOK)) {
+        missing.push("webhook ingress".to_owned());
+    }
+    let on_ce = text
+        .lines()
+        .filter(|line| {
+            [RUNS_WORKER, RUNS_WEBHOOK].iter().any(|message| {
+                line.contains(message) && field(line, message, "engine").as_deref() == Some("ce")
+            })
+        })
+        .map(str::to_owned)
+        .collect();
+    StrataCheck {
+        served,
+        missing,
+        on_ce,
     }
 }
 
@@ -418,5 +485,63 @@ async fn wait_ready(addr: &str, edition: &Edition, process: &mut ServerProcess) 
             );
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn log(engine: &str, slices: &[&str]) -> String {
+        let mut lines = Vec::new();
+        for worker in ["CronTriggers", "DispatchJobs", "ReapJobs", "SweepSessions"] {
+            lines.push(format!(
+                "2026-10-26T09:32:22.164991Z  INFO scylla_strata: the engine runs the worker worker={worker} engine=\"{engine}\""
+            ));
+        }
+        lines.push(format!(
+            "2026-10-26T09:32:22.165059Z  INFO scylla_strata: the engine runs the webhook ingress engine=\"{engine}\""
+        ));
+        for slice in slices {
+            lines.push(format!(
+                "2026-10-26T09:32:22.700035Z  INFO scylla_strata::host: strata serves the slice slice={slice} edition=\"scylla_strata::ScyllaCeOnDb\""
+            ));
+        }
+        lines.join("\n")
+    }
+
+    #[test]
+    fn a_b_server_on_strata_for_everything_passes() {
+        let edition = Edition::ce();
+        let check = strata_check(&log("strata", &edition.strata_slices), &edition, &[]);
+        assert!(check.missing.is_empty(), "{:?}", check.missing);
+        assert!(check.on_ce.is_empty());
+        assert_eq!(check.served.len(), 12);
+    }
+
+    #[test]
+    fn a_missing_slice_or_a_ce_engine_fails() {
+        let edition = Edition::ce();
+        let slices = &edition.strata_slices[1..];
+        let check = strata_check(&log("strata", slices), &edition, &[]);
+        assert_eq!(check.missing, ["slice=projects"]);
+
+        let check = strata_check(&log("ce", &edition.strata_slices), &edition, &[]);
+        assert_eq!(check.on_ce.len(), 5);
+        assert_eq!(check.missing.len(), 5);
+
+        let check = strata_check("", &edition, &[]);
+        assert_eq!(check.missing.len(), 12 + 4 + 1);
+    }
+
+    #[test]
+    fn a_key_of_the_old_b_env_must_also_be_served() {
+        let edition = Edition::ce();
+        let env = [(
+            "SCYLLA_STRATA_SLICES".to_owned(),
+            "jobs, ee-limits".to_owned(),
+        )];
+        let check = strata_check(&log("strata", &edition.strata_slices), &edition, &env);
+        assert_eq!(check.missing, ["slice=ee-limits"]);
     }
 }

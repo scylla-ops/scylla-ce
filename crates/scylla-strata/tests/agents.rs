@@ -16,9 +16,7 @@ use scylla_core::application::{
     SecretResolver,
 };
 use scylla_core::infrastructure::InMemoryAgentRegistry;
-use scylla_core::test_support::authz::{
-    DenyingPermissionService, RecordingPermissionService, actions,
-};
+use scylla_core::test_support::authz::{DenyingPermissionService, RecordingPermissionService};
 use scylla_core::test_support::jobs::JobBuilder;
 use scylla_core::test_support::pipelines::{PipelineBuilder, node};
 use scylla_core::test_support::stubs::{
@@ -300,7 +298,6 @@ struct Lab {
     hash: Arc<StubHash>,
     lines: Arc<Lines>,
     tails: Arc<StubTails>,
-    dispatch: Arc<DispatchUseCases>,
 }
 
 fn quiet_registry() -> Arc<InMemoryAgentRegistry> {
@@ -343,7 +340,6 @@ async fn lab_of(parts: Parts) -> Lab {
         hash,
         lines,
         tails: parts.tails,
-        dispatch: parts.dispatch,
     }
 }
 
@@ -799,14 +795,14 @@ async fn a_stream_reconciles_its_jobs_takes_a_cancel_and_ends_on_a_disconnect() 
 }
 
 async fn dispatch_pass(lab: &Lab) -> Vec<Job> {
-    actions(Arc::new(RecordingPermissionService::new()))
-        .run(
-            &*lab.dispatch,
-            &CallerContext::Service(ServiceIdentity::job_dispatcher()),
-            DispatchPendingJobs { agents: None },
-        )
-        .await
-        .unwrap()
+    JobControlRpc::dispatch_pending_jobs(
+        &lab.app.scoped(&ctx(CallerContext::Service(
+            ServiceIdentity::job_dispatcher(),
+        ))),
+        DispatchPendingJobs { agents: None },
+    )
+    .await
+    .unwrap()
 }
 
 fn dispatched(order: Option<agent_down::Payload>) -> String {

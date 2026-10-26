@@ -1,5 +1,5 @@
 use crate::access::CallerOf;
-use crate::{Grants, GrantsRpc, Slice, Users, UsersRpc};
+use crate::{Grants, GrantsRpc, Users, UsersRpc};
 use scylla_auth::authz::{Principal, Scope};
 use scylla_core::application::grant::CreateGrant;
 use scylla_core::application::user::{
@@ -12,9 +12,6 @@ use scylla_domain::domain::caller::ServiceIdentity;
 use scylla_domain::domain::errors::DomainError;
 use scylla_domain::domain::user::{Email, User, Username};
 use strata::{Contextual, Scoped};
-
-/// The slices of the bootstrap writes. The bootstrap runs on strata only when each one is switched.
-pub const BOOTSTRAP_SLICES: &[Slice] = &[Slice::Users, Slice::Grants];
 
 /// The CE bootstrap on the Users and Grants modules, as the `bootstrap` service. The admin is a
 /// new account, the account with the configured email, or the account with the configured

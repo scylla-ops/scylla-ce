@@ -411,9 +411,7 @@ async fn lab_of<E: Edition>(
         .build();
     let dispatch = Arc::new(DispatchUseCases::new(
         registry.clone(),
-        Arc::new(SeeAll),
         jobs.clone(),
-        Arc::new(EchoResolver),
         Arc::new(NoTails),
     ));
     let app = E::builder(&Config::new())

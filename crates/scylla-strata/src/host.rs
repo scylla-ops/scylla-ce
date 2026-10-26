@@ -170,13 +170,6 @@ impl Service {
             Service::Agents | Service::AgentAdmin => Slice::Agents,
         }
     }
-
-    /// True when a slice in `switched` holds the service: the edition serves it, and the server
-    /// does not add its CE handler.
-    #[must_use]
-    pub fn on_strata(self, switched: &[Slice]) -> bool {
-        switched.contains(&self.slice())
-    }
 }
 
 impl Slice {
@@ -189,47 +182,13 @@ impl Slice {
     }
 }
 
-/// Writes one line for each worker and for the webhook ingress: the engine that runs it.
-pub fn log_engines(switched: &[Slice]) {
-    let engine = |on: bool| if on { "strata" } else { "ce" };
+/// Writes one line for each worker and for the webhook ingress: the engine that runs it. The engine
+/// is always strata.
+pub fn log_engines() {
     for worker in crate::Worker::ALL {
-        tracing::info!(target: "scylla_strata", worker = ?worker, engine = engine(worker.on_strata(switched)), "the engine runs the worker");
+        tracing::info!(target: "scylla_strata", worker = ?worker, engine = "strata", "the engine runs the worker");
     }
-    tracing::info!(target: "scylla_strata", engine = engine(switched.contains(&Slice::Triggers)), "the engine runs the webhook ingress");
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum SwitchError {
-    Unknown(String),
-    NotReady(Slice),
-}
-
-impl fmt::Display for SwitchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SwitchError::Unknown(key) => write!(f, "unknown strata slice {key:?}"),
-            SwitchError::NotReady(slice) => write!(
-                f,
-                "the edition does not mark the slice {slice:?} ready for strata"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for SwitchError {}
-
-pub fn switched(keys: &[String], ready: &[Slice]) -> Result<Vec<Slice>, SwitchError> {
-    let mut slices = Vec::new();
-    for key in keys {
-        let slice = Slice::parse(key).ok_or_else(|| SwitchError::Unknown(key.clone()))?;
-        if !ready.contains(&slice) {
-            return Err(SwitchError::NotReady(slice));
-        }
-        if !slices.contains(&slice) {
-            slices.push(slice);
-        }
-    }
-    Ok(slices)
+    tracing::info!(target: "scylla_strata", engine = "strata", "the engine runs the webhook ingress");
 }
 
 #[derive(Clone)]
@@ -279,6 +238,8 @@ pub type BootstrapFuture<'a> =
     Pin<Box<dyn Future<Output = Result<(), BootstrapError>> + Send + 'a>>;
 
 pub trait Host: Send + Sync + 'static {
+    /// The slices that the edition serves. The server refuses to start when a slice of
+    /// [`Slice::ALL`] is not in it: no other engine serves the slice.
     fn ready(&self) -> &[Slice];
 
     /// Builds the production edition on the CE adapters of `shared`. The server builds it one
@@ -286,8 +247,8 @@ pub trait Host: Send + Sync + 'static {
     fn build<'a>(&'a self, shared: &'a Shared) -> BuildFuture<'a>;
 }
 
-/// A built edition. The server serves the switched slices with it, and runs the bootstrap and
-/// the webhook ingress on it when their slices are switched.
+/// A built edition. The server serves every slice with it, and runs the bootstrap and the webhook
+/// ingress on it.
 pub trait Built: Send + Sync {
     /// Serves `slices` on `routes`, and starts the worker of each slice.
     fn mount(
@@ -299,9 +260,7 @@ pub trait Built: Send + Sync {
         workers: crate::Workers,
     );
 
-    /// Runs the CE admin bootstrap on the Users and Grants modules (see [`BOOTSTRAP_SLICES`]).
-    ///
-    /// [`BOOTSTRAP_SLICES`]: crate::BOOTSTRAP_SLICES
+    /// Runs the CE admin bootstrap on the Users and Grants modules.
     fn bootstrap<'a>(&'a self, cfg: &'a BootstrapConfig) -> BootstrapFuture<'a>;
 
     /// The webhook ingress of the Triggers module, for the CE webhook route.
@@ -657,29 +616,6 @@ mod tests {
         assert_eq!(
             Slice::Apps.services().collect::<Vec<_>>(),
             [Service::Apps, Service::AppAuth]
-        );
-        for slice in Slice::ALL {
-            for service in Service::ALL {
-                assert_eq!(service.on_strata(&[*slice]), service.slice() == *slice);
-            }
-        }
-    }
-
-    #[test]
-    fn a_switch_needs_a_known_and_ready_slice() {
-        let keys = |k: &[&str]| k.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        assert_eq!(switched(&keys(&[]), &[]), Ok(vec![]));
-        assert_eq!(
-            switched(&keys(&["projects", "projects"]), &[Slice::Projects]),
-            Ok(vec![Slice::Projects])
-        );
-        assert_eq!(
-            switched(&keys(&["projects"]), &[]),
-            Err(SwitchError::NotReady(Slice::Projects))
-        );
-        assert_eq!(
-            switched(&keys(&["nope"]), Slice::ALL),
-            Err(SwitchError::Unknown("nope".to_owned()))
         );
     }
 }

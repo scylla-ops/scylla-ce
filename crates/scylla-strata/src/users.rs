@@ -1,6 +1,6 @@
 use crate::access::CallerOf;
 use scylla_auth::authz::{GrantRepository, Principal, ensure_owner_remains};
-use scylla_core::application::actions::user_only;
+use scylla_core::application::guards::user_only;
 use scylla_core::application::pagination::PaginatedResult;
 use scylla_core::application::user::reset::{NewReset, ResetLinks as Links, SendPasswordReset};
 use scylla_core::application::user::{
@@ -67,16 +67,13 @@ pub trait Users: crate::Access {
         UserUseCases::new(
             self.user_repo().clone(),
             self.user_grants().clone(),
-            self.user_hasher().clone(),
             self.user_accounts().clone(),
         )
     }
 
     fn reset_rules(&self) -> PasswordResetUseCases {
         PasswordResetUseCases::new(
-            self.user_repo().clone(),
             self.user_accounts().clone(),
-            self.user_hasher().clone(),
             self.reset_sender().clone(),
             self.reset_links().0.clone(),
         )

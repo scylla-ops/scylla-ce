@@ -1,14 +1,11 @@
-//! The trigger's reads. One block per query, in the order it runs: the struct, its access,
-//! its output type, what `Fetch` reads.
+//! The trigger's reads. Each query, its access and its output type. The strata module of the slice
+//! runs it.
 
-use super::TriggerUseCases;
-use crate::application::actions::service_only;
-use crate::domain::errors::{DomainError, DomainResult};
+use crate::domain::errors::DomainResult;
 use crate::domain::ids::{AppId, PipelineId, TriggerId};
 use crate::domain::permission::Permission;
 use crate::domain::trigger::Trigger;
-use async_trait::async_trait;
-use scylla_extension::{Access, Authorized, Describe, Fetch, Fetched, Query, Run};
+use scylla_extension::{Access, Describe, Query};
 
 #[derive(Debug)]
 pub struct GetTrigger {
@@ -25,14 +22,6 @@ impl Query for GetTrigger {
     type Output = Trigger;
 }
 
-#[async_trait]
-impl Run<Fetch<GetTrigger>> for TriggerUseCases {
-    async fn run(&self, input: Authorized<GetTrigger>) -> DomainResult<Fetched<GetTrigger>> {
-        let trigger = self.trigger_repo.find_by_id(&input.command().id).await?;
-        Ok(input.fetched(trigger))
-    }
-}
-
 #[derive(Debug)]
 pub struct ListPipelineTriggers {
     pub pipeline_id: PipelineId,
@@ -46,20 +35,6 @@ impl Describe for ListPipelineTriggers {
 
 impl Query for ListPipelineTriggers {
     type Output = Vec<Trigger>;
-}
-
-#[async_trait]
-impl Run<Fetch<ListPipelineTriggers>> for TriggerUseCases {
-    async fn run(
-        &self,
-        input: Authorized<ListPipelineTriggers>,
-    ) -> DomainResult<Fetched<ListPipelineTriggers>> {
-        let triggers = self
-            .trigger_repo
-            .list_by_pipeline(&input.command().pipeline_id)
-            .await?;
-        Ok(input.fetched(triggers))
-    }
 }
 
 /// What a fire needs, read by the trigger firer service: the trigger, refused when it is
@@ -83,20 +58,4 @@ impl Describe for ResolveTriggerRun {
 
 impl Query for ResolveTriggerRun {
     type Output = TriggerRun;
-}
-
-#[async_trait]
-impl Run<Fetch<ResolveTriggerRun>> for TriggerUseCases {
-    async fn run(
-        &self,
-        input: Authorized<ResolveTriggerRun>,
-    ) -> DomainResult<Fetched<ResolveTriggerRun>> {
-        service_only(input.caller())?;
-        let trigger = self.trigger_repo.find_by_id(&input.command().id).await?;
-        if !trigger.is_enabled() {
-            return Err(DomainError::business_rule("trigger is disabled"));
-        }
-        let runner = self.trigger_runner(&trigger).await;
-        Ok(input.fetched(TriggerRun { trigger, runner }))
-    }
 }

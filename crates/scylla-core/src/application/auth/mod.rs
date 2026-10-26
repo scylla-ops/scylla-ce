@@ -2,22 +2,17 @@ pub mod commands;
 pub mod hash_service;
 pub mod queries;
 pub mod session_repository;
-pub mod sweeper;
 
 pub use commands::{Login, PurgeExpiredSessions, RevokeToken};
 pub use hash_service::HashService;
 pub use queries::ValidateToken;
 pub use session_repository::SessionRepository;
-pub use sweeper::SessionSweeper;
 
-use crate::application::UserRepository;
 use crate::domain::clock;
 use crate::domain::errors::DomainResult;
 use crate::domain::ids::UserId;
 use crate::domain::session::Session;
 use chrono::Duration;
-use derive_more::Constructor;
-use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -64,15 +59,3 @@ pub async fn record_activity(sessions: &dyn SessionRepository, session: &Session
         warn!(session_id = %session.id(), %error, "cannot record the session activity");
     }
 }
-
-/// The session's stage runners, one block per action in `commands.rs` and `queries.rs`. Every
-/// action is `Public`: the caller holds no session yet, or holds the token it sends.
-#[derive(Constructor)]
-pub struct AuthUseCases {
-    pub(super) user_repo: Arc<dyn UserRepository>,
-    pub(super) session_repo: Arc<dyn SessionRepository>,
-    pub(super) hash_service: Arc<dyn HashService>,
-}
-
-#[cfg(test)]
-mod tests;

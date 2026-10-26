@@ -27,7 +27,7 @@ the codes (the web UI signs the user out on `UNAUTHENTICATED`, the agent stops o
 | `--out-dir DIR` | The output folder. The default is `target/parity/<edition>`. |
 | `--suffix S` | Adds `S` to the names of the Postgres containers (`scylla-parity-<edition>-<S>-run-N`). Use it to run two baselines at the same time. |
 | `--b-server PATH` | A second server (B). The baseline does one more run with B. |
-| `--b-env K=V` | An environment variable for B. You can give it more than one time. |
+| `--b-env K=V` | An environment variable for B. You can give it more than one time. B must also serve each key of `SCYLLA_STRATA_SLICES`. |
 | `--ignore-meta NAME` | Removes the metadata key `NAME` from the comparisons. Use it for an accepted difference. |
 
 The outputs are in `<out-dir>/run-N/` (and `<out-dir>/run-b/`): `scenario.jsonl`,
@@ -44,7 +44,7 @@ that the `log` steps can read the password reset links. `run` reads the log file
 An acceptance run compares a new server (B) with the CE server (A):
 
 ```
-scylla-parity baseline --server <A> --b-server <B> --b-env SCYLLA_STRATA_PROJECTS=1 \
+scylla-parity baseline --server <A> --b-server <B> \
   --port 18100 --out-dir target/parity-harness/acceptance --suffix acc
 ```
 
@@ -53,8 +53,12 @@ scylla-parity baseline --server <A> --b-server <B> --b-env SCYLLA_STRATA_PROJECT
    differences. If not, the harness or the scenario is not stable: correct it first.
 3. It compares A run 1 with B. Each difference is a change that a client can see.
 4. It prints the contract result of each side.
-5. The exit code comes from A only (the A runs, their contracts, and the noise floor).
-   The B differences do not change the exit code.
+5. It reads the log of B (the mount check). B must log "strata serves the slice" for each
+   slice of `Edition::strata_slices`, "the engine runs the worker" with `engine="strata"` for
+   each worker of `Edition::strata_workers`, and "the engine runs the webhook ingress" with
+   `engine="strata"`. A missing line, or one of these lines with `engine="ce"`, fails the run.
+6. The exit code comes from every check: the A runs, their contracts, the noise floor, the B
+   run, its contract, the mount check and the compare of A run 1 with B.
 
 Examine each difference of step 3. A difference is accepted only when it is a known
 and wanted change. A known change that does not show in the output is a harness

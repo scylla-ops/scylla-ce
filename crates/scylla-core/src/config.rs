@@ -82,7 +82,8 @@ pub struct SecretsConfig {
 
 pub const MASTER_KEY_ENV: &str = "SCYLLA_MASTER_KEY";
 
-/// The slices that the strata edition serves instead of the action pipeline.
+/// The old switch of the slices to strata. Every slice runs on strata now: the server accepts
+/// `slices` and `SCYLLA_STRATA_SLICES`, ignores them and writes one warning.
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
 pub struct StrataConfig {
     #[serde(default)]
@@ -256,7 +257,7 @@ impl ControlPlaneConfig {
         }
     }
 
-    /// A comma list. A blank value turns every slice off.
+    /// A comma list. The server ignores it (see [`StrataConfig`]).
     pub fn override_strata_slices(&mut self, slices: &str) {
         self.strata.slices = slices
             .split(',')
@@ -373,6 +374,18 @@ mod tests {
         )
         .unwrap();
         assert!(config.server.trust_forwarded_headers);
+    }
+
+    #[test]
+    fn an_old_strata_section_still_parses() {
+        let config: ControlPlaneConfig = toml::from_str(
+            r#"
+            [strata]
+            slices = ["projects", "users", "unknown"]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.strata.slices, ["projects", "users", "unknown"]);
     }
 
     #[test]

@@ -89,65 +89,6 @@ async fn username_conflict_rolls_back_the_whole_account(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
-async fn login_by_email_or_username(pool: PgPool) {
-    use crate::domain::caller::CallerContext;
-    use crate::domain::user::User;
-    use crate::domain::user::{Email, Password, Username};
-    use crate::postgres::PgSessionRepository;
-    use scylla_core::application::auth::{AuthUseCases, Login};
-    use scylla_core::application::{HashService, UserRepository};
-    use scylla_core::infrastructure::Argon2HashService;
-    use scylla_core::test_support::authz::DenyingPermissionService;
-    use std::sync::Arc;
-
-    let hash = Arc::new(Argon2HashService::new());
-    let user_repo = Arc::new(PgUserRepository::new(pool.clone()));
-    let auth = AuthUseCases::new(
-        user_repo.clone(),
-        Arc::new(PgSessionRepository::new(pool.clone())),
-        hash.clone(),
-    );
-
-    let password_hash = hash
-        .hash(&Password::new("SecurePass123!").unwrap())
-        .await
-        .unwrap();
-    let user = User::create(
-        Username::new("kevin").unwrap(),
-        Some(Email::new("kevin@example.com").unwrap()),
-        password_hash,
-    );
-    user_repo.create(&user).await.expect("seed user");
-
-    let engine = actions(Arc::new(DenyingPermissionService::new()));
-    let login = |identifier: &str, password: &str| {
-        engine.run(
-            &auth,
-            &CallerContext::Anonymous,
-            Login {
-                identifier: identifier.to_string(),
-                password: Password::new(password).unwrap(),
-                client: crate::domain::session::SessionClient::default(),
-            },
-        )
-    };
-
-    login("kevin@example.com", "SecurePass123!")
-        .await
-        .expect("login by email");
-    login("kevin", "SecurePass123!")
-        .await
-        .expect("login by username");
-    let err = login("kevin", "WrongPass123!")
-        .await
-        .expect_err("wrong password rejected");
-    assert!(matches!(
-        err,
-        crate::domain::errors::DomainError::Unauthorized(_)
-    ));
-}
-
-#[sqlx::test(migrations = "../../migrations")]
 async fn a_provisioned_account_is_admin_of_its_own_org_only(pool: PgPool) {
     use crate::domain::caller::CallerContext;
     use crate::domain::organization::OrganizationName;

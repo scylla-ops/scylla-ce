@@ -2,106 +2,9 @@ pub mod commands;
 
 pub use commands::FireTriggerNow;
 
-use super::{RecordTriggerFire, ResolveTriggerRun, TriggerRun, TriggerUseCases};
-use crate::application::PipelineUseCases;
-use crate::application::pipeline::RunPipelineWithInputs;
-use crate::domain::caller::{CallerContext, ServiceIdentity};
 use crate::domain::errors::DomainResult;
-use crate::domain::ids::{AppId, TriggerId};
-use crate::domain::job::{Job, JobOrigin};
 use crate::domain::pipeline::{EnvKey, EnvValue};
-use crate::domain::trigger::{Trigger, TriggerInputSource, TriggerSource};
-use async_trait::async_trait;
-use derive_more::Constructor;
-use scylla_extension::Actions;
-use std::sync::Arc;
-use tracing::{instrument, warn};
-
-#[async_trait]
-pub trait TriggerFiring: Send + Sync {
-    async fn fire(
-        &self,
-        trigger_id: &TriggerId,
-        payload: Option<&serde_json::Value>,
-        delivery_id: Option<&str>,
-    ) -> DomainResult<Job>;
-}
-
-/// The fire of the cron scheduler, the webhook ingress and `FireTriggerNow`. As the trigger firer
-/// service it reads `ResolveTriggerRun`, sends `RunPipelineWithInputs` as the organization's
-/// trigger-runner App, then records the outcome with `RecordTriggerFire`, best-effort.
-#[derive(Constructor)]
-pub struct TriggerFirer {
-    actions: Arc<Actions>,
-    triggers: Arc<TriggerUseCases>,
-    pipelines: Arc<PipelineUseCases>,
-}
-
-impl TriggerFirer {
-    async fn run(
-        &self,
-        trigger: &Trigger,
-        runner: AppId,
-        payload: Option<&serde_json::Value>,
-        delivery_id: Option<&str>,
-    ) -> DomainResult<Job> {
-        let origin = match trigger.source() {
-            TriggerSource::Cron(_) => JobOrigin::Cron {
-                trigger_id: trigger.id().clone(),
-            },
-            TriggerSource::Webhook(_) => JobOrigin::Webhook {
-                trigger_id: trigger.id().clone(),
-                delivery_id: delivery_id.map(str::to_owned),
-            },
-        };
-        let run = RunPipelineWithInputs {
-            id: trigger.pipeline_id().clone(),
-            inputs: resolve_inputs(trigger, payload)?,
-            origin,
-        };
-        self.actions
-            .run(&*self.pipelines, &CallerContext::App(runner), run)
-            .await
-    }
-}
-
-#[async_trait]
-impl TriggerFiring for TriggerFirer {
-    #[instrument(skip_all, fields(trigger_id = %trigger_id))]
-    async fn fire(
-        &self,
-        trigger_id: &TriggerId,
-        payload: Option<&serde_json::Value>,
-        delivery_id: Option<&str>,
-    ) -> DomainResult<Job> {
-        let service = CallerContext::Service(ServiceIdentity::trigger_firer());
-        let resolve = ResolveTriggerRun {
-            id: trigger_id.clone(),
-        };
-        let TriggerRun { trigger, runner } =
-            self.actions.run(&*self.triggers, &service, resolve).await?;
-
-        let outcome = match runner {
-            Ok(runner) => self.run(&trigger, runner, payload, delivery_id).await,
-            Err(e) => Err(e),
-        };
-
-        let record = RecordTriggerFire {
-            id: trigger_id.clone(),
-            status: if outcome.is_ok() { "ok" } else { "error" },
-        };
-        if let Err(e) = self.actions.run(&*self.triggers, &service, record).await {
-            warn!(trigger_id = %trigger_id, error = %e, "failed to record trigger fire status");
-        }
-        outcome
-    }
-}
-
-/// The stage runner of `FireTriggerNow`: the fire goes through `firing`, as a scheduled one does.
-#[derive(Constructor)]
-pub struct TriggerFireUseCases {
-    firing: Arc<dyn TriggerFiring>,
-}
+use crate::domain::trigger::{Trigger, TriggerInputSource};
 
 pub fn resolve_inputs(
     trigger: &Trigger,
@@ -128,9 +31,6 @@ fn json_value_to_env(value: &serde_json::Value) -> String {
         other => other.to_string(),
     }
 }
-
-#[cfg(test)]
-mod tests;
 
 #[cfg(test)]
 mod resolve_tests {

@@ -17,7 +17,6 @@ pub use reset::{
     PasswordResetDelivery, PasswordResetMessage, PasswordResetSender, PasswordResetUseCases,
 };
 
-use crate::application::HashService;
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{SessionId, UserId};
 use crate::domain::user::User;
@@ -46,14 +45,11 @@ pub fn session_not_found(id: &SessionId) -> DomainError {
     DomainError::not_found("Session", id)
 }
 
-/// The user aggregate's stage runners, one block per action in `commands.rs` and
-/// `queries.rs`. `Actions::run` drives it; the methods below are the rules that two actions or
-/// more read.
+/// The user rules that two use cases or more of the Users module of strata read.
 #[derive(Constructor)]
 pub struct UserUseCases {
     pub(super) user_repo: Arc<dyn UserRepository>,
     pub(super) grant_repo: Arc<dyn GrantRepository>,
-    pub(super) hash_service: Arc<dyn HashService>,
     pub(super) accounts: Arc<dyn AccountRepository>,
 }
 

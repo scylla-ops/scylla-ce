@@ -1,6 +1,5 @@
 use crate::access::{CallerOf, Identity};
 use crate::{Auth, AuthRpc, JobControl, JobControlRpc, Slice, Triggers, TriggersRpc};
-use scylla_core::application::PendingJobScheduler;
 use scylla_core::application::agent::DispatchPendingJobs;
 use scylla_core::application::auth::PurgeExpiredSessions;
 use scylla_core::application::job::ReapOrphanedJobs;
@@ -20,8 +19,8 @@ use tracing::{info, warn};
 
 const CRON_CLAIM_BATCH: i64 = 100;
 
-/// A background pass of the server. Each worker belongs to one slice. When the slice is on
-/// strata, the worker runs on the edition, and the CE worker does not run.
+/// A background pass of the server. Each worker belongs to one slice, and the edition starts it
+/// when it mounts the slice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Worker {
     CronTriggers,
@@ -47,14 +46,15 @@ impl Worker {
         }
     }
 
+    /// True when `slices` holds the slice of the worker.
     #[must_use]
-    pub fn on_strata(self, switched: &[Slice]) -> bool {
-        switched.contains(&self.slice())
+    pub fn in_slices(self, slices: &[Slice]) -> bool {
+        slices.contains(&self.slice())
     }
 }
 
 /// What the strata workers need from the server. `wakes` is the receiver of the dispatcher
-/// wakes; give it when the jobs slice is on strata. A cancel of `stop` ends every worker.
+/// wakes. A cancel of `stop` ends every worker.
 #[derive(Default)]
 pub struct Workers {
     pub wakes: Option<mpsc::UnboundedReceiver<Option<AppId>>>,
@@ -172,6 +172,24 @@ where
     }
 }
 
+/// The first wake and every wake already queued, as one pass: `None` (every agent) wins over a
+/// list of agents.
+pub fn targets(
+    first: Option<AppId>,
+    queued: &mut mpsc::UnboundedReceiver<Option<AppId>>,
+) -> Option<Vec<AppId>> {
+    let wakes = std::iter::once(first).chain(std::iter::from_fn(|| queued.try_recv().ok()));
+    let mut targets = Some(Vec::new());
+    for wake in wakes {
+        match (wake, &mut targets) {
+            (None, _) => targets = None,
+            (Some(agent), Some(agents)) if !agents.contains(&agent) => agents.push(agent),
+            _ => {}
+        }
+    }
+    targets
+}
+
 fn every<F, Fut>(stop: CancellationToken, period: Duration, mut pass: F)
 where
     F: FnMut() -> Fut + Send + 'static,
@@ -199,7 +217,7 @@ where
     <E as Contextual>::Ctx: CallerOf,
 {
     let Workers { mut wakes, stop } = workers;
-    for worker in Worker::ALL.iter().filter(|w| w.on_strata(slices)) {
+    for worker in Worker::ALL.iter().filter(|w| w.in_slices(slices)) {
         let app = app.clone();
         match worker {
             Worker::CronTriggers => every(stop.clone(), Duration::from_secs(15), move || {
@@ -232,7 +250,7 @@ where
                             Some(wake) = woken.recv() => wake,
                             _ = tick.tick() => None,
                         };
-                        dispatch_jobs(&*app, PendingJobScheduler::targets(first, &mut woken)).await;
+                        dispatch_jobs(&*app, targets(first, &mut woken)).await;
                     }
                 });
             }
@@ -246,15 +264,43 @@ mod tests {
 
     #[test]
     fn each_worker_follows_its_slice() {
-        assert!(Worker::ALL.iter().all(|w| !w.on_strata(&[])));
-        assert!(Worker::ALL.iter().all(|w| w.on_strata(Slice::ALL)));
+        assert!(Worker::ALL.iter().all(|w| !w.in_slices(&[])));
+        assert!(Worker::ALL.iter().all(|w| w.in_slices(Slice::ALL)));
         let jobs: Vec<Worker> = Worker::ALL
             .iter()
             .copied()
-            .filter(|w| w.on_strata(&[Slice::Jobs]))
+            .filter(|w| w.in_slices(&[Slice::Jobs]))
             .collect();
         assert_eq!(jobs, [Worker::DispatchJobs, Worker::ReapJobs]);
-        assert!(Worker::SweepSessions.on_strata(&[Slice::Auth]));
-        assert!(Worker::CronTriggers.on_strata(&[Slice::Triggers]));
+        assert!(Worker::SweepSessions.in_slices(&[Slice::Auth]));
+        assert!(Worker::CronTriggers.in_slices(&[Slice::Triggers]));
+    }
+
+    fn app(id: &str) -> AppId {
+        AppId::new(id)
+    }
+
+    #[test]
+    fn queued_wakes_merge_into_one_pass() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        for wake in [Some(app("b")), Some(app("a")), Some(app("b"))] {
+            tx.send(wake).unwrap();
+        }
+
+        let targets = targets(Some(app("a")), &mut rx);
+
+        assert_eq!(targets, Some(vec![app("a"), app("b")]));
+        assert!(rx.try_recv().is_err(), "every queued wake is consumed");
+    }
+
+    #[test]
+    fn a_wake_for_every_agent_wins() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        tx.send(Some(app("b"))).unwrap();
+        tx.send(None).unwrap();
+
+        assert_eq!(targets(Some(app("a")), &mut rx), None);
+        assert!(rx.try_recv().is_err(), "every queued wake is consumed");
+        assert_eq!(targets(None, &mut rx), None);
     }
 }

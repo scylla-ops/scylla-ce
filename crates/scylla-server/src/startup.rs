@@ -4,13 +4,8 @@ use scylla_auth::audit::AuditLog;
 use scylla_auth::cedar::CedarPermissionService;
 use scylla_core::application::user::reset::ResetLinks;
 use scylla_core::application::{
-    AgentUseCases, AppTokenUseCases, AppUseCases, AuthUseCases, BootstrapUseCases, CronSchedule,
-    DispatchSecretResolver, DispatchUseCases, GrantUseCases, JobLogUseCases, JobReaper,
-    JobUseCases, OrganizationUseCases, PasswordResetSender, PasswordResetUseCases,
-    PendingJobScheduler, PermissionAuthorizer, PipelineUseCases, ProjectUseCases, RoleUseCases,
-    SecretCipher, SecretResolver, SecretUseCases, SessionSweeper, TriggerCronScheduler,
-    TriggerFireUseCases, TriggerFirer, TriggerFiring, TriggerUseCases, UserUseCases,
-    WebhookIngressUseCases,
+    CronSchedule, DispatchSecretResolver, DispatchUseCases, PasswordResetSender, SecretCipher,
+    SecretResolver,
 };
 use scylla_core::config::ControlPlaneConfig;
 use scylla_core::domain::ids::AppId;
@@ -27,8 +22,7 @@ use scylla_db::{
     PgRoleRepository, PgSecretRepository, PgSessionRepository, PgTriggerDeliveryRepository,
     PgTriggerRepository, PgUserRepository,
 };
-use scylla_extension::{Actions, Hooks};
-use scylla_strata::{BOOTSTRAP_SLICES, Built, Service, Slice, Worker};
+use scylla_strata::{Built, EditionHost, Host, ScyllaCeOnDb, Slice};
 use sqlx::PgPool;
 use std::future::Future;
 use std::sync::Arc;
@@ -41,111 +35,51 @@ use tower_http::trace::TraceLayer;
 
 pub(crate) struct Services {
     pub shared: scylla_strata::Shared,
-    pub auth_uc: Arc<AuthUseCases>,
-    pub user_uc: Arc<UserUseCases>,
-    pub reset_uc: Arc<PasswordResetUseCases>,
-    pub org_uc: Arc<OrganizationUseCases>,
-    pub actions: Arc<Actions>,
-    pub project_uc: Arc<ProjectUseCases>,
-    pub pipeline_uc: Arc<PipelineUseCases>,
-    pub trigger_uc: Arc<TriggerUseCases>,
-    pub trigger_fire_uc: Arc<TriggerFireUseCases>,
-    pub webhook_ingress_uc: Arc<WebhookIngressUseCases>,
-    pub secret_uc: Arc<SecretUseCases>,
-    pub job_uc: Arc<JobUseCases>,
-    pub job_log_uc: Arc<JobLogUseCases>,
-    pub app_uc: Arc<AppUseCases>,
-    pub app_token_uc: Arc<AppTokenUseCases>,
-    pub agent_uc: Arc<AgentUseCases>,
-    pub agent_registry: Arc<InMemoryAgentRegistry>,
-    pub grant_uc: Arc<GrantUseCases>,
-    pub role_uc: Arc<RoleUseCases>,
     pub permission_checker: Arc<CedarPermissionService<PgAuthzEntityProvider>>,
     pub session_repo: Arc<PgSessionRepository>,
     pub app_token_repo: Arc<PgAppTokenRepository>,
     pub wakes: Option<mpsc::UnboundedReceiver<Option<AppId>>>,
 }
 
-pub(crate) fn ce_workers(switched: &[Slice]) -> Vec<Worker> {
-    Worker::ALL
-        .iter()
-        .copied()
-        .filter(|worker| !worker.on_strata(switched))
-        .collect()
-}
-
-/// The CE adapters that a strata edition takes (`EditionHost::edition`), on `db`, with no
-/// Actions worker started. For the tests of an edition.
+/// The CE adapters that a strata edition takes (`EditionHost::edition`), on `db`, with no worker
+/// started. When `config` has a `[bootstrap]` section, the CE edition runs it.
 pub async fn strata_shared(
     config: &ControlPlaneConfig,
     db: PgPool,
     reset_sender: Arc<dyn PasswordResetSender>,
 ) -> Result<scylla_strata::Shared, StartupError> {
-    let services = init_services(
-        config,
-        db,
-        Arc::new(Hooks::default()),
-        reset_sender,
-        Slice::ALL,
-    )
-    .await?;
-    bootstrap(config, &services, None, &[]).await?;
+    let services = init_services(config, db, reset_sender).await?;
+    if config.bootstrap.is_some() {
+        let built = EditionHost::<ScyllaCeOnDb>::new(Slice::ALL)
+            .build(&services.shared)
+            .await
+            .map_err(|e| StartupError::Strata(format!("{e:#}")))?;
+        bootstrap(config, &*built).await?;
+    }
     Ok(services.shared)
 }
 
-/// Runs the admin bootstrap of `config`. It runs on `built` when each slice of
-/// `BOOTSTRAP_SLICES` is in `switched`, and on the CE Actions in the other cases.
+/// Runs the admin bootstrap of `config` on the Users and Grants modules of `built`.
 pub(crate) async fn bootstrap(
     config: &ControlPlaneConfig,
-    services: &Services,
-    built: Option<&dyn Built>,
-    switched: &[Slice],
+    built: &dyn Built,
 ) -> Result<(), StartupError> {
-    let Some(cfg) = &config.bootstrap else {
-        return Ok(());
-    };
-    match built {
-        Some(built) if BOOTSTRAP_SLICES.iter().all(|s| switched.contains(s)) => {
-            built.bootstrap(cfg).await?;
-        }
-        _ => {
-            let bootstrap_uc = BootstrapUseCases::new(
-                services.actions.clone(),
-                services.user_uc.clone(),
-                services.grant_uc.clone(),
-            );
-            scylla_core::bootstrap::bootstrap_admin(&bootstrap_uc, cfg).await?;
-        }
+    if let Some(cfg) = &config.bootstrap {
+        built.bootstrap(cfg).await?;
     }
     Ok(())
 }
 
-/// The webhook route. It runs on `built` when the triggers slice is in `switched`, and on the CE
-/// Actions in the other cases.
-pub(crate) fn webhook_router(
-    services: &Services,
-    built: Option<&dyn Built>,
-    switched: &[Slice],
-) -> axum::Router {
-    match built {
-        Some(built) if switched.contains(&Slice::Triggers) => {
-            scylla_core::rest::webhook::router_on(built.webhooks())
-        }
-        _ => scylla_core::rest::webhook::router(
-            services.actions.clone(),
-            services.webhook_ingress_uc.clone(),
-        ),
-    }
+/// The webhook route, on the Triggers module of `built`.
+pub(crate) fn webhook_router(built: &dyn Built) -> axum::Router {
+    scylla_core::rest::webhook::router(built.webhooks())
 }
 
 pub(crate) async fn init_services(
     config: &ControlPlaneConfig,
     db: PgPool,
-    hooks: Arc<Hooks>,
     reset_sender: Arc<dyn PasswordResetSender>,
-    switched: &[Slice],
 ) -> Result<Services, StartupError> {
-    let ce = ce_workers(switched);
     let user_repo = Arc::new(PgUserRepository::new(db.clone()));
     let account_repo = Arc::new(PgAccountRepository::new(db.clone()));
     let session_repo = Arc::new(PgSessionRepository::new(db.clone()));
@@ -184,22 +118,7 @@ pub(crate) async fn init_services(
         .await
         .map_err(|e| StartupError::Permission(e.to_string()))?,
     );
-    let actions = Arc::new(Actions::new(
-        Arc::new(PermissionAuthorizer::new(permission_checker.clone())),
-        hooks,
-    ));
 
-    let auth_uc = Arc::new(AuthUseCases::new(
-        user_repo.clone(),
-        session_repo.clone(),
-        hash_service.clone(),
-    ));
-    let user_uc = Arc::new(UserUseCases::new(
-        user_repo.clone(),
-        grant_repo.clone(),
-        hash_service.clone(),
-        account_repo.clone(),
-    ));
     let public_url = config.server.public_url.as_deref();
     if public_url.is_none() {
         tracing::warn!(
@@ -207,170 +126,19 @@ pub(crate) async fn init_services(
              origin that people open, for example https://scylla.example.com."
         );
     }
-    let reset_uc = Arc::new(PasswordResetUseCases::new(
-        user_repo.clone(),
-        account_repo.clone(),
-        hash_service.clone(),
-        reset_sender.clone(),
-        ResetLinks::new(public_url),
-    ));
     // The registry and the live tail come first: the dispatcher sends through the one and
-    // closes the other, and every use case that starts or ends a job goes through the dispatcher.
+    // closes the other.
     let (wakes, woken) = mpsc::unbounded_channel();
     let agent_registry = Arc::new(InMemoryAgentRegistry::new(wakes));
     let job_log_stream = Arc::new(InMemoryJobLogStream::new());
-    let dispatch_uc = Arc::new(DispatchUseCases::new(
+    let dispatch = Arc::new(DispatchUseCases::new(
         agent_registry.clone(),
-        permission_checker.clone(),
-        job_repo.clone(),
-        secret_resolver.clone(),
-        job_log_stream.clone(),
-    ));
-    let org_uc = Arc::new(OrganizationUseCases::new(
-        org_repo.clone(),
-        user_repo.clone(),
-        app_repo.clone(),
-        dispatch_uc.clone(),
-    ));
-    let project_uc = Arc::new(ProjectUseCases::new(
-        project_repo.clone(),
-        user_repo.clone(),
-        permission_checker.clone(),
-        dispatch_uc.clone(),
-    ));
-    let secret_uc = Arc::new(SecretUseCases::new(
-        secret_repo.clone(),
-        secret_cipher.clone(),
-    ));
-    let pipeline_uc = Arc::new(PipelineUseCases::new(
-        pipeline_repo.clone(),
-        project_repo.clone(),
-        job_repo.clone(),
-        secret_resolver.clone(),
-        dispatch_uc.clone(),
-    ));
-    let job_uc = Arc::new(JobUseCases::new(
         job_repo.clone(),
         job_log_stream.clone(),
-        dispatch_uc.clone(),
-    ));
-    let app_uc = Arc::new(AppUseCases::new(
-        app_repo.clone(),
-        app_credential_repo.clone(),
-        hash_service.clone(),
-        agent_registry.clone(),
-    ));
-    let app_token_uc = Arc::new(AppTokenUseCases::new(
-        app_repo.clone(),
-        app_token_repo.clone(),
-        app_credential_repo.clone(),
-        hash_service.clone(),
-    ));
-    let agent_uc = Arc::new(AgentUseCases::new(
-        app_repo.clone(),
-        agent_repo.clone(),
-        job_repo.clone(),
-        hash_service.clone(),
-        agent_registry.clone(),
-    ));
-    let grant_uc = Arc::new(GrantUseCases::new(
-        grant_repo.clone(),
-        role_repo.clone(),
-        agent_registry.clone(),
-        authz_provider.clone(),
-    ));
-    let role_uc = Arc::new(RoleUseCases::new(role_repo.clone(), grant_repo.clone()));
-
-    let job_log_uc = Arc::new(JobLogUseCases::new(
-        job_log_repo.clone(),
-        job_log_stream.clone(),
-        job_repo.clone(),
     ));
     let trigger_repo = Arc::new(PgTriggerRepository::new(db.clone()));
     let trigger_delivery_repo = Arc::new(PgTriggerDeliveryRepository::new(db.clone()));
     let cron_schedule: Arc<dyn CronSchedule> = Arc::new(CronScheduleService::new());
-    let trigger_uc = Arc::new(TriggerUseCases::new(
-        trigger_repo.clone(),
-        pipeline_repo.clone(),
-        project_repo.clone(),
-        app_repo.clone(),
-        secret_cipher.clone(),
-        cron_schedule.clone(),
-    ));
-    let firing: Arc<dyn TriggerFiring> = Arc::new(TriggerFirer::new(
-        actions.clone(),
-        trigger_uc.clone(),
-        pipeline_uc.clone(),
-    ));
-    let trigger_fire_uc = Arc::new(TriggerFireUseCases::new(firing.clone()));
-    let webhook_ingress_uc = Arc::new(WebhookIngressUseCases::new(
-        trigger_repo.clone(),
-        trigger_delivery_repo.clone(),
-        secret_cipher.clone(),
-        firing.clone(),
-    ));
-
-    // The first tick fires immediately so a pre-restart backlog is picked up; 15s keeps latency under cron's minute.
-    if ce.contains(&Worker::CronTriggers) {
-        let scheduler = TriggerCronScheduler::new(actions.clone(), trigger_uc.clone(), firing);
-        tokio::spawn(async move {
-            let mut tick = tokio::time::interval(Duration::from_secs(15));
-            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                tick.tick().await;
-                scheduler.tick().await;
-            }
-        });
-    }
-
-    let dispatch_shared = dispatch_uc.clone();
-
-    // A wake names the agents a pass is for; the tick passes over every agent. The wakes that
-    // arrived during a pass make one pass.
-    let wakes = if ce.contains(&Worker::DispatchJobs) {
-        let scheduler = PendingJobScheduler::new(actions.clone(), dispatch_uc.clone());
-        let mut woken = woken;
-        tokio::spawn(async move {
-            let mut tick = tokio::time::interval(Duration::from_secs(30));
-            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                let first = tokio::select! {
-                    Some(wake) = woken.recv() => wake,
-                    _ = tick.tick() => None,
-                };
-                scheduler
-                    .drain(PendingJobScheduler::targets(first, &mut woken))
-                    .await;
-            }
-        });
-        None
-    } else {
-        Some(woken)
-    };
-
-    if ce.contains(&Worker::ReapJobs) {
-        let reaper = JobReaper::new(actions.clone(), job_uc.clone());
-        tokio::spawn(async move {
-            let mut tick = tokio::time::interval(Duration::from_secs(30));
-            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                tick.tick().await;
-                reaper.reap().await;
-            }
-        });
-    }
-
-    if ce.contains(&Worker::SweepSessions) {
-        let sweeper = SessionSweeper::new(actions.clone(), auth_uc.clone());
-        tokio::spawn(async move {
-            let mut tick = tokio::time::interval(Duration::from_secs(3600));
-            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                tick.tick().await;
-                sweeper.sweep().await;
-            }
-        });
-    }
 
     let shared = scylla_strata::Shared {
         db: db.clone(),
@@ -381,60 +149,41 @@ pub(crate) async fn init_services(
         projects: project_repo,
         users: user_repo,
         jobs: job_repo,
-        dispatch: dispatch_shared,
-        secrets: secret_repo.clone(),
-        cipher: secret_cipher.clone(),
-        pipelines: pipeline_repo.clone(),
-        secret_resolver: secret_resolver.clone(),
-        apps: app_repo.clone(),
-        app_credentials: app_credential_repo.clone(),
-        hash: hash_service.clone(),
-        roles: role_repo.clone(),
-        grants: grant_repo.clone(),
-        authz_entities: authz_provider.clone(),
-        organizations: org_repo.clone(),
-        accounts: account_repo.clone(),
+        dispatch,
+        secrets: secret_repo,
+        cipher: secret_cipher,
+        pipelines: pipeline_repo,
+        secret_resolver,
+        apps: app_repo,
+        app_credentials: app_credential_repo,
+        hash: hash_service,
+        roles: role_repo,
+        grants: grant_repo,
+        authz_entities: authz_provider,
+        organizations: org_repo,
+        accounts: account_repo,
         reset_sender,
         reset_links: ResetLinks::new(public_url),
-        trigger_repo: trigger_repo.clone(),
-        trigger_deliveries: trigger_delivery_repo.clone(),
-        cron_schedule: cron_schedule.clone(),
+        trigger_repo,
+        trigger_deliveries: trigger_delivery_repo,
+        cron_schedule,
         webhook_base_url: config
             .webhook
             .as_ref()
             .and_then(|w| w.public_base_url.clone()),
-        job_logs: job_log_repo.clone(),
-        job_log_stream: job_log_stream.clone(),
-        agents: agent_repo.clone(),
-        agent_streams: agent_registry.clone(),
+        job_logs: job_log_repo,
+        job_log_stream,
+        agents: agent_repo,
+        agent_streams: agent_registry,
         trust_forwarded_headers: config.server.trust_forwarded_headers,
     };
 
     Ok(Services {
         shared,
-        auth_uc,
-        user_uc,
-        reset_uc,
-        org_uc,
-        actions,
-        project_uc,
-        pipeline_uc,
-        trigger_uc,
-        trigger_fire_uc,
-        webhook_ingress_uc,
-        secret_uc,
-        job_uc,
-        job_log_uc,
-        app_uc,
-        app_token_uc,
-        agent_uc,
-        agent_registry,
-        grant_uc,
-        role_uc,
         permission_checker,
         session_repo,
         app_token_repo,
-        wakes,
+        wakes: Some(woken),
     })
 }
 
@@ -525,201 +274,13 @@ pub(crate) async fn shutdown_signal() {
     }
 }
 
-/// Adds the CE handler of each service that `strata` does not serve, then mounts the strata
-/// services. One table (`Service::slice`) decides both, so no service is added twice.
-pub(crate) fn add_services(
-    grpc: &mut tonic::service::RoutesBuilder,
-    config: &ControlPlaneConfig,
-    services: &Services,
-    strata: Option<(&dyn Built, &[Slice])>,
-    auth_interceptor: &scylla_strata::AuthInterceptorLayer,
-    in_flight: &strata::InFlight,
-    workers: scylla_strata::Workers,
-) {
-    use scylla_core::grpc::{
-        AgentAdminHandler, AgentHandler, AppAuthHandler, AppHandler, AuthHandler, GrantHandler,
-        JobHandler, OrganizationHandler, PipelineHandler, ProjectHandler, RoleHandler,
-        SecretHandler, TriggerHandler, UserHandler,
-    };
-    use scylla_proto::{
-        agent::v1::agent_admin_service_server::AgentAdminServiceServer,
-        agent::v1::agent_service_server::AgentServiceServer,
-        app::v1::app_auth_service_server::AppAuthServiceServer,
-        app::v1::app_service_server::AppServiceServer,
-        auth::v1::auth_service_server::AuthServiceServer,
-        authz::v1::grant_service_server::GrantServiceServer,
-        authz::v1::role_service_server::RoleServiceServer,
-        job::v1::job_service_server::JobServiceServer,
-        organization::v1::organization_service_server::OrganizationServiceServer,
-        pipeline::v1::pipeline_service_server::PipelineServiceServer,
-        project::v1::project_service_server::ProjectServiceServer,
-        secret::v1::secret_service_server::SecretServiceServer,
-        trigger::v1::trigger_service_server::TriggerServiceServer,
-        user::v1::user_service_server::UserServiceServer,
-    };
-    use tower::ServiceBuilder;
-
-    let auth_handler = AuthHandler::new(
-        services.actions.clone(),
-        services.auth_uc.clone(),
-        services.reset_uc.clone(),
-    )
-    .trust_forwarded_headers(config.server.trust_forwarded_headers);
-    let user_handler = UserHandler::new(
-        services.actions.clone(),
-        services.user_uc.clone(),
-        services.reset_uc.clone(),
-    );
-    let org_handler = OrganizationHandler::new(services.actions.clone(), services.org_uc.clone());
-    let project_handler =
-        ProjectHandler::new(services.actions.clone(), services.project_uc.clone());
-    let pipeline_handler =
-        PipelineHandler::new(services.actions.clone(), services.pipeline_uc.clone());
-    let trigger_handler = TriggerHandler::new(
-        services.actions.clone(),
-        services.trigger_uc.clone(),
-        services.trigger_fire_uc.clone(),
-        config
-            .webhook
-            .as_ref()
-            .and_then(|w| w.public_base_url.clone()),
-    );
-    let job_handler = JobHandler::new(
-        services.actions.clone(),
-        services.job_uc.clone(),
-        services.job_log_uc.clone(),
-    );
-    let app_handler = AppHandler::new(services.actions.clone(), services.app_uc.clone());
-    let secret_handler = SecretHandler::new(services.actions.clone(), services.secret_uc.clone());
-    let app_auth_handler =
-        AppAuthHandler::new(services.actions.clone(), services.app_token_uc.clone());
-    let agent_handler = AgentHandler::new(
-        services.actions.clone(),
-        services.job_uc.clone(),
-        services.job_log_uc.clone(),
-        services.agent_uc.clone(),
-        services.agent_registry.clone(),
-    );
-    let agent_admin_handler = AgentAdminHandler::new(
-        services.actions.clone(),
-        services.agent_uc.clone(),
-        services.app_uc.clone(),
-    );
-    let grant_handler = GrantHandler::new(services.actions.clone(), services.grant_uc.clone());
-    let role_handler = RoleHandler::new(services.actions.clone(), services.role_uc.clone());
-
-    let auth_service = AuthServiceServer::new(auth_handler);
-
-    let app_auth_service = AppAuthServiceServer::new(app_auth_handler);
-
-    let user_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(UserServiceServer::new(user_handler));
-
-    let org_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(OrganizationServiceServer::new(org_handler));
-
-    let project_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(ProjectServiceServer::new(project_handler));
-
-    let pipeline_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(PipelineServiceServer::new(pipeline_handler));
-
-    let trigger_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(TriggerServiceServer::new(trigger_handler));
-
-    let job_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(JobServiceServer::new(job_handler));
-
-    let app_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(AppServiceServer::new(app_handler));
-
-    let secret_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(SecretServiceServer::new(secret_handler));
-
-    let agent_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(
-            AgentServiceServer::new(agent_handler)
-                .max_decoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES)
-                .max_encoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES),
-        );
-
-    let agent_admin_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(AgentAdminServiceServer::new(agent_admin_handler));
-
-    let grant_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(GrantServiceServer::new(grant_handler));
-
-    let role_service = ServiceBuilder::new()
-        .layer(auth_interceptor.clone())
-        .service(RoleServiceServer::new(role_handler));
-
-    let strata_slices = strata.map_or(&[][..], |(_, slices)| slices);
-    let ce = |service: Service| !service.on_strata(strata_slices);
-    if ce(Service::Auth) {
-        grpc.add_service(auth_service);
-    }
-    if ce(Service::Triggers) {
-        grpc.add_service(trigger_service);
-    }
-    if ce(Service::Jobs) {
-        grpc.add_service(job_service);
-    }
-    if ce(Service::Agents) {
-        grpc.add_service(agent_service);
-    }
-    if ce(Service::AgentAdmin) {
-        grpc.add_service(agent_admin_service);
-    }
-    if ce(Service::Projects) {
-        grpc.add_service(project_service);
-    }
-    if ce(Service::Secrets) {
-        grpc.add_service(secret_service);
-    }
-    if ce(Service::Users) {
-        grpc.add_service(user_service);
-    }
-    if ce(Service::Organizations) {
-        grpc.add_service(org_service);
-    }
-    if ce(Service::Grants) {
-        grpc.add_service(grant_service);
-    }
-    if ce(Service::Roles) {
-        grpc.add_service(role_service);
-    }
-    if ce(Service::Pipelines) {
-        grpc.add_service(pipeline_service);
-    }
-    if ce(Service::Apps) {
-        grpc.add_service(app_service);
-    }
-    if ce(Service::AppAuth) {
-        grpc.add_service(app_auth_service);
-    }
-    if let Some((built, slices)) = strata {
-        built.mount(slices, grpc, auth_interceptor, in_flight, workers);
-    }
-}
-
 /// `GrpcWebLayer` answers 400 to any non-gRPC-Web HTTP/1.1 request, so it is scoped to the gRPC routes;
 /// `Router::layer` wraps the fallback too, so the UI fallback is attached last.
 pub(crate) async fn run_server<F>(
     config: &ControlPlaneConfig,
     services: &Services,
     surface: Surface,
-    strata: Option<(&dyn Built, &[Slice])>,
+    built: &dyn Built,
     in_flight: &strata::InFlight,
     workers: scylla_strata::Workers,
     shutdown: F,
@@ -754,16 +315,7 @@ where
     let mut grpc = Routes::builder();
     grpc.add_service(reflection_v1)
         .add_service(reflection_v1alpha);
-    add_services(
-        &mut grpc,
-        config,
-        services,
-        strata,
-        &auth_interceptor,
-        in_flight,
-        workers,
-    );
-    let strata_slices = strata.map_or(&[][..], |(_, slices)| slices);
+    built.mount(Slice::ALL, &mut grpc, &auth_interceptor, in_flight, workers);
 
     for add in surface.grpc {
         add(&mut grpc, &auth_interceptor);
@@ -780,10 +332,7 @@ where
     let http = surface
         .http
         .into_iter()
-        .fold(
-            webhook_router(services, strata.map(|(built, _)| built), strata_slices),
-            axum::Router::merge,
-        )
+        .fold(webhook_router(built), axum::Router::merge)
         .layer(TraceLayer::new_for_http());
 
     let app = grpc.merge(http).merge(scylla_core::rest::health::router());
@@ -823,23 +372,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{ce_workers, grpc_classifier};
-    use scylla_strata::{Slice, Worker};
+    use super::grpc_classifier;
     use tower_http::classify::{ClassifiedResponse, ClassifyResponse};
-
-    #[test]
-    fn a_switched_slice_takes_its_workers_off_ce() {
-        assert_eq!(ce_workers(&[]), Worker::ALL);
-        assert!(ce_workers(Slice::ALL).is_empty());
-        assert_eq!(
-            ce_workers(&[Slice::Jobs, Slice::Projects]),
-            [Worker::CronTriggers, Worker::SweepSessions]
-        );
-        assert_eq!(
-            ce_workers(&[Slice::Auth, Slice::Triggers]),
-            [Worker::DispatchJobs, Worker::ReapJobs]
-        );
-    }
 
     fn fails(code: u16) -> bool {
         let response = http::Response::builder()
@@ -868,36 +402,22 @@ mod tests {
 }
 
 #[cfg(test)]
-mod switched_tests {
+mod strata_tests {
     use super::{Services, bootstrap, init_services, webhook_router};
-    use async_trait::async_trait;
     use axum::body::Body;
     use http::{Request, StatusCode};
     use scylla_auth::authz::{Principal, SYSTEM_ADMIN_ROLE, Scope};
     use scylla_core::config::{BootstrapConfig, ControlPlaneConfig};
-    use scylla_core::domain::errors::DomainError;
     use scylla_core::domain::user::{Email, Username};
+    use scylla_core::grpc::auth_interceptor::AuthInterceptor;
     use scylla_core::infrastructure::LogPasswordResetSender;
-    use scylla_extension::{Action, Hooks, Observer, StageKind};
-    use scylla_strata::{Built, EditionHost, Host, ScyllaCeOnDb, Slice};
+    use scylla_strata::{
+        Agents, Apps, Built, EditionHost, Host, ScyllaCeOnDb, Service, Slice, Workers,
+    };
     use sqlx::PgPool;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
+    use tonic_async_interceptor::async_interceptor;
     use tower::ServiceExt;
-
-    /// Keeps the caller of each bootstrap or webhook action that runs on the CE Actions. The CE
-    /// workers of the other slices are not kept.
-    #[derive(Default)]
-    struct Seen(Mutex<Vec<String>>);
-
-    #[async_trait]
-    impl Observer for Seen {
-        async fn observe(&self, _: StageKind, action: &dyn Action, _: Result<(), &DomainError>) {
-            let caller = action.caller().to_string();
-            if caller == "service:bootstrap" || caller == "anonymous" {
-                self.0.lock().unwrap().push(caller);
-            }
-        }
-    }
 
     fn config() -> ControlPlaneConfig {
         ControlPlaneConfig {
@@ -910,45 +430,15 @@ mod switched_tests {
         }
     }
 
-    async fn start(
-        db: PgPool,
-        switched: &[Slice],
-    ) -> (Services, Option<Box<dyn Built>>, Arc<Seen>) {
-        let seen = Arc::new(Seen::default());
-        let mut hooks = Hooks::new();
-        hooks.observe(StageKind::Authorize, seen.clone());
-        let services = init_services(
-            &config(),
-            db,
-            Arc::new(hooks),
-            Arc::new(LogPasswordResetSender),
-            switched,
-        )
-        .await
-        .unwrap();
-        let built = if switched.is_empty() {
-            None
-        } else {
-            let host = EditionHost::<ScyllaCeOnDb>::new(Slice::ALL);
-            Some(host.build(&services.shared).await.unwrap())
-        };
-        (services, built, seen)
-    }
-
-    async fn deliver(
-        services: &Services,
-        built: Option<&dyn Built>,
-        switched: &[Slice],
-    ) -> StatusCode {
-        let request = Request::post("/webhooks/missing")
-            .header("x-scylla-signature-256", "sha256=00")
-            .body(Body::from("{}"))
-            .unwrap();
-        webhook_router(services, built, switched)
-            .oneshot(request)
+    async fn start(db: PgPool) -> (Services, Box<dyn Built>) {
+        let services = init_services(&config(), db, Arc::new(LogPasswordResetSender))
             .await
-            .unwrap()
-            .status()
+            .unwrap();
+        let built = EditionHost::<ScyllaCeOnDb>::new(Slice::ALL)
+            .build(&services.shared)
+            .await
+            .unwrap();
+        (services, built)
     }
 
     async fn assert_one_admin(services: &Services) {
@@ -974,74 +464,24 @@ mod switched_tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
-    async fn switched_slices_run_the_bootstrap_and_the_webhook_off_the_actions(db: PgPool) {
-        let switched = [Slice::Users, Slice::Grants, Slice::Triggers];
-        let (services, built, seen) = start(db, &switched).await;
+    async fn the_bootstrap_and_the_webhook_run_on_the_edition(db: PgPool) {
+        let (services, built) = start(db).await;
 
-        bootstrap(&config(), &services, built.as_deref(), &switched)
-            .await
+        bootstrap(&config(), &*built).await.unwrap();
+        bootstrap(&config(), &*built).await.unwrap();
+        let request = Request::post("/webhooks/missing")
+            .header("x-scylla-signature-256", "sha256=00")
+            .body(Body::from("{}"))
             .unwrap();
-        bootstrap(&config(), &services, built.as_deref(), &switched)
+        let status = webhook_router(&*built)
+            .oneshot(request)
             .await
-            .unwrap();
-        let status = deliver(&services, built.as_deref(), &switched).await;
+            .unwrap()
+            .status();
 
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_one_admin(&services).await;
-        assert!(seen.0.lock().unwrap().is_empty(), "{:?}", seen.0);
     }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn unswitched_slices_run_the_bootstrap_and_the_webhook_on_the_actions(db: PgPool) {
-        let (services, built, seen) = start(db, &[]).await;
-
-        bootstrap(&config(), &services, built.as_deref(), &[])
-            .await
-            .unwrap();
-        bootstrap(&config(), &services, built.as_deref(), &[])
-            .await
-            .unwrap();
-        let status = deliver(&services, built.as_deref(), &[]).await;
-
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_one_admin(&services).await;
-        let seen = seen.0.lock().unwrap();
-        assert!(seen.iter().any(|c| c.contains("bootstrap")), "{seen:?}");
-        assert!(seen.iter().any(|c| c == "anonymous"), "{seen:?}");
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn a_bootstrap_needs_users_and_grants_switched_to_leave_the_actions(db: PgPool) {
-        let switched = [Slice::Users, Slice::Triggers];
-        let (services, built, seen) = start(db, &switched).await;
-
-        bootstrap(&config(), &services, built.as_deref(), &switched)
-            .await
-            .unwrap();
-        let status = deliver(&services, built.as_deref(), &switched).await;
-
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_one_admin(&services).await;
-        let seen = seen.0.lock().unwrap();
-        assert!(!seen.is_empty());
-        assert!(seen.iter().all(|c| c.contains("bootstrap")), "{seen:?}");
-    }
-}
-
-#[cfg(test)]
-mod routes_tests {
-    use super::{Services, add_services, init_services};
-    use axum::body::Body;
-    use http::{Request, StatusCode};
-    use scylla_core::config::ControlPlaneConfig;
-    use scylla_core::grpc::auth_interceptor::AuthInterceptor;
-    use scylla_core::infrastructure::LogPasswordResetSender;
-    use scylla_extension::Hooks;
-    use scylla_strata::{Agents, Apps, EditionHost, Host, ScyllaCeOnDb, Service, Slice, Workers};
-    use sqlx::PgPool;
-    use std::sync::Arc;
-    use tonic_async_interceptor::async_interceptor;
-    use tower::ServiceExt;
 
     fn method(service: Service) -> &'static str {
         match service {
@@ -1062,69 +502,48 @@ mod routes_tests {
         }
     }
 
-    async fn services(db: PgPool, switched: &[Slice]) -> Services {
-        init_services(
-            &ControlPlaneConfig::default(),
-            db,
-            Arc::new(Hooks::default()),
-            Arc::new(LogPasswordResetSender),
-            switched,
-        )
-        .await
-        .unwrap()
-    }
-
     #[sqlx::test(migrations = "../../migrations")]
-    async fn each_new_slice_alone_leaves_every_service_answering(db: PgPool) {
-        for slice in [Slice::Auth, Slice::Triggers, Slice::Jobs, Slice::Agents] {
-            let switched = [slice];
-            let mut services = services(db.clone(), &switched).await;
-            let built = EditionHost::<ScyllaCeOnDb>::new(Slice::ALL)
-                .build(&services.shared)
-                .await
+    async fn the_edition_answers_every_service(db: PgPool) {
+        let (mut services, built) = start(db).await;
+        let auth = async_interceptor(AuthInterceptor::new(
+            services.session_repo.clone(),
+            services.app_token_repo.clone(),
+        ));
+        let workers = Workers {
+            wakes: services.wakes.take(),
+            ..Workers::default()
+        };
+        let stop = workers.stop.clone();
+        let mut grpc = tonic::service::Routes::builder();
+        built.mount(
+            Slice::ALL,
+            &mut grpc,
+            &auth,
+            &strata::InFlight::default(),
+            workers,
+        );
+        let router = grpc.routes().into_axum_router();
+        for service in Service::ALL {
+            let request = Request::post(format!("/{}/{}", service.name(), method(*service)))
+                .header("content-type", "application/grpc")
+                .header("te", "trailers")
+                .body(Body::from(vec![0u8; 5]))
                 .unwrap();
-            let auth = async_interceptor(AuthInterceptor::new(
-                services.session_repo.clone(),
-                services.app_token_repo.clone(),
-            ));
-            let workers = Workers {
-                wakes: services.wakes.take(),
-                ..Workers::default()
-            };
-            let stop = workers.stop.clone();
-            let mut grpc = tonic::service::Routes::builder();
-            add_services(
-                &mut grpc,
-                &ControlPlaneConfig::default(),
-                &services,
-                Some((&*built, &switched)),
-                &auth,
-                &strata::InFlight::default(),
-                workers,
-            );
-            let router = grpc.routes().into_axum_router();
-            for service in Service::ALL {
-                let request = Request::post(format!("/{}/{}", service.name(), method(*service)))
-                    .header("content-type", "application/grpc")
-                    .header("te", "trailers")
-                    .body(Body::from(vec![0u8; 5]))
-                    .unwrap();
-                let response = router.clone().oneshot(request).await.unwrap();
-                assert_eq!(response.status(), StatusCode::OK, "{slice} {service:?}");
-                let status = response
-                    .headers()
-                    .get("grpc-status")
-                    .map(|v| v.to_str().unwrap().to_owned());
-                assert!(status.is_some(), "{slice} {service:?} gave no status");
-                assert_ne!(status.as_deref(), Some("12"), "{slice} {service:?}");
-            }
-            stop.cancel();
+            let response = router.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{service:?}");
+            let status = response
+                .headers()
+                .get("grpc-status")
+                .map(|v| v.to_str().unwrap().to_owned());
+            assert!(status.is_some(), "{service:?} gave no status");
+            assert_ne!(status.as_deref(), Some("12"), "{service:?}");
         }
+        stop.cancel();
     }
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn the_apps_slot_and_the_agent_stream_share_the_ce_registry(db: PgPool) {
-        let services = services(db, Slice::ALL).await;
+        let (services, _) = start(db).await;
         let app = EditionHost::<ScyllaCeOnDb>::new(Slice::ALL)
             .edition(&services.shared, true)
             .await
@@ -1132,7 +551,7 @@ mod routes_tests {
 
         let slot = Arc::as_ptr(Apps::app_registry(&*app));
         let streams = Arc::as_ptr(Agents::agent_links(&*app).registry());
-        let ce = Arc::as_ptr(&services.agent_registry);
+        let ce = Arc::as_ptr(&services.shared.agent_streams);
 
         assert!(std::ptr::addr_eq(slot, streams));
         assert!(std::ptr::addr_eq(streams, ce));

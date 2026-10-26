@@ -1,24 +1,9 @@
-use crate::application::PermissionAuthorizer;
 use crate::domain::caller::CallerContext;
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::permission::Permission;
 use async_trait::async_trait;
 use scylla_auth::authz::PermissionService;
-use scylla_extension::{Actions, Hooks};
-use std::sync::{Arc, Mutex};
-
-#[must_use]
-pub fn actions(permissions: Arc<dyn PermissionService>) -> Actions {
-    actions_with(permissions, Hooks::new())
-}
-
-#[must_use]
-pub fn actions_with(permissions: Arc<dyn PermissionService>, hooks: Hooks) -> Actions {
-    Actions::new(
-        Arc::new(PermissionAuthorizer::new(permissions)),
-        Arc::new(hooks),
-    )
-}
+use std::sync::Mutex;
 
 #[derive(Default)]
 pub struct RecordingPermissionService {

@@ -1,19 +1,11 @@
-//! The trigger's writes. One block per command, in the order it runs: the struct, its
-//! access, its payload types, what `Prepare` builds, what `Persist` writes.
+//! The trigger's writes. Each command, its access and its payload types. The strata module of the
+//! slice runs it.
 
-use super::TriggerUseCases;
-use crate::application::actions::service_only;
-use crate::domain::clock;
-use crate::domain::errors::DomainResult;
 use crate::domain::ids::{OrganizationId, PipelineId, TriggerId};
 use crate::domain::permission::Permission;
 use crate::domain::trigger::{FireObservation, Trigger, TriggerInput, TriggerName, TriggerSource};
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use scylla_extension::{
-    Access, Authorized, Command, Committed, Deleted, Describe, Draft, Persist, Prepare, Prepared,
-    Run,
-};
+use scylla_extension::{Access, Command, Deleted, Describe, Draft};
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -54,63 +46,6 @@ impl Command for CreateTrigger {
     type Committed = CreatedTrigger;
 }
 
-#[async_trait]
-impl Run<Prepare<CreateTrigger>> for TriggerUseCases {
-    async fn run(&self, input: Authorized<CreateTrigger>) -> DomainResult<Prepared<CreateTrigger>> {
-        let cmd = input.command();
-        let pipeline = self.pipeline_repo.find_by_id(&cmd.pipeline_id).await?;
-        let project = self.project_repo.find_by_id(pipeline.project_id()).await?;
-
-        let mut trigger = Trigger::create(
-            cmd.pipeline_id.clone(),
-            cmd.name.clone(),
-            cmd.source.clone(),
-            cmd.inputs.clone(),
-        )?;
-        self.schedule_next(&mut trigger)?;
-
-        let (webhook_secret, webhook_secret_enc) = match trigger.source() {
-            TriggerSource::Webhook(_) => {
-                let plaintext = generate_webhook_secret();
-                let enc = self.cipher.encrypt(&plaintext)?;
-                (Some(plaintext), Some(enc))
-            }
-            TriggerSource::Cron(_) => (None, None),
-        };
-        Ok(input.prepared(Draft::new(NewTrigger {
-            trigger,
-            organization_id: project.organization_id().clone(),
-            webhook_secret,
-            webhook_secret_enc,
-        })))
-    }
-}
-
-#[async_trait]
-impl Run<Persist<CreateTrigger>> for TriggerUseCases {
-    async fn run(&self, input: Prepared<CreateTrigger>) -> DomainResult<Committed<CreateTrigger>> {
-        input
-            .commit(async |draft| {
-                let NewTrigger {
-                    trigger,
-                    organization_id,
-                    webhook_secret,
-                    webhook_secret_enc,
-                } = draft.into_inner();
-                self.ensure_runner_app(&organization_id).await?;
-                let stored = self
-                    .trigger_repo
-                    .create(&trigger, webhook_secret_enc.as_deref())
-                    .await?;
-                Ok(CreatedTrigger {
-                    trigger: stored,
-                    webhook_secret,
-                })
-            })
-            .await
-    }
-}
-
 #[derive(Debug)]
 pub struct UpdateTrigger {
     pub id: TriggerId,
@@ -133,27 +68,6 @@ impl Command for UpdateTrigger {
     type Committed = Trigger;
 }
 
-#[async_trait]
-impl Run<Prepare<UpdateTrigger>> for TriggerUseCases {
-    async fn run(&self, input: Authorized<UpdateTrigger>) -> DomainResult<Prepared<UpdateTrigger>> {
-        let cmd = input.command();
-        let mut trigger = self.trigger_repo.find_by_id(&cmd.id).await?;
-        trigger.update(cmd.name.clone(), cmd.source.clone(), cmd.inputs.clone())?;
-        // Re-anchor from now so a changed expression takes effect at once.
-        self.schedule_next(&mut trigger)?;
-        Ok(input.prepared(Draft::new(trigger)))
-    }
-}
-
-#[async_trait]
-impl Run<Persist<UpdateTrigger>> for TriggerUseCases {
-    async fn run(&self, input: Prepared<UpdateTrigger>) -> DomainResult<Committed<UpdateTrigger>> {
-        input
-            .commit(async |draft| self.trigger_repo.update(&draft.into_inner()).await)
-            .await
-    }
-}
-
 #[derive(Debug)]
 pub struct SetTriggerEnabled {
     pub id: TriggerId,
@@ -171,37 +85,6 @@ impl Command for SetTriggerEnabled {
     type Committed = Trigger;
 }
 
-#[async_trait]
-impl Run<Prepare<SetTriggerEnabled>> for TriggerUseCases {
-    async fn run(
-        &self,
-        input: Authorized<SetTriggerEnabled>,
-    ) -> DomainResult<Prepared<SetTriggerEnabled>> {
-        let cmd = input.command();
-        let mut trigger = self.trigger_repo.find_by_id(&cmd.id).await?;
-        // Re-anchor from now: no catch-up fire at a stale past time.
-        if cmd.enabled {
-            trigger.enable();
-            self.schedule_next(&mut trigger)?;
-        } else {
-            trigger.disable();
-        }
-        Ok(input.prepared(Draft::new(trigger)))
-    }
-}
-
-#[async_trait]
-impl Run<Persist<SetTriggerEnabled>> for TriggerUseCases {
-    async fn run(
-        &self,
-        input: Prepared<SetTriggerEnabled>,
-    ) -> DomainResult<Committed<SetTriggerEnabled>> {
-        input
-            .commit(async |draft| self.trigger_repo.update(&draft.into_inner()).await)
-            .await
-    }
-}
-
 #[derive(Debug)]
 pub struct DeleteTrigger {
     pub id: TriggerId,
@@ -216,26 +99,6 @@ impl Describe for DeleteTrigger {
 impl Command for DeleteTrigger {
     type Staged = Trigger;
     type Committed = Deleted<Trigger>;
-}
-
-#[async_trait]
-impl Run<Prepare<DeleteTrigger>> for TriggerUseCases {
-    async fn run(&self, input: Authorized<DeleteTrigger>) -> DomainResult<Prepared<DeleteTrigger>> {
-        let trigger = self.trigger_repo.find_by_id(&input.command().id).await?;
-        Ok(input.prepared(trigger))
-    }
-}
-
-#[async_trait]
-impl Run<Persist<DeleteTrigger>> for TriggerUseCases {
-    async fn run(&self, input: Prepared<DeleteTrigger>) -> DomainResult<Committed<DeleteTrigger>> {
-        input
-            .commit(async |trigger| {
-                self.trigger_repo.delete(&trigger).await?;
-                Ok(Deleted::new(trigger))
-            })
-            .await
-    }
 }
 
 /// The outcome of a fire, sent by the trigger firer as a service. Only the observation is
@@ -257,37 +120,6 @@ impl Command for RecordTriggerFire {
     type Committed = FireObservation;
 }
 
-#[async_trait]
-impl Run<Prepare<RecordTriggerFire>> for TriggerUseCases {
-    async fn run(
-        &self,
-        input: Authorized<RecordTriggerFire>,
-    ) -> DomainResult<Prepared<RecordTriggerFire>> {
-        let observation = FireObservation {
-            fired_at: clock::now(),
-            status: input.command().status.to_owned(),
-        };
-        Ok(input.prepared(Draft::new(observation)))
-    }
-}
-
-#[async_trait]
-impl Run<Persist<RecordTriggerFire>> for TriggerUseCases {
-    async fn run(
-        &self,
-        input: Prepared<RecordTriggerFire>,
-    ) -> DomainResult<Committed<RecordTriggerFire>> {
-        let id = input.command().id.clone();
-        input
-            .commit(async |draft| {
-                let observation = draft.into_inner();
-                self.trigger_repo.record_fire(&id, &observation).await?;
-                Ok(observation)
-            })
-            .await
-    }
-}
-
 /// One pass over the cron triggers that have no next fire time. A trigger whose next fire time
 /// cannot be computed is logged and stays unscheduled.
 #[derive(Debug)]
@@ -302,33 +134,6 @@ impl Describe for ScheduleCronTriggers {
 impl Command for ScheduleCronTriggers {
     type Staged = DateTime<Utc>;
     type Committed = Vec<Trigger>;
-}
-
-#[async_trait]
-impl Run<Prepare<ScheduleCronTriggers>> for TriggerUseCases {
-    async fn run(
-        &self,
-        input: Authorized<ScheduleCronTriggers>,
-    ) -> DomainResult<Prepared<ScheduleCronTriggers>> {
-        service_only(input.caller())?;
-        Ok(input.prepared(clock::now()))
-    }
-}
-
-#[async_trait]
-impl Run<Persist<ScheduleCronTriggers>> for TriggerUseCases {
-    async fn run(
-        &self,
-        input: Prepared<ScheduleCronTriggers>,
-    ) -> DomainResult<Committed<ScheduleCronTriggers>> {
-        input
-            .commit(async |now| {
-                self.trigger_repo
-                    .seed_cron(&|trigger| self.next_cron_fire(trigger, now))
-                    .await
-            })
-            .await
-    }
 }
 
 /// One claim of the cron triggers due at `now`: the store advances each claimed row to its
@@ -348,34 +153,6 @@ impl Describe for ClaimDueTriggers {
 impl Command for ClaimDueTriggers {
     type Staged = (DateTime<Utc>, i64);
     type Committed = Vec<Trigger>;
-}
-
-#[async_trait]
-impl Run<Prepare<ClaimDueTriggers>> for TriggerUseCases {
-    async fn run(
-        &self,
-        input: Authorized<ClaimDueTriggers>,
-    ) -> DomainResult<Prepared<ClaimDueTriggers>> {
-        service_only(input.caller())?;
-        let staged = (input.command().now, input.command().limit);
-        Ok(input.prepared(staged))
-    }
-}
-
-#[async_trait]
-impl Run<Persist<ClaimDueTriggers>> for TriggerUseCases {
-    async fn run(
-        &self,
-        input: Prepared<ClaimDueTriggers>,
-    ) -> DomainResult<Committed<ClaimDueTriggers>> {
-        input
-            .commit(async |(now, limit)| {
-                self.trigger_repo
-                    .claim_due_cron(now, limit, &|trigger| self.next_cron_fire(trigger, now))
-                    .await
-            })
-            .await
-    }
 }
 
 pub fn generate_webhook_secret() -> String {

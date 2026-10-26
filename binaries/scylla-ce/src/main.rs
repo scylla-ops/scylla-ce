@@ -18,20 +18,7 @@ async fn main() -> anyhow::Result<()> {
     let config = cli.load_config()?;
     let db = scylla_db::init_db(&config.database).await?;
     Server::new(config, db)
-        .strata(EditionHost::<ScyllaCeOnDb>::new(&[
-            Slice::Projects,
-            Slice::Secrets,
-            Slice::Pipelines,
-            Slice::Apps,
-            Slice::Roles,
-            Slice::Grants,
-            Slice::Organizations,
-            Slice::Users,
-            Slice::Auth,
-            Slice::Triggers,
-            Slice::Jobs,
-            Slice::Agents,
-        ]))
+        .strata(EditionHost::<ScyllaCeOnDb>::new(Slice::ALL))
         .serve()
         .await
 }

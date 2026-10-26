@@ -1,4 +1,3 @@
-use crate::application::BootstrapUseCases;
 use crate::config::BootstrapConfig;
 use crate::error::BootstrapError;
 use scylla_auth::authz::SYSTEM_ADMIN_ROLE;
@@ -28,19 +27,4 @@ pub fn admin_account(cfg: &BootstrapConfig) -> Result<AdminAccount, BootstrapErr
         email: Email::new(&cfg.email).map_err(BootstrapError::InvalidEmail)?,
         role: RoleName::new(SYSTEM_ADMIN_ROLE).map_err(BootstrapError::GrantPermission)?,
     })
-}
-
-pub async fn bootstrap_admin(
-    bootstrap_uc: &BootstrapUseCases,
-    cfg: &BootstrapConfig,
-) -> Result<(), BootstrapError> {
-    let AdminAccount {
-        username,
-        email,
-        password,
-        role,
-    } = admin_account(cfg)?;
-    bootstrap_uc
-        .bootstrap_admin(username, email, password, role)
-        .await
 }

@@ -184,7 +184,7 @@ parity: parity-build
 parity-build:
     cargo build -p scylla-ce -p scylla-parity
 
-# Acceptance of a second server B against the CE server A: two A runs, one B run (e.g. `just parity-acceptance path/to/scylla-ce --b-env SCYLLA_STRATA_PROJECTS=1`)
+# Acceptance of a second server B against the CE server A: two A runs, one B run (e.g. `just parity-acceptance path/to/scylla-ce`); B must serve every slice on strata
 [group('parity')]
 [no-exit-message]
 parity-acceptance b *args: parity-build

@@ -25,6 +25,7 @@ axum.workspace = true
 http.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
+async-trait.workspace = true
 
 # cli: the command line and the tracing setup shared by the edition binaries
 clap.workspace = true
@@ -40,7 +41,6 @@ tonic-reflection.workspace = true
 tonic-async-interceptor.workspace = true
 
 [dev-dependencies]
-async-trait.workspace = true
 
 [lints]
 workspace = true

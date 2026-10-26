@@ -5,27 +5,22 @@ pub mod commands;
 
 pub use commands::DispatchPendingJobs;
 
-use crate::application::agent::dispatch::assemble_dispatch;
 use crate::application::agent::dispatch_port::{AgentDispatch, AgentStream};
 use crate::application::job::JobScope;
-use crate::application::{JobLogStreamPort, JobRepository, SecretResolver};
-use crate::domain::clock;
-use crate::domain::errors::{DomainError, DomainResult};
+use crate::application::{JobLogStreamPort, JobRepository};
+use crate::domain::errors::DomainResult;
 use crate::domain::ids::{AppId, JobId};
 use crate::domain::job::Job;
 use derive_more::Constructor;
-use scylla_auth::authz::{Visibility, VisibilityResolver};
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::debug;
 
-/// The stage runner of `DispatchPendingJobs`. `visibility` reads the grants of an agent to
-/// choose its jobs; it asks the access model nothing, so a pass writes no audit row.
+/// The orders that stop a job on its agent, and the wakes of the dispatcher. The dispatch pass
+/// itself is `JobControl::dispatch_pending_jobs` of the strata edition.
 #[derive(Constructor)]
 pub struct DispatchUseCases {
     registry: Arc<dyn AgentDispatch>,
-    visibility: Arc<dyn VisibilityResolver>,
     job_repo: Arc<dyn JobRepository>,
-    secret_resolver: Arc<dyn SecretResolver>,
     log_stream: Arc<dyn JobLogStreamPort>,
 }
 
@@ -81,31 +76,6 @@ impl DispatchUseCases {
             self.stop(job);
         }
         Ok(deleted)
-    }
-
-    /// Claims the oldest job the agent may run and sends it on the stream. A job that no
-    /// longer assembles fails, and the agent gets the next one.
-    async fn place(&self, stream: &AgentStream, visible: &Visibility) -> DomainResult<Option<Job>> {
-        while let Some((job, project_id)) = self.job_repo.claim_next(stream, visible).await? {
-            match assemble_dispatch(&*self.secret_resolver, &project_id, &job).await {
-                Ok(dispatch) => {
-                    if let Err(e) = self.registry.run(stream, dispatch) {
-                        warn!(app_id = %stream.agent, job_id = %job.id(), error = %e, "could not send the job; it goes back to the pool");
-                        self.release(stream).await?;
-                        return Ok(None);
-                    }
-                    return Ok(Some(job));
-                }
-                Err(e) => {
-                    warn!(job_id = %job.id(), error = %e, "the job cannot be dispatched; it fails");
-                    match self.job_repo.update(&job.fail(clock::now())?).await {
-                        Ok(_) | Err(DomainError::Stale(_)) => {}
-                        Err(e) => return Err(e),
-                    }
-                }
-            }
-        }
-        Ok(None)
     }
 }
 

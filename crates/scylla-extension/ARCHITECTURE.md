@@ -1,5 +1,15 @@
 # scylla-extension: the action pipeline
 
+> **Status (phase D).** CE does not run this pipeline any more: every CE slice, worker, the
+> admin bootstrap and the webhook route run on strata (`crates/scylla-strata`). CE keeps two
+> things from this crate: `Describe` and `Access`, the access rule of each CE command and query
+> that the strata modules read, and the `Command` and `Query` declarations of the CE types. The
+> rest (`Actions`, `Hooks`, the stages and the six positions) stays for the Enterprise features
+> that still run on it, through `scylla_server::Context::actions` and `Feature::hooks`. Remove
+> it when the Enterprise phase D removes those features. The parts of this guide that name a
+> CE use case struct, a CE handler, `grpc::adapter` or a CE worker describe the code before
+> phase D.
+
 Every write in Scylla is a command that moves through three typed stages,
 every read is a query that moves through two, and an extension attaches to
 each stage. This crate holds the pipeline. It depends on `scylla-domain` and

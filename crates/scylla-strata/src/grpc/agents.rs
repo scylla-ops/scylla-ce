@@ -2,16 +2,14 @@ use super::{authed, parse};
 use crate::access::CallerOf;
 use crate::{AccessRpc, Agents, AgentsRpc, AppsRpc, JobControl, JobControlRpc};
 use futures_util::StreamExt;
-use scylla_core::application::actions::app_only;
 use scylla_core::application::agent::{AgentStream, RecordAgentHost, TouchAgent};
+use scylla_core::application::guards::app_only;
 use scylla_core::application::job::{
     AppendJobLogs, ReconcileAgentJobs, RecordJobStatus, ReleaseAgentJobs,
 };
+use scylla_core::grpc::agent_stream::{READ_CHUNK, Work, down_stream, hello_to_domain, work};
 use scylla_core::grpc::convert::dt;
 use scylla_core::grpc::domain_error_to_status;
-use scylla_core::grpc::handlers::agent_handler::{
-    READ_CHUNK, Work, down_stream, hello_to_domain, work,
-};
 use scylla_core::grpc::mappers::{agent_stats_to_proto, agent_to_proto, agent_view_to_proto};
 use scylla_core::infrastructure::InMemoryAgentRegistry;
 use scylla_domain::domain::clock;
