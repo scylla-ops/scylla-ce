@@ -126,6 +126,18 @@ impl Client {
         })
     }
 
+    pub fn unary_calls(&self, service: &str) -> Result<Vec<String>> {
+        let found = self
+            .pool
+            .get_service_by_name(service)
+            .ok_or_else(|| anyhow!("unknown service {service}"))?;
+        Ok(found
+            .methods()
+            .filter(|m| !m.is_client_streaming() && !m.is_server_streaming())
+            .map(|m| format!("{}/{}", found.full_name(), m.name()))
+            .collect())
+    }
+
     pub fn method(&self, call: &str) -> Result<MethodDescriptor> {
         method(&self.pool, call)
     }

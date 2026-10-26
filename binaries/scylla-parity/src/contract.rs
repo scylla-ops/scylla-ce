@@ -56,6 +56,10 @@ pub struct Unauthenticated {
     pub calls: Vec<String>,
     #[serde(default)]
     pub cases: Vec<Case>,
+    #[serde(default)]
+    pub services: Vec<String>,
+    #[serde(default)]
+    pub service_cases: Vec<Case>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -137,6 +141,8 @@ pub fn parse(sources: &[&str]) -> Result<Merged> {
         if let Some(part) = part.unauthenticated {
             merged.unauthenticated.calls.extend(part.calls);
             merged.unauthenticated.cases.extend(part.cases);
+            merged.unauthenticated.services.extend(part.services);
+            merged.unauthenticated.service_cases.extend(part.service_cases);
         }
         merged.load.extend(part.load.into_vec());
         merged.store_failure.extend(part.store_failure.into_vec());
@@ -211,6 +217,38 @@ pub async fn check(ctx: &Context<'_>, contract: &Merged, first_step: usize) -> R
             let mut r = record(
                 step,
                 format!("contract {}", case.name),
+                call,
+                code,
+                outcome.message,
+                Value::Null,
+            );
+            r.meta = outcome.meta;
+            report.records.push(r);
+        }
+    }
+
+    let mut every_rpc = Vec::new();
+    for service in &unauth.services {
+        every_rpc.extend(ctx.client.unary_calls(service)?);
+    }
+    for case in &unauth.service_cases {
+        for call in &every_rpc {
+            let step = next(&report);
+            let outcome = ctx
+                .client
+                .call(call, &json!({}), &case.auth().opts(step, &vars)?)
+                .await?;
+            let code = code_name(outcome.code);
+            let message_ok = case.message.as_deref().is_none_or(|m| m == outcome.message);
+            report.check(code == case.code && message_ok, || {
+                format!(
+                    "{call} (every RPC) with a {} token: expected {} {:?}, got {code} {:?}",
+                    case.name, case.code, case.message, outcome.message
+                )
+            });
+            let mut r = record(
+                step,
+                format!("contract every rpc {}", case.name),
                 call,
                 code,
                 outcome.message,

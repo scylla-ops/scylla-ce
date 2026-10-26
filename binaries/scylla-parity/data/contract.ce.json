@@ -8,6 +8,23 @@
   {"label": "contract app token", "call": "scylla.app.v1.AppAuthService/IssueToken", "req": {"app_id": {"value": "${contract_app}"}, "secret": "${contract_app_secret}"}, "save": {"app_token": "/token"}}
  ],
  "unauthenticated": {
+  "services": [
+   "scylla.user.v1.UserService",
+   "scylla.organization.v1.OrganizationService",
+   "scylla.project.v1.ProjectService",
+   "scylla.pipeline.v1.PipelineService",
+   "scylla.trigger.v1.TriggerService",
+   "scylla.job.v1.JobService",
+   "scylla.app.v1.AppService",
+   "scylla.secret.v1.SecretService",
+   "scylla.agent.v1.AgentAdminService",
+   "scylla.authz.v1.GrantService",
+   "scylla.authz.v1.RoleService"
+  ],
+  "service_cases": [
+   {"name": "missing", "auth": null, "code": "UNAUTHENTICATED", "message": "Missing or invalid authorization token"},
+   {"name": "unknown", "auth": "not-a-token", "code": "UNAUTHENTICATED", "message": "Invalid or expired token"}
+  ],
   "calls": [
    "scylla.user.v1.UserService/GetMe",
    "scylla.organization.v1.OrganizationService/ListOrganizations",
