@@ -380,3 +380,48 @@ impl Jobs for DispatchJobs {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{DispatchJobs, Jobs};
+    use scylla_core::test_support::jobs::JobBuilder;
+    use scylla_core::test_support::pipelines::PipelineBuilder;
+    use scylla_core::test_support::stubs::{StubJobs, StubRegistry, StubTails, dispatcher};
+    use scylla_domain::domain::ids::{AppId, ProjectId};
+    use scylla_domain::domain::job::JobStatus;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn the_jobs_port_stops_each_live_job_of_the_project_on_its_agent() {
+        let project = ProjectId::new("proj-1");
+        let pipeline = PipelineBuilder::for_project_id(project.clone()).build();
+        let agent = AppId::new("agent-1");
+        let registry = Arc::new(StubRegistry::default());
+        registry.connect(&agent);
+        let jobs = Arc::new(StubJobs::default());
+        let running = jobs.insert(
+            &JobBuilder::new(&pipeline)
+                .running(true)
+                .agent(agent.clone())
+                .build(),
+        );
+        jobs.insert(
+            &JobBuilder::new(&pipeline)
+                .terminated(JobStatus::Completed)
+                .agent(agent.clone())
+                .build(),
+        );
+        let tails = Arc::new(StubTails::default());
+        let port = DispatchJobs {
+            jobs: jobs.clone(),
+            dispatch: dispatcher(registry.clone(), jobs, tails.clone()),
+        };
+
+        let live = port.live_in_project(&project).await.unwrap();
+        port.stop(&live).await;
+
+        assert_eq!(live.len(), 1);
+        assert_eq!(registry.cancelled(), [(agent, running.id().clone())]);
+        assert_eq!(tails.closed(), [running.id().clone()]);
+    }
+}

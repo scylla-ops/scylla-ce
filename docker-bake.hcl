@@ -88,9 +88,15 @@ target "_common" {
 # stage per package; `target` picks the stage. Everything below it — the cooked
 # dependency layer and the shared source layer — is identical for the two, so
 # bake reuses it across both targets in a single run.
+#
+# The Rust build fetches the private git dependency GodlyJaaaj/strata. Set
+# STRATA_TOKEN to a GitHub token with read access before you run bake. The
+# token reaches the build as the BuildKit secret `strata_token` and stays out
+# of the image layers.
 target "_backend" {
   inherits   = ["_common"]
   dockerfile = "Dockerfile"
+  secret     = ["id=strata_token,env=STRATA_TOKEN"]
 }
 
 target "ce" {

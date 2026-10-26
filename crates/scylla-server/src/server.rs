@@ -290,6 +290,28 @@ slices = ["projects", "secrets", "not-a-slice"]
     }
 
     #[test]
+    fn each_old_slice_value_is_ignored_and_an_empty_env_value_clears_the_file_list() {
+        let with = |slices: &[&str]| ControlPlaneConfig {
+            strata: scylla_core::config::StrataConfig {
+                slices: slices.iter().map(|s| (*s).to_owned()).collect(),
+            },
+            ..ControlPlaneConfig::default()
+        };
+        assert!(warn_ignored_slices(&with(&["projects"])));
+        assert!(warn_ignored_slices(&with(&["grnts"])));
+        assert!(warn_ignored_slices(&with(&[""])));
+
+        let mut config = with(&["grnts"]);
+        config.override_strata_slices("projects");
+        assert_eq!(config.strata.slices, ["projects"]);
+        assert!(warn_ignored_slices(&config));
+
+        config.override_strata_slices("");
+        assert!(config.strata.slices.is_empty());
+        assert!(!warn_ignored_slices(&config));
+    }
+
+    #[test]
     fn an_edition_must_serve_every_slice() {
         assert!(missing_slices(Slice::ALL).is_empty());
         assert_eq!(missing_slices(&Slice::ALL[1..]), [Slice::ALL[0].key()]);

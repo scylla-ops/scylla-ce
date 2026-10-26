@@ -919,6 +919,18 @@ async fn a_matching_secret_stores_a_token_for_that_secret_without_asking_a_permi
 }
 
 #[tokio::test]
+async fn an_issued_app_token_expires_exactly_thirty_days_after_its_creation() {
+    let (lab, _) = token_lab(true).await;
+
+    let token = lab.issue("app-1", SECRET).await.unwrap();
+
+    assert_eq!(
+        (token.expires_at() - token.created_at()).to_std().unwrap(),
+        std::time::Duration::from_secs(30 * 24 * 3600)
+    );
+}
+
+#[tokio::test]
 async fn an_unknown_app_an_inactive_app_and_a_wrong_secret_give_one_opaque_error() {
     let wrong = "wr0ng-wr0ng-wr0ng-wr0ng-wr0ng-wr0ng";
     for (active, app_id, secret) in [

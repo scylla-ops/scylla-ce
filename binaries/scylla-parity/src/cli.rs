@@ -5,7 +5,7 @@ use crate::edition::Edition;
 use crate::scenario::{self, Context, Record};
 use crate::stack::{Postgres, ServerProcess};
 use crate::template::Vars;
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 use sqlx::PgPool;
@@ -264,6 +264,9 @@ impl Plan<'_> {
             Some(suffix) => format!("scylla-parity-{}-{suffix}-{name}", self.edition.name),
             None => format!("scylla-parity-{}-{name}", self.edition.name),
         };
+        drop(std::net::TcpListener::bind(&addr).with_context(|| {
+            format!("{addr} is in use: stop the other server or give another --port")
+        })?);
         let postgres = Postgres::start(&container)?;
         let mut process = ServerProcess::start(
             server,

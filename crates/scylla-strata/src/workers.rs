@@ -70,6 +70,7 @@ pub(crate) fn service<C: CallerOf>(identity: ServiceIdentity) -> C {
 }
 
 /// One pass of the job reaper, as the `job_reaper` service.
+#[tracing::instrument(name = "reap", skip_all)]
 pub async fn reap_jobs<E>(app: &E) -> u64
 where
     E: JobControl,
@@ -90,6 +91,7 @@ where
 }
 
 /// One pass of the session sweeper, as the `session_sweeper` service.
+#[tracing::instrument(name = "sweep", skip_all)]
 pub async fn sweep_sessions<E>(app: &E) -> u64
 where
     E: Auth,
@@ -111,6 +113,7 @@ where
 
 /// One pass of the cron scheduler, as the `cron_scheduler` service: seed, claim, then one fire
 /// for each claimed trigger. A failed fire does not stop the pass. The return is the fires.
+#[tracing::instrument(name = "tick", skip_all)]
 pub async fn fire_cron_triggers<E>(app: &E) -> usize
 where
     E: Triggers,
@@ -152,6 +155,7 @@ where
 
 /// One pass of the dispatcher, as the `job_dispatcher` service. `None` targets every agent.
 /// The return is the number of jobs placed.
+#[tracing::instrument(name = "drain", skip(app))]
 pub async fn dispatch_jobs<E>(app: &E, agents: Option<Vec<AppId>>) -> usize
 where
     E: JobControl,

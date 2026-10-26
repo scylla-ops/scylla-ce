@@ -93,6 +93,8 @@ pub struct Http {
     pub body: String,
     #[serde(default)]
     pub sign: Option<String>,
+    #[serde(default)]
+    pub sign_upper: bool,
 }
 
 fn post() -> String {
@@ -669,13 +671,13 @@ async fn send_http(ctx: &Context<'_>, call: &Http, label: String, vars: &Vars) -
         let secret = vars
             .get(name)
             .ok_or_else(|| anyhow!("unknown variable {name:?}"))?;
-        headers.push((
-            "X-Scylla-Signature-256".to_string(),
-            format!(
-                "sha256={}",
-                http::hmac_sha256_hex(secret.as_bytes(), body.as_bytes())
-            ),
-        ));
+        let digest = http::hmac_sha256_hex(secret.as_bytes(), body.as_bytes());
+        let signature = if call.sign_upper {
+            format!("SHA256={}", digest.to_uppercase())
+        } else {
+            format!("sha256={digest}")
+        };
+        headers.push(("X-Scylla-Signature-256".to_string(), signature));
     }
     let reply = http::send(ctx.server, &call.method, &path, &headers, body.as_bytes()).await?;
     Ok(Record {

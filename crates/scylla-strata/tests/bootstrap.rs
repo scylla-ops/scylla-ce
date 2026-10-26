@@ -175,6 +175,10 @@ async fn the_email_of_another_account_stops_the_bootstrap_without_a_grant() {
         matches!(err, BootstrapError::EmailOfAnotherAccount),
         "{err}"
     );
+    assert_eq!(
+        err.to_string(),
+        "the bootstrap email belongs to another account"
+    );
     assert!(lab.granted().is_empty());
     assert_eq!(lab.users.rows().len(), 1);
 }
@@ -191,6 +195,10 @@ async fn the_username_with_another_email_stops_the_bootstrap_without_a_grant() {
     assert!(
         matches!(err, BootstrapError::UsernameWithAnotherEmail),
         "{err}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "the bootstrap username belongs to an account with another email"
     );
     assert!(lab.granted().is_empty());
     assert_eq!(

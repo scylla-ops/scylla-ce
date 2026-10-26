@@ -83,3 +83,37 @@ impl<C: Describe> Run<Authorize<C>> for AuthorizeStage {
         Ok(input.authorized(Granted(())))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Access;
+    use crate::domain::ids::OrganizationId;
+    use crate::domain::permission::Permission;
+
+    #[test]
+    fn the_display_of_access_keeps_its_literal_text() {
+        let org = OrganizationId::new("org-1");
+        assert_eq!(Access::Public.to_string(), "public");
+        assert_eq!(Access::Authenticated.to_string(), "authenticated");
+        assert_eq!(
+            Access::Requires(Permission::ReadOrganization(org.clone())).to_string(),
+            "readOrganization"
+        );
+        assert_eq!(
+            Access::RequiresAll(vec![
+                Permission::ReadOrganization(org.clone()),
+                Permission::ManageOrgGrants(org.clone()),
+            ])
+            .to_string(),
+            "readOrganization+manageOrgGrants"
+        );
+        assert_eq!(
+            Access::RequiresAll(vec![
+                Permission::ManageOrgGrants(org.clone()),
+                Permission::ReadOrganization(org),
+            ])
+            .to_string(),
+            "manageOrgGrants+readOrganization"
+        );
+    }
+}

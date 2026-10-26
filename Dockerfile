@@ -41,12 +41,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     protobuf-compiler libprotobuf-dev && \
     rm -rf /var/lib/apt/lists/*
 RUN cargo install cargo-chef --locked
+# strata is a private git dependency. Each step that can fetch it mounts the
+# BuildKit secret `strata_token` (a GitHub token with read access) and runs
+# through `with-strata-token`. The token goes to git through GIT_CONFIG_* for
+# that one process only, so it stays out of every image layer and cache.
+# Without the secret the script stops the build with a clear error.
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true \
+    GIT_TERMINAL_PROMPT=0
+COPY <<'EOF' /usr/local/bin/with-strata-token
+#!/bin/sh
+set -eu
+if [ -z "${STRATA_TOKEN:-}" ]; then
+    echo "error: no read credential for the private git dependency https://github.com/GodlyJaaaj/strata." >&2
+    echo "error: build with --secret id=strata_token,env=STRATA_TOKEN and set STRATA_TOKEN to a GitHub token with read access to GodlyJaaaj/strata." >&2
+    exit 1
+fi
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0="url.https://x-access-token:${STRATA_TOKEN}@github.com/GodlyJaaaj/strata.insteadOf"
+export GIT_CONFIG_VALUE_0="https://github.com/GodlyJaaaj/strata"
+unset STRATA_TOKEN
+exec "$@"
+EOF
+RUN sed -i 's/\r$//' /usr/local/bin/with-strata-token && \
+    chmod 0755 /usr/local/bin/with-strata-token
 WORKDIR /app
 
 # === Planner: extract dependency recipe from Cargo.toml/Cargo.lock ===
 FROM chef AS planner
 COPY . .
-RUN cargo chef prepare --recipe-path recipe.json
+RUN --mount=type=secret,id=strata_token,env=STRATA_TOKEN \
+    with-strata-token cargo chef prepare --recipe-path recipe.json
 
 # === Deps: cook the dependencies the builders will reuse ===
 # Critically there is NO `ARG` in this stage: an in-scope ARG is folded into the
@@ -56,9 +80,10 @@ RUN cargo chef prepare --recipe-path recipe.json
 # across all service builds (ce, agent…).
 FROM chef AS deps
 COPY --from=planner /app/recipe.json recipe.json
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+RUN --mount=type=secret,id=strata_token,env=STRATA_TOKEN \
+    --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    cargo chef cook --release --recipe-path recipe.json
+    with-strata-token cargo chef cook --release --recipe-path recipe.json
 
 # === Source layer, shared by both binaries ===
 # ARGs live here rather than in `deps`, so the cooked layer above stays shared.
@@ -76,18 +101,20 @@ ENV SQLX_OFFLINE=true
 # builds the stages its target actually reaches, so `--target scylla-agent`
 # never runs `ui`.
 FROM src AS build-agent
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+RUN --mount=type=secret,id=strata_token,env=STRATA_TOKEN \
+    --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    cargo build --release -p scylla-agent && \
+    with-strata-token cargo build --release -p scylla-agent && \
     cp target/release/scylla-agent /app/service
 
 FROM src AS build-ce
 # The SPA is compiled into the binary (rust-embed), so it has to land before
 # cargo runs, at the path build.rs and the #[folder] attribute both expect.
 COPY --from=ui /app/dist ./web/dist
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+RUN --mount=type=secret,id=strata_token,env=STRATA_TOKEN \
+    --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    cargo build --release -p scylla-ce && \
+    with-strata-token cargo build --release -p scylla-ce && \
     cp target/release/scylla-ce /app/service
 
 # === Runtime ===

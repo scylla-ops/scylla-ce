@@ -1,14 +1,24 @@
 # scylla-extension: the action pipeline
 
 > **Status (phase D).** CE does not run this pipeline any more: every CE slice, worker, the
-> admin bootstrap and the webhook route run on strata (`crates/scylla-strata`). CE keeps two
-> things from this crate: `Describe` and `Access`, the access rule of each CE command and query
-> that the strata modules read, and the `Command` and `Query` declarations of the CE types. The
-> rest (`Actions`, `Hooks`, the stages and the six positions) stays for the Enterprise features
-> that still run on it, through `scylla_server::Context::actions` and `Feature::hooks`. Remove
-> it when the Enterprise phase D removes those features. The parts of this guide that name a
-> CE use case struct, a CE handler, `grpc::adapter` or a CE worker describe the code before
-> phase D.
+> admin bootstrap and the webhook route run on strata (`crates/scylla-strata`). This crate is
+> not an Enterprise-only crate. CE still uses it:
+>
+> - `scylla-strata` reads `Describe` and `Access` for the access check of each use case
+>   (`access.rs`, `triggers.rs` and the `use scylla_extension::Describe` of each module).
+> - `scylla-core` declares `Describe`, `Command` and `Query` (with `Draft` and `Deleted`) on each
+>   CE command and query (`application/*/commands.rs`, `queries.rs`).
+> - `scylla-server` keeps the entry points of the pipeline for the Enterprise features:
+>   `Context::actions`, `Feature::hooks`, `Server::extension` and the `PermissionAuthorizer` of
+>   `feature.rs`. `cli.rs` keeps `scylla_extension` in the default log filter.
+>
+> The Enterprise build also imports the kernel types through `scylla_extension::domain`.
+>
+> The last CE commit of the migration, after the Enterprise phase D, removes the pipeline
+> (`Actions`, `Hooks`, the stages and the six positions) and its entry points in
+> `scylla-server`. That commit also decides if the crate stays for `Access` and `Describe`, or
+> if they move. The parts of this guide that name a CE use case struct, a CE handler,
+> `grpc::adapter` or a CE worker describe the code before phase D.
 
 Every write in Scylla is a command that moves through three typed stages,
 every read is a query that moves through two, and an extension attaches to

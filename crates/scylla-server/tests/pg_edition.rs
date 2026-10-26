@@ -391,9 +391,31 @@ async fn a_user_sets_its_own_display_name_but_not_its_own_email(pool: PgPool) {
     let err = UsersRpc::update_user(&own, update(None, Some("kev@example.com")))
         .await
         .unwrap_err();
+    let lena = seed_user(&pool, "lena", None).await;
+    let other = UsersRpc::update_user(
+        &own,
+        UpdateUser {
+            id: lena.id().clone(),
+            username: None,
+            display_name: Some(Some(DisplayName::new("Not Lena").unwrap())),
+            email: None,
+        },
+    )
+    .await
+    .unwrap_err();
 
     assert_eq!(named.display_name().map(DisplayName::as_str), Some("Kev"));
     assert!(matches!(err, DomainError::Forbidden(_)), "{err}");
+    assert!(matches!(other, DomainError::Forbidden(_)), "{other}");
+    assert_eq!(
+        users
+            .find_by_id(lena.id())
+            .await
+            .unwrap()
+            .display_name()
+            .map(DisplayName::as_str),
+        None
+    );
     assert!(
         users
             .find_by_id(kevin.id())
@@ -659,5 +681,306 @@ async fn strata_shared_runs_the_bootstrap_of_the_config(pool: PgPool) {
             .unwrap()
             .iter()
             .any(|g| g.principal == Principal::User(root.id().clone()) && g.scope == Scope::System)
+    );
+}
+
+/// Keeps each reset message and answers `Mail`.
+#[derive(Default)]
+struct Mailbox(Mutex<Vec<PasswordResetMessage>>);
+
+#[async_trait]
+impl PasswordResetSender for Mailbox {
+    fn delivery(&self) -> PasswordResetDelivery {
+        PasswordResetDelivery::Mail
+    }
+
+    async fn send(&self, message: &PasswordResetMessage) -> DomainResult<()> {
+        self.0.lock().unwrap().push(message.clone());
+        Ok(())
+    }
+}
+
+impl Mailbox {
+    fn links(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|m| m.link.clone())
+            .collect()
+    }
+
+    async fn wait_for(&self, count: usize) -> Vec<String> {
+        for _ in 0..500 {
+            if self.links().len() >= count {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                return self.links();
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("{count} reset links were not delivered");
+    }
+}
+
+const PUBLIC_URL: &str = "https://scylla.example.com";
+
+fn served_config() -> ControlPlaneConfig {
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut config = ControlPlaneConfig {
+        bootstrap: Some(scylla_core::config::BootstrapConfig {
+            username: "root".to_string(),
+            password: "SecurePass123!".to_string(),
+            email: "root@example.com".to_string(),
+        }),
+        ..ControlPlaneConfig::default()
+    };
+    config.server.address = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    config.server.public_url = Some(PUBLIC_URL.to_string());
+    config
+}
+
+/// Runs `body` while `Server::serve` runs on the address of `config`. `body` starts when the
+/// server listens. The server stops when `body` ends.
+async fn served<T>(
+    pool: &PgPool,
+    config: ControlPlaneConfig,
+    sender: Option<Arc<dyn PasswordResetSender>>,
+    body: impl AsyncFnOnce(std::net::SocketAddr) -> T,
+) -> T {
+    let address = config.server.address;
+    let mut server = scylla_server::Server::new(config, pool.clone());
+    if let Some(sender) = sender {
+        server = server.password_reset_sender(sender);
+    }
+    let calls = async {
+        let mut listening = false;
+        for _ in 0..500 {
+            if tokio::net::TcpStream::connect(address).await.is_ok() {
+                listening = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(listening, "the server did not listen on {address}");
+        body(address).await
+    };
+    tokio::select! {
+        stopped = server.serve() => panic!("the server stopped: {stopped:?}"),
+        answer = calls => answer,
+    }
+}
+
+async fn reflection_channel(endpoint: &str) -> tonic::transport::Channel {
+    tonic::transport::Channel::from_shared(endpoint.to_string())
+        .unwrap()
+        .connect()
+        .await
+        .unwrap()
+}
+
+/// One HTTP/1.1 exchange on a new connection. The answer is the raw response.
+async fn http1(address: std::net::SocketAddr, head: &str, body: &[u8]) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+    let request = format!(
+        "{head}\r\nhost: {address}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(request.as_bytes()).await.unwrap();
+    stream.write_all(body).await.unwrap();
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).await.unwrap();
+    String::from_utf8_lossy(&response).into_owned()
+}
+
+/// A gRPC-Web call over HTTP/1.1. The answer is the raw response in lowercase, without the space
+/// after a colon, and with `%20` as a space.
+async fn grpc_web(address: std::net::SocketAddr, path: &str, message: &[u8]) -> String {
+    let mut frame = vec![0u8];
+    frame.extend_from_slice(&u32::try_from(message.len()).unwrap().to_be_bytes());
+    frame.extend_from_slice(message);
+    let head = format!(
+        "POST {path} HTTP/1.1\r\ncontent-type: application/grpc-web+proto\r\nx-grpc-web: 1"
+    );
+    http1(address, &head, &frame)
+        .await
+        .replace(": ", ":")
+        .replace("%20", " ")
+        .to_lowercase()
+}
+
+fn proto_string(field: u8, value: &str) -> Vec<u8> {
+    let mut bytes = vec![(field << 3) | 2, u8::try_from(value.len()).unwrap()];
+    bytes.extend_from_slice(value.as_bytes());
+    bytes
+}
+
+async fn reflected_v1(endpoint: &str) -> Vec<String> {
+    use tonic_reflection::pb::v1::ServerReflectionRequest;
+    use tonic_reflection::pb::v1::server_reflection_client::ServerReflectionClient;
+    use tonic_reflection::pb::v1::server_reflection_request::MessageRequest;
+    use tonic_reflection::pb::v1::server_reflection_response::MessageResponse;
+    let mut client = ServerReflectionClient::new(reflection_channel(endpoint).await);
+    let request = ServerReflectionRequest {
+        host: String::new(),
+        message_request: Some(MessageRequest::ListServices(String::new())),
+    };
+    let mut answers = client
+        .server_reflection_info(tonic::codegen::tokio_stream::once(request))
+        .await
+        .unwrap()
+        .into_inner();
+    let answer = answers.message().await.unwrap().unwrap();
+    let Some(MessageResponse::ListServicesResponse(list)) = answer.message_response else {
+        panic!("the v1 reflection gave no service list");
+    };
+    list.service.into_iter().map(|s| s.name).collect()
+}
+
+async fn reflected_v1alpha(endpoint: &str) -> Vec<String> {
+    use tonic_reflection::pb::v1alpha::ServerReflectionRequest;
+    use tonic_reflection::pb::v1alpha::server_reflection_client::ServerReflectionClient;
+    use tonic_reflection::pb::v1alpha::server_reflection_request::MessageRequest;
+    use tonic_reflection::pb::v1alpha::server_reflection_response::MessageResponse;
+    let mut client = ServerReflectionClient::new(reflection_channel(endpoint).await);
+    let request = ServerReflectionRequest {
+        host: String::new(),
+        message_request: Some(MessageRequest::ListServices(String::new())),
+    };
+    let mut answers = client
+        .server_reflection_info(tonic::codegen::tokio_stream::once(request))
+        .await
+        .unwrap()
+        .into_inner();
+    let answer = answers.message().await.unwrap().unwrap();
+    let Some(MessageResponse::ListServicesResponse(list)) = answer.message_response else {
+        panic!("the v1alpha reflection gave no service list");
+    };
+    list.service.into_iter().map(|s| s.name).collect()
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn the_served_router_answers_health_grpc_web_and_reflection(pool: PgPool) {
+    let (health, logged_in, anonymous, v1, v1alpha) =
+        served(&pool, served_config(), None, async |address| {
+            let health = http1(address, "GET /healthz HTTP/1.1", &[]).await;
+            let login = [proto_string(1, "root"), proto_string(2, "SecurePass123!")].concat();
+            let logged_in = grpc_web(address, "/scylla.auth.v1.AuthService/Login", &login).await;
+            let anonymous = grpc_web(address, "/scylla.user.v1.UserService/GetMe", &[]).await;
+            let endpoint = format!("http://{address}");
+            let v1 = reflected_v1(&endpoint).await;
+            let v1alpha = reflected_v1alpha(&endpoint).await;
+            (health, logged_in, anonymous, v1, v1alpha)
+        })
+        .await;
+
+    assert!(health.starts_with("HTTP/1.1 200"), "{health}");
+    assert!(health.ends_with("\r\n\r\nok"), "{health}");
+    assert!(logged_in.starts_with("http/1.1 200"), "{logged_in}");
+    assert!(logged_in.contains("grpc-status:0\r\n"), "{logged_in}");
+    assert!(anonymous.contains("grpc-status:16\r\n"), "{anonymous}");
+    assert!(
+        anonymous.contains("grpc-message:missing or invalid authorization token\r\n"),
+        "{anonymous}"
+    );
+    assert_eq!(scylla_strata::Service::ALL.len(), 14);
+    for (listed, reflection) in [
+        (&v1, "grpc.reflection.v1.ServerReflection"),
+        (&v1alpha, "grpc.reflection.v1alpha.ServerReflection"),
+    ] {
+        for service in scylla_strata::Service::ALL {
+            assert!(
+                listed.iter().any(|s| s == service.name()),
+                "{service:?}: {listed:?}"
+            );
+        }
+        assert!(listed.iter().any(|s| s == reflection), "{listed:?}");
+        assert_eq!(listed.len(), 15, "{listed:?}");
+    }
+}
+
+/// `RequestPasswordReset` for kevin, then `SendPasswordReset` for lena as the bootstrap admin.
+async fn reset_answers(address: std::net::SocketAddr, lena: &User) -> (i32, i32) {
+    use scylla_proto::auth::v1::auth_service_client::AuthServiceClient;
+    use scylla_proto::auth::v1::{LoginRequest, RequestPasswordResetRequest};
+    use scylla_proto::user::v1::SendPasswordResetRequest;
+    use scylla_proto::user::v1::user_service_client::UserServiceClient;
+    let endpoint = format!("http://{address}");
+    let mut auth = AuthServiceClient::connect(endpoint.clone()).await.unwrap();
+    let requested = auth
+        .request_password_reset(RequestPasswordResetRequest {
+            email: Some(scylla_proto::common::v1::Email {
+                value: "kevin@example.com".to_string(),
+            }),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .delivery;
+    let token = auth
+        .login(LoginRequest {
+            identifier: "root".to_string(),
+            password: "SecurePass123!".to_string(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .token;
+    let mut users = UserServiceClient::connect(endpoint).await.unwrap();
+    let mut send = tonic::Request::new(SendPasswordResetRequest {
+        user_id: Some(scylla_proto::common::v1::UserId {
+            value: lena.id().to_string(),
+        }),
+    });
+    send.metadata_mut()
+        .insert("authorization", format!("Bearer {token}").parse().unwrap());
+    let sent = users
+        .send_password_reset(send)
+        .await
+        .unwrap()
+        .into_inner()
+        .delivery;
+    (requested, sent)
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn the_reset_sender_of_the_server_answers_both_reset_calls(pool: PgPool) {
+    use scylla_proto::auth::v1::PasswordResetDelivery as Wire;
+    seed_user(&pool, "kevin", Some("OldPass123!")).await;
+    let lena = seed_user(&pool, "lena", Some("OldPass123!")).await;
+    let mailbox = Arc::new(Mailbox::default());
+
+    let sender: Arc<dyn PasswordResetSender> = mailbox.clone();
+    let (mailed, links) = served(&pool, served_config(), Some(sender), async |address| {
+        let answers = reset_answers(address, &lena).await;
+        (answers, mailbox.wait_for(2).await)
+    })
+    .await;
+    let logged = served(&pool, served_config(), None, async |address| {
+        reset_answers(address, &lena).await
+    })
+    .await;
+    let roots: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE username = 'root'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(mailed, (Wire::Mail as i32, Wire::Mail as i32));
+    assert_eq!(links.len(), 2, "{links:?}");
+    assert!(
+        links
+            .iter()
+            .all(|link| link.starts_with(&format!("{PUBLIC_URL}/"))),
+        "{links:?}"
+    );
+    assert_eq!(logged, (Wire::ServerLog as i32, Wire::ServerLog as i32));
+    assert_eq!(mailbox.links().len(), 2);
+    assert_eq!(
+        roots, 1,
+        "a second start on the same database creates no second admin"
     );
 }

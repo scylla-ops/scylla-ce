@@ -2,8 +2,10 @@
 //! extension attaches to each stage. Depends on the kernel only, so an out-of-tree edition builds
 //! against a pinned tag without the access model, the database or the gRPC stack.
 //!
-//! CE runs no action here: every CE slice runs on strata. CE reads `Describe` and `Access` only.
-//! The pipeline stays for the Enterprise features that still run on it.
+//! CE runs no action here: every CE slice runs on strata. The crate is not Enterprise-only:
+//! `scylla-strata` reads `Describe` and `Access`, `scylla-core` declares `Command` and `Query` on
+//! the CE types, and `scylla-server` keeps the pipeline entry points for the Enterprise features
+//! that still run on it. The last CE commit of the migration removes the pipeline.
 
 /// `no_inline`: rustdoc would otherwise copy the whole model into this crate's docs.
 #[doc(no_inline)]

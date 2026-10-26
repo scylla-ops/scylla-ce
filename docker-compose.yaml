@@ -27,6 +27,10 @@ services:
       # Final stages are named after the package; this one adds the web UI on
       # top of the shared runtime.
       target: scylla-ce
+      # The build fetches the private git dependency GodlyJaaaj/strata. Set
+      # STRATA_TOKEN to a GitHub token with read access to it.
+      secrets:
+        - strata_token
     container_name: scylla-ce
     # One port for everything: the web UI, the gRPC API (user APIs, app token
     # exchange, and the agent worker stream — agents connect here, there is no
@@ -67,3 +71,7 @@ services:
 
 volumes:
   postgres_data:
+
+secrets:
+  strata_token:
+    environment: STRATA_TOKEN

@@ -72,6 +72,7 @@ impl scylla_strata::Access for TestCe {
 struct StubTriggers {
     rows: Mutex<HashMap<TriggerId, (Trigger, Option<Vec<u8>>)>>,
     fires: Mutex<HashMap<TriggerId, FireObservation>>,
+    seed_fails: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait]
@@ -131,6 +132,9 @@ impl TriggerRepository for StubTriggers {
         Ok(())
     }
     async fn seed_cron(&self, compute_next: &NextFire<'_>) -> DomainResult<Vec<Trigger>> {
+        if self.seed_fails.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(DomainError::internal("the seed failed"));
+        }
         self.advance(compute_next, |t| t.next_fire_at().is_none())
     }
     async fn claim_due_cron(
@@ -793,6 +797,39 @@ async fn one_fire_failure_does_not_abort_the_pass() {
     for id in &claimed {
         assert_eq!(lab.last_fire(id).as_deref(), Some("error"));
     }
+}
+
+#[tokio::test]
+async fn the_cron_worker_fires_after_a_failed_seed_and_a_failed_fire_does_not_stop_it() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    lab.create(cron()).await.unwrap();
+    let unseeded = lab.seed();
+    let ok = lab.due();
+    let mut broken = Trigger::create(
+        PipelineId::new("pl-missing"),
+        TriggerName::new("broken").unwrap(),
+        cron(),
+        Vec::new(),
+    )
+    .unwrap();
+    broken.set_next_fire_at(Some(clock::now() - Duration::minutes(1)));
+    lab.triggers
+        .rows
+        .lock()
+        .unwrap()
+        .insert(broken.id().clone(), (broken.clone(), None));
+    lab.triggers
+        .seed_fails
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    let fired = scylla_strata::fire_cron_triggers(&lab.app).await;
+
+    assert_eq!(fired, 1);
+    assert!(lab.stored(unseeded.id()).next_fire_at().is_none());
+    assert_eq!(lab.last_fire(ok.id()).as_deref(), Some("ok"));
+    assert_ne!(lab.last_fire(broken.id()).as_deref(), Some("ok"));
+    assert!(lab.stored(broken.id()).next_fire_at().unwrap() > clock::now());
+    assert_eq!(lab.jobs.rows().len(), 1);
 }
 
 #[tokio::test]

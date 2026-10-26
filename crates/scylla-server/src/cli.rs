@@ -68,6 +68,16 @@ impl Cli {
 
 /// `RUST_LOG` wins. Otherwise `audit=warn`: grants are duplicate detail (the audit_log table stays complete), denials stay visible.
 pub fn init_tracing(edition_targets: &[&str]) {
+    let filter = default_filter(edition_targets);
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()),
+        )
+        .init();
+}
+
+fn default_filter(edition_targets: &[&str]) -> String {
     let core_targets = [
         "scylla_server",
         "scylla_core",
@@ -83,11 +93,26 @@ pub fn init_tracing(edition_targets: &[&str]) {
         .map(|target| format!("{target}=info"))
         .collect::<Vec<_>>()
         .join(",");
-    let filter = format!("audit=warn,{at_info},warn");
+    format!("audit=warn,{at_info},warn")
+}
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()),
-        )
-        .init();
+#[cfg(test)]
+mod tests {
+    use super::default_filter;
+
+    #[test]
+    fn the_default_filter_shows_the_core_and_edition_targets_at_info() {
+        assert_eq!(
+            default_filter(&[]),
+            "audit=warn,scylla_server=info,scylla_core=info,scylla_extension=info,\
+             scylla_auth=info,scylla_db=info,scylla_domain=info,scylla_strata=info,warn"
+        );
+        assert_eq!(
+            default_filter(&["scylla_ee"]),
+            "audit=warn,scylla_ee=info,scylla_server=info,scylla_core=info,\
+             scylla_extension=info,scylla_auth=info,scylla_db=info,scylla_domain=info,\
+             scylla_strata=info,warn"
+        );
+        assert!(tracing_subscriber::EnvFilter::try_new(default_filter(&["scylla_ee"])).is_ok());
+    }
 }

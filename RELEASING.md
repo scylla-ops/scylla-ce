@@ -9,6 +9,12 @@ just release-setup          # once per machine, plus `docker login`
 just release 0.4.0-beta     # build and push everything
 ```
 
+The Rust build fetches the private git dependency `GodlyJaaaj/strata`. Set
+`STRATA_TOKEN` to a GitHub token with read access to it before a build. The
+token reaches the build as the BuildKit secret `strata_token` and stays out of
+the image layers. Without it the build stops with an error that names the
+secret.
+
 ## What ships, and where
 
 | Image | Built from | Contents |
