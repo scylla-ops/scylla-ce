@@ -10,6 +10,7 @@ members = [
     "crates/scylla-server",
     "binaries/scylla-ce",
     "binaries/scylla-agent",
+    "binaries/scylla-parity",
 ]
 
 # Shared package metadata: every member inherits it with `field.workspace = true`.

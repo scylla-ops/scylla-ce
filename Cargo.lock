@@ -2063,6 +2063,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
+name = "ordered-float"
+version = "2.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2314,6 +2323,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "prost-reflect"
+version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01b80ea363c31af2de2b92e3c07ed1156628f7838c4afb4df75ee78a37fedbd1"
+dependencies = [
+ "base64 0.22.1",
+ "prost",
+ "prost-types",
+ "serde",
+ "serde-value",
 ]
 
 [[package]]
@@ -2756,6 +2778,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "scylla-parity"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "futures-util",
+ "prost",
+ "prost-reflect",
+ "scylla-proto",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+]
+
+[[package]]
 name = "scylla-proto"
 version = "0.1.0"
 dependencies = [
@@ -2831,6 +2871,16 @@ checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-value"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
+dependencies = [
+ "ordered-float",
+ "serde",
 ]
 
 [[package]]

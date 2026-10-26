@@ -170,3 +170,28 @@ proto-fmt:
 [no-exit-message]
 proto-breaking:
     buf breaking crates/scylla-proto/proto --against '.git#branch=main,subdir=crates/scylla-proto/proto,recurse_submodules=true'
+
+# -- Parity (the gRPC answers of a server against a baseline) --
+
+# Run the parity baseline: two runs of the scenario and the contract, each on a fresh Postgres in Docker, then compare
+[group('parity')]
+[no-exit-message]
+parity: parity-build
+    cargo run -q -p scylla-parity -- baseline --server target/debug/scylla-ce
+
+# Build the CE server and the parity client
+[group('parity')]
+parity-build:
+    cargo build -p scylla-ce -p scylla-parity
+
+# Acceptance of a second server B against the CE server A: two A runs, one B run (e.g. `just parity-acceptance path/to/scylla-ce --b-env SCYLLA_STRATA_PROJECTS=1`)
+[group('parity')]
+[no-exit-message]
+parity-acceptance b *args: parity-build
+    cargo run -q -p scylla-parity -- baseline --server target/debug/scylla-ce --b-server {{b}} {{args}}
+
+# Print the differences between two scenario outputs (e.g. target/parity/ce/run-1/scenario.jsonl)
+[group('parity')]
+[no-exit-message]
+parity-compare left right:
+    cargo run -q -p scylla-parity -- compare {{left}} {{right}}

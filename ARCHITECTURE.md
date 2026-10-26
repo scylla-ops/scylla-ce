@@ -19,6 +19,7 @@ libraries they link.
 | `crates/scylla-server` | the composition root: the `Server` builder (hook extensions, extra gRPC/HTTP services) and the `cli` every edition binary shares |
 | `binaries/scylla-ce` | the Community Edition binary: a `main.rs` and the config files |
 | `binaries/scylla-agent` | the worker installed per machine |
+| `binaries/scylla-parity` | the parity client: one fixed gRPC scenario, the client contract checks, and the compare of two outputs. Guide: [`binaries/scylla-parity/ARCHITECTURE.md`](./binaries/scylla-parity/ARCHITECTURE.md) |
 | `web` | the `scylla-web` git submodule: the web UI, compiled into the `scylla-ce` binary through `scylla-core` |
 
 Dependencies point one way: `domain <- auth <- core <- db <- server <- ce`, with
@@ -38,6 +39,7 @@ them that depth is load-bearing: `sqlx::migrate!("../../migrations")`
 | The action pipeline (commands, stages, hooks) | [`crates/scylla-extension/ARCHITECTURE.md`](./crates/scylla-extension/ARCHITECTURE.md) |
 | Domain vocabulary | [`GLOSSARY.md`](./GLOSSARY.md) |
 | Running the stack | [`README.md`](./README.md) |
+| The parity client (`just parity`) | [`binaries/scylla-parity/ARCHITECTURE.md`](./binaries/scylla-parity/ARCHITECTURE.md) |
 
 ## Conventions worth knowing before editing
 

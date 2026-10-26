@@ -1,0 +1,59 @@
+{
+ "setup": [
+  {"label": "login admin", "call": "scylla.auth.v1.AuthService/Login", "req": {"identifier": "admin", "password": "admin123"}, "save": {"admin_token": "/token"}},
+  {"label": "login to expire", "call": "scylla.auth.v1.AuthService/Login", "req": {"identifier": "admin", "password": "admin123"}, "save": {"expired_token": "/token"}},
+  {"label": "expire the session", "sql": "UPDATE sessions SET expires_at = now() - interval '1 hour' WHERE token_hash = encode(sha256(convert_to('${expired_token}', 'UTF8')), 'hex')"},
+  {"label": "contract org", "call": "scylla.organization.v1.OrganizationService/CreateOrganization", "auth": "${admin_token}", "req": {"name": "contract"}, "save": {"contract_org": "/organization/organization_id/value"}},
+  {"label": "contract app", "call": "scylla.app.v1.AppService/CreateApp", "auth": "${admin_token}", "req": {"organization_id": {"value": "${contract_org}"}, "name": "contract-app"}, "save": {"contract_app": "/app/app_id/value", "contract_app_secret": "/secret"}},
+  {"label": "contract app token", "call": "scylla.app.v1.AppAuthService/IssueToken", "req": {"app_id": {"value": "${contract_app}"}, "secret": "${contract_app_secret}"}, "save": {"app_token": "/token"}}
+ ],
+ "unauthenticated": {
+  "calls": [
+   "scylla.user.v1.UserService/GetMe",
+   "scylla.organization.v1.OrganizationService/ListOrganizations",
+   "scylla.project.v1.ProjectService/ListProjects",
+   "scylla.pipeline.v1.PipelineService/ListPipelines",
+   "scylla.trigger.v1.TriggerService/ListPipelineTriggers",
+   "scylla.secret.v1.SecretService/ListSecrets",
+   "scylla.job.v1.JobService/ListJobs",
+   "scylla.app.v1.AppService/ListApps",
+   "scylla.agent.v1.AgentService/Open",
+   "scylla.agent.v1.AgentAdminService/ListAgents",
+   "scylla.authz.v1.GrantService/ListGrants",
+   "scylla.authz.v1.RoleService/ListAuthzVocabulary"
+  ],
+  "cases": [
+   {"name": "missing", "auth": null, "code": "UNAUTHENTICATED", "message": "Missing or invalid authorization token"},
+   {"name": "unknown", "auth": "not-a-token", "code": "UNAUTHENTICATED", "message": "Invalid or expired token"},
+   {"name": "expired", "auth": "${expired_token}", "code": "UNAUTHENTICATED", "message": "Token has expired"},
+   {"name": "lowercase bearer", "header": "bearer ${admin_token}", "code": "UNAUTHENTICATED", "message": "Missing or invalid authorization token"},
+   {"name": "uppercase bearer", "header": "BEARER ${admin_token}", "code": "UNAUTHENTICATED", "message": "Missing or invalid authorization token"},
+   {"name": "token scheme", "header": "Token ${admin_token}", "code": "UNAUTHENTICATED", "message": "Missing or invalid authorization token"},
+   {"name": "bare token", "header": "${admin_token}", "code": "UNAUTHENTICATED", "message": "Missing or invalid authorization token"},
+   {"name": "two spaces", "header": "Bearer  ${admin_token}", "code": "UNAUTHENTICATED", "message": "Invalid or expired token"},
+   {"name": "trailing space", "header": "Bearer ${admin_token} ", "code": "UNAUTHENTICATED", "message": "Invalid or expired token"},
+   {"name": "empty bearer", "header": "Bearer ", "code": "UNAUTHENTICATED", "message": "Invalid or expired token"},
+   {"name": "valid", "auth": "${admin_token}", "code": "OK", "message": "", "codes": {"scylla.trigger.v1.TriggerService/ListPipelineTriggers": "INVALID_ARGUMENT", "scylla.secret.v1.SecretService/ListSecrets": "INVALID_ARGUMENT", "scylla.app.v1.AppService/ListApps": "INVALID_ARGUMENT", "scylla.agent.v1.AgentService/Open": "PERMISSION_DENIED", "scylla.agent.v1.AgentAdminService/ListAgents": "INVALID_ARGUMENT"}},
+   {"name": "invalid grpc-timeout", "auth": "${admin_token}", "headers": {"grpc-timeout": "abc"}, "code": "OK", "message": "", "codes": {"scylla.trigger.v1.TriggerService/ListPipelineTriggers": "INVALID_ARGUMENT", "scylla.secret.v1.SecretService/ListSecrets": "INVALID_ARGUMENT", "scylla.app.v1.AppService/ListApps": "INVALID_ARGUMENT", "scylla.agent.v1.AgentService/Open": "PERMISSION_DENIED", "scylla.agent.v1.AgentAdminService/ListAgents": "INVALID_ARGUMENT"}},
+   {"name": "zero x-request-timeout-ms", "auth": "${admin_token}", "headers": {"x-request-timeout-ms": "0"}, "code": "OK", "message": "", "codes": {"scylla.trigger.v1.TriggerService/ListPipelineTriggers": "INVALID_ARGUMENT", "scylla.secret.v1.SecretService/ListSecrets": "INVALID_ARGUMENT", "scylla.app.v1.AppService/ListApps": "INVALID_ARGUMENT", "scylla.agent.v1.AgentService/Open": "PERMISSION_DENIED", "scylla.agent.v1.AgentAdminService/ListAgents": "INVALID_ARGUMENT"}}
+  ]
+ },
+ "load": [
+  {"call": "scylla.user.v1.UserService/GetMe", "auth": "${admin_token}", "parallel": 2000},
+  {"call": "scylla.project.v1.ProjectService/ListProjects", "auth": "${admin_token}", "parallel": 3000}
+ ],
+ "store_failure": [
+  {
+   "name": "sessions store failure",
+   "break_sql": "ALTER TABLE sessions RENAME TO sessions_parity_off",
+   "repair_sql": "ALTER TABLE sessions_parity_off RENAME TO sessions",
+   "auth": "${admin_token}"
+  },
+  {
+   "name": "app tokens store failure",
+   "break_sql": "ALTER TABLE app_tokens RENAME TO app_tokens_off",
+   "repair_sql": "ALTER TABLE app_tokens_off RENAME TO app_tokens",
+   "auth": "${app_token}"
+  }
+ ]
+}
