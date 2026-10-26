@@ -34,6 +34,11 @@ The outputs are in `<out-dir>/run-N/` (and `<out-dir>/run-b/`): `scenario.jsonl`
 `config.toml` and `server.log`. `scenario.jsonl` has the scenario steps, then one line
 for each contract check.
 
+The generated config has `[webhook] public_base_url = "http://<address>"`. The server
+starts with `RUST_LOG=warn,scylla_strata=info,scylla_core=info` and `NO_COLOR=1`, so
+that the `log` steps can read the password reset links. `run` reads the log file of
+`--server-log PATH`.
+
 ## Acceptance of a new implementation
 
 An acceptance run compares a new server (B) with the CE server (A):
@@ -81,10 +86,14 @@ A scenario step has these fields:
 | `sort` | JSON pointers to arrays that the output sorts. `""` is the body. Use it for a list whose order is not stable. |
 | `mask` | JSON pointers to values that the output replaces with `<masked>`. |
 | `set` | Variables with a fixed value. |
-| `open` | Opens a stream with the name `NAME` on `call` (default `scylla.agent.v1.AgentService/Open`). The client sends the messages of `send` first. The upstream stays open. A task keeps each message that comes down. |
-| `send` | The first messages of `open`, in the proto JSON form. |
-| `drain` | Waits until `count` new messages came on the stream, or 2 s. The body is the new messages. Without `count`, it waits 2 s. Fewer messages than `count` is an "unexpected" line. |
-| `close` | Closes the upstream of the stream and waits for its end. The body is the messages that came after the last `drain`. |
+| `open` | Opens a stream with the name `NAME` on `call` (default `scylla.agent.v1.AgentService/Open`). The client sends the messages of `send` first. The upstream of a client stream stays open. For a server stream (for example `JobService/TailJobLogs`), the first message of `send` is the request and the client closes the upstream. A task keeps each message that comes down. An open that the server refuses records the code and the message of the refusal. |
+| `send` | The first messages of `open`, or the messages of `push`, in the proto JSON form. |
+| `push` | Sends the messages of `send` on the open stream `NAME` (for example a status or a log line of an agent). |
+| `drain` | Waits until `count` new messages came on the stream, the stream ended, or 2 s (`timeout_ms` changes the wait). The body is the new messages. The message is `open`, or `closed CODE MESSAGE` when the stream ended. The code is `OK`. Fewer messages than `count` is an "unexpected" line. |
+| `close` | Closes the upstream of the stream and waits for its end. The body is the messages that came after the last `drain`. The message is the same as for `drain`. |
+| `until` | With `call` or `query`: the step repeats until each JSON pointer of the map has its value, or until `poll_ms` (default 2000) ends. The record is the last answer. `"<present>"` and `"<absent>"` test if a value is there. The key `code` tests the gRPC code. `every_ms` (default 100) is the time between two tries. |
+| `http` | An HTTP/1.1 request to the address of the server: `method` (default `POST`), `path`, `headers`, `body` (text). `sign` is the name of a variable with a webhook secret: the request gets `X-Scylla-Signature-256: sha256=<hex HMAC-SHA256 of the body>`. The record has the service `http`, the path as the RPC, the status number as the code and the response body as the message. `expect` is the status number, for example `"202"`. |
+| `log` | Waits up to 2 s (`timeout_ms`) for a line of `server.log` that the server wrote after the start of the step before. The line must have the `target` and the `message`. `keep` is a list of `key=value` fields of the line for the body. `save` is a map of variables: each one takes the text after a prefix (for example `#token=`) up to the next space; the body gets its length. No line gives the code `NO_LOG`. |
 | `hold` | Starts a transaction on a dedicated database connection and runs the SQL in it (for example a `SELECT ... FOR UPDATE`). The locks stay until `release`. |
 | `release` | `true`: rolls back the transaction of `hold`. |
 | `sleep_ms` | Waits, with no call. |
@@ -139,6 +148,37 @@ Calls that are not stable without help:
   them, and the step sorts them. The ids and the timestamps of the rows are not in
   the query.
 
+- A step that waits for a side effect: the wait is a `query` step with `until` on the
+  CE tables (`jobs`, `job_logs`, `agents`, `pipeline_triggers`). Then one call reads the
+  state. Do not poll with an RPC: each RPC writes an audit row, and the last step counts
+  the audit rows.
+- Agent log lines: the server writes one audit row for each group of lines that it reads
+  at the same time. Do not send two log lines of one job one after the other without a
+  wait. Send a status frame between them, or wait for the first line (`job_logs`, a
+  `drain` of a tail).
+- Log lines and status frames that the steps compare have fixed timestamps (whole
+  microseconds), because the database keeps microseconds.
+
+## Side effect blocks
+
+The steps that start with `bN` check side effects of the jobs, agents, auth and triggers
+slices. Each block makes its own project, pipeline and agent in `acme`, and deletes them
+at its end, so the steps after the block do not change. The expected codes come from CE.
+
+| Block | What it shows |
+|---|---|
+| `b1` | Status and log frames: a started job is `RUNNING`; the log lines are stored; `JobCompleted` gives the next pending job to the agent at once; late frames of a finished job change nothing; `CancelJob` sends a cancel. |
+| `b2` | Live tail: the snapshot, a new line, a line sent again (no copy), an older line, a tail on a node, the end of the tail on `JobCompleted`, `CancelJob` and `DeleteJob`. A tail as `bob` is `PERMISSION_DENIED`. A tail of an unknown job: `NOT_FOUND` with a node, a closed stream without a node. |
+| `b3` | Cancel frames: `CancelJob` and `DeleteJob` send a cancel; a failure after a cancel changes nothing; a finished job gets no cancel and `CancelJob` is `FAILED_PRECONDITION`. |
+| `b4` | Release and reconcile: a closed stream puts its pending job back in the pool; a new stream gets it; a closed stream keeps a running job; a hello with an unknown job gets a cancel; a hello without the running job orphans it; a second stream of one app replaces the first one (`ALREADY_EXISTS`). |
+| `b5` | Agent views: the open of a stream sets `last_seen` before a hello; an app that is not an agent can open a stream; the host of the hello, `connected`, `in_flight`, the stats. A stream ends when its app is deactivated, its secret is disabled or revoked, or the agent is deleted. |
+| `b6` | The webhook route: accepted, duplicate, bad signature, ping, a NUL in an input, a disabled trigger, a deleted trigger. The job has the webhook origin and the `GIT_COMMIT` input. |
+| `b7` | Reset links in `server.log`: no link for an inactive user, one link for an active user, no second link in the cooldown, no link for an unknown email. The link resets the password once and ends the old sessions. |
+| `b11` | Auth: an agent stream with a user token, the client of a session (`user-agent`, the address), tokens that are not live, `RevokeToken` two times, a bearer on a public call does not move `last_active_at`. The contract also checks `TailJobLogs`. |
+| `b10` | Reconcile opens the tail of a running job that the agent keeps. |
+| `b12` | `FireTriggerNow` with a missing secret, the secrets and the access of a new agent, the reserved name `trigger-runner`. |
+| `b8` | The cron trigger is enabled again. A trigger `* * * * *` makes a cron job in less than 75 s (this block makes the run about one minute longer). |
+
 Three CE baseline runs on 2026-10-26 showed no unstable timestamp: all the
 `<ts:N>` labels were equal. No step masks a timestamp. If a field becomes unstable
 (for example `last_active_at` of a session), mask it with `mask`.
@@ -161,11 +201,44 @@ The expectations come from CE runs (CE commit e1637fe):
 - CE checks the permission of `CreateProject` before it looks for the organization:
   an unknown organization gives `PERMISSION_DENIED` to a user with no grant.
 - CE sends no `x-request-id` back.
+- An agent stream with a user token gives `PERMISSION_DENIED` "only an agent reports
+  its own state". `TailJobLogs` with `{}` gives `INVALID_ARGUMENT` "missing job_id".
+- A session keeps the `user-agent` of the login (`parity-ua/1.0 tonic/0.14.6`) and the
+  address `127.0.0.1`: CE does not trust `x-forwarded-for` and `x-real-ip` by default.
+- `FireTriggerNow` with a secret that is not in the project gives `NOT_FOUND`, and the
+  trigger shows a failed fire. `CreateAgent` with the name `trigger-runner` gives
+  `INVALID_ARGUMENT` "App name 'trigger-runner' is reserved".
+- The webhook route answers `202 accepted`, `200 duplicate`, `401 invalid signature`,
+  `200 pong`, `422 invalid payload` and `404 not found`.
+
+## Mutant runs
+
+A mutant is a one-line change in `crates/scylla-strata` that removes a side effect. B is
+built with the mutant, then the baseline runs with `--runs 1`. Each mutant must make B
+differ from A. The step numbers are those of the scenario with 525 steps (2026-10-26).
+No mutant stays in the tree: revert the file after the build.
+
+| Mutant | Change | First step that shows it |
+|---|---|---|
+| M1 | `record_job_status` without `job_tails.open` | 274 `b2 t1 gets l1 and l2` (the tail ends at once) |
+| M2 | `record_job_status` without `job_stops.wake` | 246 `b1 dispatch of job_b at once` (no dispatch) |
+| M3 | the agent `Reader` without `release_agent_jobs` | 396 `b5 get the disconnected agent` (`in_flight` stays 1) |
+| M4 | `reconcile_agent_jobs` without the cancel of the stale ids | 364 `b4 cancel of the unknown job` (no cancel) |
+| M5 | `cancel_job` without `job_stops.stop` | 255 `b1 cancel of job_b` (no cancel) |
+| M6 | `request_password_reset` without `issue_later` | 441 `b7 link for erin` (`NO_LOG`) |
+| M7 | `create_trigger` without `schedule_next` | 171 `create cron trigger` (no `next_fire_at`) |
+| M8 | `Open` without the first `touch_agent` | 383 `b5 the open alone sets last_seen` |
+| M9 | `login` with `SessionClient::default()` | 26 `alice sessions` (no `user_agent` and no `ip_address`) |
+| M10 | the Apps slot gets a second, new `InMemoryAgentRegistry` in `host.rs` | 138 `runner-3 gets the job` (no dispatch) |
+
+M8 did not fail before the steps `b5 agent opens with no hello` and
+`b5 the open alone sets last_seen`: the hello also sets `last_seen`.
 
 ## Limits
 
 - The SQL steps use the CE schema (`sessions`, `password_resets`, `organizations`,
-  `audit_log`). A server with a different schema needs different SQL steps.
+  `audit_log`, `jobs`, `job_logs`, `agents`, `pipeline_triggers`). A server with a
+  different schema needs different SQL steps.
 - The scenario uses the bootstrap admin `admin` / `admin123` of the generated config.
 - The client also enforces the deadline of a call: a server that sends no answer in
   time and a server that cancels the call give the same line. The step after the

@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn the_ce_contract_parses() {
         let merged = parse(&crate::edition::Edition::ce().contracts).unwrap();
-        assert_eq!(merged.unauthenticated.calls.len(), 12);
+        assert_eq!(merged.unauthenticated.calls.len(), 13);
         assert!(merged.store_failure.len() >= 2);
         assert!(merged.load.len() >= 2);
     }

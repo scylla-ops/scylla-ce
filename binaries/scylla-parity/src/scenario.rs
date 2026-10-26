@@ -1,6 +1,7 @@
 use crate::client::{CallOpts, Client, Meta, OpenStream, code_name};
 use crate::normalize::{Normalizer, is_strict_ulid};
 use crate::template::{Vars, pick, render, render_str};
+use crate::{http, server_log};
 use anyhow::{Context as _, Result, anyhow};
 use prost_reflect::DescriptorPool;
 use serde::{Deserialize, Serialize};
@@ -8,6 +9,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 use sqlx::pool::PoolConnection;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 pub const AGENT_OPEN: &str = "scylla.agent.v1.AgentService/Open";
@@ -65,6 +67,47 @@ pub struct Step {
     pub release: bool,
     #[serde(default)]
     pub sleep_ms: Option<u64>,
+    #[serde(default)]
+    pub push: Option<String>,
+    #[serde(default)]
+    pub until: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub poll_ms: Option<u64>,
+    #[serde(default)]
+    pub every_ms: Option<u64>,
+    #[serde(default)]
+    pub http: Option<Http>,
+    #[serde(default)]
+    pub log: Option<LogWatch>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Http {
+    #[serde(default = "post")]
+    pub method: String,
+    pub path: String,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub sign: Option<String>,
+}
+
+fn post() -> String {
+    "POST".to_string()
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LogWatch {
+    pub target: String,
+    pub message: String,
+    #[serde(default)]
+    pub keep: Vec<String>,
+    #[serde(default)]
+    pub save: BTreeMap<String, String>,
 }
 
 fn empty_object() -> Value {
@@ -117,12 +160,14 @@ pub struct Context<'a> {
     pub client: &'a Client,
     pub db: Option<&'a PgPool>,
     pub server: &'a str,
+    pub log: Option<&'a Path>,
 }
 
 #[derive(Default)]
 struct Live {
     streams: HashMap<String, OpenStream>,
     held: Option<PoolConnection<sqlx::Postgres>>,
+    log_mark: u64,
 }
 
 #[derive(Default)]
@@ -213,7 +258,10 @@ pub async fn run(ctx: &Context<'_>, steps: &[Step], vars: &mut Vars) -> Run {
     let known = labels
         .known()
         .chain([(ctx.server.to_string(), "server".to_string())]);
-    let literals: Vec<&Value> = steps.iter().map(|step| &step.req).collect();
+    let literals: Vec<&Value> = steps
+        .iter()
+        .flat_map(|step| std::iter::once(&step.req).chain(&step.send))
+        .collect();
     let mut normalizer = Normalizer::new(known).keep(&literals);
     let records = records
         .into_iter()
@@ -232,6 +280,11 @@ pub async fn run(ctx: &Context<'_>, steps: &[Step], vars: &mut Vars) -> Run {
                 .collect();
             Record {
                 message: normalizer.text(&r.message),
+                rpc: if r.service == "http" {
+                    normalizer.text(&r.rpc)
+                } else {
+                    r.rpc.clone()
+                },
                 body,
                 meta,
                 ..r
@@ -328,6 +381,34 @@ async fn execute(
         vars.insert(name.clone(), value);
     }
     let label = step.label.clone().unwrap_or_default();
+    if let Some(watch) = &step.log {
+        return watch_log(ctx, step, watch, label, vars, live).await;
+    }
+    if let Some(path) = ctx.log {
+        live.log_mark = server_log::len(path);
+    }
+    if let Some(name) = &step.push {
+        let stream = live
+            .streams
+            .get(name)
+            .ok_or_else(|| anyhow!("no open stream {name}"))?;
+        let messages: Vec<Value> = step
+            .send
+            .iter()
+            .map(|m| render(m, vars))
+            .collect::<Result<_>>()?;
+        stream.push(&messages).await?;
+        return Ok(Record::local(
+            label,
+            &format!("push {name}"),
+            "OK",
+            String::new(),
+            Value::Null,
+        ));
+    }
+    if let Some(call) = &step.http {
+        return send_http(ctx, call, label, vars).await;
+    }
     if let Some(sql) = &step.sql {
         let db = ctx
             .db
@@ -350,19 +431,37 @@ async fn execute(
             "SELECT coalesce(json_agg(q), '[]'::json)::text FROM ({}) q",
             render_str(sql, vars)?
         );
-        let rows: Result<String, _> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-            .fetch_one(db)
-            .await;
-        return Ok(match rows {
-            Ok(rows) => Record::local(
-                label,
-                "query",
-                "OK",
-                String::new(),
-                serde_json::from_str(&rows)?,
-            ),
-            Err(e) => Record::local(label, "query", "SQL_ERROR", e.to_string(), Value::Null),
-        });
+        let window = step.poll_ms.map_or(DRAIN_WINDOW, Duration::from_millis);
+        let every = Duration::from_millis(step.every_ms.unwrap_or(100));
+        let started = Instant::now();
+        loop {
+            let rows: Result<String, _> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql.clone()))
+                .fetch_one(db)
+                .await;
+            let record = match rows {
+                Ok(rows) => Record::local(
+                    label.clone(),
+                    "query",
+                    "OK",
+                    String::new(),
+                    serde_json::from_str(&rows)?,
+                ),
+                Err(e) => Record::local(
+                    label.clone(),
+                    "query",
+                    "SQL_ERROR",
+                    e.to_string(),
+                    Value::Null,
+                ),
+            };
+            if step.until.is_empty()
+                || reached(&step.until, &record.code, &record.body)
+                || started.elapsed() + every > window
+            {
+                return Ok(record);
+            }
+            tokio::time::sleep(every).await;
+        }
     }
     if let Some(sql) = &step.hold {
         let db = ctx
@@ -487,10 +586,22 @@ async fn execute(
         ));
     };
     let request = render(&step.req, vars)?;
-    let outcome = ctx
-        .client
-        .call(call, &request, &step.auth().opts(index, vars)?)
-        .await?;
+    let window = step.poll_ms.map_or(DRAIN_WINDOW, Duration::from_millis);
+    let every = Duration::from_millis(step.every_ms.unwrap_or(100));
+    let started = Instant::now();
+    let outcome = loop {
+        let outcome = ctx
+            .client
+            .call(call, &request, &step.auth().opts(index, vars)?)
+            .await?;
+        if step.until.is_empty()
+            || reached(&step.until, code_name(outcome.code), &outcome.body)
+            || started.elapsed() + every > window
+        {
+            break outcome;
+        }
+        tokio::time::sleep(every).await;
+    };
     let mut body = outcome.body;
     if outcome.code == tonic::Code::Ok {
         for (name, pointer) in &step.save {
@@ -522,14 +633,121 @@ fn take(stream: &mut OpenStream, label: String, rpc: &str) -> Result<Record> {
         .map_err(|_| anyhow!("the stream log is poisoned"))?;
     let items: Vec<Value> = log.items[stream.taken..].to_vec();
     stream.taken = log.items.len();
-    let (code, message) = match &log.end {
-        None => ("OK", "stream open".to_string()),
-        Some((code, message)) => (code_name(*code), message.clone()),
+    let message = match &log.end {
+        None => "open".to_string(),
+        Some((code, message)) => format!("closed {} {message}", code_name(*code)),
     };
     Ok(Record {
         meta: log.meta.clone(),
-        ..Record::local(label, rpc, code, message, Value::Array(items))
+        ..Record::local(label, rpc, "OK", message, Value::Array(items))
     })
+}
+
+fn reached(until: &BTreeMap<String, Value>, code: &str, body: &Value) -> bool {
+    until.iter().all(|(pointer, want)| {
+        if pointer == "code" {
+            return want.as_str() == Some(code);
+        }
+        let got = body.pointer(pointer);
+        match want.as_str() {
+            Some("<present>") => got.is_some(),
+            Some("<absent>") => got.is_none(),
+            _ => got == Some(want),
+        }
+    })
+}
+
+async fn send_http(ctx: &Context<'_>, call: &Http, label: String, vars: &Vars) -> Result<Record> {
+    let path = render_str(&call.path, vars)?;
+    let body = render_str(&call.body, vars)?;
+    let mut headers = call
+        .headers
+        .iter()
+        .map(|(k, v)| Ok((k.clone(), render_str(v, vars)?)))
+        .collect::<Result<Vec<_>>>()?;
+    if let Some(name) = &call.sign {
+        let secret = vars
+            .get(name)
+            .ok_or_else(|| anyhow!("unknown variable {name:?}"))?;
+        headers.push((
+            "X-Scylla-Signature-256".to_string(),
+            format!(
+                "sha256={}",
+                http::hmac_sha256_hex(secret.as_bytes(), body.as_bytes())
+            ),
+        ));
+    }
+    let reply = http::send(ctx.server, &call.method, &path, &headers, body.as_bytes()).await?;
+    Ok(Record {
+        service: "http".to_string(),
+        ..Record::local(
+            label,
+            &path,
+            &reply.status.to_string(),
+            reply.body,
+            Value::Null,
+        )
+    })
+}
+
+async fn watch_log(
+    ctx: &Context<'_>,
+    step: &Step,
+    watch: &LogWatch,
+    label: String,
+    vars: &mut Vars,
+    live: &mut Live,
+) -> Result<Record> {
+    let path = ctx
+        .log
+        .ok_or_else(|| anyhow!("a log step needs the log file of the server"))?;
+    let window = step.timeout_ms.map_or(DRAIN_WINDOW, Duration::from_millis);
+    let started = Instant::now();
+    loop {
+        let lines = server_log::lines_from(path, live.log_mark);
+        let found = lines
+            .iter()
+            .find(|line| server_log::matches(line, &watch.target, &watch.message));
+        if let Some(line) = found {
+            let fields = server_log::fields(line, &watch.message);
+            let mut body = serde_json::Map::new();
+            for name in &watch.keep {
+                body.insert(
+                    name.clone(),
+                    fields.get(name).cloned().unwrap_or(Value::Null),
+                );
+            }
+            for (name, prefix) in &watch.save {
+                let value = line
+                    .split_once(prefix.as_str())
+                    .and_then(|(_, rest)| rest.split_whitespace().next())
+                    .ok_or_else(|| anyhow!("no {prefix:?} in the log line"))?
+                    .trim_matches('"')
+                    .to_string();
+                body.insert(format!("{name} length"), Value::from(value.len()));
+                vars.insert(name.clone(), value);
+            }
+            live.log_mark = server_log::len(path);
+            return Ok(Record::local(
+                label,
+                "log",
+                "OK",
+                watch.message.clone(),
+                Value::Object(body),
+            ));
+        }
+        if started.elapsed() >= window {
+            live.log_mark = server_log::len(path);
+            return Ok(Record::local(
+                label,
+                "log",
+                "NO_LOG",
+                watch.message.clone(),
+                Value::Null,
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 pub fn rpcs(pool: &DescriptorPool) -> BTreeSet<String> {

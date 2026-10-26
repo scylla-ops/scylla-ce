@@ -93,6 +93,25 @@ pub struct OpenStream {
     pub log: Arc<Mutex<StreamLog>>,
     pub task: JoinHandle<()>,
     pub taken: usize,
+    pub input: MessageDescriptor,
+}
+
+impl OpenStream {
+    pub async fn push(&self, items: &[Value]) -> Result<()> {
+        let sender = self
+            .sender
+            .as_ref()
+            .ok_or_else(|| anyhow!("the upstream of the stream is closed"))?;
+        for item in items {
+            let message = DynamicMessage::deserialize(self.input.clone(), item.clone())
+                .context("a message of a stream")?;
+            sender
+                .send(message)
+                .await
+                .map_err(|_| anyhow!("the stream is closed"))?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -215,6 +234,7 @@ impl Client {
                 .await
                 .map_err(|_| anyhow!("the stream of {call} is closed"))?;
         }
+        let sender = method.is_client_streaming().then_some(sender);
         let path = Self::path(&method)?;
         let codec = DynCodec(method.output());
         let mut grpc = self.grpc().await?;
@@ -262,10 +282,11 @@ impl Client {
             }
         });
         Ok(Ok(OpenStream {
-            sender: Some(sender),
+            sender,
             log,
             task,
             taken: 0,
+            input: method.input(),
         }))
     }
 }

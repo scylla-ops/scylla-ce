@@ -33,6 +33,7 @@
    "scylla.trigger.v1.TriggerService/ListPipelineTriggers",
    "scylla.secret.v1.SecretService/ListSecrets",
    "scylla.job.v1.JobService/ListJobs",
+   "scylla.job.v1.JobService/TailJobLogs",
    "scylla.app.v1.AppService/ListApps",
    "scylla.agent.v1.AgentService/Open",
    "scylla.agent.v1.AgentAdminService/ListAgents",
@@ -50,9 +51,9 @@
    {"name": "two spaces", "header": "Bearer  ${admin_token}", "code": "UNAUTHENTICATED", "message": "Invalid or expired token"},
    {"name": "trailing space", "header": "Bearer ${admin_token} ", "code": "UNAUTHENTICATED", "message": "Invalid or expired token"},
    {"name": "empty bearer", "header": "Bearer ", "code": "UNAUTHENTICATED", "message": "Invalid or expired token"},
-   {"name": "valid", "auth": "${admin_token}", "code": "OK", "message": "", "codes": {"scylla.trigger.v1.TriggerService/ListPipelineTriggers": "INVALID_ARGUMENT", "scylla.secret.v1.SecretService/ListSecrets": "INVALID_ARGUMENT", "scylla.app.v1.AppService/ListApps": "INVALID_ARGUMENT", "scylla.agent.v1.AgentService/Open": "PERMISSION_DENIED", "scylla.agent.v1.AgentAdminService/ListAgents": "INVALID_ARGUMENT"}},
-   {"name": "invalid grpc-timeout", "auth": "${admin_token}", "headers": {"grpc-timeout": "abc"}, "code": "OK", "message": "", "codes": {"scylla.trigger.v1.TriggerService/ListPipelineTriggers": "INVALID_ARGUMENT", "scylla.secret.v1.SecretService/ListSecrets": "INVALID_ARGUMENT", "scylla.app.v1.AppService/ListApps": "INVALID_ARGUMENT", "scylla.agent.v1.AgentService/Open": "PERMISSION_DENIED", "scylla.agent.v1.AgentAdminService/ListAgents": "INVALID_ARGUMENT"}},
-   {"name": "zero x-request-timeout-ms", "auth": "${admin_token}", "headers": {"x-request-timeout-ms": "0"}, "code": "OK", "message": "", "codes": {"scylla.trigger.v1.TriggerService/ListPipelineTriggers": "INVALID_ARGUMENT", "scylla.secret.v1.SecretService/ListSecrets": "INVALID_ARGUMENT", "scylla.app.v1.AppService/ListApps": "INVALID_ARGUMENT", "scylla.agent.v1.AgentService/Open": "PERMISSION_DENIED", "scylla.agent.v1.AgentAdminService/ListAgents": "INVALID_ARGUMENT"}}
+   {"name": "valid", "auth": "${admin_token}", "code": "OK", "message": "", "codes": {"scylla.trigger.v1.TriggerService/ListPipelineTriggers": "INVALID_ARGUMENT", "scylla.job.v1.JobService/TailJobLogs": "INVALID_ARGUMENT", "scylla.secret.v1.SecretService/ListSecrets": "INVALID_ARGUMENT", "scylla.app.v1.AppService/ListApps": "INVALID_ARGUMENT", "scylla.agent.v1.AgentService/Open": "PERMISSION_DENIED", "scylla.agent.v1.AgentAdminService/ListAgents": "INVALID_ARGUMENT"}},
+   {"name": "invalid grpc-timeout", "auth": "${admin_token}", "headers": {"grpc-timeout": "abc"}, "code": "OK", "message": "", "codes": {"scylla.trigger.v1.TriggerService/ListPipelineTriggers": "INVALID_ARGUMENT", "scylla.job.v1.JobService/TailJobLogs": "INVALID_ARGUMENT", "scylla.secret.v1.SecretService/ListSecrets": "INVALID_ARGUMENT", "scylla.app.v1.AppService/ListApps": "INVALID_ARGUMENT", "scylla.agent.v1.AgentService/Open": "PERMISSION_DENIED", "scylla.agent.v1.AgentAdminService/ListAgents": "INVALID_ARGUMENT"}},
+   {"name": "zero x-request-timeout-ms", "auth": "${admin_token}", "headers": {"x-request-timeout-ms": "0"}, "code": "OK", "message": "", "codes": {"scylla.trigger.v1.TriggerService/ListPipelineTriggers": "INVALID_ARGUMENT", "scylla.job.v1.JobService/TailJobLogs": "INVALID_ARGUMENT", "scylla.secret.v1.SecretService/ListSecrets": "INVALID_ARGUMENT", "scylla.app.v1.AppService/ListApps": "INVALID_ARGUMENT", "scylla.agent.v1.AgentService/Open": "PERMISSION_DENIED", "scylla.agent.v1.AgentAdminService/ListAgents": "INVALID_ARGUMENT"}}
   ]
  },
  "load": [

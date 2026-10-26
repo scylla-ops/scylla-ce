@@ -114,7 +114,8 @@ impl ServerProcess {
             .env_remove("SCYLLA_STRATA_PROJECTS")
             .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .env_remove("DATABASE_URL")
-            .env("RUST_LOG", "warn,scylla_strata=info")
+            .env("RUST_LOG", "warn,scylla_strata=info,scylla_core=info")
+            .env("NO_COLOR", "1")
             .stdin(Stdio::null())
             .stdout(out.try_clone()?)
             .stderr(out)
@@ -168,6 +169,9 @@ email = "admin@example.com"
 
 [secrets]
 master_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[webhook]
+public_base_url = "http://{addr}"
 {extra}"#
     )
 }

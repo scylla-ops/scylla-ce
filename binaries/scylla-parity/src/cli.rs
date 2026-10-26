@@ -30,6 +30,9 @@ enum Command {
         database_url: Option<String>,
         #[arg(long)]
         out: PathBuf,
+        /// The log file of the server, for the `log` steps
+        #[arg(long)]
+        server_log: Option<PathBuf>,
     },
     /// Print the differences between two outputs of `run`
     Compare {
@@ -105,6 +108,7 @@ async fn dispatch(edition: &Edition, command: Command) -> Result<bool> {
             addr,
             database_url,
             out,
+            server_log,
         } => {
             let db = pool(database_url.as_deref()).await?;
             let client = Client::connect(&addr, &edition.descriptor_sets).await?;
@@ -112,6 +116,7 @@ async fn dispatch(edition: &Edition, command: Command) -> Result<bool> {
                 client: &client,
                 db: db.as_ref(),
                 server: &addr,
+                log: server_log.as_deref(),
             };
             let side = run_side(edition, &ctx, &out).await?;
             Ok(side.scenario_ok && side.contract_ok)
@@ -135,6 +140,7 @@ async fn dispatch(edition: &Edition, command: Command) -> Result<bool> {
                 client: &client,
                 db: db.as_ref(),
                 server: &addr,
+                log: None,
             };
             Ok(run_contract(edition, &ctx, 0).await?.0)
         }
@@ -273,6 +279,7 @@ impl Plan<'_> {
             client: &client,
             db: Some(&db),
             server: &addr,
+            log: Some(&process.log),
         };
         let out = dir.join("scenario.jsonl");
         let side = run_side(self.edition, &ctx, &out).await;
@@ -366,7 +373,7 @@ fn mounted(log: &Path, b_env: &[(String, String)]) -> Result<bool> {
     let Some((_, keys)) = b_env.iter().find(|(k, _)| k == "SCYLLA_STRATA_SLICES") else {
         return Ok(true);
     };
-    let text = strip_ansi(&std::fs::read_to_string(log)?);
+    let text = crate::server_log::strip_ansi(&std::fs::read_to_string(log)?);
     let served: Vec<&str> = text
         .lines()
         .filter(|line| line.contains("strata serves the slice"))
@@ -384,23 +391,6 @@ fn mounted(log: &Path, b_env: &[(String, String)]) -> Result<bool> {
         println!("==> B does not serve on strata: {}", missing.join(","));
         Ok(false)
     }
-}
-
-fn strip_ansi(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            for c in chars.by_ref() {
-                if c.is_ascii_alphabetic() {
-                    break;
-                }
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
 }
 
 async fn wait_ready(addr: &str, edition: &Edition, process: &mut ServerProcess) -> Result<Client> {
