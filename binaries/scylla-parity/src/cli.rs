@@ -3,6 +3,7 @@ use crate::compare;
 use crate::contract;
 use crate::edition::Edition;
 use crate::scenario::{self, Context, Record};
+use crate::server_log::LogLine;
 use crate::stack::{Postgres, ServerProcess};
 use crate::template::Vars;
 use anyhow::{Context as _, Result, anyhow, bail};
@@ -275,6 +276,7 @@ impl Plan<'_> {
             &postgres.url,
             self.edition.config_extra,
             env,
+            &self.edition.rust_log(),
         )?;
         let client = wait_ready(&addr, self.edition, &mut process).await?;
         let db = PgPool::connect(&postgres.url).await?;
@@ -376,12 +378,13 @@ impl Plan<'_> {
     }
 }
 
-/// The B server serves every slice of the edition on strata, and the strata engine runs each
-/// worker and the webhook ingress. A key of `--b-env SCYLLA_STRATA_SLICES` must also be served.
+/// D3: the log of the B server shows each required line exactly once. The lines are one per
+/// slice of the edition (and per key of `--b-env SCYLLA_STRATA_SLICES`), one per worker and one
+/// for the webhook ingress on the strata engine, the two bootstrap lines, and the edition lines.
 fn mounted(log: &Path, edition: &Edition, b_env: &[(String, String)]) -> Result<bool> {
     let text = crate::server_log::strip_ansi(&std::fs::read_to_string(log)?);
     let check = strata_check(&text, edition, b_env);
-    if check.missing.is_empty() && check.on_ce.is_empty() {
+    if check.missing.is_empty() && check.repeated.is_empty() && check.on_ce.is_empty() {
         println!("==> B serves on strata: {}", check.served.join(","));
         return Ok(true);
     }
@@ -390,6 +393,9 @@ fn mounted(log: &Path, edition: &Edition, b_env: &[(String, String)]) -> Result<
             "==> B does not serve on strata: {}",
             check.missing.join(",")
         );
+    }
+    for line in &check.repeated {
+        println!("==> B shows a line more than once: {line}");
     }
     for line in &check.on_ce {
         println!("==> B runs on the CE engine: {line}");
@@ -400,58 +406,80 @@ fn mounted(log: &Path, edition: &Edition, b_env: &[(String, String)]) -> Result<
 struct StrataCheck {
     served: Vec<String>,
     missing: Vec<String>,
+    repeated: Vec<String>,
     on_ce: Vec<String>,
 }
 
 const SERVES: &str = "strata serves the slice";
 const RUNS_WORKER: &str = "the engine runs the worker";
 const RUNS_WEBHOOK: &str = "the engine runs the webhook ingress";
+const BOOTSTRAP: [&str; 2] = ["bootstrap user created", "bootstrap system grant ensured"];
 
-fn strata_check(text: &str, edition: &Edition, b_env: &[(String, String)]) -> StrataCheck {
-    let field = |line: &str, message: &str, key: &str| {
-        crate::server_log::fields(line, message)
-            .get(key)
-            .and_then(|v| v.as_str().map(str::to_owned))
-    };
-    let served: Vec<String> = text
-        .lines()
-        .filter(|line| line.contains(SERVES))
-        .filter_map(|line| field(line, SERVES, "slice"))
-        .collect();
-    let on_strata = |line: &str, message: &str| {
-        line.contains(message) && field(line, message, "engine").as_deref() == Some("strata")
-    };
+fn required_lines(edition: &Edition, b_env: &[(String, String)]) -> Vec<LogLine> {
     let switched = b_env
         .iter()
         .find(|(k, _)| k == "SCYLLA_STRATA_SLICES")
         .map(|(_, keys)| keys.split(',').map(str::trim).collect::<Vec<_>>())
         .unwrap_or_default();
-    let mut missing: Vec<String> = edition
-        .strata_slices
-        .iter()
-        .copied()
-        .chain(switched)
-        .filter(|key| !key.is_empty() && !served.iter().any(|s| s == key))
-        .map(|key| format!("slice={key}"))
-        .collect();
-    missing.dedup();
-    for worker in &edition.strata_workers {
-        let runs = text.lines().any(|line| {
-            on_strata(line, RUNS_WORKER)
-                && field(line, RUNS_WORKER, "worker").as_deref() == Some(worker)
-        });
-        if !runs {
-            missing.push(format!("worker={worker}"));
+    let mut slices: Vec<&str> = Vec::new();
+    for key in edition.strata_slices.iter().copied().chain(switched) {
+        if !key.is_empty() && !slices.contains(&key) {
+            slices.push(key);
         }
     }
-    if !text.lines().any(|line| on_strata(line, RUNS_WEBHOOK)) {
-        missing.push("webhook ingress".to_owned());
+    let slices = slices.into_iter().map(|key| {
+        LogLine::new("scylla_strata", SERVES)
+            .with_field("slice", key)
+            .labelled(format!("slice={key}"))
+    });
+    let workers = edition.strata_workers.iter().map(|worker| {
+        LogLine::new("scylla_strata", RUNS_WORKER)
+            .with_field("worker", worker)
+            .with_field("engine", "strata")
+            .labelled(format!("worker={worker}"))
+    });
+    let webhook = LogLine::new("scylla_strata", RUNS_WEBHOOK)
+        .with_field("engine", "strata")
+        .labelled("webhook ingress".to_owned());
+    let bootstrap = BOOTSTRAP
+        .iter()
+        .map(|text| LogLine::new("scylla_strata", text));
+    slices
+        .chain(workers)
+        .chain(std::iter::once(webhook))
+        .chain(bootstrap)
+        .chain(edition.required_lines.iter().cloned())
+        .collect()
+}
+
+fn strata_check(text: &str, edition: &Edition, b_env: &[(String, String)]) -> StrataCheck {
+    let served = text
+        .lines()
+        .filter(|line| line.contains(SERVES))
+        .filter_map(|line| {
+            crate::server_log::fields(line, SERVES)
+                .get("slice")
+                .and_then(|v| v.as_str().map(str::to_owned))
+        })
+        .collect();
+    let mut missing = Vec::new();
+    let mut repeated = Vec::new();
+    for line in required_lines(edition, b_env) {
+        match line.count(text) {
+            0 => missing.push(line.label),
+            1 => {}
+            n => repeated.push(format!("{} ({n} times)", line.label)),
+        }
     }
     let on_ce = text
         .lines()
         .filter(|line| {
             [RUNS_WORKER, RUNS_WEBHOOK].iter().any(|message| {
-                line.contains(message) && field(line, message, "engine").as_deref() == Some("ce")
+                line.contains(message)
+                    && crate::server_log::fields(line, message)
+                        .get("engine")
+                        .and_then(|v| v.as_str())
+                        == Some("ce")
             })
         })
         .map(str::to_owned)
@@ -459,6 +487,7 @@ fn strata_check(text: &str, edition: &Edition, b_env: &[(String, String)]) -> St
     StrataCheck {
         served,
         missing,
+        repeated,
         on_ce,
     }
 }
@@ -510,6 +539,12 @@ mod tests {
                 "2026-10-26T09:32:22.700035Z  INFO scylla_strata::host: strata serves the slice slice={slice} edition=\"scylla_strata::ScyllaCeOnDb\""
             ));
         }
+        lines.push(
+            "2026-10-26T09:32:22.600000Z  INFO scylla_strata::bootstrap: bootstrap user created user_id=u1 username=admin".to_owned(),
+        );
+        lines.push(
+            "2026-10-26T09:32:22.600001Z  INFO scylla_strata::bootstrap: bootstrap system grant ensured user_id=u1 role=admin".to_owned(),
+        );
         lines.join("\n")
     }
 
@@ -518,6 +553,7 @@ mod tests {
         let edition = Edition::ce();
         let check = strata_check(&log("strata", &edition.strata_slices), &edition, &[]);
         assert!(check.missing.is_empty(), "{:?}", check.missing);
+        assert!(check.repeated.is_empty(), "{:?}", check.repeated);
         assert!(check.on_ce.is_empty());
         assert_eq!(check.served.len(), 12);
     }
@@ -534,7 +570,48 @@ mod tests {
         assert_eq!(check.missing.len(), 5);
 
         let check = strata_check("", &edition, &[]);
-        assert_eq!(check.missing.len(), 12 + 4 + 1);
+        assert_eq!(check.missing.len(), 12 + 4 + 1 + 2);
+    }
+
+    const CAP: &str = "grants: member seat cap *, hard";
+
+    #[test]
+    fn a_cap_line_at_the_scylla_strata_target_fails() {
+        let mut edition = Edition::ce();
+        edition.required_lines.push(LogLine::new("scylla_ee", CAP));
+        let ok = format!(
+            "{}\n2026-10-26T09:32:22.800000Z  INFO scylla_ee: grants: member seat cap 3, hard",
+            log("strata", &edition.strata_slices)
+        );
+        let check = strata_check(&ok, &edition, &[]);
+        assert!(check.missing.is_empty(), "{:?}", check.missing);
+        assert!(check.repeated.is_empty(), "{:?}", check.repeated);
+
+        let wrong = ok.replace("INFO scylla_ee: grants", "INFO scylla_strata: grants");
+        let check = strata_check(&wrong, &edition, &[]);
+        assert_eq!(
+            check.missing,
+            ["scylla_ee: grants: member seat cap *, hard"]
+        );
+    }
+
+    #[test]
+    fn a_line_that_shows_twice_fails() {
+        let edition = Edition::ce();
+        let text = log("strata", &edition.strata_slices);
+        let twice = format!(
+            "{text}\n2026-10-26T09:32:23.000000Z  INFO scylla_strata::bootstrap: bootstrap user created user_id=u1 username=admin\n\
+             2026-10-26T09:32:23.100000Z  INFO scylla_strata::host: strata serves the slice slice=jobs edition=\"scylla_strata::ScyllaCeOnDb\""
+        );
+        let check = strata_check(&twice, &edition, &[]);
+        assert!(check.missing.is_empty(), "{:?}", check.missing);
+        assert_eq!(
+            check.repeated,
+            [
+                "slice=jobs (2 times)",
+                "scylla_strata: bootstrap user created (2 times)"
+            ]
+        );
     }
 
     #[test]

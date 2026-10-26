@@ -247,7 +247,7 @@ The Docker workflow above is self-contained: **Node.js and Rust are not required
 
 ### Building crates locally
 
-Requires the Rust toolchain. Standard Cargo workflow:
+Requires the Rust toolchain. The workspace depends on the private git repository `GodlyJaaaj/strata`. You must have read access to it. Cargo fetches it over HTTPS with your git credentials. If the fetch fails, set `CARGO_NET_GIT_FETCH_WITH_CLI=true`: Cargo then uses the `git` command and its credential helper. Standard Cargo workflow:
 
 ```sh
 git submodule update --init
@@ -256,7 +256,7 @@ cargo build
 cargo test
 ```
 
-To build the Docker images from source instead of pulling them:
+To build the Docker images from source instead of pulling them, set `STRATA_TOKEN` to a fine-grained GitHub token with the Contents permission read-only on `GodlyJaaaj/strata` only. Set it in your shell or in the `.env` file at the root of the repository. The build gets it only as the BuildKit secret `strata_token`. Then run:
 
 ```sh
 just local

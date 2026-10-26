@@ -37,6 +37,75 @@ pub fn lines_from(path: &Path, offset: u64) -> Vec<String> {
     text.lines().map(str::to_string).collect()
 }
 
+/// A log line: its target (or a module under it), its text (a `*` matches any characters) and its fields.
+#[derive(Clone, Debug)]
+pub struct LogLine {
+    target: String,
+    text: String,
+    fields: Vec<(String, String)>,
+    pub(crate) label: String,
+}
+
+impl LogLine {
+    #[must_use]
+    pub fn new(target: &str, text: &str) -> Self {
+        Self {
+            target: target.to_owned(),
+            text: text.to_owned(),
+            fields: Vec::new(),
+            label: format!("{target}: {text}"),
+        }
+    }
+
+    #[must_use]
+    pub fn with_field(mut self, key: &str, value: &str) -> Self {
+        self.fields.push((key.to_owned(), value.to_owned()));
+        self.label = format!("{} {key}={value}", self.label);
+        self
+    }
+
+    pub(crate) fn labelled(mut self, label: String) -> Self {
+        self.label = label;
+        self
+    }
+
+    pub(crate) fn is(&self, line: &str) -> bool {
+        let Some(rest) = after_target(line, &self.target) else {
+            return false;
+        };
+        let mut tail = rest;
+        for part in self.text.split('*') {
+            match tail.find(part) {
+                Some(i) => tail = &tail[i + part.len()..],
+                None => return false,
+            }
+        }
+        let head = self.text.split('*').next().unwrap_or_default();
+        let found = fields(rest, head);
+        self.fields
+            .iter()
+            .all(|(k, v)| found.get(k).and_then(Value::as_str) == Some(v.as_str()))
+    }
+
+    pub(crate) fn count(&self, text: &str) -> usize {
+        text.lines().filter(|line| self.is(line)).count()
+    }
+}
+
+const LEVELS: [&str; 5] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"];
+
+fn after_target<'a>(line: &'a str, target: &str) -> Option<&'a str> {
+    let mut words = line.split_whitespace();
+    words.find(|word| LEVELS.contains(word))?;
+    let word = words.next()?;
+    let name = word.trim_end_matches(':');
+    if name != target && !name.starts_with(&format!("{target}::")) {
+        return None;
+    }
+    let start = line.find(word)? + word.len();
+    Some(&line[start..])
+}
+
 pub fn matches(line: &str, target: &str, message: &str) -> bool {
     line.split_whitespace().any(|word| {
         word.trim_end_matches(':') == target || word.starts_with(&format!("{target}::"))

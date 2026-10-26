@@ -90,7 +90,8 @@ target "_common" {
 # bake reuses it across both targets in a single run.
 #
 # The Rust build fetches the private git dependency GodlyJaaaj/strata. Set
-# STRATA_TOKEN to a GitHub token with read access before you run bake. The
+# STRATA_TOKEN to a fine-grained GitHub token with Contents read-only on
+# GodlyJaaaj/strata only, in the shell or in .env, before you run bake. The
 # token reaches the build as the BuildKit secret `strata_token` and stays out
 # of the image layers.
 target "_backend" {

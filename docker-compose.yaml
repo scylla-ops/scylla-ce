@@ -28,7 +28,8 @@ services:
       # top of the shared runtime.
       target: scylla-ce
       # The build fetches the private git dependency GodlyJaaaj/strata. Set
-      # STRATA_TOKEN to a GitHub token with read access to it.
+      # STRATA_TOKEN to a fine-grained GitHub token with Contents read-only on
+      # GodlyJaaaj/strata only.
       secrets:
         - strata_token
     container_name: scylla-ce

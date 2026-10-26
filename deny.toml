@@ -8,7 +8,7 @@ ignore = []
 [licenses]
 confidence-threshold = 0.93
 # strata is private and has no license. It is not published (publish = false), so the check skips it.
-private = { ignore = true }
+private = { ignore = true } # Skips the missing strata license on purpose, until Sebastien decides how strata is distributed.
 allow = [
     "MIT",
     "Apache-2.0",

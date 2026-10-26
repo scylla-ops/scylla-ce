@@ -101,6 +101,7 @@ impl ServerProcess {
         database_url: &str,
         config_extra: &str,
         env: &[(String, String)],
+        rust_log: &str,
     ) -> Result<Self> {
         let config = dir.join("config.toml");
         std::fs::write(&config, config_toml(addr, database_url, config_extra))?;
@@ -114,7 +115,7 @@ impl ServerProcess {
             .env_remove("SCYLLA_STRATA_PROJECTS")
             .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .env_remove("DATABASE_URL")
-            .env("RUST_LOG", "warn,scylla_strata=info,scylla_core=info")
+            .env("RUST_LOG", rust_log)
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
             .stdout(out.try_clone()?)

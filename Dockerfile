@@ -42,7 +42,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 RUN cargo install cargo-chef --locked
 # strata is a private git dependency. Each step that can fetch it mounts the
-# BuildKit secret `strata_token` (a GitHub token with read access) and runs
+# BuildKit secret `strata_token` (a fine-grained GitHub token with Contents
+# read-only on GodlyJaaaj/strata only) and runs
 # through `with-strata-token`. The token goes to git through GIT_CONFIG_* for
 # that one process only, so it stays out of every image layer and cache.
 # Without the secret the script stops the build with a clear error.
@@ -53,7 +54,7 @@ COPY <<'EOF' /usr/local/bin/with-strata-token
 set -eu
 if [ -z "${STRATA_TOKEN:-}" ]; then
     echo "error: no read credential for the private git dependency https://github.com/GodlyJaaaj/strata." >&2
-    echo "error: build with --secret id=strata_token,env=STRATA_TOKEN and set STRATA_TOKEN to a GitHub token with read access to GodlyJaaaj/strata." >&2
+    echo "error: build with --secret id=strata_token,env=STRATA_TOKEN and set STRATA_TOKEN to a fine-grained GitHub token with Contents read-only on GodlyJaaaj/strata only." >&2
     exit 1
 fi
 export GIT_CONFIG_COUNT=1

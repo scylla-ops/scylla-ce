@@ -9,11 +9,17 @@ just release-setup          # once per machine, plus `docker login`
 just release 0.4.0-beta     # build and push everything
 ```
 
-The Rust build fetches the private git dependency `GodlyJaaaj/strata`. Set
-`STRATA_TOKEN` to a GitHub token with read access to it before a build. The
-token reaches the build as the BuildKit secret `strata_token` and stays out of
-the image layers. Without it the build stops with an error that names the
-secret.
+The Rust build fetches the private git dependency `GodlyJaaaj/strata`. Before
+a build, set `STRATA_TOKEN` to a fine-grained GitHub token with the Contents
+permission read-only on the `GodlyJaaaj/strata` repository only. Set it in your
+shell or in the `.env` file at the root of the repository (`just` loads it).
+The token reaches the build only as the BuildKit secret `strata_token`.
+`.dockerignore` keeps `.env` and `.env.*` out of the build context, and the
+token stays out of the image layers. Without the token, the build stops with an
+error that names the secret.
+
+A release ships strata, compiled, inside the public `scylla-ce` image. The
+image does not contain the strata source.
 
 ## What ships, and where
 

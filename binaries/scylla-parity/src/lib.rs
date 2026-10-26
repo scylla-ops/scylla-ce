@@ -12,3 +12,4 @@ mod template;
 
 pub use cli::main;
 pub use edition::Edition;
+pub use server_log::LogLine;

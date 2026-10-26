@@ -8,6 +8,8 @@ tests
 **/node_modules
 *.yaml
 .claude
+.env
+.env.*
 
 # The UI reaches the build through the `ui` stage, never the build context.
 web/dist
