@@ -142,7 +142,10 @@ pub fn parse(sources: &[&str]) -> Result<Merged> {
             merged.unauthenticated.calls.extend(part.calls);
             merged.unauthenticated.cases.extend(part.cases);
             merged.unauthenticated.services.extend(part.services);
-            merged.unauthenticated.service_cases.extend(part.service_cases);
+            merged
+                .unauthenticated
+                .service_cases
+                .extend(part.service_cases);
         }
         merged.load.extend(part.load.into_vec());
         merged.store_failure.extend(part.store_failure.into_vec());
