@@ -61,7 +61,7 @@ pub struct Workers {
     pub stop: CancellationToken,
 }
 
-fn service<C: CallerOf>(identity: ServiceIdentity) -> C {
+pub(crate) fn service<C: CallerOf>(identity: ServiceIdentity) -> C {
     C::from_parts(
         Identity::of(CallerContext::Service(identity)),
         SessionClient::default(),

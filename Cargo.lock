@@ -2814,6 +2814,7 @@ name = "scylla-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "clap",
  "http",
@@ -2844,6 +2845,8 @@ dependencies = [
  "anyhow",
  "async-trait",
  "futures-util",
+ "hex",
+ "hmac",
  "prost",
  "scylla-auth",
  "scylla-core",
@@ -2851,6 +2854,8 @@ dependencies = [
  "scylla-domain",
  "scylla-extension",
  "scylla-proto",
+ "serde_json",
+ "sha2 0.11.0",
  "sqlx",
  "strata",
  "strata-tonic",

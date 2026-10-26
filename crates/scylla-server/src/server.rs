@@ -1,9 +1,10 @@
 use crate::feature::{Context, Feature};
-use crate::startup::{init_services, run_server, shutdown_signal};
+use crate::startup::{bootstrap, init_services, run_server, shutdown_signal};
 use crate::surface::Surface;
 use anyhow::{Context as _, Result};
 use scylla_core::application::PasswordResetSender;
 use scylla_core::config::ControlPlaneConfig;
+use scylla_core::error::StartupError;
 use scylla_core::infrastructure::LogPasswordResetSender;
 use scylla_extension::{Extension, Hooks};
 use scylla_strata::Host;
@@ -150,6 +151,19 @@ impl Server {
         .await
         .context("init_services failed")?;
 
+        let built = match &strata {
+            Some(host) if !slices.is_empty() => Some(
+                host.build(&services.shared)
+                    .await
+                    .map_err(|e| StartupError::Strata(format!("{e:#}")))
+                    .context("strata edition build failed")?,
+            ),
+            _ => None,
+        };
+        bootstrap(&config, &services, built.as_deref(), &slices)
+            .await
+            .context("bootstrap failed")?;
+
         let ctx = Context {
             db: db.clone(),
             actions: services.actions.clone(),
@@ -169,7 +183,7 @@ impl Server {
         });
 
         let server_token = token.clone();
-        let strata = strata.map(|host| (host, slices));
+        let strata = built.as_deref().map(|built| (built, slices.as_slice()));
         let in_flight = strata::InFlight::waiting(strata::InFlight::DEFAULT_MAX);
         let workers = scylla_strata::Workers {
             wakes: services.wakes.take(),

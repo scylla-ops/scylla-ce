@@ -28,7 +28,7 @@ use scylla_db::{
     PgTriggerRepository, PgUserRepository,
 };
 use scylla_extension::{Actions, Hooks};
-use scylla_strata::{Slice, Worker};
+use scylla_strata::{BOOTSTRAP_SLICES, Built, Slice, Worker};
 use sqlx::PgPool;
 use std::future::Future;
 use std::sync::Arc;
@@ -89,7 +89,53 @@ pub async fn strata_shared(
         Slice::ALL,
     )
     .await?;
+    bootstrap(config, &services, None, &[]).await?;
     Ok(services.shared)
+}
+
+/// Runs the admin bootstrap of `config`. It runs on `built` when each slice of
+/// `BOOTSTRAP_SLICES` is in `switched`, and on the CE Actions in the other cases.
+pub(crate) async fn bootstrap(
+    config: &ControlPlaneConfig,
+    services: &Services,
+    built: Option<&dyn Built>,
+    switched: &[Slice],
+) -> Result<(), StartupError> {
+    let Some(cfg) = &config.bootstrap else {
+        return Ok(());
+    };
+    match built {
+        Some(built) if BOOTSTRAP_SLICES.iter().all(|s| switched.contains(s)) => {
+            built.bootstrap(cfg).await?;
+        }
+        _ => {
+            let bootstrap_uc = BootstrapUseCases::new(
+                services.actions.clone(),
+                services.user_uc.clone(),
+                services.grant_uc.clone(),
+            );
+            scylla_core::bootstrap::bootstrap_admin(&bootstrap_uc, cfg).await?;
+        }
+    }
+    Ok(())
+}
+
+/// The webhook route. It runs on `built` when the triggers slice is in `switched`, and on the CE
+/// Actions in the other cases.
+pub(crate) fn webhook_router(
+    services: &Services,
+    built: Option<&dyn Built>,
+    switched: &[Slice],
+) -> axum::Router {
+    match built {
+        Some(built) if switched.contains(&Slice::Triggers) => {
+            scylla_core::rest::webhook::router_on(built.webhooks())
+        }
+        _ => scylla_core::rest::webhook::router(
+            services.actions.clone(),
+            services.webhook_ingress_uc.clone(),
+        ),
+    }
 }
 
 pub(crate) async fn init_services(
@@ -234,11 +280,6 @@ pub(crate) async fn init_services(
         authz_provider.clone(),
     ));
     let role_uc = Arc::new(RoleUseCases::new(role_repo.clone(), grant_repo.clone()));
-    if let Some(cfg) = &config.bootstrap {
-        let bootstrap_uc =
-            BootstrapUseCases::new(actions.clone(), user_uc.clone(), grant_uc.clone());
-        scylla_core::bootstrap::bootstrap_admin(&bootstrap_uc, cfg).await?;
-    }
 
     let job_log_uc = Arc::new(JobLogUseCases::new(
         job_log_repo.clone(),
@@ -357,6 +398,7 @@ pub(crate) async fn init_services(
         reset_sender,
         reset_links: ResetLinks::new(public_url),
         trigger_repo: trigger_repo.clone(),
+        trigger_deliveries: trigger_delivery_repo.clone(),
         cron_schedule: cron_schedule.clone(),
         webhook_base_url: config
             .webhook
@@ -490,7 +532,7 @@ pub(crate) async fn run_server<F>(
     config: &ControlPlaneConfig,
     services: &Services,
     surface: Surface,
-    strata: Option<(Box<dyn scylla_strata::Host>, Vec<scylla_strata::Slice>)>,
+    strata: Option<(&dyn Built, &[Slice])>,
     in_flight: &strata::InFlight,
     workers: scylla_strata::Workers,
     shutdown: F,
@@ -653,9 +695,7 @@ where
     grpc.add_service(reflection_v1)
         .add_service(reflection_v1alpha);
 
-    let strata_slices = strata
-        .as_ref()
-        .map_or(&[][..], |(_, slices)| slices.as_slice());
+    let strata_slices = strata.map_or(&[][..], |(_, slices)| slices);
     if !strata_slices.contains(&scylla_strata::Slice::Auth) {
         grpc.add_service(auth_service);
     }
@@ -694,17 +734,8 @@ where
         grpc.add_service(app_service);
         grpc.add_service(app_auth_service);
     }
-    if let Some((host, slices)) = &strata {
-        host.mount(
-            &services.shared,
-            slices,
-            &mut grpc,
-            &auth_interceptor,
-            in_flight,
-            workers,
-        )
-        .await
-        .map_err(|e| StartupError::Strata(format!("{e:#}")))?;
+    if let Some((built, slices)) = strata {
+        built.mount(slices, &mut grpc, &auth_interceptor, in_flight, workers);
     }
 
     for add in surface.grpc {
@@ -723,10 +754,7 @@ where
         .http
         .into_iter()
         .fold(
-            scylla_core::rest::webhook::router(
-                services.actions.clone(),
-                services.webhook_ingress_uc.clone(),
-            ),
+            webhook_router(services, strata.map(|(built, _)| built), strata_slices),
             axum::Router::merge,
         )
         .layer(TraceLayer::new_for_http());
@@ -809,5 +837,166 @@ mod tests {
         for code in [2, 4, 12, 13, 14, 15] {
             assert!(fails(code), "grpc-status {code}");
         }
+    }
+}
+
+#[cfg(test)]
+mod switched_tests {
+    use super::{Services, bootstrap, init_services, webhook_router};
+    use async_trait::async_trait;
+    use axum::body::Body;
+    use http::{Request, StatusCode};
+    use scylla_auth::authz::{Principal, SYSTEM_ADMIN_ROLE, Scope};
+    use scylla_core::config::{BootstrapConfig, ControlPlaneConfig};
+    use scylla_core::domain::errors::DomainError;
+    use scylla_core::domain::user::{Email, Username};
+    use scylla_core::infrastructure::LogPasswordResetSender;
+    use scylla_extension::{Action, Hooks, Observer, StageKind};
+    use scylla_strata::{Built, EditionHost, Host, ScyllaCeOnDb, Slice};
+    use sqlx::PgPool;
+    use std::sync::{Arc, Mutex};
+    use tower::ServiceExt;
+
+    /// Keeps the caller of each bootstrap or webhook action that runs on the CE Actions. The CE
+    /// workers of the other slices are not kept.
+    #[derive(Default)]
+    struct Seen(Mutex<Vec<String>>);
+
+    #[async_trait]
+    impl Observer for Seen {
+        async fn observe(&self, _: StageKind, action: &dyn Action, _: Result<(), &DomainError>) {
+            let caller = action.caller().to_string();
+            if caller == "service:bootstrap" || caller == "anonymous" {
+                self.0.lock().unwrap().push(caller);
+            }
+        }
+    }
+
+    fn config() -> ControlPlaneConfig {
+        ControlPlaneConfig {
+            bootstrap: Some(BootstrapConfig {
+                username: "root".to_string(),
+                password: "SecurePass123!".to_string(),
+                email: "root@example.com".to_string(),
+            }),
+            ..ControlPlaneConfig::default()
+        }
+    }
+
+    async fn start(
+        db: PgPool,
+        switched: &[Slice],
+    ) -> (Services, Option<Box<dyn Built>>, Arc<Seen>) {
+        let seen = Arc::new(Seen::default());
+        let mut hooks = Hooks::new();
+        hooks.observe(StageKind::Authorize, seen.clone());
+        let services = init_services(
+            &config(),
+            db,
+            Arc::new(hooks),
+            Arc::new(LogPasswordResetSender),
+            switched,
+        )
+        .await
+        .unwrap();
+        let built = if switched.is_empty() {
+            None
+        } else {
+            let host = EditionHost::<ScyllaCeOnDb>::new(Slice::ALL);
+            Some(host.build(&services.shared).await.unwrap())
+        };
+        (services, built, seen)
+    }
+
+    async fn deliver(
+        services: &Services,
+        built: Option<&dyn Built>,
+        switched: &[Slice],
+    ) -> StatusCode {
+        let request = Request::post("/webhooks/missing")
+            .header("x-scylla-signature-256", "sha256=00")
+            .body(Body::from("{}"))
+            .unwrap();
+        webhook_router(services, built, switched)
+            .oneshot(request)
+            .await
+            .unwrap()
+            .status()
+    }
+
+    async fn assert_one_admin(services: &Services) {
+        let admin = services
+            .shared
+            .users
+            .find_by_username(&Username::new("root").unwrap())
+            .await
+            .unwrap();
+        assert_eq!(admin.email().map(Email::as_str), Some("root@example.com"));
+        let grants: Vec<_> = services
+            .shared
+            .grants
+            .list_all()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|g| g.principal == Principal::User(admin.id().clone()))
+            .collect();
+        assert_eq!(grants.len(), 1, "{grants:?}");
+        assert_eq!(grants[0].scope, Scope::System);
+        assert_eq!(grants[0].role.as_str(), SYSTEM_ADMIN_ROLE);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn switched_slices_run_the_bootstrap_and_the_webhook_off_the_actions(db: PgPool) {
+        let switched = [Slice::Users, Slice::Grants, Slice::Triggers];
+        let (services, built, seen) = start(db, &switched).await;
+
+        bootstrap(&config(), &services, built.as_deref(), &switched)
+            .await
+            .unwrap();
+        bootstrap(&config(), &services, built.as_deref(), &switched)
+            .await
+            .unwrap();
+        let status = deliver(&services, built.as_deref(), &switched).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_one_admin(&services).await;
+        assert!(seen.0.lock().unwrap().is_empty(), "{:?}", seen.0);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn unswitched_slices_run_the_bootstrap_and_the_webhook_on_the_actions(db: PgPool) {
+        let (services, built, seen) = start(db, &[]).await;
+
+        bootstrap(&config(), &services, built.as_deref(), &[])
+            .await
+            .unwrap();
+        bootstrap(&config(), &services, built.as_deref(), &[])
+            .await
+            .unwrap();
+        let status = deliver(&services, built.as_deref(), &[]).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_one_admin(&services).await;
+        let seen = seen.0.lock().unwrap();
+        assert!(seen.iter().any(|c| c.contains("bootstrap")), "{seen:?}");
+        assert!(seen.iter().any(|c| c == "anonymous"), "{seen:?}");
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_bootstrap_needs_users_and_grants_switched_to_leave_the_actions(db: PgPool) {
+        let switched = [Slice::Users, Slice::Triggers];
+        let (services, built, seen) = start(db, &switched).await;
+
+        bootstrap(&config(), &services, built.as_deref(), &switched)
+            .await
+            .unwrap();
+        let status = deliver(&services, built.as_deref(), &switched).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_one_admin(&services).await;
+        let seen = seen.0.lock().unwrap();
+        assert!(!seen.is_empty());
+        assert!(seen.iter().all(|c| c.contains("bootstrap")), "{seen:?}");
     }
 }

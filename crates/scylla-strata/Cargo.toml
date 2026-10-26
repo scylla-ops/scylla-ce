@@ -27,11 +27,15 @@ anyhow.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 futures-util.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 scylla-core = { workspace = true, features = ["test-utils"] }
 tokio = { workspace = true }
 tokio-stream.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
 
 [build-dependencies]
 tonic-prost-build.workspace = true

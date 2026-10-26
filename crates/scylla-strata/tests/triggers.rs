@@ -1,13 +1,14 @@
 //! Tests the Triggers module of Scylla, written with strata: the CE application tests of the slice
-//! (the trigger actions, the fire, the cron passes) on stub ports, and the gRPC adapter over a
-//! real tonic server.
+//! (the trigger actions, the fire, the cron passes, the webhook ingress) on stub ports, and the
+//! gRPC adapter over a real tonic server.
 
 use async_trait::async_trait;
 use scylla_auth::authz::{Grant, PermissionService};
 use scylla_core::application::trigger::{
-    ClaimDueTriggers, CreateTrigger, CreatedTrigger, CronSchedule, DeleteTrigger, FireTriggerNow,
-    GetTrigger, ListPipelineTriggers, NextFire, RecordTriggerFire, ResolveTriggerRun,
-    ScheduleCronTriggers, SetTriggerEnabled, TriggerRepository, UpdateTrigger,
+    ClaimDueTriggers, CreateTrigger, CreatedTrigger, CronSchedule, DEFAULT_SIGNATURE_HEADER,
+    DeleteTrigger, FireTriggerNow, GetTrigger, IngestOutcome, IngestWebhook, ListPipelineTriggers,
+    NextFire, RecordTriggerFire, ResolveTriggerRun, ScheduleCronTriggers, SetTriggerEnabled,
+    TriggerDeliveryRepository, TriggerRepository, UpdateTrigger,
 };
 use scylla_core::application::{
     AppRepository, JobRepository, PipelineRepository, PrincipalAccess, ProjectRepository,
@@ -28,8 +29,10 @@ use scylla_domain::domain::errors::{DomainError, DomainResult};
 use scylla_domain::domain::ids::{AppId, OrganizationId, PipelineId, ProjectId, TriggerId};
 use scylla_domain::domain::job::{Job, JobOrigin};
 use scylla_domain::domain::permission::Permission;
+use scylla_domain::domain::pipeline::EnvKey;
 use scylla_domain::domain::trigger::{
-    CronSpec, FireObservation, Trigger, TriggerKind, TriggerName, TriggerSource, WebhookSpec,
+    CronSpec, FireObservation, Trigger, TriggerInput, TriggerKind, TriggerName, TriggerSource,
+    WebhookSpec,
 };
 use scylla_proto::common::v1::TriggerId as PbTriggerId;
 use scylla_proto::trigger::v1::{FireTriggerNowRequest, GetTriggerRequest};
@@ -241,8 +244,8 @@ impl SecretCipher for StubCipher {
     fn encrypt(&self, plaintext: &str) -> DomainResult<Vec<u8>> {
         Ok(plaintext.as_bytes().iter().rev().copied().collect())
     }
-    fn decrypt(&self, _: &[u8]) -> DomainResult<String> {
-        unreachable!("no decrypt in a trigger action")
+    fn decrypt(&self, ciphertext: &[u8]) -> DomainResult<String> {
+        Ok(String::from_utf8(ciphertext.iter().rev().copied().collect()).unwrap())
     }
 }
 
@@ -292,6 +295,7 @@ struct Lab {
     triggers: Arc<StubTriggers>,
     apps: Arc<StubApps>,
     jobs: Arc<StubJobs>,
+    deliveries: Arc<StubDeliveries>,
 }
 
 fn ctx(caller: CallerContext) -> ScyllaCtx {
@@ -419,6 +423,7 @@ async fn lab(permissions: Arc<dyn PermissionService>) -> Lab {
     let triggers = Arc::new(StubTriggers::default());
     let apps = Arc::new(StubApps::default());
     let jobs = Arc::new(StubJobs::default());
+    let deliveries = Arc::new(StubDeliveries::default());
     let dispatch = dispatcher(
         Arc::new(StubRegistry::default()),
         jobs.clone(),
@@ -440,6 +445,7 @@ async fn lab(permissions: Arc<dyn PermissionService>) -> Lab {
         .provide_arc::<dyn CronSchedule>(Arc::new(StubSchedule))
         .provide_arc::<dyn JobRepository>(jobs.clone())
         .provide_arc::<dyn SecretResolver>(Arc::new(EchoResolver))
+        .provide_arc::<dyn TriggerDeliveryRepository>(deliveries.clone())
         .build()
         .await
         .unwrap();
@@ -448,6 +454,7 @@ async fn lab(permissions: Arc<dyn PermissionService>) -> Lab {
         triggers,
         apps,
         jobs,
+        deliveries,
     }
 }
 
@@ -1023,4 +1030,404 @@ async fn grpc_serves_the_scylla_contract() {
         .unwrap()
         .into_inner();
     assert_eq!(fired.job_id.unwrap().value, jobs.rows()[0].id().to_string());
+}
+
+const KEY: &str = "key";
+const MSG: &[u8] = b"The quick brown fox jumps over the lazy dog";
+const SIG: &str = "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8";
+
+type OnRecord = Box<dyn FnOnce() + Send>;
+
+/// Records the dedupe keys. `on_record` runs once, at the next new record.
+#[derive(Default)]
+struct StubDeliveries {
+    recorded: Mutex<Vec<String>>,
+    on_record: Mutex<Option<OnRecord>>,
+}
+
+#[async_trait]
+impl TriggerDeliveryRepository for StubDeliveries {
+    async fn record_or_detect(
+        &self,
+        _: &TriggerId,
+        delivery_id: &str,
+        _: DateTime<Utc>,
+    ) -> DomainResult<bool> {
+        let is_new = {
+            let mut seen = self.recorded.lock().unwrap();
+            let is_new = !seen.iter().any(|d| d == delivery_id);
+            if is_new {
+                seen.push(delivery_id.to_string());
+            }
+            is_new
+        };
+        let hook = if is_new {
+            self.on_record.lock().unwrap().take()
+        } else {
+            None
+        };
+        if let Some(hook) = hook {
+            hook();
+        }
+        Ok(is_new)
+    }
+    async fn forget(&self, _: &TriggerId, delivery_id: &str) -> DomainResult<()> {
+        self.recorded.lock().unwrap().retain(|d| d != delivery_id);
+        Ok(())
+    }
+}
+
+fn sign(body: &[u8]) -> String {
+    use hmac::{Hmac, KeyInit, Mac};
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(KEY.as_bytes()).unwrap();
+    mac.update(body);
+    hex::encode(mac.finalize().into_bytes())
+}
+
+fn pointer(key: &str, at: &str) -> TriggerInput {
+    TriggerInput::json_pointer(EnvKey::new(key).unwrap(), at).unwrap()
+}
+
+impl Lab {
+    /// Stores a webhook trigger with the signing secret `KEY`.
+    fn hook(&self, header: Option<&str>, inputs: Vec<TriggerInput>) -> Trigger {
+        let trigger = Trigger::create(
+            pipeline_id(),
+            TriggerName::new("hook").unwrap(),
+            TriggerSource::Webhook(WebhookSpec::new(header.map(str::to_owned)).unwrap()),
+            inputs,
+        )
+        .unwrap();
+        self.triggers.rows.lock().unwrap().insert(
+            trigger.id().clone(),
+            (trigger.clone(), Some(StubCipher.encrypt(KEY).unwrap())),
+        );
+        trigger
+    }
+
+    /// Provisions the runner app of the organization, with a cron trigger.
+    async fn with_runner(&self) {
+        self.create(cron()).await.unwrap();
+    }
+
+    async fn deliver(
+        &self,
+        id: &TriggerId,
+        body: &[u8],
+        signature: Option<&str>,
+        delivery_id: Option<&str>,
+        event: Option<&str>,
+    ) -> DomainResult<IngestOutcome> {
+        let headers = signature
+            .map(|s| {
+                let name = DEFAULT_SIGNATURE_HEADER.to_ascii_lowercase();
+                HashMap::from([(name, s.to_string())])
+            })
+            .unwrap_or_default();
+        let cmd = IngestWebhook {
+            trigger_id: id.clone(),
+            headers,
+            delivery_id: delivery_id.map(str::to_string),
+            event: event.map(str::to_string),
+            body: body.to_vec(),
+        };
+        Triggers::ingest_webhook(&self.app, cmd).await
+    }
+
+    async fn ingest(
+        &self,
+        id: &TriggerId,
+        signature: Option<&str>,
+        delivery_id: Option<&str>,
+        event: Option<&str>,
+    ) -> DomainResult<IngestOutcome> {
+        self.deliver(id, MSG, signature, delivery_id, event).await
+    }
+
+    fn recorded(&self) -> Vec<String> {
+        self.deliveries.recorded.lock().unwrap().clone()
+    }
+}
+
+#[tokio::test]
+async fn signed_ping_answers_without_firing_or_recording() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    lab.with_runner().await;
+    let hook = lab.hook(None, Vec::new());
+
+    let outcome = lab
+        .ingest(hook.id(), Some(SIG), Some("d-1"), Some("ping"))
+        .await
+        .unwrap();
+
+    assert!(matches!(outcome, IngestOutcome::Ping));
+    assert!(lab.jobs.rows().is_empty());
+    assert!(lab.recorded().is_empty());
+}
+
+#[tokio::test]
+async fn ping_event_name_is_trimmed_and_case_insensitive() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    let hook = lab.hook(None, Vec::new());
+
+    let outcome = lab
+        .ingest(hook.id(), Some(SIG), None, Some(" Ping "))
+        .await
+        .unwrap();
+
+    assert!(matches!(outcome, IngestOutcome::Ping));
+    assert!(lab.jobs.rows().is_empty());
+}
+
+#[tokio::test]
+async fn mis_signed_or_unsigned_ping_is_rejected_before_the_event_check() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    let hook = lab.hook(None, Vec::new());
+
+    let wrong = lab
+        .ingest(hook.id(), Some("sha256=00"), None, Some("ping"))
+        .await
+        .unwrap_err();
+    let unsigned = lab
+        .ingest(hook.id(), None, None, Some("ping"))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(wrong, DomainError::Unauthorized(_)), "{wrong:?}");
+    assert!(
+        matches!(unsigned, DomainError::Unauthorized(_)),
+        "{unsigned:?}"
+    );
+    assert!(lab.recorded().is_empty());
+}
+
+#[tokio::test]
+async fn other_events_and_no_event_still_fire() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    lab.with_runner().await;
+    let hook = lab.hook(None, Vec::new());
+
+    let push = lab
+        .ingest(hook.id(), Some(SIG), Some("d-1"), Some("push"))
+        .await
+        .unwrap();
+    let bare = lab
+        .ingest(hook.id(), Some(SIG), Some("d-2"), None)
+        .await
+        .unwrap();
+
+    assert!(matches!(push, IngestOutcome::Fired(_)));
+    assert!(matches!(bare, IngestOutcome::Fired(_)));
+    assert_eq!(lab.jobs.rows().len(), 2);
+}
+
+#[tokio::test]
+async fn a_repeated_delivery_is_a_duplicate_and_fires_once() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    lab.with_runner().await;
+    let hook = lab.hook(None, Vec::new());
+
+    lab.ingest(hook.id(), Some(SIG), Some("d-1"), None)
+        .await
+        .unwrap();
+    let again = lab
+        .ingest(hook.id(), Some(SIG), Some(" d-1 "), None)
+        .await
+        .unwrap();
+
+    assert!(matches!(again, IngestOutcome::Duplicate));
+    assert_eq!(lab.jobs.rows().len(), 1);
+    assert_eq!(lab.recorded(), vec!["d-1".to_string()]);
+}
+
+#[tokio::test]
+async fn an_unknown_disabled_or_cron_trigger_is_not_found_without_asking_a_permission() {
+    let permissions = Arc::new(RecordingPermissionService::new());
+    let lab = lab(permissions.clone()).await;
+    let disabled = lab.hook(None, Vec::new());
+    lab.triggers
+        .rows
+        .lock()
+        .unwrap()
+        .get_mut(disabled.id())
+        .unwrap()
+        .0
+        .disable();
+    let nightly = lab.seed();
+
+    for id in [&TriggerId::new("missing"), disabled.id(), nightly.id()] {
+        let err = lab.ingest(id, Some(SIG), None, None).await.unwrap_err();
+        assert!(matches!(err, DomainError::NotFound(_)), "{id}: {err:?}");
+    }
+
+    assert!(permissions.checks().is_empty());
+    assert!(lab.recorded().is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_fire_forgets_the_delivery_so_a_retry_fires() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    let hook = lab.hook(None, Vec::new());
+
+    let err = lab
+        .ingest(hook.id(), Some(SIG), Some("d-1"), None)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, DomainError::Internal(_)),
+        "no runner app: {err:?}"
+    );
+    assert!(lab.recorded().is_empty());
+    assert_eq!(lab.last_fire(hook.id()).as_deref(), Some("error"));
+
+    lab.with_runner().await;
+    let retry = lab
+        .ingest(hook.id(), Some(SIG), Some("d-1"), None)
+        .await
+        .unwrap();
+    assert!(matches!(retry, IngestOutcome::Fired(_)));
+    assert_eq!(lab.jobs.rows().len(), 1);
+}
+
+#[tokio::test]
+async fn a_trigger_disabled_while_the_delivery_is_in_flight_is_not_found() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    lab.with_runner().await;
+    let hook = lab.hook(None, Vec::new());
+    let triggers = lab.triggers.clone();
+    let id = hook.id().clone();
+    *lab.deliveries.on_record.lock().unwrap() = Some(Box::new(move || {
+        triggers
+            .rows
+            .lock()
+            .unwrap()
+            .get_mut(&id)
+            .unwrap()
+            .0
+            .disable();
+    }));
+
+    let err = lab
+        .ingest(hook.id(), Some(SIG), Some("d-1"), None)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, DomainError::NotFound(_)), "{err:?}");
+    assert!(lab.recorded().is_empty());
+    assert!(lab.jobs.rows().is_empty());
+}
+
+#[tokio::test]
+async fn a_fire_refused_for_a_payload_value_stays_a_validation_error() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    lab.with_runner().await;
+    let hook = lab.hook(None, vec![pointer("S", "/s")]);
+    let body = br#"{"s":"a\u0000b"}"#;
+
+    let err = lab
+        .deliver(hook.id(), body, Some(&sign(body)), Some("d-1"), None)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, DomainError::Validation(_)), "{err:?}");
+    assert!(lab.recorded().is_empty());
+    assert!(lab.jobs.rows().is_empty());
+}
+
+#[tokio::test]
+async fn the_prefixed_and_bare_signature_are_one_delivery() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    lab.with_runner().await;
+    let hook = lab.hook(None, Vec::new());
+
+    let first = lab.ingest(hook.id(), Some(SIG), None, None).await.unwrap();
+    let prefixed = format!("SHA256={}", SIG.to_uppercase());
+    let again = lab
+        .ingest(hook.id(), Some(&prefixed), None, None)
+        .await
+        .unwrap();
+
+    assert!(matches!(first, IngestOutcome::Fired(_)));
+    assert!(matches!(again, IngestOutcome::Duplicate));
+    assert_eq!(lab.jobs.rows().len(), 1);
+    assert_eq!(lab.recorded(), vec![SIG.to_string()]);
+}
+
+#[tokio::test]
+async fn a_webhook_fire_resolves_the_payload_inputs_and_keeps_the_delivery_id() {
+    let permissions = Arc::new(RecordingPermissionService::new());
+    let lab = lab(permissions.clone()).await;
+    lab.with_runner().await;
+    let hook = lab.hook(
+        None,
+        vec![pointer("GIT_COMMIT", "/after"), pointer("COUNT", "/n")],
+    );
+    let body = br#"{"after":"abc123","n":42}"#;
+    let before = permissions.checks().len();
+
+    let outcome = lab
+        .deliver(
+            hook.id(),
+            body,
+            Some(&sign(body)),
+            Some("d-7"),
+            Some("push"),
+        )
+        .await
+        .unwrap();
+
+    let IngestOutcome::Fired(job_id) = outcome else {
+        panic!("the delivery must fire: {outcome:?}");
+    };
+    let job = lab
+        .jobs
+        .rows()
+        .into_iter()
+        .find(|j| j.id() == &job_id)
+        .unwrap();
+    assert_eq!(
+        job.origin(),
+        &JobOrigin::Webhook {
+            trigger_id: hook.id().clone(),
+            delivery_id: Some("d-7".to_string()),
+        }
+    );
+    let inputs: Vec<(String, String)> = job
+        .inputs()
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    assert!(inputs.contains(&("GIT_COMMIT".to_string(), "abc123".to_string())));
+    assert!(inputs.contains(&("COUNT".to_string(), "42".to_string())));
+    assert_eq!(
+        permissions.checks()[before..],
+        [
+            (lab.runner(), Permission::RunPipeline(pipeline_id())),
+            (firer(), Permission::ManageTrigger(hook.id().clone())),
+        ]
+    );
+    assert_eq!(lab.last_fire(hook.id()).as_deref(), Some("ok"));
+}
+
+#[tokio::test]
+async fn a_custom_signature_header_is_read_under_its_lowercase_name() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    lab.with_runner().await;
+    let hook = lab.hook(Some("X-Hub-Signature-256"), Vec::new());
+
+    let default_header = lab
+        .ingest(hook.id(), Some(SIG), Some("d-1"), None)
+        .await
+        .unwrap_err();
+    let cmd = IngestWebhook {
+        trigger_id: hook.id().clone(),
+        headers: HashMap::from([("x-hub-signature-256".to_string(), format!("sha256={SIG}"))]),
+        delivery_id: Some("d-1".to_string()),
+        event: None,
+        body: MSG.to_vec(),
+    };
+    let custom = Triggers::ingest_webhook(&lab.app, cmd).await.unwrap();
+
+    assert!(matches!(default_header, DomainError::Unauthorized(_)));
+    assert!(matches!(custom, IngestOutcome::Fired(_)));
 }

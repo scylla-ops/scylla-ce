@@ -2,6 +2,7 @@ use crate::application::{IngestOutcome, IngestWebhook, WebhookIngressUseCases};
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::TriggerId;
 use crate::rest::adapter::run_public;
+use async_trait::async_trait;
 use axum::{
     Router,
     body::Bytes,
@@ -17,26 +18,46 @@ use tracing::error;
 const DELIVERY_HEADERS: [&str; 2] = ["X-Scylla-Delivery", "X-GitHub-Delivery"];
 const EVENT_HEADERS: [&str; 2] = ["X-Scylla-Event", "X-GitHub-Event"];
 
-#[derive(Clone)]
-struct Webhooks {
+/// Runs one webhook delivery for the route. The route maps the outcome to its status.
+#[async_trait]
+pub trait WebhookIngress: Send + Sync {
+    async fn ingest(&self, command: IngestWebhook) -> DomainResult<IngestOutcome>;
+}
+
+struct ActionsIngress {
     actions: Arc<Actions>,
     ingress: Arc<WebhookIngressUseCases>,
 }
 
+#[async_trait]
+impl WebhookIngress for ActionsIngress {
+    async fn ingest(&self, command: IngestWebhook) -> DomainResult<IngestOutcome> {
+        run_public(&self.actions, &*self.ingress, command).await
+    }
+}
+
+#[derive(Clone)]
+struct Webhooks(Arc<dyn WebhookIngress>);
+
 pub fn router(actions: Arc<Actions>, ingress: Arc<WebhookIngressUseCases>) -> Router {
+    router_on(Arc::new(ActionsIngress { actions, ingress }))
+}
+
+/// The webhook route on `ingress`.
+pub fn router_on(ingress: Arc<dyn WebhookIngress>) -> Router {
     Router::new()
         .route("/webhooks/{trigger_id}", post(handle))
-        .with_state(Webhooks { actions, ingress })
+        .with_state(Webhooks(ingress))
 }
 
 async fn handle(
-    State(webhooks): State<Webhooks>,
+    State(Webhooks(ingress)): State<Webhooks>,
     Path(trigger_id): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, &'static str) {
     let command = ingest_webhook(&trigger_id, &headers, body);
-    reply(&run_public(&webhooks.actions, &*webhooks.ingress, command).await)
+    reply(&ingress.ingest(command).await)
 }
 
 fn reply(result: &DomainResult<IngestOutcome>) -> (StatusCode, &'static str) {

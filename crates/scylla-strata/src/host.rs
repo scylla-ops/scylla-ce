@@ -13,8 +13,13 @@ use scylla_core::application::{
     AppTokenRepository, DispatchUseCases, JobRepository, ProjectRepository, SecretCipher,
     SecretRepository, SessionRepository, user::UserRepository,
 };
+use scylla_core::application::{IngestOutcome, IngestWebhook};
+use scylla_core::config::BootstrapConfig;
 use scylla_core::domain::caller::CallerContext;
+use scylla_core::domain::errors::DomainResult;
+use scylla_core::error::BootstrapError;
 use scylla_core::grpc::auth_interceptor::{AuthContext, AuthInterceptor};
+use scylla_core::rest::webhook::WebhookIngress;
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -149,6 +154,7 @@ pub struct Shared {
     pub reset_sender: Arc<dyn scylla_core::application::PasswordResetSender>,
     pub reset_links: scylla_core::application::user::reset::ResetLinks,
     pub trigger_repo: Arc<dyn scylla_core::application::TriggerRepository>,
+    pub trigger_deliveries: Arc<dyn scylla_core::application::TriggerDeliveryRepository>,
     pub cron_schedule: Arc<dyn scylla_core::application::CronSchedule>,
     pub webhook_base_url: Option<String>,
     pub job_logs: Arc<dyn scylla_core::application::JobLogRepository>,
@@ -160,21 +166,40 @@ pub struct Shared {
 
 pub type AuthInterceptorLayer = tonic_async_interceptor::AsyncInterceptorLayer<AuthInterceptor>;
 
-pub type MountFuture<'a> = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>>;
+pub type BuildFuture<'a> =
+    Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn Built>>> + Send + 'a>>;
+
+pub type BootstrapFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<(), BootstrapError>> + Send + 'a>>;
 
 pub trait Host: Send + Sync + 'static {
     fn ready(&self) -> &[Slice];
 
-    /// Builds the edition, serves `slices` on `routes`, and starts the worker of each slice.
-    fn mount<'a>(
-        &'a self,
-        shared: &'a Shared,
-        slices: &'a [Slice],
-        routes: &'a mut RoutesBuilder,
-        auth: &'a AuthInterceptorLayer,
-        in_flight: &'a InFlight,
+    /// Builds the production edition on the CE adapters of `shared`. The server builds it one
+    /// time, before the bootstrap and the routes.
+    fn build<'a>(&'a self, shared: &'a Shared) -> BuildFuture<'a>;
+}
+
+/// A built edition. The server serves the switched slices with it, and runs the bootstrap and
+/// the webhook ingress on it when their slices are switched.
+pub trait Built: Send + Sync {
+    /// Serves `slices` on `routes`, and starts the worker of each slice.
+    fn mount(
+        &self,
+        slices: &[Slice],
+        routes: &mut RoutesBuilder,
+        auth: &AuthInterceptorLayer,
+        in_flight: &InFlight,
         workers: crate::Workers,
-    ) -> MountFuture<'a>;
+    );
+
+    /// Runs the CE admin bootstrap on the Users and Grants modules (see [`BOOTSTRAP_SLICES`]).
+    ///
+    /// [`BOOTSTRAP_SLICES`]: crate::BOOTSTRAP_SLICES
+    fn bootstrap<'a>(&'a self, cfg: &'a BootstrapConfig) -> BootstrapFuture<'a>;
+
+    /// The webhook ingress of the Triggers module, for the CE webhook route.
+    fn webhooks(&self) -> Arc<dyn WebhookIngress>;
 }
 
 type Provide<E> = Box<dyn for<'c> Fn(Builder<'c, E>) -> Builder<'c, E> + Send + Sync>;
@@ -219,7 +244,7 @@ where
         + JobControl
         + Agents,
 {
-    /// Builds the edition on the CE adapters of `shared`, as `Host::mount` does. With
+    /// Builds the edition on the CE adapters of `shared`, as `Host::build` does. With
     /// `production` false, a dev component is accepted (for tests).
     pub async fn edition(&self, shared: &Shared, production: bool) -> anyhow::Result<Arc<E>> {
         build::<E>(shared, &self.provided, production).await
@@ -251,86 +276,130 @@ where
         self.ready
     }
 
-    fn mount<'a>(
-        &'a self,
-        shared: &'a Shared,
-        slices: &'a [Slice],
-        routes: &'a mut RoutesBuilder,
-        auth: &'a AuthInterceptorLayer,
-        in_flight: &'a InFlight,
-        workers: crate::Workers,
-    ) -> MountFuture<'a> {
+    fn build<'a>(&'a self, shared: &'a Shared) -> BuildFuture<'a> {
         Box::pin(async move {
-            if slices.is_empty() {
-                return Ok(());
-            }
             let app = build::<E>(shared, &self.provided, true).await?;
-            crate::workers::spawn(&app, slices, workers);
-            let grpc = Grpc::from_arc(app)
-                .with_in_flight(in_flight)
-                .on_deadline(OnDeadline::Cancel)
-                .rejection_prefix(false)
-                .echo_request_id(false);
-            macro_rules! authed {
-                ($service:expr $(,)?) => {
-                    routes.add_service(ServiceBuilder::new().layer(auth.clone()).service($service))
-                };
-            }
-            for slice in slices {
-                match slice {
-                    Slice::Projects => {
-                        authed!(crate::grpc::ProjectServiceServer::new(grpc.clone()));
-                    }
-                    Slice::Secrets => {
-                        authed!(crate::grpc::SecretServiceServer::new(grpc.clone()));
-                    }
-                    Slice::Pipelines => {
-                        authed!(crate::grpc::PipelineServiceServer::new(grpc.clone()),);
-                    }
-                    Slice::Apps => {
-                        authed!(crate::grpc::AppServiceServer::new(grpc.clone()));
-                        routes.add_service(crate::grpc::AppAuthServiceServer::with_interceptor(
-                            grpc.clone(),
-                            anonymous,
-                        ));
-                    }
-                    Slice::Roles => {
-                        authed!(crate::grpc::RoleServiceServer::new(grpc.clone()));
-                    }
-                    Slice::Grants => {
-                        authed!(crate::grpc::GrantServiceServer::new(grpc.clone()));
-                    }
-                    Slice::Organizations => {
-                        authed!(crate::grpc::OrganizationServiceServer::new(grpc.clone()),);
-                    }
-                    Slice::Users => {
-                        authed!(crate::grpc::UserServiceServer::new(grpc.clone()));
-                    }
-                    Slice::Auth => {
-                        routes.add_service(crate::grpc::AuthServiceServer::with_interceptor(
-                            grpc.clone(),
-                            anonymous,
-                        ));
-                    }
-                    Slice::Triggers => {
-                        authed!(crate::grpc::TriggerServiceServer::new(grpc.clone()));
-                    }
-                    Slice::Jobs => {
-                        authed!(crate::grpc::JobServiceServer::new(grpc.clone()));
-                    }
-                    Slice::Agents => {
-                        authed!(
-                            crate::grpc::AgentServiceServer::new(grpc.clone())
-                                .max_decoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES)
-                                .max_encoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES),
-                        );
-                        authed!(crate::grpc::AgentAdminServiceServer::new(grpc.clone()),);
-                    }
-                }
-                tracing::info!(slice = %slice, edition = std::any::type_name::<E>(), "strata serves the slice");
-            }
-            Ok(())
+            Ok(Box::new(BuiltEdition(app)) as Box<dyn Built>)
         })
+    }
+}
+
+struct BuiltEdition<E>(Arc<E>);
+
+struct EditionWebhooks<E>(Arc<E>);
+
+#[async_trait::async_trait]
+impl<E> WebhookIngress for EditionWebhooks<E>
+where
+    E: Triggers + Send + Sync + 'static,
+{
+    async fn ingest(&self, command: IngestWebhook) -> DomainResult<IngestOutcome> {
+        Triggers::ingest_webhook(&*self.0, command).await
+    }
+}
+
+impl<E> Built for BuiltEdition<E>
+where
+    E: Edition
+        + Access
+        + Projects
+        + Secrets
+        + Pipelines
+        + Apps
+        + Roles
+        + Grants
+        + Organizations
+        + Users
+        + Auth
+        + Triggers
+        + JobControl
+        + Agents
+        + Send
+        + Sync
+        + 'static,
+    <E as strata::Contextual>::Ctx: crate::CallerOf,
+{
+    fn bootstrap<'a>(&'a self, cfg: &'a BootstrapConfig) -> BootstrapFuture<'a> {
+        Box::pin(crate::bootstrap_admin(&*self.0, cfg))
+    }
+
+    fn webhooks(&self) -> Arc<dyn WebhookIngress> {
+        Arc::new(EditionWebhooks(self.0.clone()))
+    }
+
+    fn mount(
+        &self,
+        slices: &[Slice],
+        routes: &mut RoutesBuilder,
+        auth: &AuthInterceptorLayer,
+        in_flight: &InFlight,
+        workers: crate::Workers,
+    ) {
+        let app = self.0.clone();
+        crate::workers::spawn(&app, slices, workers);
+        let grpc = Grpc::from_arc(app)
+            .with_in_flight(in_flight)
+            .on_deadline(OnDeadline::Cancel)
+            .rejection_prefix(false)
+            .echo_request_id(false);
+        macro_rules! authed {
+            ($service:expr $(,)?) => {
+                routes.add_service(ServiceBuilder::new().layer(auth.clone()).service($service))
+            };
+        }
+        for slice in slices {
+            match slice {
+                Slice::Projects => {
+                    authed!(crate::grpc::ProjectServiceServer::new(grpc.clone()));
+                }
+                Slice::Secrets => {
+                    authed!(crate::grpc::SecretServiceServer::new(grpc.clone()));
+                }
+                Slice::Pipelines => {
+                    authed!(crate::grpc::PipelineServiceServer::new(grpc.clone()),);
+                }
+                Slice::Apps => {
+                    authed!(crate::grpc::AppServiceServer::new(grpc.clone()));
+                    routes.add_service(crate::grpc::AppAuthServiceServer::with_interceptor(
+                        grpc.clone(),
+                        anonymous,
+                    ));
+                }
+                Slice::Roles => {
+                    authed!(crate::grpc::RoleServiceServer::new(grpc.clone()));
+                }
+                Slice::Grants => {
+                    authed!(crate::grpc::GrantServiceServer::new(grpc.clone()));
+                }
+                Slice::Organizations => {
+                    authed!(crate::grpc::OrganizationServiceServer::new(grpc.clone()),);
+                }
+                Slice::Users => {
+                    authed!(crate::grpc::UserServiceServer::new(grpc.clone()));
+                }
+                Slice::Auth => {
+                    routes.add_service(crate::grpc::AuthServiceServer::with_interceptor(
+                        grpc.clone(),
+                        anonymous,
+                    ));
+                }
+                Slice::Triggers => {
+                    authed!(crate::grpc::TriggerServiceServer::new(grpc.clone()));
+                }
+                Slice::Jobs => {
+                    authed!(crate::grpc::JobServiceServer::new(grpc.clone()));
+                }
+                Slice::Agents => {
+                    authed!(
+                        crate::grpc::AgentServiceServer::new(grpc.clone())
+                            .max_decoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES)
+                            .max_encoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES),
+                    );
+                    authed!(crate::grpc::AgentAdminServiceServer::new(grpc.clone()),);
+                }
+            }
+            tracing::info!(slice = %slice, edition = std::any::type_name::<E>(), "strata serves the slice");
+        }
     }
 }
 
@@ -395,6 +464,7 @@ async fn build<
         .provide(crate::ResetLinkBase(shared.reset_links.clone()))
         .provide_arc(shared.sessions.clone())
         .provide_arc(shared.trigger_repo.clone())
+        .provide_arc(shared.trigger_deliveries.clone())
         .provide_arc(shared.cron_schedule.clone())
         .provide(crate::TriggerWebhookBase(shared.webhook_base_url.clone()))
         .provide(crate::JobLogTails(shared.job_log_stream.clone()))

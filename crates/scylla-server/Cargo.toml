@@ -39,5 +39,8 @@ tonic-web.workspace = true
 tonic-reflection.workspace = true
 tonic-async-interceptor.workspace = true
 
+[dev-dependencies]
+async-trait.workspace = true
+
 [lints]
 workspace = true

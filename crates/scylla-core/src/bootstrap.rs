@@ -5,10 +5,16 @@ use scylla_auth::authz::SYSTEM_ADMIN_ROLE;
 use scylla_domain::domain::role::RoleName;
 use scylla_domain::domain::user::{Email, Password, Username};
 
-pub async fn bootstrap_admin(
-    bootstrap_uc: &BootstrapUseCases,
-    cfg: &BootstrapConfig,
-) -> Result<(), BootstrapError> {
+/// The admin account of a bootstrap config, with the role that the bootstrap grants it.
+pub struct AdminAccount {
+    pub username: Username,
+    pub email: Email,
+    pub password: Password,
+    pub role: RoleName,
+}
+
+/// Reads the admin account of `cfg`. The default credentials log a warning.
+pub fn admin_account(cfg: &BootstrapConfig) -> Result<AdminAccount, BootstrapError> {
     if cfg.username == "admin" && cfg.password == "admin123" {
         tracing::warn!(
             "Bootstrapping the admin account with the DEFAULT credentials (admin/admin123). \
@@ -16,11 +22,24 @@ pub async fn bootstrap_admin(
         );
     }
 
-    let username = Username::new(&cfg.username).map_err(BootstrapError::InvalidUsername)?;
-    let password = Password::new(&cfg.password).map_err(BootstrapError::InvalidPassword)?;
-    let email = Email::new(&cfg.email).map_err(BootstrapError::InvalidEmail)?;
-    let role = RoleName::new(SYSTEM_ADMIN_ROLE).map_err(BootstrapError::GrantPermission)?;
+    Ok(AdminAccount {
+        username: Username::new(&cfg.username).map_err(BootstrapError::InvalidUsername)?,
+        password: Password::new(&cfg.password).map_err(BootstrapError::InvalidPassword)?,
+        email: Email::new(&cfg.email).map_err(BootstrapError::InvalidEmail)?,
+        role: RoleName::new(SYSTEM_ADMIN_ROLE).map_err(BootstrapError::GrantPermission)?,
+    })
+}
 
+pub async fn bootstrap_admin(
+    bootstrap_uc: &BootstrapUseCases,
+    cfg: &BootstrapConfig,
+) -> Result<(), BootstrapError> {
+    let AdminAccount {
+        username,
+        email,
+        password,
+        role,
+    } = admin_account(cfg)?;
     bootstrap_uc
         .bootstrap_admin(username, email, password, role)
         .await
