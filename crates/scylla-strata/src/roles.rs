@@ -81,9 +81,8 @@ pub trait Roles: crate::Access {
             .collect())
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn create_role(&self, cmd: CreateRole) -> DomainResult<Role> {
-        self.require_access(cmd.access()).await?;
         if cmd.organization_id.is_some() && cmd.scope == ScopeKind::System {
             return Err(DomainError::validation(
                 "a role of an organization is organization or project scoped",
@@ -109,9 +108,8 @@ pub trait Roles: crate::Access {
         Ok(role)
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn update_role(&self, cmd: UpdateRole) -> DomainResult<Role> {
-        self.require_access(cmd.access()).await?;
         let mut role = self.role(&cmd.id).await?;
         validate_role_permissions(&cmd.permissions, role.scope)?;
         let added: Vec<String> = if role.is_full_control() {
@@ -132,9 +130,8 @@ pub trait Roles: crate::Access {
         Ok(role)
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn delete_role(&self, cmd: DeleteRole) -> DomainResult<()> {
-        self.require_access(cmd.access()).await?;
         let role = self.role(&cmd.id).await?;
         if role.builtin {
             return Err(DomainError::business_rule(
@@ -147,9 +144,8 @@ pub trait Roles: crate::Access {
         self.role_repo().delete(&role).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_roles(&self, query: ListRoles) -> DomainResult<Vec<Role>> {
-        self.require_access(query.access()).await?;
         let mut roles = self.role_repo().list_all().await?;
         if let Some(organization) = &query.organization_id {
             roles.retain(|r| r.usable_in(Some(organization)));
@@ -157,36 +153,34 @@ pub trait Roles: crate::Access {
         Ok(roles)
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn get_role(&self, query: GetRole) -> DomainResult<Role> {
-        self.require_access(query.access()).await?;
         self.role(&query.id).await
     }
 
-    #[usecase]
+    #[usecase(read, access = ListAuthzVocabulary.access())]
+    #[allow(unused_variables)]
     async fn list_authz_vocabulary(
         &self,
         query: ListAuthzVocabulary,
     ) -> DomainResult<&'static [(&'static str, &'static str)]> {
-        self.require_access(query.access()).await?;
         Ok(PERMISSION_CATALOG.as_slice())
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn get_effective_permissions(
         &self,
         query: GetEffectivePermissions,
     ) -> DomainResult<Vec<EffectiveScope>> {
-        self.require_access(query.access()).await?;
         self.effective_scopes(&query.principal).await
     }
 
-    #[usecase]
+    #[usecase(read, access = GetMyPermissions.access())]
+    #[allow(unused_variables)]
     async fn get_my_permissions(
         &self,
         query: GetMyPermissions,
     ) -> DomainResult<Vec<EffectiveScope>> {
-        self.require_access(query.access()).await?;
         let principal = Principal::from_caller(self.ctx().caller()).ok_or_else(|| {
             DomainError::forbidden("this caller is not a principal that holds grants")
         })?;

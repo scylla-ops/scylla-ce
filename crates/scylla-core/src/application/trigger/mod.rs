@@ -49,13 +49,13 @@ pub struct TriggerUseCases {
 }
 
 impl TriggerUseCases {
-    fn schedule_next(&self, trigger: &mut Trigger) -> DomainResult<()> {
+    pub fn schedule_next(&self, trigger: &mut Trigger) -> DomainResult<()> {
         let next = next_fire_time(trigger, &*self.schedule, clock::now())?;
         trigger.set_next_fire_at(next);
         Ok(())
     }
 
-    fn next_cron_fire(
+    pub fn next_cron_fire(
         &self,
         trigger: &Trigger,
         after: DateTime<Utc>,
@@ -69,7 +69,7 @@ impl TriggerUseCases {
             })
     }
 
-    async fn trigger_runner(&self, trigger: &Trigger) -> DomainResult<AppId> {
+    pub async fn trigger_runner(&self, trigger: &Trigger) -> DomainResult<AppId> {
         let pipeline = self.pipeline_repo.find_by_id(trigger.pipeline_id()).await?;
         let project = self.project_repo.find_by_id(pipeline.project_id()).await?;
         self.app_repo
@@ -80,7 +80,7 @@ impl TriggerUseCases {
             })
     }
 
-    async fn ensure_runner_app(&self, organization_id: &OrganizationId) -> DomainResult<()> {
+    pub async fn ensure_runner_app(&self, organization_id: &OrganizationId) -> DomainResult<()> {
         if self
             .app_repo
             .find_trigger_runner(organization_id)

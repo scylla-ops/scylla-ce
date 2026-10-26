@@ -36,7 +36,7 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{debug, warn};
 
 /// The frames the reader takes at once: the lines among them go to the store in one batch.
-const READ_CHUNK: usize = 512;
+pub const READ_CHUNK: usize = 512;
 
 #[derive(Clone, Constructor)]
 pub struct AgentHandler {
@@ -176,7 +176,7 @@ impl Reader {
 }
 
 #[derive(Debug)]
-enum Work {
+pub enum Work {
     Logs(JobId, Vec<JobLog>),
     Status(JobStatus),
     Hello(AgentHello),
@@ -185,7 +185,7 @@ enum Work {
 
 /// The frames of one chunk as work, in order. The lines that come between two other frames
 /// form one batch for each job, so a status never overtakes a line sent before it.
-fn work(chunk: Vec<Result<AgentUp, Status>>) -> Vec<Work> {
+pub fn work(chunk: Vec<Result<AgentUp, Status>>) -> Vec<Work> {
     fn flush(work: &mut Vec<Work>, lines: &mut Vec<(JobId, Vec<JobLog>)>) {
         work.extend(
             lines
@@ -232,7 +232,7 @@ fn work(chunk: Vec<Result<AgentUp, Status>>) -> Vec<Work> {
 /// disconnect it ends, and when a newer stream of the same app replaced it, it ends with
 /// `ALREADY_EXISTS`. It checks the stop before the orders, so no order that waits in the queue
 /// goes out after a stop. Its drop stops the reader.
-fn down_stream(conn: ConnHandle) -> impl Stream<Item = Result<AgentDown, Status>> + Send {
+pub fn down_stream(conn: ConnHandle) -> impl Stream<Item = Result<AgentDown, Status>> + Send {
     let stopped = conn.stop.clone().cancelled_owned();
     let stop_reader = conn.stop.drop_guard();
     let replaced = conn.replaced;
@@ -250,7 +250,7 @@ fn down_stream(conn: ConnHandle) -> impl Stream<Item = Result<AgentDown, Status>
         .chain(stream::once(end).filter_map(future::ready))
 }
 
-fn hello_to_domain(hello: &AgentHello) -> AgentHost {
+pub fn hello_to_domain(hello: &AgentHello) -> AgentHost {
     AgentHost {
         version: hello.version.clone(),
         os: hello.os.clone(),
@@ -326,7 +326,7 @@ fn step_to_proto(step: &Step) -> agent_node::Step {
     }
 }
 
-fn log_line_to_domain(line: &JobLogLine) -> Option<JobLog> {
+pub fn log_line_to_domain(line: &JobLogLine) -> Option<JobLog> {
     let node_id_str = line.node_id.clone().unwrap_or_default().value;
     let node_id = NodeId::new(&node_id_str)
         .map_err(|e| warn!(node_id = %node_id_str, error = %e, "invalid node_id in agent log"))

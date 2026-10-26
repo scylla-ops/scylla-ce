@@ -82,43 +82,38 @@ pub trait Users: crate::Access {
         )
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn create_user(&self, cmd: CreateUser) -> DomainResult<User> {
-        self.require_access(cmd.access()).await?;
         let password_hash = self.user_hasher().hash(&cmd.password).await?;
         let user = User::create(cmd.username, Some(cmd.email), password_hash)
             .with_display_name(cmd.display_name);
         self.user_repo().create(&user).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn get_user(&self, query: GetUser) -> DomainResult<User> {
-        self.require_access(query.access()).await?;
         self.user_repo().find_by_id(&query.id).await
     }
 
-    #[usecase]
+    #[usecase(read, access = GetMe.access())]
+    #[allow(unused_variables)]
     async fn get_me(&self, query: GetMe) -> DomainResult<User> {
-        self.require_access(query.access()).await?;
         let id = user_only(self.ctx().caller())?;
         self.user_repo().find_by_id(&id).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn get_user_by_username(&self, query: GetUserByUsername) -> DomainResult<User> {
-        self.require_access(query.access()).await?;
         self.user_repo().find_by_username(&query.username).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn get_user_by_email(&self, query: GetUserByEmail) -> DomainResult<User> {
-        self.require_access(query.access()).await?;
         self.user_repo().find_by_email(&query.email).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn update_user(&self, cmd: UpdateUser) -> DomainResult<User> {
-        self.require_access(cmd.access()).await?;
         let mut user = self.user_repo().find_by_id(&cmd.id).await?;
         if let Some(username) = cmd.username {
             user.update_username(username)?;
@@ -132,9 +127,8 @@ pub trait Users: crate::Access {
         self.user_repo().update(&user).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn update_user_email(&self, cmd: UpdateUserEmail) -> DomainResult<User> {
-        self.require_access(cmd.access()).await?;
         let mut user = self.user_repo().find_by_id(&cmd.id).await?;
         if user.email().is_some_and(|email| email != &cmd.email) {
             return Err(DomainError::business_rule("the user already has an email"));
@@ -143,9 +137,8 @@ pub trait Users: crate::Access {
         self.user_repo().update(&user).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn delete_user(&self, cmd: DeleteUser) -> DomainResult<()> {
-        self.require_access(cmd.access()).await?;
         let user = self.user_repo().find_by_id(&cmd.id).await?;
         let principal = Principal::User(user.id().clone());
         let grants = self.user_grants().list_all().await?;
@@ -153,15 +146,13 @@ pub trait Users: crate::Access {
         self.user_repo().delete(&user).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_users(&self, query: ListUsers) -> DomainResult<PaginatedResult<User>> {
-        self.require_access(query.access()).await?;
         self.user_repo().list_all(query.pagination.as_ref()).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn change_password(&self, cmd: ChangePassword) -> DomainResult<User> {
-        self.require_access(cmd.access()).await?;
         let id = user_only(self.ctx().caller())?;
         let mut user = self.user_repo().find_by_id(&id).await?;
         if !self
@@ -177,12 +168,11 @@ pub trait Users: crate::Access {
             .await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn send_password_reset(
         &self,
         cmd: SendPasswordReset,
     ) -> DomainResult<PasswordResetDelivery> {
-        self.require_access(cmd.access()).await?;
         let user = self.user_repo().find_by_id(&cmd.id).await?;
         if !user.is_active() {
             return Err(DomainError::business_rule("The account is inactive"));
@@ -196,9 +186,8 @@ pub trait Users: crate::Access {
         Ok(self.reset_sender().delivery())
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn revoke_user_sessions(&self, cmd: RevokeUserSessions) -> DomainResult<u64> {
-        self.require_access(cmd.access()).await?;
         self.user_repo().find_by_id(&cmd.id).await?;
         let keep = match self.ctx().caller() {
             CallerContext::User(caller) if caller == &cmd.id => self.call_session(cmd.session),
@@ -209,9 +198,8 @@ pub trait Users: crate::Access {
             .await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn revoke_user_session(&self, cmd: RevokeUserSession) -> DomainResult<()> {
-        self.require_access(cmd.access()).await?;
         let session = self
             .user_accounts()
             .list_sessions(&cmd.id)
@@ -230,9 +218,8 @@ pub trait Users: crate::Access {
         }
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn set_user_active(&self, cmd: SetUserActive) -> DomainResult<User> {
-        self.require_access(cmd.access()).await?;
         if self.ctx().caller() == &CallerContext::User(cmd.id.clone()) {
             return Err(DomainError::business_rule(
                 "You cannot change the active state of your own account",
@@ -253,9 +240,8 @@ pub trait Users: crate::Access {
         }
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn delete_account(&self, cmd: DeleteAccount) -> DomainResult<()> {
-        self.require_access(cmd.access()).await?;
         let id = user_only(self.ctx().caller())?;
         let user = self.user_repo().find_by_id(&id).await?;
         if !self
@@ -271,16 +257,14 @@ pub trait Users: crate::Access {
         self.user_repo().delete(&user).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_user_access(&self, query: ListUserAccess) -> DomainResult<Vec<PrincipalAccess>> {
-        self.require_access(query.access()).await?;
         self.user_repo().find_by_id(&query.id).await?;
         self.user_accounts().list_access(&query.id).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_user_sessions(&self, query: ListUserSessions) -> DomainResult<Vec<UserSession>> {
-        self.require_access(query.access()).await?;
         self.user_repo().find_by_id(&query.id).await?;
         let current = self.call_session(query.session);
         let mut sessions = self.user_accounts().list_sessions(&query.id).await?;

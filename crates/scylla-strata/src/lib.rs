@@ -1,28 +1,36 @@
 #![allow(clippy::unused_async_trait_impl)]
 
 mod access;
+mod agents;
 mod apps;
+mod auth;
 mod grants;
 pub mod grpc;
 mod host;
+mod jobs;
 mod organizations;
 mod pipelines;
 mod ports;
 mod projects;
 mod roles;
 mod secrets;
+mod triggers;
 mod users;
 
 pub use access::*;
+pub use agents::*;
 pub use apps::*;
+pub use auth::*;
 pub use grants::*;
 pub use host::*;
+pub use jobs::*;
 pub use organizations::*;
 pub use pipelines::*;
 pub use ports::*;
 pub use projects::*;
 pub use roles::*;
 pub use secrets::*;
+pub use triggers::*;
 pub use users::*;
 
 #[strata::edition(modules(
@@ -34,7 +42,11 @@ pub use users::*;
     Roles,
     Grants,
     Organizations,
-    Users
+    Users,
+    Auth,
+    Triggers,
+    JobControl,
+    Agents
 ))]
 pub struct ScyllaCe;
 

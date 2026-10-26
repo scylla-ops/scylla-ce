@@ -34,9 +34,8 @@ pub trait Apps: crate::Access {
     #[component]
     type AppRegistry = Arc<dyn AgentDispatch>;
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn create_app(&self, cmd: CreateApp) -> DomainResult<CreatedApp> {
-        self.require_access(cmd.access()).await?;
         let app = App::create(cmd.organization_id, cmd.name.clone())?;
         let secret = mint_app_secret();
         let secret_hash = self.app_hash().hash_secret(&secret).await?;
@@ -48,23 +47,20 @@ pub trait Apps: crate::Access {
         Ok(CreatedApp { app, secret })
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn get_app(&self, query: GetApp) -> DomainResult<App> {
-        self.require_access(query.access()).await?;
         self.app_repo().find_by_id(&query.id).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_apps(&self, query: ListApps) -> DomainResult<Vec<App>> {
-        self.require_access(query.access()).await?;
         self.app_repo()
             .list_by_organization(&query.organization_id)
             .await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn set_app_active(&self, cmd: SetAppActive) -> DomainResult<App> {
-        self.require_access(cmd.access()).await?;
         let app = self.app_repo().find_by_id(&cmd.id).await?;
         app.ensure_user_managed()?;
         let id = app.id();
@@ -75,9 +71,8 @@ pub trait Apps: crate::Access {
         self.app_repo().find_by_id(id).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn delete_app(&self, cmd: DeleteApp) -> DomainResult<()> {
-        self.require_access(cmd.access()).await?;
         let app = self.app_repo().find_by_id(&cmd.id).await?;
         app.ensure_user_managed()?;
         self.app_repo().delete(app.id()).await?;
@@ -86,9 +81,8 @@ pub trait Apps: crate::Access {
         Ok(())
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn create_app_secret(&self, cmd: CreateAppSecret) -> DomainResult<CreatedAppSecret> {
-        self.require_access(cmd.access()).await?;
         self.app_repo()
             .find_by_id(&cmd.app_id)
             .await?
@@ -100,27 +94,24 @@ pub trait Apps: crate::Access {
         Ok(CreatedAppSecret { credential, secret })
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_app_secrets(&self, query: ListAppSecrets) -> DomainResult<Vec<AppCredential>> {
-        self.require_access(query.access()).await?;
         self.app_credentials().list_by_app(&query.app_id).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn revoke_app_secret(&self, cmd: RevokeAppSecret) -> DomainResult<()> {
-        self.require_access(cmd.access()).await?;
         let credential = self.app_credentials().find_by_id(&cmd.id).await?;
         self.app_credentials().delete(credential.id()).await?;
         self.app_registry().disconnect(credential.app_id());
         Ok(())
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn set_app_secret_enabled(
         &self,
         cmd: SetAppSecretEnabled,
     ) -> DomainResult<AppCredential> {
-        self.require_access(cmd.access()).await?;
         let credential = self.app_credentials().find_by_id(&cmd.id).await?;
         self.app_credentials()
             .set_enabled(credential.id(), cmd.enabled)
@@ -131,9 +122,8 @@ pub trait Apps: crate::Access {
         self.app_credentials().find_by_id(credential.id()).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn set_app_secret_label(&self, cmd: SetAppSecretLabel) -> DomainResult<AppCredential> {
-        self.require_access(cmd.access()).await?;
         let credential = self.app_credentials().find_by_id(&cmd.id).await?;
         self.app_credentials()
             .set_label(credential.id(), &cmd.label)
@@ -141,15 +131,13 @@ pub trait Apps: crate::Access {
         self.app_credentials().find_by_id(credential.id()).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_app_access(&self, query: ListAppAccess) -> DomainResult<Vec<PrincipalAccess>> {
-        self.require_access(query.access()).await?;
         self.app_repo().list_access(&query.app_id).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn issue_app_token(&self, cmd: IssueAppToken) -> DomainResult<AppToken> {
-        self.require_access(cmd.access()).await?;
         let invalid = || DomainError::unauthorized("Invalid app credentials");
         let app = self
             .app_repo()

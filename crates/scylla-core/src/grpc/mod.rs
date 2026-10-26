@@ -1,7 +1,7 @@
 pub mod adapter;
 pub mod client;
 pub mod convert;
-mod handlers;
+pub mod handlers;
 pub mod mappers;
 pub mod middleware;
 pub mod streaming;

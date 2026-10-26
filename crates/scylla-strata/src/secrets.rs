@@ -13,24 +13,21 @@ pub trait Secrets: crate::Access {
     #[component]
     type Cipher = Arc<dyn SecretCipher>;
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn create_secret(&self, cmd: CreateSecret) -> DomainResult<Secret> {
-        self.require_access(cmd.access()).await?;
         let encrypted = self.cipher().encrypt(cmd.value.as_str())?;
         let secret = Secret::create(cmd.project_id, cmd.name, cmd.description, encrypted);
         self.secret_repo().create(&secret).await?;
         Ok(secret)
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_secrets(&self, query: ListSecrets) -> DomainResult<Vec<Secret>> {
-        self.require_access(query.access()).await?;
         self.secret_repo().list_by_project(&query.project_id).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn delete_secret(&self, cmd: DeleteSecret) -> DomainResult<()> {
-        self.require_access(cmd.access()).await?;
         let secret = self.secret_repo().find_by_id(&cmd.id).await?;
         self.secret_repo().delete(secret.id()).await
     }

@@ -2843,6 +2843,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "futures-util",
  "prost",
  "scylla-auth",
  "scylla-core",
@@ -2855,9 +2856,12 @@ dependencies = [
  "strata-tonic",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tonic",
+ "tonic-async-interceptor",
  "tonic-prost",
  "tonic-prost-build",
+ "tower",
  "tracing",
 ]
 
@@ -3332,7 +3336,7 @@ dependencies = [
 [[package]]
 name = "strata"
 version = "0.1.0"
-source = "git+https://github.com/GodlyJaaaj/strata?rev=576655a894f8eecf05b61f5112f5d5d7303004e5#576655a894f8eecf05b61f5112f5d5d7303004e5"
+source = "git+https://github.com/GodlyJaaaj/strata?rev=12592a8600b910ad56d38d71d157a8f111e496f9#12592a8600b910ad56d38d71d157a8f111e496f9"
 dependencies = [
  "serde",
  "serde_json",
@@ -3343,7 +3347,7 @@ dependencies = [
 [[package]]
 name = "strata-macros"
 version = "0.1.0"
-source = "git+https://github.com/GodlyJaaaj/strata?rev=576655a894f8eecf05b61f5112f5d5d7303004e5#576655a894f8eecf05b61f5112f5d5d7303004e5"
+source = "git+https://github.com/GodlyJaaaj/strata?rev=12592a8600b910ad56d38d71d157a8f111e496f9#12592a8600b910ad56d38d71d157a8f111e496f9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3353,7 +3357,7 @@ dependencies = [
 [[package]]
 name = "strata-tonic"
 version = "0.1.0"
-source = "git+https://github.com/GodlyJaaaj/strata?rev=576655a894f8eecf05b61f5112f5d5d7303004e5#576655a894f8eecf05b61f5112f5d5d7303004e5"
+source = "git+https://github.com/GodlyJaaaj/strata?rev=12592a8600b910ad56d38d71d157a8f111e496f9#12592a8600b910ad56d38d71d157a8f111e496f9"
 dependencies = [
  "serde",
  "serde_json",

@@ -1,6 +1,9 @@
 use crate::access::{AccessModel, SessionStore};
 use crate::ports::{JobDispatch, ScyllaRepos};
-use crate::{Access, Apps, Grants, Organizations, Pipelines, Projects, Roles, Secrets, Users};
+use crate::{
+    Access, Agents, Apps, Auth, Grants, JobControl, Organizations, Pipelines, Projects, Roles,
+    Secrets, Triggers, Users,
+};
 use scylla_auth::authz::{PermissionService, VisibilityResolver};
 use scylla_core::application::{
     AgentDispatch, AppCredentialRepository, AppRepository, HashService, PipelineRepository,
@@ -10,6 +13,8 @@ use scylla_core::application::{
     AppTokenRepository, DispatchUseCases, JobRepository, ProjectRepository, SecretCipher,
     SecretRepository, SessionRepository, user::UserRepository,
 };
+use scylla_core::domain::caller::CallerContext;
+use scylla_core::grpc::auth_interceptor::{AuthContext, AuthInterceptor};
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -19,6 +24,7 @@ use strata::InFlight;
 use strata::{Builder, Edition, Resource};
 use strata_tonic::{Grpc, OnDeadline};
 use tonic::service::RoutesBuilder;
+use tower::ServiceBuilder;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Slice {
@@ -30,6 +36,10 @@ pub enum Slice {
     Grants,
     Organizations,
     Users,
+    Auth,
+    Triggers,
+    Jobs,
+    Agents,
 }
 
 impl Slice {
@@ -42,6 +52,10 @@ impl Slice {
         Slice::Grants,
         Slice::Organizations,
         Slice::Users,
+        Slice::Auth,
+        Slice::Triggers,
+        Slice::Jobs,
+        Slice::Agents,
     ];
 
     #[must_use]
@@ -55,6 +69,10 @@ impl Slice {
             Slice::Grants => "grants",
             Slice::Organizations => "organizations",
             Slice::Users => "users",
+            Slice::Auth => "auth",
+            Slice::Triggers => "triggers",
+            Slice::Jobs => "jobs",
+            Slice::Agents => "agents",
         }
     }
 
@@ -130,8 +148,17 @@ pub struct Shared {
     pub accounts: Arc<dyn scylla_core::application::user::AccountRepository>,
     pub reset_sender: Arc<dyn scylla_core::application::PasswordResetSender>,
     pub reset_links: scylla_core::application::user::reset::ResetLinks,
+    pub trigger_repo: Arc<dyn scylla_core::application::TriggerRepository>,
+    pub cron_schedule: Arc<dyn scylla_core::application::CronSchedule>,
+    pub webhook_base_url: Option<String>,
+    pub job_logs: Arc<dyn scylla_core::application::JobLogRepository>,
+    pub job_log_stream: Arc<scylla_core::infrastructure::InMemoryJobLogStream>,
+    pub agents: Arc<dyn scylla_core::application::AgentRepository>,
+    pub agent_streams: Arc<scylla_core::infrastructure::InMemoryAgentRegistry>,
     pub trust_forwarded_headers: bool,
 }
+
+pub type AuthInterceptorLayer = tonic_async_interceptor::AsyncInterceptorLayer<AuthInterceptor>;
 
 pub type MountFuture<'a> = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>>;
 
@@ -143,6 +170,7 @@ pub trait Host: Send + Sync + 'static {
         shared: &'a Shared,
         slices: &'a [Slice],
         routes: &'a mut RoutesBuilder,
+        auth: &'a AuthInterceptorLayer,
         in_flight: &'a InFlight,
     ) -> MountFuture<'a>;
 }
@@ -185,9 +213,14 @@ where
         + Grants
         + Organizations
         + Users
+        + Auth
+        + Triggers
+        + JobControl
+        + Agents
         + Send
         + Sync
         + 'static,
+    <E as strata::Contextual>::Ctx: crate::CallerOf,
 {
     fn ready(&self) -> &[Slice] {
         self.ready
@@ -198,6 +231,7 @@ where
         shared: &'a Shared,
         slices: &'a [Slice],
         routes: &'a mut RoutesBuilder,
+        auth: &'a AuthInterceptorLayer,
         in_flight: &'a InFlight,
     ) -> MountFuture<'a> {
         Box::pin(async move {
@@ -210,33 +244,60 @@ where
                 .on_deadline(OnDeadline::Cancel)
                 .rejection_prefix(false)
                 .echo_request_id(false);
+            macro_rules! authed {
+                ($service:expr $(,)?) => {
+                    routes.add_service(ServiceBuilder::new().layer(auth.clone()).service($service))
+                };
+            }
             for slice in slices {
                 match slice {
                     Slice::Projects => {
-                        routes.add_service(crate::grpc::ProjectServiceServer::new(grpc.clone()));
+                        authed!(crate::grpc::ProjectServiceServer::new(grpc.clone()));
                     }
                     Slice::Secrets => {
-                        routes.add_service(crate::grpc::SecretServiceServer::new(grpc.clone()));
+                        authed!(crate::grpc::SecretServiceServer::new(grpc.clone()));
                     }
                     Slice::Pipelines => {
-                        routes.add_service(crate::grpc::PipelineServiceServer::new(grpc.clone()));
+                        authed!(crate::grpc::PipelineServiceServer::new(grpc.clone()),);
                     }
                     Slice::Apps => {
-                        routes.add_service(crate::grpc::AppServiceServer::new(grpc.clone()));
-                        routes.add_service(crate::grpc::AppAuthServiceServer::new(grpc.clone()));
+                        authed!(crate::grpc::AppServiceServer::new(grpc.clone()));
+                        routes.add_service(crate::grpc::AppAuthServiceServer::with_interceptor(
+                            grpc.clone(),
+                            anonymous,
+                        ));
                     }
                     Slice::Roles => {
-                        routes.add_service(crate::grpc::RoleServiceServer::new(grpc.clone()));
+                        authed!(crate::grpc::RoleServiceServer::new(grpc.clone()));
                     }
                     Slice::Grants => {
-                        routes.add_service(crate::grpc::GrantServiceServer::new(grpc.clone()));
+                        authed!(crate::grpc::GrantServiceServer::new(grpc.clone()));
                     }
                     Slice::Organizations => {
-                        routes
-                            .add_service(crate::grpc::OrganizationServiceServer::new(grpc.clone()));
+                        authed!(crate::grpc::OrganizationServiceServer::new(grpc.clone()),);
                     }
                     Slice::Users => {
-                        routes.add_service(crate::grpc::UserServiceServer::new(grpc.clone()));
+                        authed!(crate::grpc::UserServiceServer::new(grpc.clone()));
+                    }
+                    Slice::Auth => {
+                        routes.add_service(crate::grpc::AuthServiceServer::with_interceptor(
+                            grpc.clone(),
+                            anonymous,
+                        ));
+                    }
+                    Slice::Triggers => {
+                        authed!(crate::grpc::TriggerServiceServer::new(grpc.clone()));
+                    }
+                    Slice::Jobs => {
+                        authed!(crate::grpc::JobServiceServer::new(grpc.clone()));
+                    }
+                    Slice::Agents => {
+                        authed!(
+                            crate::grpc::AgentServiceServer::new(grpc.clone())
+                                .max_decoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES)
+                                .max_encoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES),
+                        );
+                        authed!(crate::grpc::AgentAdminServiceServer::new(grpc.clone()),);
                     }
                 }
                 tracing::info!(slice = %slice, edition = std::any::type_name::<E>(), "strata serves the slice");
@@ -244,6 +305,14 @@ where
             Ok(())
         })
     }
+}
+
+#[allow(clippy::result_large_err, clippy::unnecessary_wraps)]
+fn anonymous(mut request: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
+    request
+        .extensions_mut()
+        .insert(AuthContext::new(CallerContext::Anonymous));
+    Ok(request)
 }
 
 async fn build<
@@ -256,7 +325,11 @@ async fn build<
         + Roles
         + Grants
         + Organizations
-        + Users,
+        + Users
+        + Auth
+        + Triggers
+        + JobControl
+        + Agents,
 >(
     shared: &Shared,
     provided: &[Provide<E>],
@@ -292,6 +365,14 @@ async fn build<
         .provide_arc(shared.accounts.clone())
         .provide_arc(shared.reset_sender.clone())
         .provide(crate::ResetLinkBase(shared.reset_links.clone()))
+        .provide_arc(shared.sessions.clone())
+        .provide_arc(shared.trigger_repo.clone())
+        .provide_arc(shared.cron_schedule.clone())
+        .provide(crate::TriggerWebhookBase(shared.webhook_base_url.clone()))
+        .provide(crate::JobLogTails(shared.job_log_stream.clone()))
+        .provide(crate::AgentStreams(shared.agent_streams.clone()))
+        .provide_arc(shared.job_logs.clone())
+        .provide_arc(shared.agents.clone())
         .production()
         .provide(AccessModel {
             permissions: shared.permissions.clone(),

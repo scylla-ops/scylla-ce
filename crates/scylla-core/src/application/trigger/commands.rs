@@ -378,6 +378,6 @@ impl Run<Persist<ClaimDueTriggers>> for TriggerUseCases {
     }
 }
 
-fn generate_webhook_secret() -> String {
+pub fn generate_webhook_secret() -> String {
     format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
 }

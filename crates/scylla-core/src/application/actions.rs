@@ -31,7 +31,7 @@ impl Authorizer for PermissionAuthorizer {
 
 /// The guard of a pass over many rows: no resource for Cedar to decide on, so the action is
 /// `Authenticated` and its `Prepare` refuses every caller but an in-process service.
-pub(crate) fn service_only(caller: &CallerContext) -> DomainResult<()> {
+pub fn service_only(caller: &CallerContext) -> DomainResult<()> {
     match caller {
         CallerContext::Service(_) => Ok(()),
         _ => Err(DomainError::forbidden(
@@ -42,7 +42,7 @@ pub(crate) fn service_only(caller: &CallerContext) -> DomainResult<()> {
 
 /// The guard of an agent's report on itself: no permission reaches the agent's own App, so the
 /// action is `Authenticated` and the target is the caller.
-pub(crate) fn app_only(caller: &CallerContext) -> DomainResult<AppId> {
+pub fn app_only(caller: &CallerContext) -> DomainResult<AppId> {
     match caller {
         CallerContext::App(app_id) => Ok(app_id.clone()),
         _ => Err(DomainError::forbidden(

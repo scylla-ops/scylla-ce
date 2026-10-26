@@ -114,7 +114,7 @@ impl ServerProcess {
             .env_remove("SCYLLA_STRATA_PROJECTS")
             .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .env_remove("DATABASE_URL")
-            .env("RUST_LOG", "warn")
+            .env("RUST_LOG", "warn,scylla_strata=info")
             .stdin(Stdio::null())
             .stdout(out.try_clone()?)
             .stderr(out)

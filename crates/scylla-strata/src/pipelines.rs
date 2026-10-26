@@ -62,17 +62,15 @@ pub trait Pipelines: crate::Access {
         Ok(job)
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn create_pipeline(&self, cmd: CreatePipeline) -> DomainResult<Pipeline> {
-        self.require_access(cmd.access()).await?;
         self.pipeline_projects().find_by_id(&cmd.project_id).await?;
         let pipeline = Pipeline::create(cmd.name, cmd.project_id, cmd.nodes)?;
         self.pipeline_repo().create(&pipeline).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn update_pipeline(&self, cmd: UpdatePipeline) -> DomainResult<Pipeline> {
-        self.require_access(cmd.access()).await?;
         let mut pipeline = self.pipeline_repo().find_by_id(&cmd.id).await?;
         if let Some(name) = cmd.name {
             pipeline.update_name(name)?;
@@ -83,9 +81,8 @@ pub trait Pipelines: crate::Access {
         self.pipeline_repo().update(&pipeline).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn delete_pipeline(&self, cmd: DeletePipeline) -> DomainResult<()> {
-        self.require_access(cmd.access()).await?;
         let pipeline = self.pipeline_repo().find_by_id(&cmd.id).await?;
         self.pipeline_dispatch()
             .0
@@ -96,55 +93,49 @@ pub trait Pipelines: crate::Access {
             .await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn run_pipeline(&self, cmd: RunPipeline) -> DomainResult<Job> {
-        self.require_access(cmd.access()).await?;
         let origin = user_or_app(self.ctx().caller())?;
         let job = self.new_job(&cmd.id, origin, Vec::new()).await?;
         self.start(&job).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn run_pipeline_with_inputs(&self, cmd: RunPipelineWithInputs) -> DomainResult<Job> {
-        self.require_access(cmd.access()).await?;
         let job = self.new_job(&cmd.id, cmd.origin, cmd.inputs).await?;
         self.start(&job).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn get_pipeline(&self, query: GetPipeline) -> DomainResult<Pipeline> {
-        self.require_access(query.access()).await?;
         self.pipeline_repo().find_by_id(&query.id).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_pipelines(
         &self,
         query: ListPipelines,
     ) -> DomainResult<PaginatedResult<Pipeline>> {
-        self.require_access(query.access()).await?;
         self.pipeline_repo()
             .list_all(query.pagination.as_ref())
             .await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_project_pipelines(
         &self,
         query: ListProjectPipelines,
     ) -> DomainResult<PaginatedResult<Pipeline>> {
-        self.require_access(query.access()).await?;
         self.pipeline_repo()
             .list_by_project(&query.project_id, query.pagination.as_ref())
             .await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_organization_pipelines(
         &self,
         query: ListOrganizationPipelines,
     ) -> DomainResult<PaginatedResult<Pipeline>> {
-        self.require_access(query.access()).await?;
         self.pipeline_repo()
             .list_by_organization(&query.organization_id, query.pagination.as_ref())
             .await

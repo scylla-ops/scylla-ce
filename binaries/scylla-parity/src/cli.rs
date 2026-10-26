@@ -323,6 +323,8 @@ impl Plan<'_> {
                 let mut env = a_env.clone();
                 env.extend(b_env.iter().cloned());
                 let (side, out) = self.side(b_server, &env, "run-b").await?;
+                ok &= side.scenario_ok && side.contract_ok;
+                ok &= mounted(&self.out_dir.join("run-b").join("server.log"), b_env)?;
                 contracts.push(format!("B: {}", side.contract));
                 Some(out)
             }
@@ -335,6 +337,7 @@ impl Plan<'_> {
         if let Some(b) = &b {
             println!("==> acceptance: A run 1 against B");
             let same = self.compare(&first, b)?;
+            ok &= same;
             println!(
                 "{}",
                 if same {
@@ -357,6 +360,47 @@ impl Plan<'_> {
         );
         Ok(ok)
     }
+}
+
+fn mounted(log: &Path, b_env: &[(String, String)]) -> Result<bool> {
+    let Some((_, keys)) = b_env.iter().find(|(k, _)| k == "SCYLLA_STRATA_SLICES") else {
+        return Ok(true);
+    };
+    let text = strip_ansi(&std::fs::read_to_string(log)?);
+    let served: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains("strata serves the slice"))
+        .filter_map(|line| line.split("slice=").nth(1)?.split_whitespace().next())
+        .collect();
+    let missing: Vec<&str> = keys
+        .split(',')
+        .map(str::trim)
+        .filter(|key| !key.is_empty() && !served.contains(key))
+        .collect();
+    if missing.is_empty() {
+        println!("==> B serves on strata: {}", served.join(","));
+        Ok(true)
+    } else {
+        println!("==> B does not serve on strata: {}", missing.join(","));
+        Ok(false)
+    }
+}
+
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            for c in chars.by_ref() {
+                if c.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 async fn wait_ready(addr: &str, edition: &Edition, process: &mut ServerProcess) -> Result<Client> {

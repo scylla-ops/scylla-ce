@@ -15,6 +15,7 @@ use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::project::Project;
 use scylla_domain::domain::role::RoleName;
 use scylla_domain::domain::user::User;
+use scylla_extension::Describe;
 
 /// The projects of an organization. Each use case checks its permission first, as the
 /// authorize stage of Scylla does, then reads or writes through the store.
@@ -44,10 +45,8 @@ pub trait Projects: crate::Access {
         }
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn create_project(&self, cmd: CreateProject) -> DomainResult<Project> {
-        self.require(Permission::CreateProject(cmd.organization_id.clone()))
-            .await?;
         let project = Project::create(cmd.name, cmd.description, cmd.organization_id)?;
         match self.owner_grant(&project)? {
             Some(grant) => {
@@ -58,17 +57,13 @@ pub trait Projects: crate::Access {
         }
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn get_project(&self, query: GetProject) -> DomainResult<Project> {
-        self.require(Permission::ReadProject(query.id.clone()))
-            .await?;
         self.store().find_by_id(&query.id).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn update_project(&self, cmd: UpdateProject) -> DomainResult<Project> {
-        self.require(Permission::UpdateProject(cmd.id.clone()))
-            .await?;
         let mut project = self.store().find_by_id(&cmd.id).await?;
         if let Some(name) = cmd.name {
             project.update_name(name)?;
@@ -79,19 +74,15 @@ pub trait Projects: crate::Access {
         self.store().update(&project).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn set_project_active(&self, cmd: SetProjectActive) -> DomainResult<Project> {
-        self.require(Permission::UpdateProject(cmd.id.clone()))
-            .await?;
         let mut project = self.store().find_by_id(&cmd.id).await?;
         project.set_active(cmd.is_active);
         self.store().update(&project).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn delete_project(&self, cmd: DeleteProject) -> DomainResult<()> {
-        self.require(Permission::DeleteProject(cmd.id.clone()))
-            .await?;
         let project = self.store().find_by_id(&cmd.id).await?;
         let live = self.jobs().live_in_project(project.id()).await?;
         self.store().delete(&project).await?;
@@ -99,21 +90,18 @@ pub trait Projects: crate::Access {
         Ok(())
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_projects(&self, query: ListProjects) -> DomainResult<PaginatedResult<Project>> {
-        self.require(Permission::ListProjects).await?;
         self.store().list_all(query.pagination.as_ref()).await
     }
 
     /// Gated on `readOrganization`: a project-only role sees its own projects. The wider
     /// permission only widens the visible set.
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_organization_projects(
         &self,
         query: ListOrganizationProjects,
     ) -> DomainResult<PaginatedResult<Project>> {
-        self.require(Permission::ReadOrganization(query.organization_id.clone()))
-            .await?;
         let caller = self.ctx().caller();
         let wide = Permission::ListProjectsByOrganization(query.organization_id.clone());
         let visible = match self.scopes().visible(caller, wide.key()).await? {
@@ -129,13 +117,11 @@ pub trait Projects: crate::Access {
             .await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_project_members(
         &self,
         query: ListProjectMembers,
     ) -> DomainResult<PaginatedResult<User>> {
-        self.require(Permission::ListProjectMembers(query.project_id.clone()))
-            .await?;
         let ids = self
             .store()
             .list_principals(&query.project_id, query.pagination.as_ref())
@@ -143,13 +129,11 @@ pub trait Projects: crate::Access {
         self.directory().users(ids).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_user_projects(
         &self,
         query: ListUserProjects,
     ) -> DomainResult<PaginatedResult<Project>> {
-        self.require(Permission::ListUserProjects(query.user_id.clone()))
-            .await?;
         let key = Permission::ReadProject(ProjectId::new("_")).key();
         self.store()
             .list_for_user(&query.user_id, key, query.pagination.as_ref())

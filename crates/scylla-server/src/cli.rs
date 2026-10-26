@@ -75,6 +75,7 @@ pub fn init_tracing(edition_targets: &[&str]) {
         "scylla_auth",
         "scylla_db",
         "scylla_domain",
+        "scylla_strata",
     ];
     let at_info = edition_targets
         .iter()

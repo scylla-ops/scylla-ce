@@ -322,6 +322,16 @@ pub(crate) async fn init_services(
         accounts: account_repo.clone(),
         reset_sender,
         reset_links: ResetLinks::new(public_url),
+        trigger_repo: trigger_repo.clone(),
+        cron_schedule: cron_schedule.clone(),
+        webhook_base_url: config
+            .webhook
+            .as_ref()
+            .and_then(|w| w.public_base_url.clone()),
+        job_logs: job_log_repo.clone(),
+        job_log_stream: job_log_stream.clone(),
+        agents: agent_repo.clone(),
+        agent_streams: agent_registry.clone(),
         trust_forwarded_headers: config.server.trust_forwarded_headers,
     };
 
@@ -605,16 +615,24 @@ where
 
     let mut grpc = Routes::builder();
     grpc.add_service(reflection_v1)
-        .add_service(reflection_v1alpha)
-        .add_service(auth_service)
-        .add_service(trigger_service)
-        .add_service(job_service)
-        .add_service(agent_service)
-        .add_service(agent_admin_service);
+        .add_service(reflection_v1alpha);
 
     let strata_slices = strata
         .as_ref()
         .map_or(&[][..], |(_, slices)| slices.as_slice());
+    if !strata_slices.contains(&scylla_strata::Slice::Auth) {
+        grpc.add_service(auth_service);
+    }
+    if !strata_slices.contains(&scylla_strata::Slice::Triggers) {
+        grpc.add_service(trigger_service);
+    }
+    if !strata_slices.contains(&scylla_strata::Slice::Jobs) {
+        grpc.add_service(job_service);
+    }
+    if !strata_slices.contains(&scylla_strata::Slice::Agents) {
+        grpc.add_service(agent_service);
+        grpc.add_service(agent_admin_service);
+    }
     if !strata_slices.contains(&scylla_strata::Slice::Projects) {
         grpc.add_service(project_service);
     }
@@ -641,9 +659,15 @@ where
         grpc.add_service(app_auth_service);
     }
     if let Some((host, slices)) = &strata {
-        host.mount(&services.shared, slices, &mut grpc, in_flight)
-            .await
-            .map_err(|e| StartupError::Strata(format!("{e:#}")))?;
+        host.mount(
+            &services.shared,
+            slices,
+            &mut grpc,
+            &auth_interceptor,
+            in_flight,
+        )
+        .await
+        .map_err(|e| StartupError::Strata(format!("{e:#}")))?;
     }
 
     for add in surface.grpc {

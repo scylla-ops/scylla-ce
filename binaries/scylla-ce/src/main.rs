@@ -27,6 +27,10 @@ async fn main() -> anyhow::Result<()> {
             Slice::Grants,
             Slice::Organizations,
             Slice::Users,
+            Slice::Auth,
+            Slice::Triggers,
+            Slice::Jobs,
+            Slice::Agents,
         ]))
         .serve()
         .await

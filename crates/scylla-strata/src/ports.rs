@@ -71,7 +71,8 @@ fn page_of<T: Clone>(rows: &[T], page: Option<&PaginationParams>) -> PaginatedRe
 }
 
 /// The projects and the project grants, in memory.
-#[derive(Default)]
+#[derive(strata::Component)]
+#[dev = "keeps the projects in memory"]
 pub struct MemoryProjects {
     rows: Mutex<Vec<Project>>,
     owners: Mutex<Vec<(ProjectId, UserId)>>,
@@ -219,7 +220,8 @@ impl ProjectStore for MemoryProjects {
 }
 
 /// Sees every scope.
-#[derive(Default)]
+#[derive(strata::Component)]
+#[dev = "shows every project to every caller"]
 pub struct SeeAll;
 
 impl Scopes for SeeAll {
@@ -229,7 +231,8 @@ impl Scopes for SeeAll {
 }
 
 /// Knows no user.
-#[derive(Default)]
+#[derive(strata::Component)]
+#[dev = "knows no user"]
 pub struct NoUsers;
 
 impl Directory for NoUsers {
@@ -240,7 +243,8 @@ impl Directory for NoUsers {
 }
 
 /// Runs no job.
-#[derive(Default)]
+#[derive(strata::Component)]
+#[dev = "starts no job"]
 pub struct NoJobs;
 
 impl Jobs for NoJobs {

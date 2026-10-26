@@ -1,22 +1,32 @@
 use scylla_core::grpc::convert::Parse;
 use tonic::Status;
 
+pub mod agents;
 pub mod apps;
+pub mod auth;
 pub mod grants;
+pub mod jobs;
 pub mod organizations;
 pub mod pipelines;
 pub mod projects;
 pub mod roles;
 pub mod secrets;
+pub mod triggers;
 pub mod users;
 
+pub use agents::{
+    AgentAdminServiceClient, AgentAdminServiceServer, AgentServiceClient, AgentServiceServer,
+};
 pub use apps::{AppAuthServiceClient, AppAuthServiceServer, AppServiceClient, AppServiceServer};
+pub use auth::{AuthServiceClient, AuthServiceServer};
 pub use grants::{GrantServiceClient, GrantServiceServer};
+pub use jobs::{JobServiceClient, JobServiceServer};
 pub use organizations::{OrganizationServiceClient, OrganizationServiceServer};
 pub use pipelines::{PipelineServiceClient, PipelineServiceServer};
 pub use projects::{ProjectServiceClient, ProjectServiceServer};
 pub use roles::{RoleServiceClient, RoleServiceServer};
 pub use secrets::{SecretServiceClient, SecretServiceServer};
+pub use triggers::{TriggerServiceClient, TriggerServiceServer};
 pub use users::{UserServiceClient, UserServiceServer};
 
 #[allow(clippy::all, clippy::pedantic)]

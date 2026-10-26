@@ -103,7 +103,7 @@ pub struct TriggerFireUseCases {
     firing: Arc<dyn TriggerFiring>,
 }
 
-fn resolve_inputs(
+pub fn resolve_inputs(
     trigger: &Trigger,
     payload: Option<&serde_json::Value>,
 ) -> DomainResult<Vec<(EnvKey, EnvValue)>> {

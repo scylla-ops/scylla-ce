@@ -42,9 +42,8 @@ pub trait Organizations: crate::Access {
     #[component]
     type OrgDispatch = OrgDispatcher;
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn create_organization(&self, cmd: CreateOrganization) -> DomainResult<Organization> {
-        self.require_access(cmd.access()).await?;
         let organization = Organization::create(cmd.name, cmd.description)?;
         let owner = match self.ctx().caller() {
             CallerContext::User(user_id) => Some(Grant::new(
@@ -67,15 +66,13 @@ pub trait Organizations: crate::Access {
         Ok(organization)
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn get_organization(&self, query: GetOrganization) -> DomainResult<Organization> {
-        self.require_access(query.access()).await?;
         self.org_repo().find_by_id(&query.id).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn update_organization(&self, cmd: UpdateOrganization) -> DomainResult<Organization> {
-        self.require_access(cmd.access()).await?;
         let mut organization = self.org_repo().find_by_id(&cmd.id).await?;
         if let Some(name) = cmd.name {
             organization.update_name(name)?;
@@ -86,20 +83,18 @@ pub trait Organizations: crate::Access {
         self.org_repo().update(&organization).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn set_organization_active(
         &self,
         cmd: SetOrganizationActive,
     ) -> DomainResult<Organization> {
-        self.require_access(cmd.access()).await?;
         let mut organization = self.org_repo().find_by_id(&cmd.id).await?;
         organization.set_active(cmd.is_active);
         self.org_repo().update(&organization).await
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn delete_organization(&self, cmd: DeleteOrganization) -> DomainResult<()> {
-        self.require_access(cmd.access()).await?;
         let organization = self.org_repo().find_by_id(&cmd.id).await?;
         let apps = self
             .org_apps()
@@ -118,21 +113,19 @@ pub trait Organizations: crate::Access {
         Ok(())
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_organizations(
         &self,
         query: ListOrganizations,
     ) -> DomainResult<PaginatedResult<Organization>> {
-        self.require_access(query.access()).await?;
         self.org_repo().list_all(query.pagination.as_ref()).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_organization_members(
         &self,
         query: ListOrganizationMembers,
     ) -> DomainResult<PaginatedResult<User>> {
-        self.require_access(query.access()).await?;
         let ids = self
             .org_repo()
             .list_principals(&query.organization_id, query.pagination.as_ref())
@@ -140,12 +133,11 @@ pub trait Organizations: crate::Access {
         users_in_order(self.org_members().as_ref(), ids).await
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_user_organizations(
         &self,
         query: ListUserOrganizations,
     ) -> DomainResult<PaginatedResult<Organization>> {
-        self.require_access(query.access()).await?;
         self.org_repo()
             .list_for_user(&query.user_id, query.pagination.as_ref())
             .await

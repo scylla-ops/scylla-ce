@@ -73,9 +73,8 @@ pub trait Grants: crate::Access {
         }
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn create_grant(&self, cmd: CreateGrant) -> DomainResult<Grant> {
-        self.require_access(cmd.access()).await?;
         let organization = self.scope_organization(&cmd.scope).await?;
         let grants = self.grant_repo().list_all().await?;
         check_grantable(
@@ -99,9 +98,8 @@ pub trait Grants: crate::Access {
         Ok(grant)
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn revoke_all_access(&self, cmd: RevokeAllAccess) -> DomainResult<u64> {
-        self.require_access(cmd.access()).await?;
         let grants = self.grant_repo().list_all().await?;
         ensure_owner_remains(&grants, |g| {
             g.principal == cmd.principal
@@ -120,9 +118,8 @@ pub trait Grants: crate::Access {
         Ok(removed)
     }
 
-    #[usecase]
+    #[usecase(write, access = cmd.access())]
     async fn revoke_grant(&self, cmd: RevokeGrant) -> DomainResult<()> {
-        self.require_access(cmd.access()).await?;
         let grants = self.grant_repo().list_all().await?;
         let id = cmd.id.as_str();
         let Some(grant) = grants.iter().find(|g| g.id == id).cloned() else {
@@ -147,9 +144,8 @@ pub trait Grants: crate::Access {
         Ok(())
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_grants(&self, query: ListGrants) -> DomainResult<Vec<Grant>> {
-        self.require_access(query.access()).await?;
         let grants = self.grant_repo().list_all().await?;
         Ok(match &query.scope {
             Some(scope) => grants.into_iter().filter(|g| &g.scope == scope).collect(),
@@ -157,9 +153,8 @@ pub trait Grants: crate::Access {
         })
     }
 
-    #[usecase]
+    #[usecase(read, access = query.access())]
     async fn list_grantable_roles(&self, query: ListGrantableRoles) -> DomainResult<Vec<Role>> {
-        self.require_access(query.access()).await?;
         let mut roles = self.role_repo().list_all().await?;
         roles.retain(|r| {
             r.usable_in(query.organization_id.as_ref())

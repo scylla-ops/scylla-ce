@@ -84,7 +84,7 @@ impl PasswordResetUseCases {
     }
 
     /// After the response, so that its time and its errors do not depend on the account.
-    fn issue_later(&self, new: NewReset) {
+    pub fn issue_later(&self, new: NewReset) {
         let accounts = self.accounts.clone();
         let sender = self.sender.clone();
         tokio::spawn(async move {

@@ -34,7 +34,7 @@ impl DispatchUseCases {
         self.registry.wake(agent);
     }
 
-    pub(crate) fn open_streams(&self) -> Vec<AgentStream> {
+    pub fn open_streams(&self) -> Vec<AgentStream> {
         self.registry.connected()
     }
 
@@ -44,7 +44,7 @@ impl DispatchUseCases {
 
     /// Every way a job goes back to the pool: the jobs of a stream that is gone, and the
     /// dispatcher wakes for them.
-    pub(crate) async fn release(&self, stream: &AgentStream) -> DomainResult<u64> {
+    pub async fn release(&self, stream: &AgentStream) -> DomainResult<u64> {
         let released = self.job_repo.release(stream).await?;
         if released > 0 {
             self.registry.wake(None);
@@ -61,7 +61,7 @@ impl DispatchUseCases {
     }
 
     /// An agent that is gone learns it at its next hello.
-    pub(crate) fn cancel(&self, agent: &AppId, job_id: &JobId) {
+    pub fn cancel(&self, agent: &AppId, job_id: &JobId) {
         if let Err(e) = self.registry.cancel(agent, job_id) {
             debug!(app_id = %agent, job_id = %job_id, error = %e, "could not send the cancel to the agent");
         }

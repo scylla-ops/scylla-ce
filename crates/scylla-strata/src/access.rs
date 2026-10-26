@@ -2,6 +2,7 @@ use crate::ports::Scopes;
 use scylla_auth::authz::{PermissionService, Visibility, VisibilityResolver};
 use scylla_core::application::auth::{SessionLookup, look_up_session, record_activity};
 use scylla_core::application::{AppTokenRepository, SessionRepository};
+use scylla_core::grpc::auth_interceptor::{AuthContext, CallerSession};
 use scylla_domain::domain::caller::CallerContext;
 use scylla_domain::domain::errors::{DomainError, DomainResult};
 use scylla_domain::domain::ids::{AppId, SessionId, UserId};
@@ -94,6 +95,18 @@ impl CallerOf for ScyllaCtx {
             meta,
         }
     }
+}
+
+/// The caller that the CE `AuthInterceptor` (or the anonymous mark of a public service) put in
+/// the extensions of the call. `None` when no layer ran: the context builder then reads the
+/// bearer token itself.
+pub fn intercepted(headers: &(impl Headers + ?Sized)) -> Option<Identity> {
+    let extensions = headers.extensions()?.downcast_ref::<tonic::Extensions>()?;
+    let caller = extensions.get::<AuthContext>()?.caller.clone();
+    let session = extensions
+        .get::<CallerSession>()
+        .map(|session| session.0.clone());
+    Some(Identity::Caller { caller, session })
 }
 
 #[derive(Clone, Debug)]
@@ -239,9 +252,12 @@ pub trait Access {
         headers: &(impl Headers + ?Sized),
     ) -> Result<Self::Ctx, Rejection> {
         let meta = meta_like_ce(headers);
-        let identity = match bearer_like_ce(headers) {
-            Ok(token) => self.authenticator().authenticate(token).await,
-            Err(refusal) => Identity::Refused(refusal),
+        let identity = match intercepted(headers) {
+            Some(identity) => identity,
+            None => match bearer_like_ce(headers) {
+                Ok(token) => self.authenticator().authenticate(token).await,
+                Err(refusal) => Identity::Refused(refusal),
+            },
         };
         let client = self.forwarding().headers().client(headers);
         Ok(Self::Ctx::from_parts(identity, client, meta))
@@ -254,6 +270,11 @@ pub trait Access {
             Some(refusal) => Err(refusal.error()),
             None => Ok(()),
         }
+    }
+
+    #[authorize]
+    async fn authorize(&self, access: &scylla_extension::Access) -> DomainResult<()> {
+        self.require_access(access.clone()).await
     }
 
     async fn require(&self, permission: Permission) -> DomainResult<()> {
@@ -378,34 +399,15 @@ impl Forwarding for TrustedForwarding {
     }
 }
 
+/// No deadline: the GrpcTimeout layer of the tonic server answers `CANCELLED` "Timeout expired"
+/// at the `grpc-timeout` of the call, as for CE. A context deadline would answer
+/// `DEADLINE_EXCEEDED` first.
 pub fn meta_like_ce(headers: &(impl Headers + ?Sized)) -> RequestMeta {
-    let deadline = headers
-        .header("grpc-timeout")
-        .and_then(grpc_timeout)
-        .and_then(|timeout| Instant::now().checked_add(timeout));
     RequestMeta {
         request_id: headers.header("x-request-id").map(str::to_owned),
-        deadline,
+        deadline: None,
         traceparent: headers.header("traceparent").map(str::to_owned),
     }
-}
-
-fn grpc_timeout(value: &str) -> Option<std::time::Duration> {
-    use std::time::Duration;
-    let (digits, unit) = value.split_at(value.len().checked_sub(1)?);
-    if digits.is_empty() || digits.len() > 8 || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let n: u64 = digits.parse().ok()?;
-    Some(match unit {
-        "H" => Duration::from_secs(n * 3600),
-        "M" => Duration::from_secs(n * 60),
-        "S" => Duration::from_secs(n),
-        "m" => Duration::from_millis(n),
-        "u" => Duration::from_micros(n),
-        "n" => Duration::from_nanos(n),
-        _ => return None,
-    })
 }
 
 pub fn bearer_like_ce(headers: &(impl Headers + ?Sized)) -> Result<Option<&str>, Refusal> {
@@ -435,6 +437,41 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_caller_of_the_interceptor_is_the_identity() {
+        let user = UserId::new("u-1");
+        let session = SessionId::new("s-1");
+        let mut request = tonic::Request::new(());
+        request
+            .extensions_mut()
+            .insert(AuthContext::new(CallerContext::User(user.clone())));
+        request
+            .extensions_mut()
+            .insert(CallerSession(session.clone()));
+        let found = intercepted(&strata_tonic::CallHeaders::new(&request));
+        assert!(matches!(
+            found,
+            Some(Identity::Caller { caller: CallerContext::User(u), session: Some(s) }) if u == user && s == session
+        ));
+
+        let mut public = tonic::Request::new(());
+        public
+            .extensions_mut()
+            .insert(AuthContext::new(CallerContext::Anonymous));
+        let found = intercepted(&strata_tonic::CallHeaders::new(&public));
+        assert!(matches!(
+            found,
+            Some(Identity::Caller {
+                caller: CallerContext::Anonymous,
+                session: None
+            })
+        ));
+
+        let bare = tonic::Request::new(());
+        assert!(intercepted(&strata_tonic::CallHeaders::new(&bare)).is_none());
+        assert!(intercepted(&One(Some("Bearer x"))).is_none());
+    }
+
     fn missing(r: Result<Option<&str>, Refusal>) -> bool {
         matches!(r, Err(Refusal::Unauthenticated(m)) if m == "Missing or invalid authorization token")
     }
@@ -448,30 +485,15 @@ mod tests {
     }
 
     #[test]
-    fn the_deadline_rule_is_the_one_of_tonic() {
-        assert!(
-            meta_like_ce(&Pairs(&[("grpc-timeout", "300m")]))
-                .deadline
-                .is_some()
-        );
-        assert!(
-            meta_like_ce(&Pairs(&[("grpc-timeout", "2S")]))
-                .deadline
-                .is_some()
-        );
-        for bad in ["abc", "", "m", "123456789S", "10x", " 5S"] {
+    fn the_context_has_no_deadline() {
+        for timeout in ["300m", "2S", "20m", "0n", "abc", ""] {
             assert!(
-                meta_like_ce(&Pairs(&[("grpc-timeout", bad)]))
+                meta_like_ce(&Pairs(&[("grpc-timeout", timeout)]))
                     .deadline
                     .is_none(),
-                "{bad:?}"
+                "{timeout:?}"
             );
         }
-        assert!(
-            meta_like_ce(&Pairs(&[("x-request-timeout-ms", "0")]))
-                .deadline
-                .is_none()
-        );
         let meta = meta_like_ce(&Pairs(&[("x-request-id", "r1"), ("traceparent", "t1")]));
         assert_eq!(
             (meta.request_id.as_deref(), meta.traceparent.as_deref()),
