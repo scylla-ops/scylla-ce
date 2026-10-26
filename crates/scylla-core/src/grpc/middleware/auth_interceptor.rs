@@ -3,14 +3,19 @@ use crate::application::{AppTokenRepository, SessionRepository};
 use crate::domain::caller::CallerContext;
 use crate::domain::ids::SessionId;
 use crate::grpc::mappers::domain_error_to_status;
-use derive_more::Constructor;
 use std::sync::Arc;
 use tonic::{Request, Status};
 use tonic_async_interceptor::AsyncInterceptor;
 
-#[derive(Debug, Clone, Constructor)]
+#[derive(Debug, Clone)]
 pub struct AuthContext {
     pub caller: CallerContext,
+}
+
+impl AuthContext {
+    pub fn new(caller: CallerContext) -> Self {
+        Self { caller }
+    }
 }
 
 pub fn extract_auth_context<T>(request: &Request<T>) -> Result<AuthContext, Status> {

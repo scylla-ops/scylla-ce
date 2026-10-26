@@ -17,7 +17,6 @@ use crate::domain::ids::{AppId, OrganizationId};
 use crate::domain::role::RoleName;
 use crate::domain::trigger::Trigger;
 use chrono::{DateTime, Utc};
-use derive_more::Constructor;
 use scylla_auth::authz::{Grant, ORGANIZATION_TRIGGER_RUNNER_ROLE, Principal, Scope};
 use std::sync::Arc;
 use tracing::warn;
@@ -44,7 +43,6 @@ pub fn generate_webhook_secret() -> String {
 
 /// The trigger rules that the Triggers module of strata reads: the next fire time and the runner
 /// app of an organization.
-#[derive(Constructor)]
 pub struct TriggerUseCases {
     pub(super) pipeline_repo: Arc<dyn PipelineRepository>,
     pub(super) project_repo: Arc<dyn ProjectRepository>,
@@ -53,6 +51,20 @@ pub struct TriggerUseCases {
 }
 
 impl TriggerUseCases {
+    pub fn new(
+        pipeline_repo: Arc<dyn PipelineRepository>,
+        project_repo: Arc<dyn ProjectRepository>,
+        app_repo: Arc<dyn AppRepository>,
+        schedule: Arc<dyn CronSchedule>,
+    ) -> Self {
+        Self {
+            pipeline_repo,
+            project_repo,
+            app_repo,
+            schedule,
+        }
+    }
+
     pub fn schedule_next(&self, trigger: &mut Trigger) -> DomainResult<()> {
         let next = next_fire_time(trigger, &*self.schedule, clock::now())?;
         trigger.set_next_fire_at(next);

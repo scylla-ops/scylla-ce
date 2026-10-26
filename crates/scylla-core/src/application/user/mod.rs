@@ -11,7 +11,6 @@ pub use reset::{
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{SessionId, UserId};
 use crate::domain::user::User;
-use derive_more::Constructor;
 use scylla_auth::authz::{
     Grant, GrantRepository, Principal, SYSTEM_ADMIN_ROLE, Scope, ensure_owner_remains,
 };
@@ -37,7 +36,6 @@ pub fn session_not_found(id: &SessionId) -> DomainError {
 }
 
 /// The user rules that two use cases or more of the Users module of strata read.
-#[derive(Constructor)]
 pub struct UserUseCases {
     pub(super) user_repo: Arc<dyn UserRepository>,
     pub(super) grant_repo: Arc<dyn GrantRepository>,
@@ -45,6 +43,18 @@ pub struct UserUseCases {
 }
 
 impl UserUseCases {
+    pub fn new(
+        user_repo: Arc<dyn UserRepository>,
+        grant_repo: Arc<dyn GrantRepository>,
+        accounts: Arc<dyn AccountRepository>,
+    ) -> Self {
+        Self {
+            user_repo,
+            grant_repo,
+            accounts,
+        }
+    }
+
     /// A user that holds `system-admin` leaves the active users only when another active user
     /// holds it.
     pub async fn ensure_an_active_admin_remains(&self, leaving: &UserId) -> DomainResult<()> {

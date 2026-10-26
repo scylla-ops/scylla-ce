@@ -7,13 +7,11 @@ use crate::application::{JobLogStreamPort, JobRepository};
 use crate::domain::errors::DomainResult;
 use crate::domain::ids::{AppId, JobId};
 use crate::domain::job::Job;
-use derive_more::Constructor;
 use std::sync::Arc;
 use tracing::debug;
 
 /// The orders that stop a job on its agent, and the wakes of the dispatcher. The dispatch pass
 /// itself is `JobControl::dispatch_pending_jobs` of the strata edition.
-#[derive(Constructor)]
 pub struct DispatchUseCases {
     registry: Arc<dyn AgentDispatch>,
     job_repo: Arc<dyn JobRepository>,
@@ -21,6 +19,18 @@ pub struct DispatchUseCases {
 }
 
 impl DispatchUseCases {
+    pub fn new(
+        registry: Arc<dyn AgentDispatch>,
+        job_repo: Arc<dyn JobRepository>,
+        log_stream: Arc<dyn JobLogStreamPort>,
+    ) -> Self {
+        Self {
+            registry,
+            job_repo,
+            log_stream,
+        }
+    }
+
     pub fn wake(&self, agent: Option<&AppId>) {
         self.registry.wake(agent);
     }

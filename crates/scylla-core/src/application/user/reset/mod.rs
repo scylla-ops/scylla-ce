@@ -8,7 +8,6 @@ use crate::domain::user::{Email, PasswordReset, ResetToken, User};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Duration;
-use derive_more::Constructor;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -57,7 +56,6 @@ pub struct NewReset {
 
 /// The reset links: `request_password_reset` and `reset_password` for a caller without a session,
 /// `send_password_reset` for an administrator or the user.
-#[derive(Constructor)]
 pub struct PasswordResetUseCases {
     accounts: Arc<dyn AccountRepository>,
     sender: Arc<dyn PasswordResetSender>,
@@ -65,6 +63,18 @@ pub struct PasswordResetUseCases {
 }
 
 impl PasswordResetUseCases {
+    pub fn new(
+        accounts: Arc<dyn AccountRepository>,
+        sender: Arc<dyn PasswordResetSender>,
+        links: ResetLinks,
+    ) -> Self {
+        Self {
+            accounts,
+            sender,
+            links,
+        }
+    }
+
     pub fn new_reset(&self, user: &User, email: &Email) -> DomainResult<NewReset> {
         let reset = PasswordReset::create(user.id().clone(), mint_reset_token()?, RESET_LINK_TTL);
         let message = PasswordResetMessage {
