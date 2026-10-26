@@ -60,6 +60,10 @@ pub struct Unauthenticated {
     pub services: Vec<String>,
     #[serde(default)]
     pub service_cases: Vec<Case>,
+    /// The code of a call that the harness sends with an empty request, when the caller passes
+    /// the authentication: it replaces `OK` for that call.
+    #[serde(default)]
+    pub ok_codes: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -146,6 +150,7 @@ pub fn parse(sources: &[&str]) -> Result<Merged> {
                 .unauthenticated
                 .service_cases
                 .extend(part.service_cases);
+            merged.unauthenticated.ok_codes.extend(part.ok_codes);
         }
         merged.load.extend(part.load.into_vec());
         merged.store_failure.extend(part.store_failure.into_vec());
@@ -208,9 +213,13 @@ pub async fn check(ctx: &Context<'_>, contract: &Merged, first_step: usize) -> R
                 .call(call, &json!({}), &case.auth().opts(step, &vars)?)
                 .await?;
             let code = code_name(outcome.code);
-            let expected = case.codes.get(call).unwrap_or(&case.code);
-            let message_ok = case.codes.contains_key(call)
-                || case.message.as_deref().is_none_or(|m| m == outcome.message);
+            let ok_code = (case.code == "OK")
+                .then(|| unauth.ok_codes.get(call))
+                .flatten();
+            let special = case.codes.get(call).or(ok_code);
+            let expected = special.unwrap_or(&case.code);
+            let message_ok =
+                special.is_some() || case.message.as_deref().is_none_or(|m| m == outcome.message);
             report.check(code == expected && message_ok, || {
                 format!(
                     "{call} with a {} token: expected {expected} {:?}, got {code} {:?}",
