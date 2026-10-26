@@ -53,7 +53,7 @@ pub(crate) fn app_only(caller: &CallerContext) -> DomainResult<AppId> {
 
 /// The guard of an action on the caller's own account: the target is the caller, and an app or a
 /// service has no account.
-pub(crate) fn user_only(caller: &CallerContext) -> DomainResult<UserId> {
+pub fn user_only(caller: &CallerContext) -> DomainResult<UserId> {
     match caller {
         CallerContext::User(user_id) => Ok(user_id.clone()),
         _ => Err(DomainError::forbidden(
@@ -63,7 +63,7 @@ pub(crate) fn user_only(caller: &CallerContext) -> DomainResult<UserId> {
 }
 
 /// The origin of a job that a caller starts directly: a user or an app, never a service.
-pub(crate) fn user_or_app(caller: &CallerContext) -> DomainResult<JobOrigin> {
+pub fn user_or_app(caller: &CallerContext) -> DomainResult<JobOrigin> {
     match caller {
         CallerContext::User(user_id) => Ok(JobOrigin::Human {
             user_id: user_id.clone(),

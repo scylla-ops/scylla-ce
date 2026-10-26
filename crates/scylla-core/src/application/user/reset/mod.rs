@@ -70,7 +70,7 @@ pub struct PasswordResetUseCases {
 }
 
 impl PasswordResetUseCases {
-    fn new_reset(&self, user: &User, email: &Email) -> DomainResult<NewReset> {
+    pub fn new_reset(&self, user: &User, email: &Email) -> DomainResult<NewReset> {
         let reset = PasswordReset::create(user.id().clone(), mint_reset_token()?, RESET_LINK_TTL);
         let message = PasswordResetMessage {
             user_id: user.id().clone(),

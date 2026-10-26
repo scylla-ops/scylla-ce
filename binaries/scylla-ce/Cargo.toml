@@ -22,6 +22,7 @@ scylla-core = { workspace = true }
 scylla-db = { workspace = true }
 # the server builder and the shared command line
 scylla-server = { workspace = true }
+scylla-strata = { workspace = true }
 
 tokio.workspace = true
 anyhow.workspace = true

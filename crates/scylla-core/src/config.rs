@@ -27,6 +27,9 @@ pub struct ControlPlaneConfig {
 
     #[serde(default)]
     pub webhook: Option<WebhookConfig>,
+
+    #[serde(default)]
+    pub strata: StrataConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -78,6 +81,15 @@ pub struct SecretsConfig {
 }
 
 pub const MASTER_KEY_ENV: &str = "SCYLLA_MASTER_KEY";
+
+/// The slices that the strata edition serves instead of the action pipeline.
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
+pub struct StrataConfig {
+    #[serde(default)]
+    pub slices: Vec<String>,
+}
+
+pub const STRATA_SLICES_ENV: &str = "SCYLLA_STRATA_SLICES";
 
 /// Public (committed in `config/docker.toml`): detected at startup to warn.
 pub const DEV_MASTER_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -239,6 +251,19 @@ impl ControlPlaneConfig {
         if let Ok(key) = std::env::var(MASTER_KEY_ENV) {
             self.override_master_key(&key);
         }
+        if let Ok(slices) = std::env::var(STRATA_SLICES_ENV) {
+            self.override_strata_slices(&slices);
+        }
+    }
+
+    /// A comma list. A blank value turns every slice off.
+    pub fn override_strata_slices(&mut self, slices: &str) {
+        self.strata.slices = slices
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect();
     }
 
     /// A blank value is ignored: an unset env var must not wipe a file-provided key.

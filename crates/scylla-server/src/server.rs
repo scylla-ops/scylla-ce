@@ -6,6 +6,7 @@ use scylla_core::application::PasswordResetSender;
 use scylla_core::config::ControlPlaneConfig;
 use scylla_core::infrastructure::LogPasswordResetSender;
 use scylla_extension::{Extension, Hooks};
+use scylla_strata::Host;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,6 +24,7 @@ pub struct Server {
     features: Vec<Box<dyn Feature>>,
     surface: Surface,
     password_reset_sender: Arc<dyn PasswordResetSender>,
+    strata: Option<Box<dyn Host>>,
 }
 
 impl Server {
@@ -35,7 +37,15 @@ impl Server {
             features: Vec::new(),
             surface: Surface::default(),
             password_reset_sender: Arc::new(LogPasswordResetSender),
+            strata: None,
         }
+    }
+
+    /// The strata edition of the binary. `[strata].slices` chooses the slices that it serves.
+    #[must_use]
+    pub fn strata(mut self, host: impl Host) -> Self {
+        self.strata = Some(Box::new(host));
+        self
     }
 
     /// Replaces the default sender, which writes each reset link in the server log.
@@ -113,7 +123,12 @@ impl Server {
             features,
             mut surface,
             password_reset_sender,
+            strata,
         } = self;
+
+        let ready = strata.as_ref().map_or(&[][..], |host| host.ready());
+        let slices =
+            scylla_strata::switched(&config.strata.slices, ready).context("[strata].slices")?;
 
         for feature in &features {
             feature.hooks(&mut hooks);
@@ -148,9 +163,18 @@ impl Server {
         });
 
         let server_token = token.clone();
-        let server = run_server(&config, &services, surface, async move {
-            server_token.cancelled().await;
-        });
+        let strata = strata.map(|host| (host, slices));
+        let in_flight = strata::InFlight::waiting(strata::InFlight::DEFAULT_MAX);
+        let server = run_server(
+            &config,
+            &services,
+            surface,
+            strata,
+            &in_flight,
+            async move {
+                server_token.cancelled().await;
+            },
+        );
         let grace_token = token.clone();
         let grace = async move {
             grace_token.cancelled().await;
@@ -168,6 +192,16 @@ impl Server {
         };
 
         token.cancel();
+
+        if tokio::time::timeout(SHUTDOWN_GRACE, in_flight.idle())
+            .await
+            .is_err()
+        {
+            warn!(
+                running = in_flight.running(),
+                "strata calls still run after the shutdown grace period; closing the pool"
+            );
+        }
 
         info!("closing database pool");
         scylla_db::close_db(&db).await;

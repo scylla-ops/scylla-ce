@@ -2692,6 +2692,7 @@ dependencies = [
  "scylla-core",
  "scylla-db",
  "scylla-server",
+ "scylla-strata",
  "tokio",
 ]
 
@@ -2821,7 +2822,9 @@ dependencies = [
  "scylla-db",
  "scylla-extension",
  "scylla-proto",
+ "scylla-strata",
  "sqlx",
+ "strata",
  "tokio",
  "tokio-util",
  "tonic",
@@ -2832,6 +2835,30 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "scylla-strata"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "prost",
+ "scylla-auth",
+ "scylla-core",
+ "scylla-db",
+ "scylla-domain",
+ "scylla-extension",
+ "scylla-proto",
+ "sqlx",
+ "strata",
+ "strata-tonic",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tracing",
 ]
 
 [[package]]
@@ -3300,6 +3327,40 @@ dependencies = [
  "libc",
  "psm",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "strata"
+version = "0.1.0"
+source = "git+https://github.com/GodlyJaaaj/strata?rev=576655a894f8eecf05b61f5112f5d5d7303004e5#576655a894f8eecf05b61f5112f5d5d7303004e5"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "strata-macros",
+]
+
+[[package]]
+name = "strata-macros"
+version = "0.1.0"
+source = "git+https://github.com/GodlyJaaaj/strata?rev=576655a894f8eecf05b61f5112f5d5d7303004e5#576655a894f8eecf05b61f5112f5d5d7303004e5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "strata-tonic"
+version = "0.1.0"
+source = "git+https://github.com/GodlyJaaaj/strata?rev=576655a894f8eecf05b61f5112f5d5d7303004e5#576655a894f8eecf05b61f5112f5d5d7303004e5"
+dependencies = [
+ "serde",
+ "serde_json",
+ "strata",
+ "tokio",
+ "tonic",
+ "tracing",
 ]
 
 [[package]]

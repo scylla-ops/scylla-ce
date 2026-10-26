@@ -1,6 +1,7 @@
 use scylla_core::config::ControlPlaneConfig;
 use scylla_server::Server;
 use scylla_server::cli::{self, Cli};
+use scylla_strata::{EditionHost, ScyllaCeOnDb, Slice};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -16,5 +17,17 @@ async fn main() -> anyhow::Result<()> {
     cli::init_tracing(&["scylla_ce"]);
     let config = cli.load_config()?;
     let db = scylla_db::init_db(&config.database).await?;
-    Server::new(config, db).serve().await
+    Server::new(config, db)
+        .strata(EditionHost::<ScyllaCeOnDb>::new(&[
+            Slice::Projects,
+            Slice::Secrets,
+            Slice::Pipelines,
+            Slice::Apps,
+            Slice::Roles,
+            Slice::Grants,
+            Slice::Organizations,
+            Slice::Users,
+        ]))
+        .serve()
+        .await
 }

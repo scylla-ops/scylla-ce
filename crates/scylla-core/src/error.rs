@@ -44,6 +44,8 @@ pub enum StartupError {
     Database(#[from] DomainError),
     #[error("permission service init: {0}")]
     Permission(String),
+    #[error("strata edition: {0}")]
+    Strata(String),
     #[error("bootstrap: {0}")]
     Bootstrap(#[from] BootstrapError),
     #[error("gRPC reflection: {0}")]

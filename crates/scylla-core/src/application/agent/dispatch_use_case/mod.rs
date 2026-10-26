@@ -30,7 +30,7 @@ pub struct DispatchUseCases {
 }
 
 impl DispatchUseCases {
-    pub(crate) fn wake(&self, agent: Option<&AppId>) {
+    pub fn wake(&self, agent: Option<&AppId>) {
         self.registry.wake(agent);
     }
 
@@ -38,7 +38,7 @@ impl DispatchUseCases {
         self.registry.connected()
     }
 
-    pub(crate) fn disconnect(&self, agent: &AppId) {
+    pub fn disconnect(&self, agent: &AppId) {
         self.registry.disconnect(agent);
     }
 
@@ -53,7 +53,7 @@ impl DispatchUseCases {
     }
 
     /// After a server-side end: the agent that holds the job stops it, and the live tail closes.
-    pub(crate) fn stop(&self, job: &Job) {
+    pub fn stop(&self, job: &Job) {
         if let Some(agent) = job.agent_app_id() {
             self.cancel(agent, job.id());
         }
@@ -70,7 +70,7 @@ impl DispatchUseCases {
 
     /// Runs a delete that cascades to jobs, then stops the jobs of `scope` that were live; a
     /// delete that fails stops nothing.
-    pub(crate) async fn recall<T>(
+    pub async fn recall<T>(
         &self,
         scope: JobScope<'_>,
         delete: impl Future<Output = DomainResult<T>>,

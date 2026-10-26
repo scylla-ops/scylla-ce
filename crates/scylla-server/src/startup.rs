@@ -38,6 +38,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 pub(crate) struct Services {
+    pub shared: scylla_strata::Shared,
     pub auth_uc: Arc<AuthUseCases>,
     pub user_uc: Arc<UserUseCases>,
     pub reset_uc: Arc<PasswordResetUseCases>,
@@ -133,7 +134,7 @@ pub(crate) async fn init_services(
         user_repo.clone(),
         account_repo.clone(),
         hash_service.clone(),
-        reset_sender,
+        reset_sender.clone(),
         ResetLinks::new(public_url),
     ));
     // The registry and the live tail come first: the dispatcher sends through the one and
@@ -250,10 +251,12 @@ pub(crate) async fn init_services(
         });
     }
 
+    let dispatch_shared = dispatch_uc.clone();
+
     // A wake names the agents a pass is for; the tick passes over every agent. The wakes that
     // arrived during a pass make one pass.
     {
-        let scheduler = PendingJobScheduler::new(actions.clone(), dispatch_uc);
+        let scheduler = PendingJobScheduler::new(actions.clone(), dispatch_uc.clone());
         let mut woken = woken;
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(Duration::from_secs(30));
@@ -294,7 +297,36 @@ pub(crate) async fn init_services(
         });
     }
 
+    let shared = scylla_strata::Shared {
+        db: db.clone(),
+        permissions: permission_checker.clone(),
+        visibility: permission_checker.clone(),
+        sessions: session_repo.clone(),
+        app_tokens: app_token_repo.clone(),
+        projects: project_repo,
+        users: user_repo,
+        jobs: job_repo,
+        dispatch: dispatch_shared,
+        secrets: secret_repo.clone(),
+        cipher: secret_cipher.clone(),
+        pipelines: pipeline_repo.clone(),
+        secret_resolver: secret_resolver.clone(),
+        apps: app_repo.clone(),
+        app_credentials: app_credential_repo.clone(),
+        hash: hash_service.clone(),
+        agent_registry: agent_registry.clone(),
+        roles: role_repo.clone(),
+        grants: grant_repo.clone(),
+        authz_entities: authz_provider.clone(),
+        organizations: org_repo.clone(),
+        accounts: account_repo.clone(),
+        reset_sender,
+        reset_links: ResetLinks::new(public_url),
+        trust_forwarded_headers: config.server.trust_forwarded_headers,
+    };
+
     Ok(Services {
+        shared,
         auth_uc,
         user_uc,
         reset_uc,
@@ -413,6 +445,8 @@ pub(crate) async fn run_server<F>(
     config: &ControlPlaneConfig,
     services: &Services,
     surface: Surface,
+    strata: Option<(Box<dyn scylla_strata::Host>, Vec<scylla_strata::Slice>)>,
+    in_flight: &strata::InFlight,
     shutdown: F,
 ) -> Result<(), StartupError>
 where
@@ -573,19 +607,44 @@ where
     grpc.add_service(reflection_v1)
         .add_service(reflection_v1alpha)
         .add_service(auth_service)
-        .add_service(app_auth_service)
-        .add_service(user_service)
-        .add_service(org_service)
-        .add_service(project_service)
-        .add_service(pipeline_service)
         .add_service(trigger_service)
-        .add_service(secret_service)
         .add_service(job_service)
-        .add_service(app_service)
         .add_service(agent_service)
-        .add_service(agent_admin_service)
-        .add_service(grant_service)
-        .add_service(role_service);
+        .add_service(agent_admin_service);
+
+    let strata_slices = strata
+        .as_ref()
+        .map_or(&[][..], |(_, slices)| slices.as_slice());
+    if !strata_slices.contains(&scylla_strata::Slice::Projects) {
+        grpc.add_service(project_service);
+    }
+    if !strata_slices.contains(&scylla_strata::Slice::Secrets) {
+        grpc.add_service(secret_service);
+    }
+    if !strata_slices.contains(&scylla_strata::Slice::Users) {
+        grpc.add_service(user_service);
+    }
+    if !strata_slices.contains(&scylla_strata::Slice::Organizations) {
+        grpc.add_service(org_service);
+    }
+    if !strata_slices.contains(&scylla_strata::Slice::Grants) {
+        grpc.add_service(grant_service);
+    }
+    if !strata_slices.contains(&scylla_strata::Slice::Roles) {
+        grpc.add_service(role_service);
+    }
+    if !strata_slices.contains(&scylla_strata::Slice::Pipelines) {
+        grpc.add_service(pipeline_service);
+    }
+    if !strata_slices.contains(&scylla_strata::Slice::Apps) {
+        grpc.add_service(app_service);
+        grpc.add_service(app_auth_service);
+    }
+    if let Some((host, slices)) = &strata {
+        host.mount(&services.shared, slices, &mut grpc, in_flight)
+            .await
+            .map_err(|e| StartupError::Strata(format!("{e:#}")))?;
+    }
 
     for add in surface.grpc {
         add(&mut grpc, &auth_interceptor);

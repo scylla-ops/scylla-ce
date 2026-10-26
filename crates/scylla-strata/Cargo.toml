@@ -1,0 +1,35 @@
+[package]
+name = "scylla-strata"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+scylla-domain.workspace = true
+scylla-auth.workspace = true
+scylla-extension.workspace = true
+scylla-core.workspace = true
+scylla-db.workspace = true
+scylla-proto.workspace = true
+strata.workspace = true
+strata-tonic.workspace = true
+tonic.workspace = true
+tonic-prost.workspace = true
+prost.workspace = true
+async-trait.workspace = true
+sqlx.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+scylla-core = { workspace = true, features = ["test-utils"] }
+tokio = { workspace = true }
+tokio-stream.workspace = true
+
+[build-dependencies]
+tonic-prost-build.workspace = true
+
+[lints]
+workspace = true

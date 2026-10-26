@@ -1,4 +1,4 @@
-use crate::domain::errors::DomainResult;
+use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{OrganizationId, UserId};
 use crate::domain::organization::Organization;
 use crate::domain::organization::{OrganizationDescription, OrganizationName};
@@ -126,6 +126,21 @@ impl OrganizationRepository for PgOrganizationRepository {
 #[allow(clippy::wildcard_imports)]
 pub mod queries {
     use super::*;
+
+    pub async fn lock<'e, E>(executor: E, org_id: &OrganizationId) -> DomainResult<()>
+    where
+        E: PgExecutor<'e>,
+    {
+        sqlx::query_scalar!(
+            "SELECT id FROM organizations WHERE id = $1 FOR NO KEY UPDATE",
+            org_id.as_str(),
+        )
+        .fetch_optional(executor)
+        .await
+        .to_domain()?
+        .map(|_| ())
+        .ok_or_else(DomainError::missing_reference)
+    }
 
     pub async fn count_principals<'e, E>(executor: E, org_id: &OrganizationId) -> DomainResult<u64>
     where

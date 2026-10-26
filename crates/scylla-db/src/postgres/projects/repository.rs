@@ -25,6 +25,27 @@ impl PgProjectRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+    #[instrument(skip_all, fields(project_id = %project.id(), org_id = %project.organization_id()))]
+    pub async fn provision_counted(
+        &self,
+        project: &Project,
+        owner: Option<&Grant>,
+        admit: impl FnOnce(u64) -> DomainResult<()> + Send,
+    ) -> DomainResult<Project> {
+        let mut tx = self.pool.begin().await.to_domain()?;
+        super::super::organizations::repository::queries::lock(&mut *tx, project.organization_id())
+            .await?;
+        let all = VisibilityFilter::new(&Visibility::All);
+        let count = queries::count(&mut *tx, false, Some(project.organization_id()), &all).await?;
+        admit(count)?;
+        queries::create(&mut *tx, project).await?;
+        if let Some(grant) = owner {
+            grants::insert(&mut *tx, grant).await?;
+        }
+        tx.commit().await.to_domain()?;
+        Ok(project.clone())
+    }
 }
 
 #[async_trait]

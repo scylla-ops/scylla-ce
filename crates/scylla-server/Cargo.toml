@@ -13,6 +13,8 @@ scylla-core = { workspace = true }
 scylla-db = { workspace = true }
 scylla-extension = { workspace = true }
 scylla-proto = { workspace = true }
+scylla-strata = { workspace = true }
+strata = { workspace = true }
 
 tokio.workspace = true
 tokio-util.workspace = true

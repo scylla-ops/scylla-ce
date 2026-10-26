@@ -8,6 +8,7 @@ members = [
     "crates/scylla-core",
     "crates/scylla-db",
     "crates/scylla-server",
+    "crates/scylla-strata",
     "binaries/scylla-ce",
     "binaries/scylla-agent",
     "binaries/scylla-parity",
@@ -70,6 +71,11 @@ scylla-auth = { path = "crates/scylla-auth" }
 scylla-core = { path = "crates/scylla-core" }
 scylla-db = { path = "crates/scylla-db" }
 scylla-server = { path = "crates/scylla-server" }
+scylla-strata = { path = "crates/scylla-strata" }
+
+# The backend framework. Private: CI and Docker need read access to the repository.
+strata = { git = "https://github.com/GodlyJaaaj/strata", rev = "576655a894f8eecf05b61f5112f5d5d7303004e5" }
+strata-tonic = { git = "https://github.com/GodlyJaaaj/strata", rev = "576655a894f8eecf05b61f5112f5d5d7303004e5", default-features = false }
 
 # domain / utilities
 thiserror = "2.0.18"

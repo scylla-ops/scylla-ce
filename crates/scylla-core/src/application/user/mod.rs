@@ -42,7 +42,7 @@ pub fn wrong_password() -> DomainError {
 }
 
 /// One error for an unknown id, a session of another user and an expired session.
-fn session_not_found(id: &SessionId) -> DomainError {
+pub fn session_not_found(id: &SessionId) -> DomainError {
     DomainError::not_found("Session", id)
 }
 
@@ -60,7 +60,7 @@ pub struct UserUseCases {
 impl UserUseCases {
     /// A user that holds `system-admin` leaves the active users only when another active user
     /// holds it.
-    async fn ensure_an_active_admin_remains(&self, leaving: &UserId) -> DomainResult<()> {
+    pub async fn ensure_an_active_admin_remains(&self, leaving: &UserId) -> DomainResult<()> {
         let grants = self.grant_repo.list_all().await?;
         let admin = |g: &Grant| g.scope == Scope::System && g.role.as_str() == SYSTEM_ADMIN_ROLE;
         let leaving_principal = Principal::User(leaving.clone());
@@ -93,7 +93,7 @@ impl UserUseCases {
     }
 
     /// The rule of `ensure_owner_remains`, with a message that names the organizations.
-    async fn ensure_owner_remains_without(&self, user: &User) -> DomainResult<()> {
+    pub async fn ensure_owner_remains_without(&self, user: &User) -> DomainResult<()> {
         let grants = self.grant_repo.list_all().await?;
         let principal = Principal::User(user.id().clone());
         let mut orphaned: Vec<&Scope> = Vec::new();
