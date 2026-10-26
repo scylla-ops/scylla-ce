@@ -264,7 +264,7 @@ pub trait Access {
     }
 
     /// Only gives the refusal of the context. No hook targets it.
-    #[usecase]
+    #[usecase(access = scylla_extension::Access::Public)]
     async fn authenticated(&self) -> DomainResult<()> {
         match self.ctx().refused() {
             Some(refusal) => Err(refusal.error()),

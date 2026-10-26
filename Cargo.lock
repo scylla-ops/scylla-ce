@@ -3340,7 +3340,7 @@ dependencies = [
 [[package]]
 name = "strata"
 version = "0.1.0"
-source = "git+https://github.com/GodlyJaaaj/strata?rev=03bb3998911f5f7f76c3d80867938d17cdcfed29#03bb3998911f5f7f76c3d80867938d17cdcfed29"
+source = "git+https://github.com/GodlyJaaaj/strata?rev=4a7c83400afe8a55e0b148833e966d32cbdf8fa6#4a7c83400afe8a55e0b148833e966d32cbdf8fa6"
 dependencies = [
  "serde",
  "serde_json",
@@ -3351,7 +3351,7 @@ dependencies = [
 [[package]]
 name = "strata-macros"
 version = "0.1.0"
-source = "git+https://github.com/GodlyJaaaj/strata?rev=03bb3998911f5f7f76c3d80867938d17cdcfed29#03bb3998911f5f7f76c3d80867938d17cdcfed29"
+source = "git+https://github.com/GodlyJaaaj/strata?rev=4a7c83400afe8a55e0b148833e966d32cbdf8fa6#4a7c83400afe8a55e0b148833e966d32cbdf8fa6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3361,7 +3361,7 @@ dependencies = [
 [[package]]
 name = "strata-tonic"
 version = "0.1.0"
-source = "git+https://github.com/GodlyJaaaj/strata?rev=03bb3998911f5f7f76c3d80867938d17cdcfed29#03bb3998911f5f7f76c3d80867938d17cdcfed29"
+source = "git+https://github.com/GodlyJaaaj/strata?rev=4a7c83400afe8a55e0b148833e966d32cbdf8fa6#4a7c83400afe8a55e0b148833e966d32cbdf8fa6"
 dependencies = [
  "serde",
  "serde_json",
