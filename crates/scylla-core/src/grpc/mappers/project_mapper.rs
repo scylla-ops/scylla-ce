@@ -183,6 +183,27 @@ mod tests {
     }
 
     #[test]
+    fn a_missing_project_id_is_an_invalid_argument_for_get_set_active_and_delete() {
+        let errors = [
+            GetProjectRequest { project_id: None }.parse().unwrap_err(),
+            SetProjectActiveRequest {
+                project_id: None,
+                is_active: true,
+            }
+            .parse()
+            .unwrap_err(),
+            DeleteProjectRequest { project_id: None }
+                .parse()
+                .unwrap_err(),
+        ];
+
+        for err in errors {
+            assert_eq!(err.code(), Code::InvalidArgument);
+            assert_eq!(err.message(), "missing project_id");
+        }
+    }
+
+    #[test]
     fn a_domain_validation_failure_is_an_invalid_argument() {
         let err = CreateProjectRequest {
             organization_id: wrap("org-1"),

@@ -874,6 +874,46 @@ async fn a_fire_runs_as_the_runner_app_then_records_the_outcome_as_the_firer() {
 }
 
 #[tokio::test]
+async fn a_cron_fire_makes_a_job_with_the_cron_origin_and_the_inputs_of_the_trigger() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    let inputs = vec![
+        TriggerInput::literal(EnvKey::new("MODE").unwrap(), "nightly").unwrap(),
+        TriggerInput::literal(EnvKey::new("COUNT").unwrap(), "3").unwrap(),
+    ];
+    let trigger = TriggersRpc::create_trigger(
+        &lab.app.scoped(&ctx(alice())),
+        pipeline_id(),
+        nightly(),
+        cron(),
+        inputs,
+    )
+    .await
+    .unwrap()
+    .trigger;
+
+    let job = lab.fire(trigger.id()).await.unwrap();
+
+    assert_eq!(
+        job.origin(),
+        &JobOrigin::Cron {
+            trigger_id: trigger.id().clone()
+        }
+    );
+    let inputs: Vec<(String, String)> = job
+        .inputs()
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    assert_eq!(
+        inputs,
+        vec![
+            ("MODE".to_string(), "nightly".to_string()),
+            ("COUNT".to_string(), "3".to_string()),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn a_disabled_trigger_does_not_fire_and_records_nothing() {
     let permissions = Arc::new(RecordingPermissionService::new());
     let lab = lab(permissions.clone()).await;
