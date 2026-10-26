@@ -5,10 +5,6 @@
 
 use scylla_auth::authz::{Grant, PermissionService, Visibility};
 use scylla_core::application::pagination::{PaginatedResult, PaginationParams};
-use scylla_core::application::project::{
-    CreateProject, DeleteProject, GetProject, ListOrganizationProjects, ListProjectMembers,
-    ListUserProjects, SetProjectActive, UpdateProject,
-};
 use scylla_core::test_support::authz::{DenyingPermissionService, RecordingPermissionService};
 use scylla_core::test_support::jobs::JobBuilder;
 use scylla_core::test_support::pipelines::PipelineBuilder;
@@ -64,12 +60,8 @@ impl scylla_strata::Access for TestCe {
 
 const ANN: &str = "Bearer user:ann";
 
-fn create(org: &str, name: &str) -> CreateProject {
-    CreateProject {
-        organization_id: OrganizationId::new(org),
-        name: ProjectName::new(name).unwrap(),
-        description: None,
-    }
+fn name(name: &str) -> ProjectName {
+    ProjectName::new(name).unwrap()
 }
 
 #[tokio::test]
@@ -81,98 +73,65 @@ async fn ce_runs_the_project_lifecycle_for_a_user() {
         .unwrap();
     let ann = app.scoped(&ann);
 
-    let project = ProjectsRpc::create_project(&ann, create("acme", "web"))
+    let project = ProjectsRpc::create_project(&ann, OrganizationId::new("acme"), name("web"), None)
         .await
         .unwrap();
     assert!(project.is_active());
-    let mine = ProjectsRpc::list_user_projects(
-        &ann,
-        ListUserProjects {
-            user_id: UserId::new("ann"),
-            pagination: None,
-        },
-    )
-    .await
-    .unwrap();
+    let mine = ProjectsRpc::list_user_projects(&ann, UserId::new("ann"), None)
+        .await
+        .unwrap();
     assert_eq!(
         mine.items().len(),
         1,
         "the creator is the admin of the project"
     );
-    let members = ProjectsRpc::list_project_members(
-        &ann,
-        ListProjectMembers {
-            project_id: project.id().clone(),
-            pagination: None,
-        },
-    )
-    .await
-    .unwrap();
+    let members = ProjectsRpc::list_project_members(&ann, project.id().clone(), None)
+        .await
+        .unwrap();
     assert_eq!(members.metadata().total_count(), 1);
 
-    let renamed = ProjectsRpc::update_project(
-        &ann,
-        UpdateProject {
-            id: project.id().clone(),
-            name: Some(ProjectName::new("site").unwrap()),
-            description: None,
-        },
-    )
-    .await
-    .unwrap();
+    let renamed = ProjectsRpc::update_project(&ann, project.id().clone(), Some(name("site")), None)
+        .await
+        .unwrap();
     assert_eq!((renamed.name().as_str(), renamed.version()), ("site", 1));
-    let off = ProjectsRpc::set_project_active(
-        &ann,
-        SetProjectActive {
-            id: project.id().clone(),
-            is_active: false,
-        },
-    )
-    .await
-    .unwrap();
+    let off = ProjectsRpc::set_project_active(&ann, project.id().clone(), false)
+        .await
+        .unwrap();
     assert!(!off.is_active());
-    let listed = ProjectsRpc::list_organization_projects(
-        &ann,
-        ListOrganizationProjects {
-            organization_id: OrganizationId::new("acme"),
-            pagination: None,
-        },
-    )
-    .await
-    .unwrap();
+    let listed = ProjectsRpc::list_organization_projects(&ann, OrganizationId::new("acme"), None)
+        .await
+        .unwrap();
     assert_eq!(listed.items().len(), 1);
 
-    ProjectsRpc::delete_project(
-        &ann,
-        DeleteProject {
-            id: project.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
-    let gone = ProjectsRpc::get_project(
-        &ann,
-        GetProject {
-            id: project.id().clone(),
-        },
-    )
-    .await
-    .unwrap_err();
+    ProjectsRpc::delete_project(&ann, project.id().clone())
+        .await
+        .unwrap();
+    let gone = ProjectsRpc::get_project(&ann, project.id().clone())
+        .await
+        .unwrap_err();
     assert!(gone.is_not_found(), "{gone}");
 }
 
 #[tokio::test]
 async fn ce_refuses_a_caller_without_the_permission() {
     let app = TestCe::default();
-    let refused = app.create_project(create("acme", "web")).await.unwrap_err();
+    let refused = app
+        .create_project(OrganizationId::new("acme"), name("web"), None)
+        .await
+        .unwrap_err();
     assert!(matches!(refused, DomainError::Forbidden(_)), "{refused}");
     let bad = app
         .request_context(&[("authorization", "Bearer nobody")])
         .await
         .unwrap();
-    let refused = ProjectsRpc::create_project(&app.scoped(&bad), create("acme", "web"))
-        .await
-        .unwrap_err();
+    let refused = ProjectsRpc::create_project(
+        &app.scoped(&bad),
+        OrganizationId::new("acme"),
+        name("web"),
+        None,
+    )
+    .await
+    .unwrap_err();
     assert!(
         matches!(&refused, DomainError::Unauthorized(m) if m == "Invalid or expired token"),
         "{refused}"
@@ -453,8 +412,8 @@ async fn veto_ce(permissions: Arc<dyn PermissionService>) -> VetoCe {
         .unwrap()
 }
 
-fn acme(name: &str) -> CreateProject {
-    create("acme", name)
+fn acme() -> OrganizationId {
+    OrganizationId::new("acme")
 }
 
 #[tokio::test]
@@ -462,9 +421,10 @@ async fn a_create_by_a_user_checks_the_permission_then_writes_the_owner_grant() 
     let permissions = Arc::new(RecordingPermissionService::new());
     let app = stub_ce(permissions.clone(), Seen::default()).await;
 
-    let project = ProjectsRpc::create_project(&app.scoped(&alice_ctx()), acme("rocket"))
-        .await
-        .unwrap();
+    let project =
+        ProjectsRpc::create_project(&app.scoped(&alice_ctx()), acme(), name("rocket"), None)
+            .await
+            .unwrap();
 
     assert_eq!(
         permissions.permissions(),
@@ -478,7 +438,7 @@ async fn a_create_by_a_user_checks_the_permission_then_writes_the_owner_grant() 
 async fn a_denied_caller_writes_nothing() {
     let app = stub_ce(Arc::new(DenyingPermissionService::new()), Seen::default()).await;
 
-    let err = ProjectsRpc::create_project(&app.scoped(&alice_ctx()), acme("rocket"))
+    let err = ProjectsRpc::create_project(&app.scoped(&alice_ctx()), acme(), name("rocket"), None)
         .await
         .unwrap_err();
 
@@ -491,7 +451,7 @@ async fn a_hook_before_the_writes_vetoes_after_the_permission_check() {
     let permissions = Arc::new(RecordingPermissionService::new());
     let app = veto_ce(permissions.clone()).await;
 
-    let err = ProjectsRpc::create_project(&app.scoped(&alice_ctx()), acme("rocket"))
+    let err = ProjectsRpc::create_project(&app.scoped(&alice_ctx()), acme(), name("rocket"), None)
         .await
         .unwrap_err();
 
@@ -506,7 +466,7 @@ async fn a_hook_before_the_reads_vetoes_after_the_permission_check() {
     let app = veto_ce(permissions.clone()).await;
     let id = ProjectId::new("seen");
 
-    let err = ProjectsRpc::get_project(&app.scoped(&alice_ctx()), GetProject { id: id.clone() })
+    let err = ProjectsRpc::get_project(&app.scoped(&alice_ctx()), id.clone())
         .await
         .unwrap_err();
 
@@ -520,20 +480,14 @@ async fn an_update_checks_its_permission_and_persists_the_change() {
     let app = stub_ce(permissions.clone(), Seen::default()).await;
     let ctx = alice_ctx();
     let alice = app.scoped(&ctx);
-    let created = ProjectsRpc::create_project(&alice, acme("old"))
+    let created = ProjectsRpc::create_project(&alice, acme(), name("old"), None)
         .await
         .unwrap();
 
-    let updated = ProjectsRpc::update_project(
-        &alice,
-        UpdateProject {
-            id: created.id().clone(),
-            name: Some(ProjectName::new("new").unwrap()),
-            description: None,
-        },
-    )
-    .await
-    .unwrap();
+    let updated =
+        ProjectsRpc::update_project(&alice, created.id().clone(), Some(name("new")), None)
+            .await
+            .unwrap();
 
     assert_eq!(updated.name().as_str(), "new");
     assert_eq!(
@@ -555,21 +509,16 @@ async fn a_delete_stops_the_live_jobs_of_the_project_after_it_removes_the_row() 
     let app = stub_ce(Arc::new(RecordingPermissionService::new()), Seen::default()).await;
     let ctx = alice_ctx();
     let alice = app.scoped(&ctx);
-    let created = ProjectsRpc::create_project(&alice, acme("gone"))
+    let created = ProjectsRpc::create_project(&alice, acme(), name("gone"), None)
         .await
         .unwrap();
     let pipeline = PipelineBuilder::for_project_id(created.id().clone()).build();
     let live = JobBuilder::new(&pipeline).build();
     Projects::jobs(&app).live.lock().unwrap().push(live.clone());
 
-    ProjectsRpc::delete_project(
-        &alice,
-        DeleteProject {
-            id: created.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
+    ProjectsRpc::delete_project(&alice, created.id().clone())
+        .await
+        .unwrap();
 
     assert!(Projects::store(&app).is_empty());
     assert_eq!(
@@ -582,27 +531,14 @@ async fn a_delete_stops_the_live_jobs_of_the_project_after_it_removes_the_row() 
 async fn the_projects_of_a_user_are_the_ones_its_grants_let_it_read() {
     let app = stub_ce(Arc::new(RecordingPermissionService::new()), Seen::default()).await;
 
-    ProjectsRpc::list_user_projects(
-        &app.scoped(&alice_ctx()),
-        ListUserProjects {
-            user_id: UserId::new("alice"),
-            pagination: None,
-        },
-    )
-    .await
-    .unwrap();
+    ProjectsRpc::list_user_projects(&app.scoped(&alice_ctx()), UserId::new("alice"), None)
+        .await
+        .unwrap();
 
     assert_eq!(
         *Projects::store(&app).listed_for_user.lock().unwrap(),
         vec!["readProject".to_string()]
     );
-}
-
-fn list_acme() -> ListOrganizationProjects {
-    ListOrganizationProjects {
-        organization_id: OrganizationId::new("acme"),
-        pagination: None,
-    }
 }
 
 #[tokio::test]
@@ -618,7 +554,7 @@ async fn an_organization_listing_asks_the_access_model_once_and_reads_the_rest_f
     ])));
     let app = stub_ce(permissions.clone(), seen).await;
 
-    ProjectsRpc::list_organization_projects(&app.scoped(&alice_ctx()), list_acme())
+    ProjectsRpc::list_organization_projects(&app.scoped(&alice_ctx()), acme(), None)
         .await
         .unwrap();
 
@@ -644,7 +580,7 @@ async fn listing_the_projects_of_an_organization_shows_them_all() {
     ])));
     let app = stub_ce(Arc::new(RecordingPermissionService::new()), seen).await;
 
-    ProjectsRpc::list_organization_projects(&app.scoped(&alice_ctx()), list_acme())
+    ProjectsRpc::list_organization_projects(&app.scoped(&alice_ctx()), acme(), None)
         .await
         .unwrap();
 

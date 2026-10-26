@@ -14,7 +14,21 @@ Every CE slice is on strata. Use these rules for a new slice or a new use case. 
 4. gRPC adapter. In the 12 services that CE puts behind its auth interceptor (User, Organization, Project, Pipeline, Trigger, Job, App, Secret, Agent, AgentAdmin, Grant, Role), the FIRST line of every RPC closure is `authed(&call).await?;` (before `parse(req)?`): CE refuses before it parses. Not in AuthService and AppAuthService (public in CE). Adapter details: `src/grpc/<slice>.rs`: `strata_tonic::service!` over `Grpc<A>`, the generated server in `super::service::<pkg>`, `parse(req)?` (the CE `Parse` impls) and the CE mappers. The response shape is the contract of the proto: the parity scenario (`binaries/scylla-parity`) checks it.
 5. Tests `tests/<slice>.rs`: the use cases on stub ports, with the CE stubs (`scylla_core::test_support`, feature `test-utils`). An edition in the test file: `#[strata::edition(modules(scylla_strata::Access, scylla_strata::<Slice>))]`, then a derived edition that overrides `Access` (`Authenticator = DevTokens`, a `Permissions` stub). A flow on Postgres goes in `crates/scylla-server/tests/pg_edition.rs`, on `strata_shared` and `EditionHost::edition`.
 
+## Use case parameters
+
+The Actions vocabulary (the command and query structs, `Describe`, `Command`, `Query`) goes out of CE slice by slice. The projects slice is the first: see `src/projects.rs`. A use case of this shape takes its inputs directly as parameters (the fields of the request, as `scylla_core::domain` types). Each parameter is a plain identifier. The use case declares its permission in its attribute, from its parameters: `#[usecase(write, access = Access::Requires(Permission::CreateProject(organization_id.clone())))]`. The access expression must clone or borrow a parameter (else E0382). The `Parse` impl of the request gives the inputs as a tuple (`type Into = (A, B)`), in the order of the parameters, and the adapter writes `let (a, b) = parse(req)?;`. Keep the order of the parse checks and their gRPC codes and messages.
+
+The parameter order of a use case is a contract with EE: a named hook must name all inputs in that order. A hook on `M::uc` names each input by reference, in the order of the use case (else E0277). Thus do not add, remove or reorder a parameter of a hooked use case without a change in EE. A hook on a group (`M::writes`, `M::reads`) names no input: it reads the name of the use case and `self.access_of::<Access>()`.
+
+The CE use cases that an EE hook wraps today (`ee-0.6.3`, `crates/scylla-ee-edition`):
+
+- Named hook: `Grants::create_grant` (`#[before]`, `limits.rs`, the seat check).
+- Group hooks (`#[after]`, `audit.rs`, no inputs): the writes of `Projects`, `Secrets`, `Pipelines`, `Apps`, `Roles`, `Grants`, `Organizations`, `Users`, `Auth`, `Triggers`, `JobControl` and `Agents`.
+
+The CE tests also hook `Projects::create_project` (`organization_id, name, description`) and `Grants::create_grant` by name (`crates/scylla-server/tests/pg_edition.rs`).
+
 ## Service table
+
 
 `Service::slice` (`src/host.rs`) maps each of the 14 gRPC services to its slice. `Built::mount` mounts the services of each slice that it gets, and starts the worker of each slice (`Worker::slice`). Do not add a second table.
 

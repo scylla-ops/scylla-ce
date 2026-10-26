@@ -11,7 +11,6 @@ use scylla_auth::authz::{
 use scylla_core::application::app::{IssueAppToken, mint_app_secret};
 use scylla_core::application::auth::Login;
 use scylla_core::application::grant::CreateGrant;
-use scylla_core::application::project::CreateProject;
 use scylla_core::application::role::{GetEffectivePermissions, GetMyPermissions};
 use scylla_core::application::user::UpdateUser;
 use scylla_core::application::user::reset::{RequestPasswordReset, ResetPassword};
@@ -27,7 +26,7 @@ use scylla_core::domain::errors::{DomainError, DomainResult};
 use scylla_core::domain::ids::{OrganizationId, UserId};
 use scylla_core::domain::organization::{Organization, OrganizationName};
 use scylla_core::domain::permission::Permission;
-use scylla_core::domain::project::{Project, ProjectName};
+use scylla_core::domain::project::{Project, ProjectDescription, ProjectName};
 use scylla_core::domain::role::RoleName;
 use scylla_core::domain::session::SessionClient;
 use scylla_core::domain::user::{
@@ -97,9 +96,14 @@ pub trait ProjectQuota: scylla_strata::Projects {
     type Counter = Quota;
 
     #[before(scylla_strata::Projects::create_project)]
-    async fn quota_before_create(&self, cmd: &CreateProject) -> DomainResult<()> {
+    async fn quota_before_create(
+        &self,
+        organization_id: &OrganizationId,
+        _: &ProjectName,
+        _: &Option<ProjectDescription>,
+    ) -> DomainResult<()> {
         let mut seen = self.counter().0.lock().unwrap();
-        let count = seen.entry(cmd.organization_id.clone()).or_insert(0);
+        let count = seen.entry(organization_id.clone()).or_insert(0);
         if *count >= 2 {
             return Err(DomainError::quota_exceeded(format!(
                 "project quota reached for this organization ({count}/2)"
@@ -580,18 +584,14 @@ async fn a_hook_before_the_create_vetoes_a_project_over_the_quota(pool: PgPool) 
     let org = seed_org(&pool, "limited").await;
     let app = edition::<QuotaCe>(&pool).await;
     let recorder = ctx(CallerContext::Service(ServiceIdentity::recorder()));
-    let create = |name: &str| CreateProject {
-        organization_id: org.clone(),
-        name: ProjectName::new(name).unwrap(),
-        description: None,
-    };
+    let name = |name: &str| ProjectName::new(name).unwrap();
 
-    for name in ["a", "b"] {
-        ProjectsRpc::create_project(&app.scoped(&recorder), create(name))
+    for project in ["a", "b"] {
+        ProjectsRpc::create_project(&app.scoped(&recorder), org.clone(), name(project), None)
             .await
             .expect("under quota");
     }
-    let err = ProjectsRpc::create_project(&app.scoped(&recorder), create("c"))
+    let err = ProjectsRpc::create_project(&app.scoped(&recorder), org.clone(), name("c"), None)
         .await
         .expect_err("over quota");
 
