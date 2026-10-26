@@ -182,7 +182,7 @@ mod tests {
         registry.unregister(&first.stream);
         assert_eq!(registry.connected(), std::slice::from_ref(&second.stream));
         registry.unregister(&second.stream);
-        assert!(registry.connected().is_empty());
+        assert_eq!(registry.connected(), Vec::<AgentStream>::new());
     }
 
     #[test]
@@ -194,7 +194,7 @@ mod tests {
 
         assert!(conn.stop.is_cancelled());
         assert!(!conn.replaced.load(Ordering::Relaxed));
-        assert!(registry.connected().is_empty());
+        assert_eq!(registry.connected(), Vec::<AgentStream>::new());
     }
 
     #[tokio::test]
@@ -232,7 +232,7 @@ mod tests {
 
         assert!(matches!(full, Err(DomainError::Infrastructure(_))));
         assert!(conn.stop.is_cancelled());
-        assert!(registry.connected().is_empty());
+        assert_eq!(registry.connected(), Vec::<AgentStream>::new());
     }
 
     #[test]

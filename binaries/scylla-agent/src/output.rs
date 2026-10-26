@@ -158,7 +158,7 @@ mod tests {
     fn lines_drop_their_terminator_and_keep_a_partial_last_line() {
         assert_eq!(texts(b"a\nb\r\nc"), ["a", "b", "c"]);
         assert_eq!(texts(b"\n"), [""]);
-        assert!(texts(b"").is_empty());
+        assert_eq!(texts(b""), Vec::<String>::new());
     }
 
     #[test]
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn short_blank_and_duplicate_values_are_ignored() {
         let secrets = Secrets::new(["e".into(), "   \n\t".into(), String::new()]);
-        assert!(secrets.0.is_empty());
+        assert_eq!(secrets.0, Vec::<String>::new());
         assert_eq!(secrets.redact("hello there"), "hello there");
 
         let secrets = Secrets::new(["s3cr3t".into(), "s3cr3t".into()]);

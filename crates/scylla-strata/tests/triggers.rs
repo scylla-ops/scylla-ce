@@ -1160,7 +1160,7 @@ async fn signed_ping_answers_without_firing_or_recording() {
 
     assert!(matches!(outcome, IngestOutcome::Ping));
     assert!(lab.jobs.rows().is_empty());
-    assert!(lab.recorded().is_empty());
+    assert_eq!(lab.recorded(), Vec::<String>::new());
 }
 
 #[tokio::test]
@@ -1196,7 +1196,7 @@ async fn mis_signed_or_unsigned_ping_is_rejected_before_the_event_check() {
         matches!(unsigned, DomainError::Unauthorized(_)),
         "{unsigned:?}"
     );
-    assert!(lab.recorded().is_empty());
+    assert_eq!(lab.recorded(), Vec::<String>::new());
 }
 
 #[tokio::test]
@@ -1258,8 +1258,11 @@ async fn an_unknown_disabled_or_cron_trigger_is_not_found_without_asking_a_permi
         assert!(matches!(err, DomainError::NotFound(_)), "{id}: {err:?}");
     }
 
-    assert!(permissions.checks().is_empty());
-    assert!(lab.recorded().is_empty());
+    assert_eq!(
+        permissions.checks(),
+        Vec::<(CallerContext, Permission)>::new()
+    );
+    assert_eq!(lab.recorded(), Vec::<String>::new());
 }
 
 #[tokio::test]
@@ -1275,7 +1278,7 @@ async fn a_failed_fire_forgets_the_delivery_so_a_retry_fires() {
         matches!(err, DomainError::Internal(_)),
         "no runner app: {err:?}"
     );
-    assert!(lab.recorded().is_empty());
+    assert_eq!(lab.recorded(), Vec::<String>::new());
     assert_eq!(lab.last_fire(hook.id()).as_deref(), Some("error"));
 
     lab.with_runner().await;
@@ -1311,7 +1314,7 @@ async fn a_trigger_disabled_while_the_delivery_is_in_flight_is_not_found() {
         .unwrap_err();
 
     assert!(matches!(err, DomainError::NotFound(_)), "{err:?}");
-    assert!(lab.recorded().is_empty());
+    assert_eq!(lab.recorded(), Vec::<String>::new());
     assert!(lab.jobs.rows().is_empty());
 }
 
@@ -1328,7 +1331,7 @@ async fn a_fire_refused_for_a_payload_value_stays_a_validation_error() {
         .unwrap_err();
 
     assert!(matches!(err, DomainError::Validation(_)), "{err:?}");
-    assert!(lab.recorded().is_empty());
+    assert_eq!(lab.recorded(), Vec::<String>::new());
     assert!(lab.jobs.rows().is_empty());
 }
 

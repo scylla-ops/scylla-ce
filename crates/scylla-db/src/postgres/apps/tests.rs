@@ -10,6 +10,7 @@ use scylla_auth::authz::{
     Grant, GrantRepository, ORGANIZATION_ADMIN_ROLE, ORGANIZATION_AGENT_ROLE,
     ORGANIZATION_TRIGGER_RUNNER_ROLE, PROJECT_AGENT_ROLE, Principal, SYSTEM_ADMIN_ROLE, Scope,
 };
+use scylla_core::application::PrincipalAccess;
 use scylla_core::application::app::AppRepository;
 use sqlx::PgPool;
 
@@ -267,5 +268,5 @@ async fn the_access_list_of_an_app_names_each_of_its_grants_in_order(pool: PgPoo
     );
     assert_eq!(access[0].organization_id, None);
     assert_eq!(access[3].organization_id.as_ref(), Some(acme.id()));
-    assert!(unknown.is_empty());
+    assert_eq!(unknown, Vec::<PrincipalAccess>::new());
 }

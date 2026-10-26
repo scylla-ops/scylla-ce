@@ -70,7 +70,7 @@ mod tests {
     #[test]
     fn an_account_without_an_organization_holds_only_the_grants_it_is_given() {
         let account = NewAccount::without_organization(user("solo"));
-        assert!(account.grants.is_empty());
+        assert_eq!(account.grants, Vec::<Grant>::new());
 
         let account = account.with_grant(
             RoleName::new(ORGANIZATION_CREATOR_ROLE).unwrap(),

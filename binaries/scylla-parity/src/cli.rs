@@ -554,7 +554,7 @@ mod tests {
         let check = strata_check(&log("strata", &edition.strata_slices), &edition, &[]);
         assert!(check.missing.is_empty(), "{:?}", check.missing);
         assert!(check.repeated.is_empty(), "{:?}", check.repeated);
-        assert!(check.on_ce.is_empty());
+        assert_eq!(check.on_ce, Vec::<String>::new());
         assert_eq!(check.served.len(), 12);
     }
 

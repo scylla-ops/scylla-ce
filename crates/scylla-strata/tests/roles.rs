@@ -214,7 +214,7 @@ async fn a_denied_create_never_stores() {
         .unwrap_err();
 
     assert!(matches!(err, DomainError::Forbidden(_)));
-    assert!(custom(&lab).is_empty());
+    assert_eq!(custom(&lab), Vec::<Role>::new());
 }
 
 #[tokio::test]
@@ -229,7 +229,7 @@ async fn a_permission_out_of_the_role_scope_is_refused_before_anything_is_stored
     .unwrap_err();
 
     assert!(matches!(err, DomainError::Validation(_)));
-    assert!(custom(&lab).is_empty());
+    assert_eq!(custom(&lab), Vec::<Role>::new());
 }
 
 #[tokio::test]
@@ -343,7 +343,7 @@ async fn a_role_of_an_organization_is_never_system_scoped_nor_an_admin_role() {
             .unwrap_err();
         assert!(matches!(err, DomainError::Validation(_)));
     }
-    assert!(custom(&lab).is_empty());
+    assert_eq!(custom(&lab), Vec::<Role>::new());
 }
 
 #[tokio::test]
@@ -512,7 +512,7 @@ async fn effective_permissions_group_the_grants_by_scope_behind_manage_system_gr
     );
     assert_eq!(scopes[1].permissions, vec!["deleteJob".to_string()]);
     assert!(scopes[2].full_control);
-    assert!(scopes[2].permissions.is_empty());
+    assert_eq!(scopes[2].permissions, Vec::<String>::new());
 }
 
 #[tokio::test]
@@ -569,7 +569,7 @@ async fn the_vocabulary_is_the_permission_catalog_and_asks_no_permission() {
         .unwrap();
 
     assert_eq!(vocabulary.len(), PERMISSION_CATALOG.len());
-    assert!(permissions.permissions().is_empty());
+    assert_eq!(permissions.permissions(), Vec::<Permission>::new());
 }
 
 struct DenyBob;

@@ -307,13 +307,13 @@ slices = ["projects", "secrets", "not-a-slice"]
         assert!(warn_ignored_slices(&config));
 
         config.override_strata_slices("");
-        assert!(config.strata.slices.is_empty());
+        assert_eq!(config.strata.slices, Vec::<String>::new());
         assert!(!warn_ignored_slices(&config));
     }
 
     #[test]
     fn an_edition_must_serve_every_slice() {
-        assert!(missing_slices(Slice::ALL).is_empty());
+        assert_eq!(missing_slices(Slice::ALL), Vec::<&str>::new());
         assert_eq!(missing_slices(&Slice::ALL[1..]), [Slice::ALL[0].key()]);
     }
 }

@@ -229,7 +229,7 @@ mod tests {
         let _ = plan.drain_ready();
         plan.mark_terminal("a");
 
-        assert!(plan.drain_ready().is_empty());
+        assert_eq!(plan.drain_ready(), Vec::<&str>::new());
         let pending: Vec<&str> = plan.pending().collect();
         assert_eq!(pending, vec!["b"]);
     }

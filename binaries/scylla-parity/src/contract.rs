@@ -440,7 +440,7 @@ mod tests {
         assert_eq!(merged.load[1].parallel, 3);
         assert_eq!(merged.load[0].req, json!({}));
         assert_eq!(merged.store_failure.len(), 2);
-        assert!(merged.store_failure[0].calls.is_empty());
+        assert_eq!(merged.store_failure[0].calls, Vec::<String>::new());
         assert_eq!(merged.store_failure[1].calls, vec!["c/D"]);
     }
 

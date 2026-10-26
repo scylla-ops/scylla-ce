@@ -71,8 +71,8 @@ mod tests {
     fn hello_describes_the_build_and_the_running_jobs() {
         let h = hello(vec!["job-1".into()]);
         assert_eq!(h.version, env!("CARGO_PKG_VERSION"));
-        assert!(!h.os.is_empty());
-        assert!(!h.arch.is_empty());
+        assert_ne!(h.os, "");
+        assert_ne!(h.arch, "");
         assert!(h.cpu_count >= 0);
         assert!(h.total_memory_mb >= 0);
         assert_eq!(

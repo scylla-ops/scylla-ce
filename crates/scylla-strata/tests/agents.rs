@@ -421,7 +421,7 @@ async fn a_create_provisions_the_app_its_secret_its_agent_row_and_its_grant() {
         permissions.permissions(),
         vec![Permission::CreateAgent(org())]
     );
-    assert!(!created.secret.as_str().is_empty());
+    assert_ne!(created.secret.as_str(), "");
     let id = created.app.id().clone();
     assert!(lab.apps.rows.lock().unwrap().contains_key(&id));
     let credentials = lab.apps.credentials.lock().unwrap();
@@ -565,7 +565,7 @@ async fn an_agent_touches_and_reports_its_own_row_with_no_permission_asked() {
     AgentsRpc::touch_agent(&agent).await.unwrap();
     let reported = AgentsRpc::record_agent_host(&agent, host()).await.unwrap();
 
-    assert!(permissions.permissions().is_empty());
+    assert_eq!(permissions.permissions(), Vec::<Permission>::new());
     assert_eq!(
         lab.agents.touched.lock().unwrap().as_slice(),
         [AppId::new("agent-1")]
@@ -754,7 +754,7 @@ async fn a_stream_reconciles_its_jobs_takes_a_cancel_and_ends_on_a_disconnect() 
 
     assert!(agent.order().await.is_none());
     assert_eq!(lab.jobs.row(kept.id()).status(), Phase::Cancelled);
-    assert!(lab.lines.lines().is_empty());
+    assert_eq!(lab.lines.lines(), Vec::<String>::new());
 }
 
 async fn dispatch_pass(lab: &Lab) -> Vec<Job> {
@@ -908,7 +908,7 @@ async fn grpc_admin_creates_an_agent_and_refuses_before_it_parses() {
         .into_inner();
     let id = created.agent.unwrap().agent_id.unwrap().value;
     assert!(lab.apps.rows.lock().unwrap().contains_key(&AppId::new(&id)));
-    assert!(!created.secret.is_empty());
+    assert_ne!(created.secret, "");
 
     let anonymous = client
         .get_agent(bearer(GetAgentRequest { agent_id: None }, None))
@@ -940,7 +940,7 @@ async fn grpc_admin_refuses_a_denied_caller() {
         .unwrap_err();
 
     assert_eq!(denied.code(), Code::PermissionDenied, "{denied:?}");
-    assert!(registry.disconnected().is_empty());
+    assert_eq!(registry.disconnected(), Vec::<AppId>::new());
 }
 
 #[tokio::test]

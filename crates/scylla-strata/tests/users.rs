@@ -527,7 +527,7 @@ async fn get_me_reads_the_caller_without_a_permission_and_refuses_an_app() {
         .unwrap_err();
 
     assert_eq!(me.id(), bob.id());
-    assert!(permissions.permissions().is_empty());
+    assert_eq!(permissions.permissions(), Vec::<Permission>::new());
     assert!(matches!(err, DomainError::Forbidden(_)));
 }
 
@@ -702,7 +702,7 @@ async fn a_password_change_keeps_the_session_of_the_call_and_ends_the_rest() {
     assert_eq!(lab.accounts.sessions(bob.id()), vec![this]);
     assert_eq!(lab.accounts.sessions(carol.id()), vec![theirs]);
     assert!(lab.accounts.resets(bob.id()).is_empty());
-    assert!(permissions.permissions().is_empty());
+    assert_eq!(permissions.permissions(), Vec::<Permission>::new());
 }
 
 #[tokio::test]
@@ -763,7 +763,7 @@ async fn an_admin_revokes_every_session_of_a_user() {
     .unwrap();
 
     assert_eq!(revoked, 2);
-    assert!(lab.accounts.sessions(bob.id()).is_empty());
+    assert_eq!(lab.accounts.sessions(bob.id()), Vec::<SessionId>::new());
     assert_eq!(lab.accounts.sessions(&UserId::new("alice")), vec![admins]);
     assert_eq!(
         permissions.permissions(),
@@ -818,7 +818,7 @@ async fn a_deactivation_ends_the_sessions_and_the_reset_links() {
 
     assert!(!off.is_active());
     assert!(!lab.stored(bob.id()).is_active());
-    assert!(lab.accounts.sessions(bob.id()).is_empty());
+    assert_eq!(lab.accounts.sessions(bob.id()), Vec::<SessionId>::new());
     assert!(lab.accounts.resets(bob.id()).is_empty());
     assert_eq!(
         permissions.permissions(),
@@ -941,7 +941,7 @@ async fn an_account_is_deleted_with_the_right_password() {
         .await
         .unwrap();
     assert!(lab.users.rows().is_empty());
-    assert!(permissions.permissions().is_empty());
+    assert_eq!(permissions.permissions(), Vec::<Permission>::new());
 }
 
 fn named(user: &User, organization: &str, name: &str) -> PrincipalAccess {
@@ -1165,7 +1165,7 @@ async fn a_user_revokes_one_of_its_sessions_and_can_revoke_the_session_of_the_ca
     UsersRpc::revoke_user_session(&lab.app.scoped(&as_bob), bob.id().clone(), this.clone())
         .await
         .unwrap();
-    assert!(lab.accounts.sessions(bob.id()).is_empty());
+    assert_eq!(lab.accounts.sessions(bob.id()), Vec::<SessionId>::new());
     assert_eq!(
         permissions.permissions(),
         vec![
@@ -1209,7 +1209,7 @@ async fn a_session_of_another_user_needs_the_update_permission() {
 
     assert!(matches!(err, DomainError::Forbidden(_)));
     assert_eq!(refused.accounts.sessions(bob.id()), vec![ids[0].clone()]);
-    assert!(allowed.accounts.sessions(bob.id()).is_empty());
+    assert_eq!(allowed.accounts.sessions(bob.id()), Vec::<SessionId>::new());
 }
 
 #[tokio::test]

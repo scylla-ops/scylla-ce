@@ -459,6 +459,6 @@ mod tests {
 
         let nodes: Vec<PipelineNode> = serde_json::from_str(LEGACY).unwrap();
         assert!(nodes[0].working_dir().is_none());
-        assert!(nodes[0].env().is_empty());
+        assert_eq!(nodes[0].env(), &[] as &[EnvVar]);
     }
 }

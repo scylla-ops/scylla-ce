@@ -151,7 +151,7 @@ mod tests {
         .parse()
         .unwrap();
 
-        assert!(token.is_empty());
+        assert_eq!(token, "");
     }
 
     #[test]

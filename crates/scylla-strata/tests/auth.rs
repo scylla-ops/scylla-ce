@@ -23,6 +23,7 @@ use scylla_domain::domain::caller::{CallerContext, ServiceIdentity};
 use scylla_domain::domain::clock;
 use scylla_domain::domain::errors::{DomainError, DomainResult};
 use scylla_domain::domain::ids::{SessionId, UserId};
+use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::session::{ACTIVITY_INTERVAL, Session, SessionClient};
 use scylla_domain::domain::user::{
     DisplayName, Email, Password, PasswordReset, RESET_LINK_INVALID, ResetToken, User,
@@ -395,7 +396,7 @@ async fn a_live_token_is_valid_and_a_check_deletes_nothing() {
     assert!(!live.validate("unknown").await);
     assert!(!live.validate("").await);
     assert!(!expired.validate("expired").await);
-    assert!(expired.sessions.deleted().is_empty());
+    assert_eq!(expired.sessions.deleted(), Vec::<String>::new());
     assert_eq!(expired.sessions.rows().len(), 1);
 }
 
@@ -620,7 +621,7 @@ async fn a_request_for_an_active_account_stores_a_link_and_delivers_it() {
         stored[0].expires_at() - stored[0].created_at(),
         Duration::hours(1)
     );
-    assert!(permissions.permissions().is_empty());
+    assert_eq!(permissions.permissions(), Vec::<Permission>::new());
 }
 
 #[tokio::test]
@@ -759,7 +760,7 @@ async fn a_reset_sets_the_password_once_and_signs_out_everywhere() {
         lab.stored(kevin.id()).password_hash(),
         &plain_hash(NEW_PASSWORD)
     );
-    assert!(lab.accounts.sessions(kevin.id()).is_empty());
+    assert_eq!(lab.accounts.sessions(kevin.id()), Vec::<SessionId>::new());
     let resets = lab.accounts.resets(kevin.id());
     assert_eq!(resets.len(), 1);
     assert!(resets[0].used_at().is_some());

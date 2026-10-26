@@ -18,7 +18,9 @@ use scylla_domain::domain::errors::{DomainError, DomainResult};
 use scylla_domain::domain::ids::{AppId, JobId, OrganizationId, PipelineId, ProjectId, UserId};
 use scylla_domain::domain::job::{Job, JobLog, JobOrigin, JobStatus};
 use scylla_domain::domain::permission::Permission;
-use scylla_domain::domain::pipeline::{NodeId, Pipeline, PipelineName, PipelineNode, Shell, Step};
+use scylla_domain::domain::pipeline::{
+    EnvKey, EnvValue, NodeId, Pipeline, PipelineName, PipelineNode, Shell, Step,
+};
 use scylla_domain::domain::project::Project;
 use scylla_proto::common::v1::PipelineId as PbPipelineId;
 use scylla_proto::pipeline::v1::RunPipelineRequest;
@@ -624,7 +626,7 @@ async fn a_run_by_a_user_stores_a_pending_job_and_wakes_the_dispatcher() {
             user_id: UserId::new("alice")
         }
     );
-    assert!(job.inputs().is_empty());
+    assert_eq!(job.inputs(), &[] as &[(EnvKey, EnvValue)]);
     assert_eq!(job.status(), JobStatus::Pending);
     assert!(job.agent_app_id().is_none());
     assert_eq!(lab.jobs.rows().len(), 1);
@@ -664,7 +666,7 @@ async fn a_run_whose_secret_does_not_resolve_stores_nothing() {
 
     assert!(matches!(err, DomainError::NotFound(_)));
     assert!(lab.jobs.rows().is_empty());
-    assert!(lab.registry.wakes().is_empty());
+    assert_eq!(lab.registry.wakes(), Vec::<Option<AppId>>::new());
 }
 
 #[tokio::test]

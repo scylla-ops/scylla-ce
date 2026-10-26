@@ -444,7 +444,7 @@ async fn a_create_checks_the_permission_then_stores_the_app_with_its_default_sec
         permissions.permissions(),
         vec![Permission::CreateApp(org())]
     );
-    assert!(!created.secret.as_str().is_empty());
+    assert_ne!(created.secret.as_str(), "");
     assert!(lab.apps.rows.lock().unwrap().contains_key(created.app.id()));
     let credentials = lab.apps.credentials.lock().unwrap();
     assert_eq!(credentials.len(), 1);
@@ -533,7 +533,7 @@ async fn an_activation_keeps_the_stream() {
 
     lab.set_active(created.app.id(), true).await.unwrap();
 
-    assert!(lab.registry.disconnected().is_empty());
+    assert_eq!(lab.registry.disconnected(), Vec::<AppId>::new());
 }
 
 #[tokio::test]
@@ -558,7 +558,7 @@ async fn a_denied_delete_keeps_the_stream_and_the_row() {
     let err = lab.delete(&AppId::new("app-1")).await.err().unwrap();
 
     assert!(matches!(err, DomainError::Forbidden(_)));
-    assert!(lab.registry.disconnected().is_empty());
+    assert_eq!(lab.registry.disconnected(), Vec::<AppId>::new());
 }
 
 #[tokio::test]
@@ -590,7 +590,7 @@ async fn the_trigger_runner_cannot_be_disabled_deleted_or_given_a_secret() {
     assert!(matches!(secret, DomainError::BusinessRule(_)));
     assert!(lab.apps.rows.lock().unwrap()[&id].is_active());
     assert!(lab.credentials.rows.lock().unwrap().is_empty());
-    assert!(lab.registry.disconnected().is_empty());
+    assert_eq!(lab.registry.disconnected(), Vec::<AppId>::new());
 }
 
 #[tokio::test]
@@ -603,7 +603,7 @@ async fn an_allowed_action_on_an_unknown_app_is_not_found() {
 
     assert!(matches!(delete, DomainError::NotFound(_)));
     assert!(matches!(disable, DomainError::NotFound(_)));
-    assert!(lab.registry.disconnected().is_empty());
+    assert_eq!(lab.registry.disconnected(), Vec::<AppId>::new());
 }
 
 #[tokio::test]
@@ -688,7 +688,7 @@ async fn enabling_a_secret_keeps_the_stream() {
         .unwrap();
 
     assert!(credential.is_enabled());
-    assert!(lab.registry.disconnected().is_empty());
+    assert_eq!(lab.registry.disconnected(), Vec::<AppId>::new());
 }
 
 #[tokio::test]
@@ -707,7 +707,7 @@ async fn a_rename_checks_the_permission_on_the_secret_and_keeps_the_stream() {
     assert_eq!(credential.id(), &secret_id);
     assert_eq!(credential.label().as_str(), "build-01.example.com");
     assert!(credential.is_enabled());
-    assert!(lab.registry.disconnected().is_empty());
+    assert_eq!(lab.registry.disconnected(), Vec::<AppId>::new());
     assert_eq!(
         permissions.permissions()[2],
         Permission::ManageAppSecret(secret_id)
@@ -758,7 +758,7 @@ async fn a_denied_secret_action_never_reads_or_writes() {
     assert!(matches!(revoke, DomainError::Forbidden(_)));
     assert!(matches!(disable, DomainError::Forbidden(_)));
     assert!(matches!(rename, DomainError::Forbidden(_)));
-    assert!(lab.registry.disconnected().is_empty());
+    assert_eq!(lab.registry.disconnected(), Vec::<AppId>::new());
     let kept = lab.credentials.rows.lock().unwrap()[credential.id()].clone();
     assert!(
         kept.is_enabled(),
@@ -779,7 +779,7 @@ async fn an_allowed_action_on_an_unknown_secret_is_not_found() {
     assert!(matches!(revoke, DomainError::NotFound(_)));
     assert!(matches!(disable, DomainError::NotFound(_)));
     assert!(matches!(rename, DomainError::NotFound(_)));
-    assert!(lab.registry.disconnected().is_empty());
+    assert_eq!(lab.registry.disconnected(), Vec::<AppId>::new());
 }
 
 fn agent_access(app_id: &AppId) -> PrincipalAccess {
@@ -810,7 +810,7 @@ async fn the_access_list_needs_read_app_and_an_unknown_app_holds_nothing() {
     let ghost = lab.list_access(&AppId::new("ghost")).await.unwrap();
 
     assert_eq!(access, vec![agent_access(&id)]);
-    assert!(ghost.is_empty());
+    assert_eq!(ghost, Vec::<PrincipalAccess>::new());
     assert_eq!(
         permissions.permissions()[1..],
         [

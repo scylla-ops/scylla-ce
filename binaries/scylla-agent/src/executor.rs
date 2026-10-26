@@ -911,7 +911,7 @@ mod tests {
 
         assert!(matches!(run.result, Err(ExecutionError::Cancelled)));
         assert_eq!(run.events(), ["job_started", "job_failed"]);
-        assert!(run.logs.is_empty());
+        assert_eq!(run.logs, Vec::<JobLogLine>::new());
     }
 
     #[tokio::test]

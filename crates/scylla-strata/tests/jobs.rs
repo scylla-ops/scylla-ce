@@ -523,7 +523,7 @@ async fn a_cancel_of_an_ended_job_fails_its_precondition() {
     let err = lab.cancel(ended.id()).await.unwrap_err();
 
     assert!(matches!(err, DomainError::BusinessRule(_)));
-    assert!(lab.registry.cancelled().is_empty());
+    assert_eq!(lab.registry.cancelled(), Vec::<(AppId, JobId)>::new());
 }
 
 #[tokio::test]
@@ -560,7 +560,7 @@ async fn a_delete_of_a_missing_job_is_not_found_and_stops_nothing() {
     let err = lab.delete(&JobId::new("gone")).await.unwrap_err();
 
     assert!(matches!(err, DomainError::NotFound(_)));
-    assert!(lab.registry.cancelled().is_empty());
+    assert_eq!(lab.registry.cancelled(), Vec::<(AppId, JobId)>::new());
 }
 
 #[tokio::test]
@@ -658,7 +658,7 @@ async fn a_reap_pass_ends_the_running_jobs_of_gone_agents_and_frees_their_stream
     assert_eq!(lab.jobs.row(kept.id()).status(), JobStatus::Running);
     assert_eq!(lab.tails.closed(), [lost.id().clone()]);
     assert!(lab.registry.wakes().contains(&None));
-    assert!(permissions.permissions().is_empty());
+    assert_eq!(permissions.permissions(), Vec::<Permission>::new());
 }
 
 #[tokio::test]
@@ -704,7 +704,7 @@ async fn a_reap_pass_skips_a_job_that_changed_since_it_read_it() {
 
     assert_eq!(changed, 0);
     assert_eq!(lab.jobs.row(lost.id()).status(), JobStatus::Running);
-    assert!(lab.tails.closed().is_empty());
+    assert_eq!(lab.tails.closed(), Vec::<JobId>::new());
 }
 
 #[tokio::test]
@@ -742,7 +742,7 @@ async fn a_reap_pass_refuses_a_caller_that_is_not_a_service() {
         .unwrap_err();
 
     assert!(matches!(err, DomainError::Forbidden(_)));
-    assert!(lab.jobs.released().is_empty());
+    assert_eq!(lab.jobs.released(), Vec::<AgentStream>::new());
 }
 
 #[tokio::test]
@@ -812,7 +812,7 @@ async fn a_dispatch_pass_refuses_a_caller_that_is_not_a_service() {
         .unwrap_err();
 
     assert!(matches!(err, DomainError::Forbidden(_)));
-    assert!(registry.dispatched_to().is_empty());
+    assert_eq!(registry.dispatched_to(), Vec::<AppId>::new());
     assert!(jobs.rows()[0].agent_app_id().is_none());
 }
 
@@ -847,7 +847,7 @@ async fn only_an_agent_releases_or_reconciles_its_jobs() {
 
     assert!(matches!(release, Err(DomainError::Forbidden(_))));
     assert!(matches!(reconcile, Err(DomainError::Forbidden(_))));
-    assert!(lab.jobs.released().is_empty());
+    assert_eq!(lab.jobs.released(), Vec::<AgentStream>::new());
 }
 
 #[tokio::test]
@@ -896,8 +896,8 @@ async fn a_hello_leaves_the_job_placed_on_the_open_stream() {
 
     assert_eq!(changed, 0);
     assert_eq!(lab.jobs.row(taken.id()).agent_app_id(), Some(&agent_id()));
-    assert!(lab.registry.cancelled().is_empty());
-    assert!(lab.jobs.released().is_empty());
+    assert_eq!(lab.registry.cancelled(), Vec::<(AppId, JobId)>::new());
+    assert_eq!(lab.jobs.released(), Vec::<AgentStream>::new());
 }
 
 struct LogLab {

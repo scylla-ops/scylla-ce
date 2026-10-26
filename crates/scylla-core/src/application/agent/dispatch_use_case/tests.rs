@@ -69,7 +69,7 @@ async fn a_recall_stops_the_live_jobs_only_after_the_delete() {
         })
         .await;
     assert!(matches!(failed, Err(DomainError::Stale(_))));
-    assert!(lab.registry.cancelled().is_empty());
+    assert_eq!(lab.registry.cancelled(), Vec::<(AppId, JobId)>::new());
 
     lab.uc
         .recall(JobScope::Pipeline(pl.id()), async { Ok(()) })

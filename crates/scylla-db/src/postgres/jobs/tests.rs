@@ -264,7 +264,10 @@ async fn a_release_returns_only_the_unstarted_jobs_of_its_stream(pool: PgPool) {
     let released = repo.find_by_id(waiting.id()).await.unwrap();
     assert!(released.agent_app_id().is_none());
     assert_eq!(released.version(), 2);
-    assert!(repo.pending_streams().await.unwrap().is_empty());
+    assert_eq!(
+        repo.pending_streams().await.unwrap(),
+        Vec::<AgentStream>::new()
+    );
     assert_eq!(
         repo.find_by_id(running.id()).await.unwrap().agent_app_id(),
         Some(&agent)

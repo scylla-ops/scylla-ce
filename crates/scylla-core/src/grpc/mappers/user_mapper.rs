@@ -259,7 +259,7 @@ mod tests {
         assert_eq!(proto.username, "alice");
         assert_eq!(proto.display_name.as_deref(), Some("Alice A."));
         assert!(proto.is_active);
-        assert!(!proto.user_id.unwrap().value.is_empty());
+        assert_ne!(proto.user_id.unwrap().value, "");
         assert!(proto.created_at.is_some());
         assert!(proto.updated_at.is_some());
     }
@@ -448,8 +448,8 @@ mod tests {
             role_name: RoleDisplayName::new("System admin").unwrap(),
         });
         assert!(system.organization_id.is_none());
-        assert!(system.organization_name.is_empty());
-        assert!(system.project_name.is_empty());
+        assert_eq!(system.organization_name, "");
+        assert_eq!(system.project_name, "");
     }
 
     #[test]
@@ -476,8 +476,8 @@ mod tests {
             current: false,
             ..session
         });
-        assert!(unknown.user_agent.is_empty());
-        assert!(unknown.ip_address.is_empty());
+        assert_eq!(unknown.user_agent, "");
+        assert_eq!(unknown.ip_address, "");
         assert!(!unknown.current);
     }
 

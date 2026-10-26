@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use scylla_auth::authz::{
-    Grant, GrantRepository, ORGANIZATION_ADMIN_ROLE, ORGANIZATION_MEMBER_ROLE,
+    EffectiveScope, Grant, GrantRepository, ORGANIZATION_ADMIN_ROLE, ORGANIZATION_MEMBER_ROLE,
     ORGANIZATION_VIEWER_ROLE, Principal, Scope,
 };
 use scylla_core::application::app::mint_app_secret;
@@ -550,7 +550,7 @@ async fn my_permissions_need_no_permission_unlike_the_admin_view(pool: PgPool) {
     let scopes = RolesRpc::get_my_permissions(&app.scoped(&bob))
         .await
         .unwrap();
-    assert!(scopes.is_empty());
+    assert_eq!(scopes, Vec::<EffectiveScope>::new());
 
     let other = RolesRpc::get_effective_permissions(
         &app.scoped(&alice),

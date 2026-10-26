@@ -91,9 +91,12 @@ mod resolve_tests {
         let trigger = webhook_trigger(vec![
             TriggerInput::json_pointer(key("GIT_COMMIT"), "/after").unwrap(),
         ]);
-        assert!(resolved(&trigger, None).is_empty());
+        assert_eq!(resolved(&trigger, None), Vec::<(String, String)>::new());
         let payload = json!({ "other": 1 });
-        assert!(resolved(&trigger, Some(&payload)).is_empty());
+        assert_eq!(
+            resolved(&trigger, Some(&payload)),
+            Vec::<(String, String)>::new()
+        );
     }
 
     #[test]

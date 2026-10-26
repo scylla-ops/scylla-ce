@@ -14,7 +14,7 @@ use scylla_auth::authz::{
     Grant, GrantRepository, ORGANIZATION_ADMIN_ROLE, PROJECT_ADMIN_ROLE, Principal,
     SYSTEM_ADMIN_ROLE, Scope,
 };
-use scylla_core::application::{AccountRepository, SessionRepository, UserRepository};
+use scylla_core::application::{AccountRepository, SessionRepository, UserRepository, UserSession};
 use sqlx::PgPool;
 
 fn token(seed: char) -> ResetToken {
@@ -160,7 +160,7 @@ async fn a_redeem_writes_the_password_marks_the_link_and_signs_out(pool: PgPool)
 
     assert_eq!(written.password_hash().as_str(), "$new$hash");
     assert_eq!(written.version(), 1);
-    assert!(sessions_of(&pool, &kevin).await.is_empty());
+    assert_eq!(sessions_of(&pool, &kevin).await, Vec::<String>::new());
     assert_eq!(sessions_of(&pool, &carol).await.len(), 1);
     assert_eq!(tokens_of(&pool, &kevin).await.len(), 1);
     assert!(
@@ -241,7 +241,7 @@ async fn an_update_signed_out_keeps_one_session_and_cancels_the_links(pool: PgPo
         sessions_of(&pool, &kevin).await,
         vec![kept.id().to_string()]
     );
-    assert!(tokens_of(&pool, &kevin).await.is_empty());
+    assert_eq!(tokens_of(&pool, &kevin).await, Vec::<String>::new());
 
     let err = repo.update_signed_out(&off, None).await.unwrap_err();
     assert!(matches!(err, DomainError::Stale(_)), "{err}");
@@ -346,11 +346,9 @@ async fn the_live_sessions_of_a_user_come_most_recently_active_first(pool: PgPoo
     assert_eq!(sessions[0].expires_at, new.expires_at());
     assert_eq!(sessions[2].client, SessionClient::default());
     assert!(sessions.iter().all(|s| !s.current));
-    assert!(
-        repo.list_sessions(&UserId::new("ghost"))
-            .await
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        repo.list_sessions(&UserId::new("ghost")).await.unwrap(),
+        Vec::<UserSession>::new()
     );
 }
 
@@ -424,7 +422,7 @@ async fn a_deleted_user_takes_its_links_along(pool: PgPool) {
         .await
         .unwrap();
 
-    assert!(tokens_of(&pool, &kevin).await.is_empty());
+    assert_eq!(tokens_of(&pool, &kevin).await, Vec::<String>::new());
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -525,5 +523,5 @@ async fn the_access_list_names_each_grant_in_order(pool: PgPool) {
     assert_eq!(access[0].organization_id, None);
     assert_eq!(access[2].organization_id.as_ref(), Some(acme.id()));
     assert_eq!(access[2].role.as_str(), PROJECT_ADMIN_ROLE);
-    assert!(!access[0].grant_id.is_empty());
+    assert_ne!(access[0].grant_id, "");
 }

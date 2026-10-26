@@ -69,7 +69,10 @@ mod tests {
 
     #[test]
     fn equal_outputs_have_no_difference() {
-        assert!(differences(&[record("OK")], &[record("OK")], &[]).is_empty());
+        assert_eq!(
+            differences(&[record("OK")], &[record("OK")], &[]),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -89,6 +92,9 @@ mod tests {
         let mut echo = record("OK");
         echo.meta = Meta::from([("x-request-id".to_string(), "parity-1".to_string())]);
         assert_eq!(differences(&[record("OK")], &[echo.clone()], &[]).len(), 1);
-        assert!(differences(&[record("OK")], &[echo], &["x-request-id".to_string()]).is_empty());
+        assert_eq!(
+            differences(&[record("OK")], &[echo], &["x-request-id".to_string()]),
+            Vec::<String>::new()
+        );
     }
 }

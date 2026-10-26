@@ -22,7 +22,7 @@ use scylla_core::test_support::users::UserBuilder;
 use scylla_domain::domain::caller::{CallerContext, ServiceIdentity};
 use scylla_domain::domain::errors::DomainResult;
 use scylla_domain::domain::ids::{AppId, UserId};
-use scylla_domain::domain::permission::ResourceRef;
+use scylla_domain::domain::permission::{Permission, ResourceRef};
 use scylla_domain::domain::role::{RoleDescription, RoleDisplayName};
 use scylla_domain::domain::user::{Email, User};
 use scylla_strata::{AccessModel, ResetLinkBase, bootstrap_admin};
@@ -179,7 +179,7 @@ async fn the_email_of_another_account_stops_the_bootstrap_without_a_grant() {
         err.to_string(),
         "the bootstrap email belongs to another account"
     );
-    assert!(lab.granted().is_empty());
+    assert_eq!(lab.granted(), Vec::<UserId>::new());
     assert_eq!(lab.users.rows().len(), 1);
 }
 
@@ -200,7 +200,7 @@ async fn the_username_with_another_email_stops_the_bootstrap_without_a_grant() {
         err.to_string(),
         "the bootstrap username belongs to an account with another email"
     );
-    assert!(lab.granted().is_empty());
+    assert_eq!(lab.granted(), Vec::<UserId>::new());
     assert_eq!(
         lab.by_username(USERNAME).email().map(Email::as_str),
         Some("someone@example.com")
@@ -241,7 +241,7 @@ async fn each_write_asks_the_permission_of_the_bootstrap_service() {
 
     let bootstrap = CallerContext::Service(ServiceIdentity::bootstrap());
     let checks = permissions.checks();
-    assert!(!checks.is_empty());
+    assert_ne!(checks, Vec::<(CallerContext, Permission)>::new());
     assert!(checks.iter().all(|(caller, _)| caller == &bootstrap));
 }
 
@@ -253,7 +253,7 @@ async fn a_refused_service_writes_nothing() {
 
     assert!(matches!(err, BootstrapError::CreateUser(_)), "{err}");
     assert!(lab.users.rows().is_empty());
-    assert!(lab.granted().is_empty());
+    assert_eq!(lab.granted(), Vec::<UserId>::new());
 }
 
 #[tokio::test]

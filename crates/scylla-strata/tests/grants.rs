@@ -245,7 +245,7 @@ async fn the_grantable_roles_are_the_platform_roles_and_those_of_the_organizatio
         .await
         .unwrap();
     assert_eq!(ids(platform), [SYSTEM_ADMIN_ROLE, PROJECT_VIEWER_ROLE]);
-    assert!(permissions.permissions().is_empty());
+    assert_eq!(permissions.permissions(), Vec::<Permission>::new());
 
     let in_o1 = lab
         .grantable(
@@ -358,7 +358,7 @@ async fn a_denied_create_never_stores() {
     let err = lab.grant(&service(), &grant).await.unwrap_err();
 
     assert!(matches!(err, DomainError::Forbidden(_)));
-    assert!(lab.grants.created().is_empty());
+    assert_eq!(lab.grants.created(), Vec::<Grant>::new());
 }
 
 #[tokio::test]
@@ -580,7 +580,7 @@ async fn an_app_of_another_organization_is_refused() {
         let err = lab.grant(&service(), &grant).await.unwrap_err();
         assert!(matches!(err, DomainError::BusinessRule(_)), "{err:?}");
     }
-    assert!(lab.grants.created().is_empty());
+    assert_eq!(lab.grants.created(), Vec::<Grant>::new());
 }
 
 #[tokio::test]
@@ -771,7 +771,7 @@ async fn revoking_user_grant_leaves_agents_alone() {
 
     lab.revoke(&grant.id).await.unwrap();
 
-    assert!(lab.registry.disconnected().is_empty());
+    assert_eq!(lab.registry.disconnected(), Vec::<AppId>::new());
 }
 
 #[tokio::test]
@@ -807,7 +807,7 @@ async fn a_denied_revoke_never_deletes() {
     let err = lab.revoke(&grant.id).await.unwrap_err();
 
     assert!(matches!(err, DomainError::Forbidden(_)));
-    assert!(lab.grants.deleted().is_empty());
+    assert_eq!(lab.grants.deleted(), Vec::<String>::new());
 }
 
 #[tokio::test]
@@ -815,8 +815,8 @@ async fn an_allowed_revoke_of_an_unknown_grant_changes_nothing() {
     let lab = lab(vec![]).await;
 
     lab.revoke("unknown").await.unwrap();
-    assert!(lab.grants.deleted().is_empty());
-    assert!(lab.grants.revoked_all().is_empty());
+    assert_eq!(lab.grants.deleted(), Vec::<String>::new());
+    assert_eq!(lab.grants.revoked_all(), Vec::<(Principal, Scope)>::new());
 }
 
 #[tokio::test]
@@ -830,7 +830,7 @@ async fn revoke_all_access_refuses_to_strip_the_last_owner() {
             .is_err(),
         "stripping the only owner of an organization must be refused"
     );
-    assert!(lab.registry.disconnected().is_empty());
+    assert_eq!(lab.registry.disconnected(), Vec::<AppId>::new());
 }
 
 #[tokio::test]
@@ -870,7 +870,7 @@ async fn revoke_all_access_at_system_scope_refuses_to_strip_the_last_admin_of_an
         .unwrap_err();
 
     assert!(matches!(err, DomainError::BusinessRule(_)));
-    assert!(lab.grants.revoked_all().is_empty());
+    assert_eq!(lab.grants.revoked_all(), Vec::<(Principal, Scope)>::new());
 }
 
 #[tokio::test]
@@ -891,7 +891,7 @@ async fn revoking_the_last_organization_grant_of_a_user_strips_the_access_beneat
     lab.revoke(&member.id).await.unwrap();
 
     assert_eq!(lab.grants.revoked_all(), vec![(alice, org())]);
-    assert!(lab.grants.deleted().is_empty());
+    assert_eq!(lab.grants.deleted(), Vec::<String>::new());
 }
 
 #[tokio::test]
@@ -912,7 +912,7 @@ async fn revoking_one_of_two_organization_grants_of_a_user_deletes_only_it() {
     lab.revoke(&member.id).await.unwrap();
 
     assert_eq!(lab.grants.deleted(), vec![member.id]);
-    assert!(lab.grants.revoked_all().is_empty());
+    assert_eq!(lab.grants.revoked_all(), Vec::<(Principal, Scope)>::new());
 }
 
 #[tokio::test]
