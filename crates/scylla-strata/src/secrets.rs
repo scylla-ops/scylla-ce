@@ -1,9 +1,9 @@
 use scylla_core::application::{SecretCipher, SecretRepository};
+use scylla_core::domain::access::Access;
 use scylla_domain::domain::errors::DomainResult;
 use scylla_domain::domain::ids::{ProjectId, SecretId};
 use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::secret::{Secret, SecretDescription, SecretName, SecretValue};
-use scylla_extension::Access;
 use std::sync::Arc;
 
 #[strata::module(section = "secrets")]

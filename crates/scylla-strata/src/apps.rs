@@ -4,13 +4,13 @@ use scylla_core::application::auth::new_session;
 use scylla_core::application::{
     AppCredentialRepository, AppRepository, AppTokenRepository, HashService, PrincipalAccess,
 };
+use scylla_core::domain::access::Access;
 use scylla_domain::domain::app::{
     App, AppCredential, AppName, AppSecret, AppSecretLabel, AppToken, default_secret_label,
 };
 use scylla_domain::domain::errors::{DomainError, DomainResult};
 use scylla_domain::domain::ids::{AppCredentialId, AppId, OrganizationId, UserId};
 use scylla_domain::domain::permission::Permission;
-use scylla_extension::Access;
 use sqlx::types::chrono::{DateTime, Utc};
 use std::sync::Arc;
 

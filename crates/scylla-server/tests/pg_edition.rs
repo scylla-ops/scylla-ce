@@ -1,5 +1,5 @@
 //! The CE edition on Postgres, built as an out-of-tree edition builds it: `strata_shared`, then
-//! `EditionHost::edition`. These flows ran on the Actions engine before every slice ran on strata.
+//! `EditionHost::edition`.
 
 #![allow(clippy::unused_async_trait_impl)]
 

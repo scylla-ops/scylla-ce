@@ -81,7 +81,6 @@ fn default_filter(edition_targets: &[&str]) -> String {
     let core_targets = [
         "scylla_server",
         "scylla_core",
-        "scylla_extension",
         "scylla_auth",
         "scylla_db",
         "scylla_domain",
@@ -104,14 +103,13 @@ mod tests {
     fn the_default_filter_shows_the_core_and_edition_targets_at_info() {
         assert_eq!(
             default_filter(&[]),
-            "audit=warn,scylla_server=info,scylla_core=info,scylla_extension=info,\
-             scylla_auth=info,scylla_db=info,scylla_domain=info,scylla_strata=info,warn"
+            "audit=warn,scylla_server=info,scylla_core=info,scylla_auth=info,\
+             scylla_db=info,scylla_domain=info,scylla_strata=info,warn"
         );
         assert_eq!(
             default_filter(&["scylla_ee"]),
             "audit=warn,scylla_ee=info,scylla_server=info,scylla_core=info,\
-             scylla_extension=info,scylla_auth=info,scylla_db=info,scylla_domain=info,\
-             scylla_strata=info,warn"
+             scylla_auth=info,scylla_db=info,scylla_domain=info,scylla_strata=info,warn"
         );
         assert!(tracing_subscriber::EnvFilter::try_new(default_filter(&["scylla_ee"])).is_ok());
     }

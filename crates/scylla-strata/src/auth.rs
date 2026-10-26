@@ -7,10 +7,10 @@ use scylla_core::application::user::{
     UserRepository,
 };
 use scylla_core::application::{HashService, SessionRepository};
+use scylla_core::domain::access::Access;
 use scylla_domain::domain::errors::{DomainError, DomainResult};
 use scylla_domain::domain::session::Session;
 use scylla_domain::domain::user::{Email, Password, ResetToken, Username, reset_link_invalid};
-use scylla_extension::Access;
 use std::sync::Arc;
 use strata::{BuildCx, BuildError, Component};
 

@@ -7,12 +7,12 @@ use scylla_core::application::pagination::{PaginatedResult, PaginationParams};
 use scylla_core::application::{
     DispatchUseCases, JobRepository, PipelineRepository, ProjectRepository, SecretResolver,
 };
+use scylla_core::domain::access::Access;
 use scylla_domain::domain::errors::DomainResult;
 use scylla_domain::domain::ids::{OrganizationId, PipelineId, ProjectId};
 use scylla_domain::domain::job::{Job, JobOrigin};
 use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::pipeline::{EnvKey, EnvValue, Pipeline, PipelineName, PipelineNode};
-use scylla_extension::Access;
 use std::sync::Arc;
 use strata::{BuildCx, BuildError, Component};
 

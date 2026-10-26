@@ -11,6 +11,7 @@ use scylla_core::application::{
     DispatchUseCases, JobLogLiveStream, JobLogRepository, JobLogStreamPort, JobRepository,
     SecretResolver,
 };
+use scylla_core::domain::access::Access;
 use scylla_domain::domain::caller::CallerContext;
 use scylla_domain::domain::clock;
 use scylla_domain::domain::errors::{DomainError, DomainResult};
@@ -18,7 +19,6 @@ use scylla_domain::domain::ids::{AppId, JobId, OrganizationId, PipelineId, Proje
 use scylla_domain::domain::job::{Job, JobLog, LogStream, NodeOutcome};
 use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::pipeline::NodeId;
-use scylla_extension::Access;
 use sqlx::types::chrono::{DateTime, Utc};
 use std::collections::HashSet;
 use std::sync::Arc;

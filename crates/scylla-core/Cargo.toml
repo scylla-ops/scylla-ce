@@ -21,8 +21,6 @@ test-utils = []
 scylla-domain = { workspace = true }
 # the access model (RBAC ports, scoped grants, the Cedar adapter)
 scylla-auth = { workspace = true }
-# the access rule of each command and query (`Describe`, `Access`); the strata modules read it
-scylla-extension = { workspace = true }
 tokio.workspace = true
 async-trait.workspace = true
 tower.workspace = true

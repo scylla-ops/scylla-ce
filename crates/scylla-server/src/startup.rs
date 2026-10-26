@@ -317,10 +317,6 @@ where
         .add_service(reflection_v1alpha);
     built.mount(Slice::ALL, &mut grpc, &auth_interceptor, in_flight, workers);
 
-    for add in surface.grpc {
-        add(&mut grpc, &auth_interceptor);
-    }
-
     // Scoped to the gRPC routes: `GrpcWebLayer` 400s everything else, and the gRPC classifier reads `grpc-status`.
     let grpc = grpc
         .routes()

@@ -4,6 +4,7 @@ use scylla_core::application::agent::{AgentView, CreatedAgent};
 use scylla_core::application::app::mint_app_secret;
 use scylla_core::application::guards::app_only;
 use scylla_core::application::{AgentRepository, AgentStats, JobRepository};
+use scylla_core::domain::access::Access;
 use scylla_core::infrastructure::InMemoryAgentRegistry;
 use scylla_domain::domain::agent::{Agent, AgentHost};
 use scylla_domain::domain::app::{
@@ -14,7 +15,6 @@ use scylla_domain::domain::errors::DomainResult;
 use scylla_domain::domain::ids::{AppId, OrganizationId};
 use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::role::RoleName;
-use scylla_extension::Access;
 use sqlx::types::chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

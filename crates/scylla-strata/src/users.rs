@@ -9,12 +9,12 @@ use scylla_core::application::user::{
     wrong_password,
 };
 use scylla_core::application::{HashService, PrincipalAccess};
+use scylla_core::domain::access::Access;
 use scylla_domain::domain::caller::CallerContext;
 use scylla_domain::domain::errors::{DomainError, DomainResult};
 use scylla_domain::domain::ids::{SessionId, UserId};
 use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::user::{DisplayName, Email, Password, User, Username};
-use scylla_extension::Access;
 use std::sync::Arc;
 use strata::{BuildCx, BuildError, Component, Resource};
 

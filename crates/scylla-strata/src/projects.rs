@@ -4,6 +4,7 @@ use crate::ports::{
 };
 use scylla_auth::authz::{Grant, PROJECT_ADMIN_ROLE, Principal, Scope, Visibility};
 use scylla_core::application::pagination::{PaginatedResult, PaginationParams};
+use scylla_core::domain::access::Access;
 use scylla_domain::domain::caller::CallerContext;
 use scylla_domain::domain::errors::DomainResult;
 use scylla_domain::domain::ids::{OrganizationId, ProjectId, UserId};
@@ -11,7 +12,6 @@ use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::project::{Project, ProjectDescription, ProjectName};
 use scylla_domain::domain::role::RoleName;
 use scylla_domain::domain::user::User;
-use scylla_extension::Access;
 
 /// The projects of an organization. Each use case checks its permission first, as the
 /// authorize stage of Scylla does, then reads or writes through the store.

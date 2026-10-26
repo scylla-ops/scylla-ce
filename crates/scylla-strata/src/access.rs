@@ -264,7 +264,7 @@ pub trait Access {
     }
 
     /// Only gives the refusal of the context. No hook targets it.
-    #[usecase(access = scylla_extension::Access::Public)]
+    #[usecase(access = scylla_core::domain::access::Access::Public)]
     async fn authenticated(&self) -> DomainResult<()> {
         match self.ctx().refused() {
             Some(refusal) => Err(refusal.error()),
@@ -273,24 +273,28 @@ pub trait Access {
     }
 
     #[authorize]
-    async fn authorize(&self, access: &scylla_extension::Access) -> DomainResult<()> {
+    async fn authorize(&self, access: &scylla_core::domain::access::Access) -> DomainResult<()> {
         self.require_access(access.clone()).await
     }
 
     async fn require(&self, permission: Permission) -> DomainResult<()> {
-        self.require_access(scylla_extension::Access::Requires(permission))
+        self.require_access(scylla_core::domain::access::Access::Requires(permission))
             .await
     }
 
-    async fn require_access(&self, access: scylla_extension::Access) -> DomainResult<()> {
-        if access == scylla_extension::Access::Public {
+    async fn require_access(
+        &self,
+        access: scylla_core::domain::access::Access,
+    ) -> DomainResult<()> {
+        if access == scylla_core::domain::access::Access::Public {
             return Ok(());
         }
         if let Some(refusal) = self.ctx().refused() {
             return Err(refusal.error());
         }
         let caller = self.ctx().caller();
-        if access == scylla_extension::Access::Authenticated && *caller == CallerContext::Anonymous
+        if access == scylla_core::domain::access::Access::Authenticated
+            && *caller == CallerContext::Anonymous
         {
             return Err(DomainError::forbidden("Anonymous caller is not permitted"));
         }

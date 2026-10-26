@@ -6,6 +6,7 @@ pub mod errors;
 pub mod ids;
 pub mod text;
 
+pub mod access;
 pub mod agent;
 pub mod app;
 pub mod caller;

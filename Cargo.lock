@@ -2720,7 +2720,6 @@ dependencies = [
  "rust-embed",
  "scylla-auth",
  "scylla-domain",
- "scylla-extension",
  "scylla-proto",
  "serde",
  "serde_json",
@@ -2767,17 +2766,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "scylla-extension"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "scylla-domain",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "scylla-parity"
 version = "0.1.0"
 dependencies = [
@@ -2820,7 +2808,6 @@ dependencies = [
  "scylla-auth",
  "scylla-core",
  "scylla-db",
- "scylla-extension",
  "scylla-proto",
  "scylla-strata",
  "sqlx",
@@ -2851,7 +2838,6 @@ dependencies = [
  "scylla-core",
  "scylla-db",
  "scylla-domain",
- "scylla-extension",
  "scylla-proto",
  "serde_json",
  "sha2 0.11.0",

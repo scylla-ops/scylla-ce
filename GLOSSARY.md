@@ -218,8 +218,8 @@ template per role, instantiated once per grant. There is no runtime-authored
 policy. Not a synonym for permission or grant.
 
 ### `PermissionService`
-Port (`scylla-auth`, `authz/service.rs`) that the `Authorize` stage asks,
-through `PermissionAuthorizer`, for each permission an action requires:
+Port (`scylla-auth`, `authz/service.rs`) that the access check of a use case asks
+for each permission of its `Access`:
 `check(caller, Permission) -> DomainResult<()>` (fail-closed, never a bool). The production adapter is **Cedar**-backed (`CedarPermissionService`):
 it builds the principal/resource entities, snapshots the live policy set, asks
 Cedar, and records an audit-log row.
@@ -329,7 +329,7 @@ The hexagon is split across several crates. The model sits in the kernel; the us
 
 `crates/scylla-server/src/`: `server.rs` (the `Server` builder, the public entry point), `startup.rs` (the `Services` struct and `init_services`, the one place that names every concrete adapter, `strata_shared`, plus `run_server`, which mounts every slice of the strata edition) and `cli.rs` (the command line, config loading and tracing setup shared by the edition binaries).
 
-`crates/scylla-strata/src/`: the CE backend on strata, one module per slice, see [Extension point](#extension-point) and `crates/scylla-strata/ARCHITECTURE.md`. `crates/scylla-extension/src/`: `Describe` and `Access`, and the action pipeline that only the Enterprise features still run (`crates/scylla-extension/ARCHITECTURE.md`).
+`crates/scylla-strata/src/`: the CE backend on strata, one module per slice, see [Extension point](#extension-point) and `crates/scylla-strata/ARCHITECTURE.md`.
 
 Every crate re-exports the kernel's `domain` module, so `crate::domain::...` names the model from anywhere even though it lives in another crate. That is the only re-export of its kind: the access model is reached as `scylla_auth::authz`, and the Postgres adapters import the ports they implement from `scylla_core::application`.
 
@@ -340,7 +340,7 @@ A trait describing something the use cases need from the outside world (persiste
 A concrete implementation of a port. **Driven** adapters, the ones the use cases call out to, live in the crate that owns their dependency: `scylla-db/src/postgres/*` for repositories, `scylla-auth/src/cedar/` for the policy engine, `scylla-core/src/infrastructure/` for the rest (hashing, encryption, cron schedules, in-process messaging). **Driving** adapters, the ones that call into the use cases, are the gRPC services of `scylla-strata/src/grpc/` and the HTTP routes of `scylla-core/src/rest/`.
 
 ### Use case
-A `#[usecase]` method of a strata module in `crates/scylla-strata/src/<slice>.rs` (e.g. `Projects::create_project`). Its parameter is a command or query type of `application/<feature>/` (e.g. `CreateProject`); it checks the access rule of that type, then reads and writes through the components of the module (the ports). The gRPC adapter of the slice (`crates/scylla-strata/src/grpc/`) calls it.
+A `#[usecase]` method of a strata module in `crates/scylla-strata/src/<slice>.rs` (e.g. `Projects::create_project`). Its inputs are its parameters (e.g. `organization_id, name, description`). Its attribute gives its access rule from these parameters (`#[usecase(write, access = ...)]`, an `Access` of `domain/access.rs`); it checks that rule first, then reads and writes through the components of the module (the ports). The gRPC adapter of the slice (`crates/scylla-strata/src/grpc/`) calls it.
 
 ### Entity
 A domain object with an identity and mutable state (e.g. `Pipeline`, `Job`, `App`, `Organization`). Defined in `domain/<aggregate>.rs`.
@@ -363,8 +363,8 @@ The lifecycle vocabulary a running agent reports: `JobStarted`, `NodeStarted`, `
 The topological-sort routine behind `DagPlan` (`domain/pipeline/dag.rs`). One implementation serves both sides: the control plane calls `drains_completely()` once to reject a pipeline containing a cycle, and an agent drives the same structure incrementally (`drain_ready` / `mark_completed` / `mark_terminal`) to decide what to launch next. Keeping it single is what stops the two from disagreeing about which nodes are runnable.
 
 ### Cargo features
-One in the whole workspace. `test-utils` exposes the `test_support` builders (`scylla-core`) and seeders (`scylla-db`) to downstream test code. `scylla-domain`, `scylla-agent`, `scylla-proto`, `scylla-auth`, `scylla-extension`, `scylla-server` and `scylla-ce` have none.
+One in the whole workspace. `test-utils` exposes the `test_support` builders (`scylla-core`) and seeders (`scylla-db`) to downstream test code. `scylla-domain`, `scylla-agent`, `scylla-proto`, `scylla-auth`, `scylla-server` and `scylla-ce` have none.
 
 ### Extension point
-A hook of a strata edition on a use case of the core: `#[before(scylla_strata::Grants::create_grant)]` on one use case, `#[before(scylla_strata::Projects::writes)]` on every write of a module, and `#[after(...)]`. It runs after the access check. An edition extends `ScyllaCeOnDb`, overrides a component or adds a module, and gives its host to the `Server` builder (`.strata(EditionHost::<MyEdition>::new(Slice::ALL))`); the core never knows which edition built it. The Community Edition adds no hook. The older action pipeline of `scylla-extension` (`Actions`, `Hooks`, `Server::extension`) serves only the Enterprise features that did not move to strata.
+A hook of a strata edition on a use case of the core: `#[before(scylla_strata::Grants::create_grant)]` on one use case, `#[before(scylla_strata::Projects::writes)]` on every write of a module, and `#[after(...)]`. It runs after the access check. An edition extends `ScyllaCeOnDb`, overrides a component or adds a module, and gives its host to the `Server` builder (`.strata(EditionHost::<MyEdition>::new(Slice::ALL))`); the core never knows which edition built it. The Community Edition adds no hook.
 

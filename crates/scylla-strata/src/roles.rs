@@ -4,11 +4,11 @@ use scylla_auth::authz::{
     RoleRepository, Scope, ScopeKind, ensure_no_escalation, permissions_by_role,
     validate_role_permissions,
 };
+use scylla_core::domain::access::Access;
 use scylla_domain::domain::errors::{DomainError, DomainResult};
 use scylla_domain::domain::ids::OrganizationId;
 use scylla_domain::domain::permission::{PERMISSION_CATALOG, Permission};
 use scylla_domain::domain::role::{RoleDescription, RoleDisplayName, RoleName};
-use scylla_extension::Access;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 

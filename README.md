@@ -20,11 +20,10 @@ The workspace is a stack of library crates under `crates/` with the two binaries
 
 ```
 crates/
-  scylla-extension/   the access rule of each command (Describe, Access); the action pipeline of the Enterprise features
-  scylla-domain/      the shared kernel: domain model, JobEvent (no I/O, no crypto)
+  scylla-domain/      the shared kernel: domain model, Access, JobEvent (no I/O, no crypto)
   scylla-proto/       the Rust bindings and their conversions; the .proto files are the scylla-protos submodule in proto/
   scylla-auth/        the access model: RBAC ports and types, the Cedar adapter
-  scylla-core/        commands, queries and ports, gRPC mappers and interceptor, HTTP routes, config, in-memory adapters
+  scylla-core/        ports and shared rules, gRPC mappers and interceptor, HTTP routes, config, in-memory adapters
   scylla-db/          the Postgres adapters, the pool, the embedded migrations
   scylla-strata/      the CE backend on strata: one module per slice, the workers, the edition host
   scylla-server/      the composition root: the Server builder and the shared cli
@@ -46,7 +45,6 @@ Dependencies point one way, bottom to top:
 ```
 scylla-domain <- scylla-proto     <- scylla-core <- scylla-db <- scylla-server <- scylla-ce
 scylla-domain <- scylla-auth      <- scylla-core
-scylla-domain <- scylla-extension <- scylla-core
 ```
 
 `scylla-core` holds the ports declared in `scylla-core` and `scylla-auth` as trait objects (`Arc<dyn Port>`); `scylla-db` implements them; `scylla-server` is the only crate that names the concrete implementations side by side. The binaries are a `main.rs` each: parse the command line, load the configuration, open the pool with `scylla_db::init_db`, then `Server::new(config, db)`, the edition's contributions as builder methods, `serve()`.
@@ -57,7 +55,7 @@ A WebAssembly plugin runtime is planned as `crates/scylla-wasm/`; it does not ex
 
 This repository is the open source core and ships the Community Edition binary, `scylla-ce`. A separate, private repository builds an Enterprise binary on top of it. The dependency is strictly one way: the private repository depends on this one by a pinned git tag, and nothing here knows it exists.
 
-The engine of the core is [strata](https://github.com/GodlyJaaaj/strata): `crates/scylla-strata` holds one strata module per slice (projects, secrets, pipelines, apps, roles, grants, organizations, users, auth, triggers, jobs, agents), its gRPC adapter, the background workers, the admin bootstrap and the webhook ingress. The Community Edition is the edition `ScyllaCeOnDb`. Every command and query of the core is a type in `scylla-core` (`CreateProject { organization_id, name, description }`, `GetProject { id }`) whose `Describe` impl gives its access rule: `Access::Public`, `Access::Authenticated` or the permissions it requires. Each use case checks that rule first, then reads and writes through its ports.
+The engine of the core is [strata](https://github.com/GodlyJaaaj/strata): `crates/scylla-strata` holds one strata module per slice (projects, secrets, pipelines, apps, roles, grants, organizations, users, auth, triggers, jobs, agents), its gRPC adapter, the background workers, the admin bootstrap and the webhook ingress. The Community Edition is the edition `ScyllaCeOnDb`. Each use case is a `#[usecase]` method that takes its inputs as parameters (`create_project(organization_id, name, description)`, `get_project(id)`). Its attribute gives its access rule from these parameters: `#[usecase(write, access = Access::Requires(Permission::CreateProject(organization_id.clone())))]`. The rule is `Access::Public`, `Access::Authenticated` or the permissions that the use case requires (`scylla_core::domain::access::Access`). Each use case checks that rule first, then reads and writes through its ports.
 
 An edition extends the CE edition. It overrides a component (a store, an audit slot), adds its own modules and hooks a use case of the core:
 
@@ -72,15 +70,20 @@ pub struct MyEdition;
 #[strata::module(section = "limits")]
 pub trait Limits: scylla_strata::Grants {
     #[before(scylla_strata::Grants::create_grant)]
-    async fn seat_before_grant(&self, cmd: &CreateGrant) -> DomainResult<()> { /* veto */ }
+    async fn seat_before_grant(
+        &self,
+        principal: &Principal,
+        role: &RoleName,
+        scope: &Scope,
+    ) -> DomainResult<()> { /* veto */ }
 }
 
 Server::new(config, db).strata(EditionHost::<MyEdition>::new(Slice::ALL)).serve()
 ```
 
-A hook runs after the access check. A veto is a `DomainError` (`quota_exceeded`, `business_rule`) and maps to gRPC like any other. See `crates/scylla-strata/ARCHITECTURE.md`.
+A named hook takes each input of the use case by reference, in the order of its parameters. A hook runs after the access check. A veto is a `DomainError` (`quota_exceeded`, `business_rule`) and maps to gRPC like any other. See `crates/scylla-strata/ARCHITECTURE.md`.
 
-The same builder takes what else an edition contributes, usually bundled as a `scylla_server::Feature` (its migrations on the shared pool, its services): `authenticated_grpc_service` / `grpc_service` (its own gRPC services on the same listener, behind the core's bearer-token interceptor or not), `file_descriptor_set` (so reflection lists them) and `http_routes`. `crates/scylla-extension` still holds the older action pipeline (`Actions`, `Hooks`); only the Enterprise features that did not move to strata run on it, through `Context::actions` and `Feature::hooks`. A private edition therefore adds whole features without touching this repository.
+The same builder takes what else an edition contributes, usually bundled as a `scylla_server::Feature` (its migrations on the shared pool, through `Feature::prepare`): `file_descriptor_set` (so reflection lists the services of its strata modules) and `http_routes`. The gRPC services of an edition come from its strata modules, which `Built::mount` mounts with the CE services. A private edition therefore adds whole features without touching this repository.
 
 ## Prerequisites
 

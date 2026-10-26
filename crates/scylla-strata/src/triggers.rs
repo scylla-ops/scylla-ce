@@ -10,6 +10,7 @@ use scylla_core::application::trigger::{
 use scylla_core::application::{
     AppRepository, PipelineRepository, ProjectRepository, SecretCipher,
 };
+use scylla_core::domain::access::Access;
 use scylla_core::rest::webhook::WebhookDelivery;
 use scylla_domain::domain::caller::{CallerContext, ServiceIdentity};
 use scylla_domain::domain::clock;
@@ -20,7 +21,6 @@ use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::trigger::{
     FireObservation, Trigger, TriggerInput, TriggerName, TriggerSource,
 };
-use scylla_extension::Access;
 use sqlx::types::chrono::{DateTime, Utc};
 use std::sync::Arc;
 use strata::{BuildCx, BuildError, Component, Resource};
@@ -69,7 +69,7 @@ pub trait FireAudit: Send + Sync + 'static {
         &self,
         action: &'static str,
         caller: &CallerContext,
-        access: &scylla_extension::Access,
+        access: &scylla_core::domain::access::Access,
         outcome: Result<(), &DomainError>,
     );
 }
@@ -83,7 +83,7 @@ impl FireAudit for NoFireAudit {
         &self,
         _: &'static str,
         _: &CallerContext,
-        _: &scylla_extension::Access,
+        _: &scylla_core::domain::access::Access,
         _: Result<(), &DomainError>,
     ) {
     }
@@ -130,9 +130,10 @@ pub trait Triggers: crate::Pipelines {
     async fn require_as(
         &self,
         caller: &CallerContext,
-        access: scylla_extension::Access,
+        access: scylla_core::domain::access::Access,
     ) -> DomainResult<()> {
-        if access == scylla_extension::Access::Authenticated && *caller == CallerContext::Anonymous
+        if access == scylla_core::domain::access::Access::Authenticated
+            && *caller == CallerContext::Anonymous
         {
             return Err(DomainError::forbidden("Anonymous caller is not permitted"));
         }

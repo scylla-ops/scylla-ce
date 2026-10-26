@@ -4,11 +4,11 @@ use scylla_auth::authz::{
     Scope, ScopeKind, check_grantable, ensure_owner_remains,
 };
 use scylla_core::application::agent::AgentDispatch;
+use scylla_core::domain::access::Access;
 use scylla_domain::domain::errors::{DomainError, DomainResult};
 use scylla_domain::domain::ids::{GrantId, OrganizationId};
 use scylla_domain::domain::permission::{Permission, ResourceRef};
 use scylla_domain::domain::role::RoleName;
-use scylla_extension::Access;
 use std::sync::Arc;
 
 /// Writes a new grant. An edition overrides it to admit the grant in the same store

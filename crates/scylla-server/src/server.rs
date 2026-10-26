@@ -1,4 +1,4 @@
-use crate::feature::{Context, Feature, PermissionAuthorizer};
+use crate::feature::{Context, Feature};
 use crate::startup::{bootstrap, init_services, run_server, shutdown_signal};
 use crate::surface::Surface;
 use anyhow::{Context as _, Result};
@@ -6,7 +6,6 @@ use scylla_core::application::PasswordResetSender;
 use scylla_core::config::ControlPlaneConfig;
 use scylla_core::error::StartupError;
 use scylla_core::infrastructure::LogPasswordResetSender;
-use scylla_extension::{Actions, Extension, Hooks};
 use scylla_strata::{EditionHost, Host, ScyllaCeOnDb, Slice};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -21,7 +20,6 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 pub struct Server {
     config: ControlPlaneConfig,
     db: PgPool,
-    hooks: Hooks,
     features: Vec<Box<dyn Feature>>,
     surface: Surface,
     password_reset_sender: Arc<dyn PasswordResetSender>,
@@ -34,7 +32,6 @@ impl Server {
         Self {
             config,
             db,
-            hooks: Hooks::new(),
             features: Vec::new(),
             surface: Surface::default(),
             password_reset_sender: Arc::new(LogPasswordResetSender),
@@ -57,51 +54,9 @@ impl Server {
         self
     }
 
-    /// Registers before `Feature::hooks`, which runs at `serve`; within one position, hooks run
-    /// in registration order. The hooks run in `Context::actions` only: no CE slice runs a hook.
-    #[must_use]
-    pub fn extension<E: Extension>(mut self, extension: &Arc<E>) -> Self {
-        extension.register(&mut self.hooks);
-        self
-    }
-
     #[must_use]
     pub fn feature(mut self, feature: impl Feature) -> Self {
         self.features.push(Box::new(feature));
-        self
-    }
-
-    #[must_use]
-    pub fn grpc_service<S>(mut self, service: S) -> Self
-    where
-        S: tower::Service<http::Request<tonic::body::Body>, Error = std::convert::Infallible>
-            + tonic::server::NamedService
-            + Clone
-            + Send
-            + Sync
-            + 'static,
-        S::Response: axum::response::IntoResponse,
-        S::Future: Send + 'static,
-    {
-        self.surface.grpc_service(service);
-        self
-    }
-
-    #[must_use]
-    pub fn authenticated_grpc_service<S>(mut self, service: S) -> Self
-    where
-        S: tower::Service<
-                http::Request<tonic::body::Body>,
-                Response = http::Response<tonic::body::Body>,
-                Error = std::convert::Infallible,
-            > + tonic::server::NamedService
-            + Clone
-            + Send
-            + Sync
-            + 'static,
-        S::Future: Send + 'static,
-    {
-        self.surface.authenticated_grpc_service(service);
         self
     }
 
@@ -121,7 +76,6 @@ impl Server {
         let Self {
             config,
             db,
-            mut hooks,
             features,
             mut surface,
             password_reset_sender,
@@ -138,9 +92,6 @@ impl Server {
         }
         scylla_strata::log_engines();
 
-        for feature in &features {
-            feature.hooks(&mut hooks);
-        }
         for feature in &features {
             feature
                 .prepare(&db)
@@ -163,10 +114,6 @@ impl Server {
 
         let ctx = Context {
             db: db.clone(),
-            actions: Arc::new(Actions::new(
-                Arc::new(PermissionAuthorizer(services.permission_checker.clone())),
-                Arc::new(hooks),
-            )),
             permissions: services.permission_checker.clone(),
             visibility: services.permission_checker.clone(),
             trust_forwarded_headers: config.server.trust_forwarded_headers,

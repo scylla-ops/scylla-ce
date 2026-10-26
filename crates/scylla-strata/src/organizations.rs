@@ -7,6 +7,7 @@ use scylla_core::application::user::users_in_order;
 use scylla_core::application::{
     AppRepository, DispatchUseCases, OrganizationRepository, UserRepository,
 };
+use scylla_core::domain::access::Access;
 use scylla_domain::domain::caller::CallerContext;
 use scylla_domain::domain::errors::DomainResult;
 use scylla_domain::domain::ids::{OrganizationId, UserId};
@@ -16,7 +17,6 @@ use scylla_domain::domain::organization::{
 use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::role::RoleName;
 use scylla_domain::domain::user::User;
-use scylla_extension::Access;
 use std::sync::Arc;
 use strata::{BuildCx, BuildError, Component};
 

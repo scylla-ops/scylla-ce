@@ -1481,7 +1481,12 @@ impl scylla_strata::Triggers for Audited {
     type Audit = RecordingAudit;
 }
 
-pub type AuditRow = (&'static str, CallerContext, scylla_extension::Access, bool);
+pub type AuditRow = (
+    &'static str,
+    CallerContext,
+    scylla_core::domain::access::Access,
+    bool,
+);
 
 #[derive(Clone, Default)]
 pub struct AuditRows(Arc<Mutex<Vec<AuditRow>>>);
@@ -1507,7 +1512,7 @@ impl scylla_strata::FireAudit for RecordingAudit {
         &self,
         action: &'static str,
         caller: &CallerContext,
-        access: &scylla_extension::Access,
+        access: &scylla_core::domain::access::Access,
         outcome: Result<(), &DomainError>,
     ) {
         self.0
@@ -1565,13 +1570,17 @@ async fn an_audit_slot_sees_the_run_and_the_record_of_each_fire() {
             (
                 scylla_strata::RUN_PIPELINE_WITH_INPUTS,
                 runner,
-                scylla_extension::Access::Requires(Permission::RunPipeline(pipeline_id())),
+                scylla_core::domain::access::Access::Requires(Permission::RunPipeline(
+                    pipeline_id()
+                )),
                 true,
             ),
             (
                 scylla_strata::RECORD_TRIGGER_FIRE,
                 firer(),
-                scylla_extension::Access::Requires(Permission::ManageTrigger(trigger.id().clone())),
+                scylla_core::domain::access::Access::Requires(Permission::ManageTrigger(
+                    trigger.id().clone()
+                )),
                 true,
             ),
         ]
