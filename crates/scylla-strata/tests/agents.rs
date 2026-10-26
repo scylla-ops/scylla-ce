@@ -1012,3 +1012,25 @@ async fn grpc_open_streams_hold_no_permit_of_the_in_flight_budget() {
     assert_eq!(answered.code(), Code::NotFound);
     assert_eq!(streams.len(), 3);
 }
+
+#[tokio::test]
+async fn a_denied_list_get_or_stats_is_forbidden() {
+    let AdminLab { lab, .. } = admin_lab(Arc::new(DenyingPermissionService::new())).await;
+    let caller = alice();
+    let alice = lab.app.scoped(&caller);
+    let id = AppId::new("agent-1");
+
+    let list = AgentsRpc::list_agents(
+        &alice,
+        ListAgents {
+            organization_id: org(),
+        },
+    )
+    .await;
+    let get = AgentsRpc::get_agent(&alice, GetAgent { id: id.clone() }).await;
+    let stats = AgentsRpc::get_agent_stats(&alice, GetAgentStats { id }).await;
+
+    assert!(matches!(list, Err(DomainError::Forbidden(_))));
+    assert!(matches!(get, Err(DomainError::Forbidden(_))));
+    assert!(matches!(stats, Err(DomainError::Forbidden(_))));
+}

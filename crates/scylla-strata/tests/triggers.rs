@@ -1431,3 +1431,109 @@ async fn a_custom_signature_header_is_read_under_its_lowercase_name() {
     assert!(matches!(default_header, DomainError::Unauthorized(_)));
     assert!(matches!(custom, IngestOutcome::Fired(_)));
 }
+
+#[strata::edition(extends = TestCe, overrides(scylla_strata::Triggers))]
+pub struct Audited;
+
+#[strata::overrides]
+impl scylla_strata::Triggers for Audited {
+    type Audit = RecordingAudit;
+}
+
+pub type AuditRow = (&'static str, CallerContext, scylla_extension::Access, bool);
+
+#[derive(Clone, Default)]
+pub struct AuditRows(Arc<Mutex<Vec<AuditRow>>>);
+
+#[allow(clippy::unused_async_trait_impl)]
+impl strata::Resource for AuditRows {
+    const SECTION: &'static str = "audit_rows";
+    async fn build(_: &mut strata::BuildCx<'_>) -> Result<Self, strata::BuildError> {
+        Err(strata::BuildError::msg("the test gives the rows"))
+    }
+}
+
+pub struct RecordingAudit(AuditRows);
+
+impl strata::Component for RecordingAudit {
+    async fn build(cx: &mut strata::BuildCx<'_>) -> Result<Self, strata::BuildError> {
+        Ok(RecordingAudit(cx.resource::<AuditRows>().await?))
+    }
+}
+
+impl scylla_strata::FireAudit for RecordingAudit {
+    async fn record(
+        &self,
+        action: &'static str,
+        caller: &CallerContext,
+        access: &scylla_extension::Access,
+        outcome: Result<(), &DomainError>,
+    ) {
+        self.0
+            .0
+            .lock()
+            .unwrap()
+            .push((action, caller.clone(), access.clone(), outcome.is_ok()));
+    }
+}
+
+#[tokio::test]
+async fn an_audit_slot_sees_the_run_and_the_record_of_each_fire() {
+    let base = lab(Arc::new(RecordingPermissionService::new())).await;
+    let trigger = base.create(cron()).await.unwrap().trigger;
+    let runner = base.runner();
+    let project = ProjectBuilder::for_org_id(organization_id(), "rocket")
+        .id(ProjectId::new("proj-1"))
+        .build();
+    let pipeline = PipelineBuilder::for_project_id(project.id().clone())
+        .id(pipeline_id())
+        .build();
+    let jobs = Arc::new(StubJobs::default());
+    let rows = AuditRows::default();
+    let app = Audited::builder(&strata::Config::new())
+        .provide(AccessModel {
+            permissions: Arc::new(AllButEve),
+            visibility: Arc::new(ScopesByAgent::everything()),
+        })
+        .provide(JobDispatch(dispatcher(
+            Arc::new(StubRegistry::default()),
+            jobs.clone(),
+            Arc::new(StubTails::default()),
+        )))
+        .provide(TriggerWebhookBase(None))
+        .provide(rows.clone())
+        .provide_arc::<dyn TriggerRepository>(base.triggers.clone())
+        .provide_arc::<dyn PipelineRepository>(Arc::new(OnePipeline(pipeline)))
+        .provide_arc::<dyn ProjectRepository>(Arc::new(OneProject(project)))
+        .provide_arc::<dyn AppRepository>(base.apps.clone())
+        .provide_arc::<dyn SecretCipher>(Arc::new(StubCipher))
+        .provide_arc::<dyn CronSchedule>(Arc::new(StubSchedule))
+        .provide_arc::<dyn JobRepository>(jobs.clone())
+        .provide_arc::<dyn SecretResolver>(Arc::new(EchoResolver))
+        .provide_arc::<dyn TriggerDeliveryRepository>(base.deliveries.clone())
+        .build()
+        .await
+        .unwrap();
+
+    Triggers::fire(&app, trigger.id()).await.unwrap();
+
+    let rows = rows.0.lock().unwrap().clone();
+    assert_eq!(
+        rows,
+        [
+            (
+                scylla_strata::RUN_PIPELINE_WITH_INPUTS,
+                runner,
+                scylla_extension::Access::Requires(Permission::RunPipeline(pipeline_id())),
+                true,
+            ),
+            (
+                scylla_strata::RECORD_TRIGGER_FIRE,
+                firer(),
+                scylla_extension::Access::Requires(Permission::ManageTrigger(trigger.id().clone())),
+                true,
+            ),
+        ]
+    );
+    assert_eq!(jobs.rows().len(), 1);
+}

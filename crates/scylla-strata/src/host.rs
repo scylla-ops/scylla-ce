@@ -93,6 +93,111 @@ impl fmt::Display for Slice {
     }
 }
 
+/// A gRPC service of the CE backend. Each service belongs to one slice (see
+/// [`Slice::services`]). The server and the edition use this one table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Service {
+    Projects,
+    Secrets,
+    Pipelines,
+    Apps,
+    AppAuth,
+    Roles,
+    Grants,
+    Organizations,
+    Users,
+    Auth,
+    Triggers,
+    Jobs,
+    Agents,
+    AgentAdmin,
+}
+
+impl Service {
+    pub const ALL: &'static [Service] = &[
+        Service::Projects,
+        Service::Secrets,
+        Service::Pipelines,
+        Service::Apps,
+        Service::AppAuth,
+        Service::Roles,
+        Service::Grants,
+        Service::Organizations,
+        Service::Users,
+        Service::Auth,
+        Service::Triggers,
+        Service::Jobs,
+        Service::Agents,
+        Service::AgentAdmin,
+    ];
+
+    /// The full gRPC name of the service.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Service::Projects => "scylla.project.v1.ProjectService",
+            Service::Secrets => "scylla.secret.v1.SecretService",
+            Service::Pipelines => "scylla.pipeline.v1.PipelineService",
+            Service::Apps => "scylla.app.v1.AppService",
+            Service::AppAuth => "scylla.app.v1.AppAuthService",
+            Service::Roles => "scylla.authz.v1.RoleService",
+            Service::Grants => "scylla.authz.v1.GrantService",
+            Service::Organizations => "scylla.organization.v1.OrganizationService",
+            Service::Users => "scylla.user.v1.UserService",
+            Service::Auth => "scylla.auth.v1.AuthService",
+            Service::Triggers => "scylla.trigger.v1.TriggerService",
+            Service::Jobs => "scylla.job.v1.JobService",
+            Service::Agents => "scylla.agent.v1.AgentService",
+            Service::AgentAdmin => "scylla.agent.v1.AgentAdminService",
+        }
+    }
+
+    /// The slice of the service.
+    #[must_use]
+    pub fn slice(self) -> Slice {
+        match self {
+            Service::Projects => Slice::Projects,
+            Service::Secrets => Slice::Secrets,
+            Service::Pipelines => Slice::Pipelines,
+            Service::Apps | Service::AppAuth => Slice::Apps,
+            Service::Roles => Slice::Roles,
+            Service::Grants => Slice::Grants,
+            Service::Organizations => Slice::Organizations,
+            Service::Users => Slice::Users,
+            Service::Auth => Slice::Auth,
+            Service::Triggers => Slice::Triggers,
+            Service::Jobs => Slice::Jobs,
+            Service::Agents | Service::AgentAdmin => Slice::Agents,
+        }
+    }
+
+    /// True when a slice in `switched` holds the service: the edition serves it, and the server
+    /// does not add its CE handler.
+    #[must_use]
+    pub fn on_strata(self, switched: &[Slice]) -> bool {
+        switched.contains(&self.slice())
+    }
+}
+
+impl Slice {
+    /// The gRPC services of the slice, from the table of [`Service::slice`].
+    pub fn services(self) -> impl Iterator<Item = Service> {
+        Service::ALL
+            .iter()
+            .copied()
+            .filter(move |s| s.slice() == self)
+    }
+}
+
+/// Writes one line for each worker and for the webhook ingress: the engine that runs it.
+pub fn log_engines(switched: &[Slice]) {
+    let engine = |on: bool| if on { "strata" } else { "ce" };
+    for worker in crate::Worker::ALL {
+        tracing::info!(target: "scylla_strata", worker = ?worker, engine = engine(worker.on_strata(switched)), "the engine runs the worker");
+    }
+    tracing::info!(target: "scylla_strata", engine = engine(switched.contains(&Slice::Triggers)), "the engine runs the webhook ingress");
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum SwitchError {
     Unknown(String),
@@ -145,7 +250,6 @@ pub struct Shared {
     pub apps: Arc<dyn AppRepository>,
     pub app_credentials: Arc<dyn AppCredentialRepository>,
     pub hash: Arc<dyn HashService>,
-    pub agent_registry: Arc<dyn AgentDispatch>,
     pub roles: Arc<dyn scylla_auth::authz::RoleRepository>,
     pub grants: Arc<dyn scylla_auth::authz::GrantRepository>,
     pub authz_entities: Arc<dyn scylla_auth::authz::AuthzEntityProvider>,
@@ -160,6 +264,8 @@ pub struct Shared {
     pub job_logs: Arc<dyn scylla_core::application::JobLogRepository>,
     pub job_log_stream: Arc<scylla_core::infrastructure::InMemoryJobLogStream>,
     pub agents: Arc<dyn scylla_core::application::AgentRepository>,
+    /// The one agent registry: the agent stream registers on it, and the Apps slot is the same
+    /// value.
     pub agent_streams: Arc<scylla_core::infrastructure::InMemoryAgentRegistry>,
     pub trust_forwarded_headers: bool,
 }
@@ -348,54 +454,60 @@ where
             };
         }
         for slice in slices {
-            match slice {
-                Slice::Projects => {
-                    authed!(crate::grpc::ProjectServiceServer::new(grpc.clone()));
-                }
-                Slice::Secrets => {
-                    authed!(crate::grpc::SecretServiceServer::new(grpc.clone()));
-                }
-                Slice::Pipelines => {
-                    authed!(crate::grpc::PipelineServiceServer::new(grpc.clone()),);
-                }
-                Slice::Apps => {
-                    authed!(crate::grpc::AppServiceServer::new(grpc.clone()));
-                    routes.add_service(crate::grpc::AppAuthServiceServer::with_interceptor(
-                        grpc.clone(),
-                        anonymous,
-                    ));
-                }
-                Slice::Roles => {
-                    authed!(crate::grpc::RoleServiceServer::new(grpc.clone()));
-                }
-                Slice::Grants => {
-                    authed!(crate::grpc::GrantServiceServer::new(grpc.clone()));
-                }
-                Slice::Organizations => {
-                    authed!(crate::grpc::OrganizationServiceServer::new(grpc.clone()),);
-                }
-                Slice::Users => {
-                    authed!(crate::grpc::UserServiceServer::new(grpc.clone()));
-                }
-                Slice::Auth => {
-                    routes.add_service(crate::grpc::AuthServiceServer::with_interceptor(
-                        grpc.clone(),
-                        anonymous,
-                    ));
-                }
-                Slice::Triggers => {
-                    authed!(crate::grpc::TriggerServiceServer::new(grpc.clone()));
-                }
-                Slice::Jobs => {
-                    authed!(crate::grpc::JobServiceServer::new(grpc.clone()));
-                }
-                Slice::Agents => {
-                    authed!(
-                        crate::grpc::AgentServiceServer::new(grpc.clone())
-                            .max_decoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES)
-                            .max_encoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES),
-                    );
-                    authed!(crate::grpc::AgentAdminServiceServer::new(grpc.clone()),);
+            for service in slice.services() {
+                match service {
+                    Service::Projects => {
+                        authed!(crate::grpc::ProjectServiceServer::new(grpc.clone()));
+                    }
+                    Service::Secrets => {
+                        authed!(crate::grpc::SecretServiceServer::new(grpc.clone()));
+                    }
+                    Service::Pipelines => {
+                        authed!(crate::grpc::PipelineServiceServer::new(grpc.clone()));
+                    }
+                    Service::Apps => {
+                        authed!(crate::grpc::AppServiceServer::new(grpc.clone()));
+                    }
+                    Service::AppAuth => {
+                        routes.add_service(crate::grpc::AppAuthServiceServer::with_interceptor(
+                            grpc.clone(),
+                            anonymous,
+                        ));
+                    }
+                    Service::Roles => {
+                        authed!(crate::grpc::RoleServiceServer::new(grpc.clone()));
+                    }
+                    Service::Grants => {
+                        authed!(crate::grpc::GrantServiceServer::new(grpc.clone()));
+                    }
+                    Service::Organizations => {
+                        authed!(crate::grpc::OrganizationServiceServer::new(grpc.clone()));
+                    }
+                    Service::Users => {
+                        authed!(crate::grpc::UserServiceServer::new(grpc.clone()));
+                    }
+                    Service::Auth => {
+                        routes.add_service(crate::grpc::AuthServiceServer::with_interceptor(
+                            grpc.clone(),
+                            anonymous,
+                        ));
+                    }
+                    Service::Triggers => {
+                        authed!(crate::grpc::TriggerServiceServer::new(grpc.clone()));
+                    }
+                    Service::Jobs => {
+                        authed!(crate::grpc::JobServiceServer::new(grpc.clone()));
+                    }
+                    Service::Agents => {
+                        authed!(
+                            crate::grpc::AgentServiceServer::new(grpc.clone())
+                                .max_decoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES)
+                                .max_encoding_message_size(scylla_proto::agent::MAX_MESSAGE_BYTES),
+                        );
+                    }
+                    Service::AgentAdmin => {
+                        authed!(crate::grpc::AgentAdminServiceServer::new(grpc.clone()));
+                    }
                 }
             }
             tracing::info!(slice = %slice, edition = std::any::type_name::<E>(), "strata serves the slice");
@@ -403,8 +515,10 @@ where
     }
 }
 
+/// The interceptor of a public service (`AuthService`, `AppAuthService`): it marks the caller
+/// anonymous and reads no token, as CE does.
 #[allow(clippy::result_large_err, clippy::unnecessary_wraps)]
-fn anonymous(mut request: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
+pub fn anonymous(mut request: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
     request
         .extensions_mut()
         .insert(AuthContext::new(CallerContext::Anonymous));
@@ -453,7 +567,7 @@ async fn build<
         .provide_arc(shared.app_credentials.clone())
         .provide_arc(shared.app_tokens.clone())
         .provide_arc(shared.hash.clone())
-        .provide_arc(shared.agent_registry.clone())
+        .provide_arc::<dyn AgentDispatch>(shared.agent_streams.clone())
         .provide_arc(shared.roles.clone())
         .provide_arc(shared.grants.clone())
         .provide_arc(shared.authz_entities.clone())
@@ -495,6 +609,61 @@ async fn build<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grpc::*;
+    use tonic::server::NamedService;
+
+    fn name_of<S: NamedService>() -> &'static str {
+        S::NAME
+    }
+
+    #[test]
+    fn the_service_table_names_each_generated_server_once() {
+        type G = Grpc<crate::ScyllaCe>;
+        let generated = [
+            (Service::Projects, name_of::<ProjectServiceServer<G>>()),
+            (Service::Secrets, name_of::<SecretServiceServer<G>>()),
+            (Service::Pipelines, name_of::<PipelineServiceServer<G>>()),
+            (Service::Apps, name_of::<AppServiceServer<G>>()),
+            (Service::AppAuth, name_of::<AppAuthServiceServer<G>>()),
+            (Service::Roles, name_of::<RoleServiceServer<G>>()),
+            (Service::Grants, name_of::<GrantServiceServer<G>>()),
+            (
+                Service::Organizations,
+                name_of::<OrganizationServiceServer<G>>(),
+            ),
+            (Service::Users, name_of::<UserServiceServer<G>>()),
+            (Service::Auth, name_of::<AuthServiceServer<G>>()),
+            (Service::Triggers, name_of::<TriggerServiceServer<G>>()),
+            (Service::Jobs, name_of::<JobServiceServer<G>>()),
+            (Service::Agents, name_of::<AgentServiceServer<G>>()),
+            (Service::AgentAdmin, name_of::<AgentAdminServiceServer<G>>()),
+        ];
+        assert_eq!(generated.len(), Service::ALL.len());
+        for (service, name) in generated {
+            assert_eq!(service.name(), name);
+        }
+        let mut seen = Vec::new();
+        for slice in Slice::ALL {
+            let services: Vec<Service> = slice.services().collect();
+            assert!(!services.is_empty(), "{slice} has no service");
+            seen.extend(services);
+        }
+        assert_eq!(seen.len(), Service::ALL.len());
+        assert!(Service::ALL.iter().all(|s| seen.contains(s)));
+        assert_eq!(
+            Slice::Agents.services().collect::<Vec<_>>(),
+            [Service::Agents, Service::AgentAdmin]
+        );
+        assert_eq!(
+            Slice::Apps.services().collect::<Vec<_>>(),
+            [Service::Apps, Service::AppAuth]
+        );
+        for slice in Slice::ALL {
+            for service in Service::ALL {
+                assert_eq!(service.on_strata(&[*slice]), service.slice() == *slice);
+            }
+        }
+    }
 
     #[test]
     fn a_switch_needs_a_known_and_ready_slice() {

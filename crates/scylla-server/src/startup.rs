@@ -28,7 +28,7 @@ use scylla_db::{
     PgTriggerRepository, PgUserRepository,
 };
 use scylla_extension::{Actions, Hooks};
-use scylla_strata::{BOOTSTRAP_SLICES, Built, Slice, Worker};
+use scylla_strata::{BOOTSTRAP_SLICES, Built, Service, Slice, Worker};
 use sqlx::PgPool;
 use std::future::Future;
 use std::sync::Arc;
@@ -389,7 +389,6 @@ pub(crate) async fn init_services(
         apps: app_repo.clone(),
         app_credentials: app_credential_repo.clone(),
         hash: hash_service.clone(),
-        agent_registry: agent_registry.clone(),
         roles: role_repo.clone(),
         grants: grant_repo.clone(),
         authz_entities: authz_provider.clone(),
@@ -526,20 +525,17 @@ pub(crate) async fn shutdown_signal() {
     }
 }
 
-/// `GrpcWebLayer` answers 400 to any non-gRPC-Web HTTP/1.1 request, so it is scoped to the gRPC routes;
-/// `Router::layer` wraps the fallback too, so the UI fallback is attached last.
-pub(crate) async fn run_server<F>(
+/// Adds the CE handler of each service that `strata` does not serve, then mounts the strata
+/// services. One table (`Service::slice`) decides both, so no service is added twice.
+pub(crate) fn add_services(
+    grpc: &mut tonic::service::RoutesBuilder,
     config: &ControlPlaneConfig,
     services: &Services,
-    surface: Surface,
     strata: Option<(&dyn Built, &[Slice])>,
+    auth_interceptor: &scylla_strata::AuthInterceptorLayer,
     in_flight: &strata::InFlight,
     workers: scylla_strata::Workers,
-    shutdown: F,
-) -> Result<(), StartupError>
-where
-    F: Future<Output = ()> + Send + 'static,
-{
+) {
     use scylla_core::grpc::{
         AgentAdminHandler, AgentHandler, AppAuthHandler, AppHandler, AuthHandler, GrantHandler,
         JobHandler, OrganizationHandler, PipelineHandler, ProjectHandler, RoleHandler,
@@ -561,9 +557,6 @@ where
         trigger::v1::trigger_service_server::TriggerServiceServer,
         user::v1::user_service_server::UserServiceServer,
     };
-    use tonic::service::Routes;
-    use tonic::transport::Server;
-    use tonic_web::GrpcWebLayer;
     use tower::ServiceBuilder;
 
     let auth_handler = AuthHandler::new(
@@ -614,26 +607,6 @@ where
     );
     let grant_handler = GrantHandler::new(services.actions.clone(), services.grant_uc.clone());
     let role_handler = RoleHandler::new(services.actions.clone(), services.role_uc.clone());
-
-    let auth_interceptor = async_interceptor(AuthInterceptor::new(
-        services.session_repo.clone(),
-        services.app_token_repo.clone(),
-    ));
-    // v1 and v1alpha reflection both: grpcurl and some bridges default to v1alpha.
-    let reflection = || {
-        let mut builder = tonic_reflection::server::Builder::configure()
-            .register_encoded_file_descriptor_set(scylla_proto::FILE_DESCRIPTOR_SET);
-        for set in &surface.descriptors {
-            builder = builder.register_encoded_file_descriptor_set(set);
-        }
-        builder
-    };
-    let reflection_v1 = reflection()
-        .build_v1()
-        .map_err(|e| StartupError::Reflection(e.to_string()))?;
-    let reflection_v1alpha = reflection()
-        .build_v1alpha()
-        .map_err(|e| StartupError::Reflection(e.to_string()))?;
 
     let auth_service = AuthServiceServer::new(auth_handler);
 
@@ -691,52 +664,106 @@ where
         .layer(auth_interceptor.clone())
         .service(RoleServiceServer::new(role_handler));
 
-    let mut grpc = Routes::builder();
-    grpc.add_service(reflection_v1)
-        .add_service(reflection_v1alpha);
-
     let strata_slices = strata.map_or(&[][..], |(_, slices)| slices);
-    if !strata_slices.contains(&scylla_strata::Slice::Auth) {
+    let ce = |service: Service| !service.on_strata(strata_slices);
+    if ce(Service::Auth) {
         grpc.add_service(auth_service);
     }
-    if !strata_slices.contains(&scylla_strata::Slice::Triggers) {
+    if ce(Service::Triggers) {
         grpc.add_service(trigger_service);
     }
-    if !strata_slices.contains(&scylla_strata::Slice::Jobs) {
+    if ce(Service::Jobs) {
         grpc.add_service(job_service);
     }
-    if !strata_slices.contains(&scylla_strata::Slice::Agents) {
+    if ce(Service::Agents) {
         grpc.add_service(agent_service);
+    }
+    if ce(Service::AgentAdmin) {
         grpc.add_service(agent_admin_service);
     }
-    if !strata_slices.contains(&scylla_strata::Slice::Projects) {
+    if ce(Service::Projects) {
         grpc.add_service(project_service);
     }
-    if !strata_slices.contains(&scylla_strata::Slice::Secrets) {
+    if ce(Service::Secrets) {
         grpc.add_service(secret_service);
     }
-    if !strata_slices.contains(&scylla_strata::Slice::Users) {
+    if ce(Service::Users) {
         grpc.add_service(user_service);
     }
-    if !strata_slices.contains(&scylla_strata::Slice::Organizations) {
+    if ce(Service::Organizations) {
         grpc.add_service(org_service);
     }
-    if !strata_slices.contains(&scylla_strata::Slice::Grants) {
+    if ce(Service::Grants) {
         grpc.add_service(grant_service);
     }
-    if !strata_slices.contains(&scylla_strata::Slice::Roles) {
+    if ce(Service::Roles) {
         grpc.add_service(role_service);
     }
-    if !strata_slices.contains(&scylla_strata::Slice::Pipelines) {
+    if ce(Service::Pipelines) {
         grpc.add_service(pipeline_service);
     }
-    if !strata_slices.contains(&scylla_strata::Slice::Apps) {
+    if ce(Service::Apps) {
         grpc.add_service(app_service);
+    }
+    if ce(Service::AppAuth) {
         grpc.add_service(app_auth_service);
     }
     if let Some((built, slices)) = strata {
-        built.mount(slices, &mut grpc, &auth_interceptor, in_flight, workers);
+        built.mount(slices, grpc, auth_interceptor, in_flight, workers);
     }
+}
+
+/// `GrpcWebLayer` answers 400 to any non-gRPC-Web HTTP/1.1 request, so it is scoped to the gRPC routes;
+/// `Router::layer` wraps the fallback too, so the UI fallback is attached last.
+pub(crate) async fn run_server<F>(
+    config: &ControlPlaneConfig,
+    services: &Services,
+    surface: Surface,
+    strata: Option<(&dyn Built, &[Slice])>,
+    in_flight: &strata::InFlight,
+    workers: scylla_strata::Workers,
+    shutdown: F,
+) -> Result<(), StartupError>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    use tonic::service::Routes;
+    use tonic::transport::Server;
+    use tonic_web::GrpcWebLayer;
+
+    let auth_interceptor = async_interceptor(AuthInterceptor::new(
+        services.session_repo.clone(),
+        services.app_token_repo.clone(),
+    ));
+    // v1 and v1alpha reflection both: grpcurl and some bridges default to v1alpha.
+    let reflection = || {
+        let mut builder = tonic_reflection::server::Builder::configure()
+            .register_encoded_file_descriptor_set(scylla_proto::FILE_DESCRIPTOR_SET);
+        for set in &surface.descriptors {
+            builder = builder.register_encoded_file_descriptor_set(set);
+        }
+        builder
+    };
+    let reflection_v1 = reflection()
+        .build_v1()
+        .map_err(|e| StartupError::Reflection(e.to_string()))?;
+    let reflection_v1alpha = reflection()
+        .build_v1alpha()
+        .map_err(|e| StartupError::Reflection(e.to_string()))?;
+
+    let mut grpc = Routes::builder();
+    grpc.add_service(reflection_v1)
+        .add_service(reflection_v1alpha);
+    add_services(
+        &mut grpc,
+        config,
+        services,
+        strata,
+        &auth_interceptor,
+        in_flight,
+        workers,
+    );
+    let strata_slices = strata.map_or(&[][..], |(_, slices)| slices);
 
     for add in surface.grpc {
         add(&mut grpc, &auth_interceptor);
@@ -998,5 +1025,116 @@ mod switched_tests {
         let seen = seen.0.lock().unwrap();
         assert!(!seen.is_empty());
         assert!(seen.iter().all(|c| c.contains("bootstrap")), "{seen:?}");
+    }
+}
+
+#[cfg(test)]
+mod routes_tests {
+    use super::{Services, add_services, init_services};
+    use axum::body::Body;
+    use http::{Request, StatusCode};
+    use scylla_core::config::ControlPlaneConfig;
+    use scylla_core::grpc::auth_interceptor::AuthInterceptor;
+    use scylla_core::infrastructure::LogPasswordResetSender;
+    use scylla_extension::Hooks;
+    use scylla_strata::{Agents, Apps, EditionHost, Host, ScyllaCeOnDb, Service, Slice, Workers};
+    use sqlx::PgPool;
+    use std::sync::Arc;
+    use tonic_async_interceptor::async_interceptor;
+    use tower::ServiceExt;
+
+    fn method(service: Service) -> &'static str {
+        match service {
+            Service::Projects => "GetProject",
+            Service::Secrets => "ListSecrets",
+            Service::Pipelines => "GetPipeline",
+            Service::Apps => "GetApp",
+            Service::AppAuth => "IssueToken",
+            Service::Roles => "GetRole",
+            Service::Grants => "RevokeGrant",
+            Service::Organizations => "GetOrganization",
+            Service::Users => "GetUser",
+            Service::Auth => "Login",
+            Service::Triggers => "GetTrigger",
+            Service::Jobs => "GetJob",
+            Service::Agents => "Open",
+            Service::AgentAdmin => "GetAgent",
+        }
+    }
+
+    async fn services(db: PgPool, switched: &[Slice]) -> Services {
+        init_services(
+            &ControlPlaneConfig::default(),
+            db,
+            Arc::new(Hooks::default()),
+            Arc::new(LogPasswordResetSender),
+            switched,
+        )
+        .await
+        .unwrap()
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn each_new_slice_alone_leaves_every_service_answering(db: PgPool) {
+        for slice in [Slice::Auth, Slice::Triggers, Slice::Jobs, Slice::Agents] {
+            let switched = [slice];
+            let mut services = services(db.clone(), &switched).await;
+            let built = EditionHost::<ScyllaCeOnDb>::new(Slice::ALL)
+                .build(&services.shared)
+                .await
+                .unwrap();
+            let auth = async_interceptor(AuthInterceptor::new(
+                services.session_repo.clone(),
+                services.app_token_repo.clone(),
+            ));
+            let workers = Workers {
+                wakes: services.wakes.take(),
+                ..Workers::default()
+            };
+            let stop = workers.stop.clone();
+            let mut grpc = tonic::service::Routes::builder();
+            add_services(
+                &mut grpc,
+                &ControlPlaneConfig::default(),
+                &services,
+                Some((&*built, &switched)),
+                &auth,
+                &strata::InFlight::default(),
+                workers,
+            );
+            let router = grpc.routes().into_axum_router();
+            for service in Service::ALL {
+                let request = Request::post(format!("/{}/{}", service.name(), method(*service)))
+                    .header("content-type", "application/grpc")
+                    .header("te", "trailers")
+                    .body(Body::from(vec![0u8; 5]))
+                    .unwrap();
+                let response = router.clone().oneshot(request).await.unwrap();
+                assert_eq!(response.status(), StatusCode::OK, "{slice} {service:?}");
+                let status = response
+                    .headers()
+                    .get("grpc-status")
+                    .map(|v| v.to_str().unwrap().to_owned());
+                assert!(status.is_some(), "{slice} {service:?} gave no status");
+                assert_ne!(status.as_deref(), Some("12"), "{slice} {service:?}");
+            }
+            stop.cancel();
+        }
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn the_apps_slot_and_the_agent_stream_share_the_ce_registry(db: PgPool) {
+        let services = services(db, Slice::ALL).await;
+        let app = EditionHost::<ScyllaCeOnDb>::new(Slice::ALL)
+            .edition(&services.shared, true)
+            .await
+            .unwrap();
+
+        let slot = Arc::as_ptr(Apps::app_registry(&*app));
+        let streams = Arc::as_ptr(Agents::agent_links(&*app).registry());
+        let ce = Arc::as_ptr(&services.agent_registry);
+
+        assert!(std::ptr::addr_eq(slot, streams));
+        assert!(std::ptr::addr_eq(streams, ce));
     }
 }

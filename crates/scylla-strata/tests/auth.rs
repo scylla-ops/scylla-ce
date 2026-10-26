@@ -892,3 +892,39 @@ async fn grpc_auth_is_public_and_ignores_a_bad_bearer_header() {
 
     assert_eq!(sessions.rows().len(), 2);
 }
+
+#[tokio::test]
+async fn grpc_a_reset_request_answers_mail_and_sends_the_link_once() {
+    let (lab, _) = reset_lab(Outbox::default()).await;
+    let kevin = account(&lab, "kevin", true);
+    let outbox = lab.outbox.clone();
+    let accounts = lab.accounts.clone();
+    let mut client = serve(lab).await;
+
+    let answer = client
+        .request_password_reset(scylla_proto::auth::v1::RequestPasswordResetRequest {
+            email: Some(scylla_proto::common::v1::Email {
+                value: "kevin@example.com".into(),
+            }),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    outbox.wait_for(1).await;
+    tokio::time::sleep(StdDuration::from_millis(50)).await;
+
+    assert_eq!(
+        answer.delivery,
+        scylla_proto::auth::v1::PasswordResetDelivery::Mail as i32
+    );
+    let sent = outbox.sent();
+    assert_eq!(sent.len(), 1);
+    let stored = accounts.resets(kevin.id());
+    assert_eq!(
+        sent[0].link,
+        format!(
+            "https://scylla.example.com/reset-password#token={}",
+            stored[0].token().as_str()
+        )
+    );
+}

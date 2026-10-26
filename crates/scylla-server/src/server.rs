@@ -130,6 +130,7 @@ impl Server {
         let ready = strata.as_ref().map_or(&[][..], |host| host.ready());
         let slices =
             scylla_strata::switched(&config.strata.slices, ready).context("[strata].slices")?;
+        scylla_strata::log_engines(&slices);
 
         for feature in &features {
             feature.hooks(&mut hooks);

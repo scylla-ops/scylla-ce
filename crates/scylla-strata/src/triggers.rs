@@ -53,6 +53,41 @@ impl Component for TriggerWebhookLinks {
     }
 }
 
+/// The action name of the run of a fire, as the CE `TriggerFirer` runs it.
+pub const RUN_PIPELINE_WITH_INPUTS: &str = "run_pipeline_with_inputs";
+
+/// The action name of the record of a fire, as the CE `TriggerFirer` runs it.
+pub const RECORD_TRIGGER_FIRE: &str = "record_trigger_fire";
+
+/// The audit of the inner runs of a fire. A fire runs the pipeline and records its outcome as
+/// module methods, so no hook sees them. The fire gives each run to this slot after the run:
+/// the action name, the caller, the access and the outcome.
+#[strata::port]
+pub trait FireAudit: Send + Sync + 'static {
+    async fn record(
+        &self,
+        action: &'static str,
+        caller: &CallerContext,
+        access: &scylla_extension::Access,
+        outcome: Result<(), &DomainError>,
+    );
+}
+
+/// The CE audit of a fire: it keeps nothing. An edition overrides `Triggers::Audit`.
+#[derive(Default)]
+pub struct NoFireAudit;
+
+impl FireAudit for NoFireAudit {
+    async fn record(
+        &self,
+        _: &'static str,
+        _: &CallerContext,
+        _: &scylla_extension::Access,
+        _: Result<(), &DomainError>,
+    ) {
+    }
+}
+
 #[strata::module(section = "triggers")]
 pub trait Triggers: crate::Pipelines {
     #[component]
@@ -78,6 +113,9 @@ pub trait Triggers: crate::Pipelines {
 
     #[component]
     type TriggerDeliveries = Arc<dyn TriggerDeliveryRepository>;
+
+    #[component]
+    type Audit: FireAudit = NoFireAudit;
 
     fn trigger_rules(&self) -> TriggerUseCases {
         TriggerUseCases::new(
@@ -135,9 +173,23 @@ pub trait Triggers: crate::Pipelines {
             inputs: resolve_inputs(trigger, payload)?,
             origin,
         };
-        self.require_as(&runner, run.access()).await?;
-        let job = self.new_job(&run.id, run.origin, run.inputs).await?;
-        self.start(&job).await
+        let access = run.access();
+        let RunPipelineWithInputs { id, inputs, origin } = run;
+        let outcome = async {
+            self.require_as(&runner, access.clone()).await?;
+            let job = self.new_job(&id, origin, inputs).await?;
+            self.start(&job).await
+        }
+        .await;
+        self.audit()
+            .record(
+                RUN_PIPELINE_WITH_INPUTS,
+                &runner,
+                &access,
+                outcome.as_ref().err().map_or(Ok(()), Err),
+            )
+            .await;
+        outcome
     }
 
     async fn record_as(
@@ -145,14 +197,27 @@ pub trait Triggers: crate::Pipelines {
         caller: &CallerContext,
         record: RecordTriggerFire,
     ) -> DomainResult<()> {
-        self.require_as(caller, record.access()).await?;
-        let observation = FireObservation {
-            fired_at: clock::now(),
-            status: record.status.to_owned(),
-        };
-        self.trigger_repo()
-            .record_fire(&record.id, &observation)
-            .await
+        let access = record.access();
+        let outcome = async {
+            self.require_as(caller, access.clone()).await?;
+            let observation = FireObservation {
+                fired_at: clock::now(),
+                status: record.status.to_owned(),
+            };
+            self.trigger_repo()
+                .record_fire(&record.id, &observation)
+                .await
+        }
+        .await;
+        self.audit()
+            .record(
+                RECORD_TRIGGER_FIRE,
+                caller,
+                &access,
+                outcome.as_ref().err().map_or(Ok(()), Err),
+            )
+            .await;
+        outcome
     }
 
     async fn fire(&self, id: &TriggerId) -> DomainResult<Job> {

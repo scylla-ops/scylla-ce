@@ -237,7 +237,6 @@ where
                 });
             }
         }
-        tracing::info!(worker = ?worker, edition = std::any::type_name::<E>(), "strata runs the worker");
     }
 }
 

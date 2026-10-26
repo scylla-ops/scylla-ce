@@ -1356,3 +1356,34 @@ async fn grpc_tail_sends_the_history_then_the_live_lines_with_no_duplicate() {
 
     assert_eq!(received, ["old", "new"]);
 }
+
+#[tokio::test]
+async fn a_reap_pass_ends_a_stranded_running_job_that_has_no_agent() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    let pl = two_nodes();
+    let lost = lab.insert(&stored(&busy(&pl), None));
+    let kept = lab.insert(&busy(&pl));
+
+    assert_eq!(lab.reap().await.unwrap(), 1);
+
+    assert_eq!(lab.jobs.row(lost.id()).status(), JobStatus::Orphaned);
+    assert_eq!(lab.jobs.row(kept.id()).status(), JobStatus::Running);
+}
+
+#[tokio::test]
+async fn a_list_of_a_node_that_has_not_started_keeps_the_page_of_the_request() {
+    let lab = log_lab(Arc::new(RecordingPermissionService::new())).await;
+    let query = ListJobLogs {
+        pagination: Some(PaginationParams::new(3, 5).unwrap()),
+        ..list(Some("test"))
+    };
+
+    let page = JobControlRpc::list_job_logs(&lab.app.scoped(&agent()), query)
+        .await
+        .unwrap();
+
+    assert!(page.items().is_empty());
+    assert_eq!(page.metadata().page(), 3);
+    assert_eq!(page.metadata().page_size(), 5);
+    assert_eq!(page.metadata().total_count(), 0);
+}
