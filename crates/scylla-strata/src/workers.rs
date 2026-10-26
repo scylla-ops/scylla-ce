@@ -1,9 +1,5 @@
 use crate::access::{CallerOf, Identity};
 use crate::{Auth, AuthRpc, JobControl, JobControlRpc, Slice, Triggers, TriggersRpc};
-use scylla_core::application::agent::DispatchPendingJobs;
-use scylla_core::application::auth::PurgeExpiredSessions;
-use scylla_core::application::job::ReapOrphanedJobs;
-use scylla_core::application::trigger::{ClaimDueTriggers, ScheduleCronTriggers};
 use scylla_domain::domain::caller::{CallerContext, ServiceIdentity};
 use scylla_domain::domain::clock;
 use scylla_domain::domain::ids::AppId;
@@ -77,7 +73,7 @@ where
     <E as Contextual>::Ctx: CallerOf,
 {
     let ctx = service::<<E as Contextual>::Ctx>(ServiceIdentity::job_reaper());
-    match JobControlRpc::reap_orphaned_jobs(&app.scoped(&ctx), ReapOrphanedJobs).await {
+    match JobControlRpc::reap_orphaned_jobs(&app.scoped(&ctx)).await {
         Ok(0) => 0,
         Ok(n) => {
             warn!(jobs = n, "reaped the jobs of agents that are gone");
@@ -98,7 +94,7 @@ where
     <E as Contextual>::Ctx: CallerOf,
 {
     let ctx = service::<<E as Contextual>::Ctx>(ServiceIdentity::session_sweeper());
-    match AuthRpc::purge_expired_sessions(&app.scoped(&ctx), PurgeExpiredSessions).await {
+    match AuthRpc::purge_expired_sessions(&app.scoped(&ctx)).await {
         Ok(0) => 0,
         Ok(n) => {
             info!(purged = n, "purged expired sessions");
@@ -121,14 +117,10 @@ where
 {
     let ctx = service::<<E as Contextual>::Ctx>(ServiceIdentity::cron_scheduler());
     let view = app.scoped(&ctx);
-    if let Err(e) = TriggersRpc::schedule_cron_triggers(&view, ScheduleCronTriggers).await {
+    if let Err(e) = TriggersRpc::schedule_cron_triggers(&view).await {
         warn!(error = %e, "cron seed: could not seed unscheduled triggers");
     }
-    let claim = ClaimDueTriggers {
-        now: clock::now(),
-        limit: CRON_CLAIM_BATCH,
-    };
-    let due = match TriggersRpc::claim_due_triggers(&view, claim).await {
+    let due = match TriggersRpc::claim_due_triggers(&view, clock::now(), CRON_CLAIM_BATCH).await {
         Ok(due) => due,
         Err(e) => {
             warn!(error = %e, "cron claim: could not claim due triggers");
@@ -162,8 +154,7 @@ where
     <E as Contextual>::Ctx: CallerOf,
 {
     let ctx = service::<<E as Contextual>::Ctx>(ServiceIdentity::job_dispatcher());
-    let pass = DispatchPendingJobs { agents };
-    match JobControlRpc::dispatch_pending_jobs(&app.scoped(&ctx), pass).await {
+    match JobControlRpc::dispatch_pending_jobs(&app.scoped(&ctx), agents).await {
         Ok(placed) if placed.is_empty() => 0,
         Ok(placed) => {
             info!(dispatched = placed.len(), "placed pending jobs on agents");

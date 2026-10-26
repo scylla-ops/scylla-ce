@@ -1,21 +1,13 @@
-pub mod commands;
 pub mod delivery;
 pub mod fire;
-pub mod queries;
 pub mod repository;
 pub mod schedule;
 pub mod webhook;
 
-pub use commands::{
-    ClaimDueTriggers, CreateTrigger, CreatedTrigger, DeleteTrigger, NewTrigger, RecordTriggerFire,
-    ScheduleCronTriggers, SetTriggerEnabled, UpdateTrigger,
-};
 pub use delivery::TriggerDeliveryRepository;
-pub use fire::FireTriggerNow;
-pub use queries::{GetTrigger, ListPipelineTriggers, ResolveTriggerRun, TriggerRun};
 pub use repository::{NextFire, TriggerRepository};
 pub use schedule::{CronSchedule, next_fire_time};
-pub use webhook::{DEFAULT_SIGNATURE_HEADER, IngestOutcome, IngestWebhook, verified_digest};
+pub use webhook::{DEFAULT_SIGNATURE_HEADER, IngestOutcome, verified_digest};
 
 use crate::application::{AppRepository, PipelineRepository, ProjectRepository};
 use crate::domain::app::{App, TRIGGER_RUNNER_APP_NAME};
@@ -29,6 +21,26 @@ use derive_more::Constructor;
 use scylla_auth::authz::{Grant, ORGANIZATION_TRIGGER_RUNNER_ROLE, Principal, Scope};
 use std::sync::Arc;
 use tracing::warn;
+use uuid::Uuid;
+
+/// The outcome of `create_trigger`. No `Debug`: `webhook_secret` is the plaintext that the caller
+/// sees once.
+pub struct CreatedTrigger {
+    pub trigger: Trigger,
+    pub webhook_secret: Option<String>,
+}
+
+/// What a fire needs: the trigger, refused when it is disabled, and the trigger-runner App of its
+/// organization. A runner that cannot be found is a failed run, not a refusal, thus the fire still
+/// records it.
+pub struct TriggerRun {
+    pub trigger: Trigger,
+    pub runner: DomainResult<AppId>,
+}
+
+pub fn generate_webhook_secret() -> String {
+    format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+}
 
 /// The trigger rules that the Triggers module of strata reads: the next fire time and the runner
 /// app of an organization.

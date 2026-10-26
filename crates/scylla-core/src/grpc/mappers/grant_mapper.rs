@@ -1,15 +1,12 @@
-//! Wire to command, command outcome to wire. The handler holds none of it.
+//! Wire to the inputs of a use case, its outcome to wire. The handler holds none of it.
 
-use crate::application::grant::{
-    CreateGrant, ListGrantableRoles, ListGrants, RevokeAllAccess, RevokeGrant,
-};
-use crate::domain::ids::OrganizationId;
+use crate::domain::ids::{GrantId, OrganizationId};
 use crate::grpc::convert::{
-    Parse, optional, principal_ref_from_proto, principal_ref_to_proto, required,
+    Parse, id, optional, principal_ref_from_proto, principal_ref_to_proto, required,
     scope_kind_from_proto, scope_kind_to_proto, scope_ref_from_proto, scope_ref_to_proto, valid,
     wrap,
 };
-use scylla_auth::authz::{Grant, Role, RoleKind};
+use scylla_auth::authz::{Grant, Principal, Role, RoleKind, Scope, ScopeKind};
 use scylla_domain::domain::role::RoleName;
 use scylla_proto::authz::v1::{
     CreateGrantRequest, Grant as ProtoGrant, GrantableRole as ProtoGrantableRole,
@@ -57,59 +54,58 @@ pub fn role_kind_from_proto(kind: i32) -> Result<RoleKind, Status> {
 }
 
 impl Parse for CreateGrantRequest {
-    type Into = CreateGrant;
+    type Into = (Principal, RoleName, Scope);
 
-    fn parse(self) -> Result<CreateGrant, Status> {
-        Ok(CreateGrant {
-            principal: principal_ref_from_proto(self.principal)?,
-            scope: scope_ref_from_proto(self.scope)?,
-            role: valid(required(self.role, "role")?, RoleName::new)?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let principal = principal_ref_from_proto(self.principal)?;
+        let scope = scope_ref_from_proto(self.scope)?;
+        let role = valid(required(self.role, "role")?, RoleName::new)?;
+        Ok((principal, role, scope))
     }
 }
 
 impl Parse for RevokeAllAccessRequest {
-    type Into = RevokeAllAccess;
+    type Into = (Principal, Scope);
 
-    fn parse(self) -> Result<RevokeAllAccess, Status> {
-        Ok(RevokeAllAccess {
-            principal: principal_ref_from_proto(self.principal)?,
-            scope: scope_ref_from_proto(self.scope)?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let principal = principal_ref_from_proto(self.principal)?;
+        let scope = scope_ref_from_proto(self.scope)?;
+        Ok((principal, scope))
     }
 }
 
-parse!(RevokeGrantRequest => RevokeGrant { id: id(grant_id) });
+impl Parse for RevokeGrantRequest {
+    type Into = GrantId;
+
+    fn parse(self) -> Result<GrantId, Status> {
+        id(self.grant_id, "grant_id")
+    }
+}
 
 impl Parse for ListGrantsRequest {
-    type Into = ListGrants;
+    type Into = Option<Scope>;
 
-    fn parse(self) -> Result<ListGrants, Status> {
-        Ok(ListGrants {
-            scope: self
-                .scope
-                .map(|scope| scope_ref_from_proto(Some(scope)))
-                .transpose()?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        self.scope
+            .map(|scope| scope_ref_from_proto(Some(scope)))
+            .transpose()
     }
 }
 
 impl Parse for ListGrantableRolesRequest {
-    type Into = ListGrantableRoles;
+    type Into = (Option<ScopeKind>, Option<OrganizationId>);
 
-    fn parse(self) -> Result<ListGrantableRoles, Status> {
-        Ok(ListGrantableRoles {
-            scope_kind: self.scope_kind.map(scope_kind_from_proto).transpose()?,
-            organization_id: optional(self.organization_id).map(OrganizationId::new),
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let scope_kind = self.scope_kind.map(scope_kind_from_proto).transpose()?;
+        let organization_id = optional(self.organization_id).map(OrganizationId::new);
+        Ok((scope_kind, organization_id))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scylla_auth::authz::{Principal, Scope};
-    use scylla_domain::domain::ids::{OrganizationId, UserId};
+    use scylla_domain::domain::ids::UserId;
     use scylla_proto::authz::v1::ScopeRef;
     use tonic::Code;
 
@@ -122,8 +118,8 @@ mod tests {
     }
 
     #[test]
-    fn a_create_request_becomes_a_command_with_its_principal_scope_and_role() {
-        let command = CreateGrantRequest {
+    fn a_create_request_becomes_its_principal_role_and_scope() {
+        let (principal, role, scope) = CreateGrantRequest {
             principal: Some(principal_ref_to_proto(&alice())),
             scope: Some(scope_ref_to_proto(&org_scope())),
             role: wrap("organization-admin"),
@@ -131,9 +127,9 @@ mod tests {
         .parse()
         .unwrap();
 
-        assert_eq!(command.principal, alice());
-        assert_eq!(command.scope, org_scope());
-        assert_eq!(command.role.as_str(), "organization-admin");
+        assert_eq!(principal, alice());
+        assert_eq!(scope, org_scope());
+        assert_eq!(role.as_str(), "organization-admin");
     }
 
     #[test]
@@ -151,6 +147,32 @@ mod tests {
     }
 
     #[test]
+    fn a_create_request_checks_the_scope_before_the_role() {
+        let err = CreateGrantRequest {
+            principal: Some(principal_ref_to_proto(&alice())),
+            scope: None,
+            role: None,
+        }
+        .parse()
+        .unwrap_err();
+
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert_eq!(err.message(), "missing scope");
+    }
+
+    #[test]
+    fn an_empty_organization_id_of_a_grantable_roles_list_is_kept() {
+        let (_, organization_id) = ListGrantableRolesRequest {
+            scope_kind: None,
+            organization_id: wrap(""),
+        }
+        .parse()
+        .unwrap();
+
+        assert_eq!(organization_id, Some(OrganizationId::new("")));
+    }
+
+    #[test]
     fn a_revoke_all_request_needs_a_scope() {
         let Err(err) = RevokeAllAccessRequest {
             principal: Some(principal_ref_to_proto(&alice())),
@@ -165,20 +187,13 @@ mod tests {
 
     #[test]
     fn a_list_request_keeps_its_optional_scope() {
-        assert!(
-            ListGrantsRequest { scope: None }
-                .parse()
-                .unwrap()
-                .scope
-                .is_none()
-        );
+        assert!(ListGrantsRequest { scope: None }.parse().unwrap().is_none());
         assert_eq!(
             ListGrantsRequest {
                 scope: Some(scope_ref_to_proto(&org_scope())),
             }
             .parse()
-            .unwrap()
-            .scope,
+            .unwrap(),
             Some(org_scope())
         );
     }

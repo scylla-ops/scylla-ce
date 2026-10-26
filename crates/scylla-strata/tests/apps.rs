@@ -3,11 +3,7 @@ use scylla_auth::authz::{
     Grant, ORGANIZATION_AGENT_ROLE, PermissionService, Scope, Visibility, VisibilityResolver,
 };
 use scylla_core::application::agent::{AgentDispatch, AgentStream, JobDispatch as AgentJob};
-use scylla_core::application::app::{
-    CreateApp, CreateAppSecret, CreatedApp, CreatedAppSecret, DeleteApp, GetApp, IssueAppToken,
-    ListAppAccess, ListAppSecrets, ListApps, RevokeAppSecret, SetAppActive, SetAppSecretEnabled,
-    SetAppSecretLabel, mint_app_secret,
-};
+use scylla_core::application::app::{CreatedApp, CreatedAppSecret, mint_app_secret};
 use scylla_core::application::{
     AppCredentialRepository, AppRepository, AppTokenRepository, HashService, PrincipalAccess,
 };
@@ -368,36 +364,29 @@ fn org() -> OrganizationId {
     OrganizationId::new("acme")
 }
 
-fn create() -> CreateApp {
-    CreateApp {
-        organization_id: org(),
-        name: AppName::new("ci-bot").unwrap(),
-        secret_label: None,
-    }
+fn ci_bot() -> AppName {
+    AppName::new("ci-bot").unwrap()
 }
 
 impl Lab {
     async fn create(&self) -> DomainResult<CreatedApp> {
-        self.create_with(create()).await
+        self.create_with(ci_bot(), None).await
     }
 
-    async fn create_with(&self, cmd: CreateApp) -> DomainResult<CreatedApp> {
-        AppsRpc::create_app(&self.app.scoped(&alice()), cmd).await
+    async fn create_with(
+        &self,
+        name: AppName,
+        secret_label: Option<AppSecretLabel>,
+    ) -> DomainResult<CreatedApp> {
+        AppsRpc::create_app(&self.app.scoped(&alice()), org(), name, secret_label).await
     }
 
     async fn set_active(&self, id: &AppId, is_active: bool) -> DomainResult<App> {
-        AppsRpc::set_app_active(
-            &self.app.scoped(&alice()),
-            SetAppActive {
-                id: id.clone(),
-                is_active,
-            },
-        )
-        .await
+        AppsRpc::set_app_active(&self.app.scoped(&alice()), id.clone(), is_active).await
     }
 
     async fn delete(&self, id: &AppId) -> DomainResult<()> {
-        AppsRpc::delete_app(&self.app.scoped(&alice()), DeleteApp { id: id.clone() }).await
+        AppsRpc::delete_app(&self.app.scoped(&alice()), id.clone()).await
     }
 
     async fn create_secret(&self, app_id: &AppId) -> DomainResult<CreatedAppSecret> {
@@ -409,11 +398,8 @@ impl Lab {
         app_id: &AppId,
         label: &str,
     ) -> DomainResult<CreatedAppSecret> {
-        let cmd = CreateAppSecret {
-            app_id: app_id.clone(),
-            label: AppSecretLabel::new(label).unwrap(),
-        };
-        AppsRpc::create_app_secret(&self.app.scoped(&alice()), cmd).await
+        let label = AppSecretLabel::new(label).unwrap();
+        AppsRpc::create_app_secret(&self.app.scoped(&alice()), app_id.clone(), label).await
     }
 
     async fn set_secret_label(
@@ -421,19 +407,12 @@ impl Lab {
         id: &AppCredentialId,
         label: &str,
     ) -> DomainResult<AppCredential> {
-        let cmd = SetAppSecretLabel {
-            id: id.clone(),
-            label: AppSecretLabel::new(label).unwrap(),
-        };
-        AppsRpc::set_app_secret_label(&self.app.scoped(&alice()), cmd).await
+        let label = AppSecretLabel::new(label).unwrap();
+        AppsRpc::set_app_secret_label(&self.app.scoped(&alice()), id.clone(), label).await
     }
 
     async fn revoke_secret(&self, id: &AppCredentialId) -> DomainResult<()> {
-        AppsRpc::revoke_app_secret(
-            &self.app.scoped(&alice()),
-            RevokeAppSecret { id: id.clone() },
-        )
-        .await
+        AppsRpc::revoke_app_secret(&self.app.scoped(&alice()), id.clone()).await
     }
 
     async fn set_secret_enabled(
@@ -441,32 +420,16 @@ impl Lab {
         id: &AppCredentialId,
         enabled: bool,
     ) -> DomainResult<AppCredential> {
-        AppsRpc::set_app_secret_enabled(
-            &self.app.scoped(&alice()),
-            SetAppSecretEnabled {
-                id: id.clone(),
-                enabled,
-            },
-        )
-        .await
+        AppsRpc::set_app_secret_enabled(&self.app.scoped(&alice()), id.clone(), enabled).await
     }
 
     async fn list_access(&self, app_id: &AppId) -> DomainResult<Vec<PrincipalAccess>> {
-        AppsRpc::list_app_access(
-            &self.app.scoped(&alice()),
-            ListAppAccess {
-                app_id: app_id.clone(),
-            },
-        )
-        .await
+        AppsRpc::list_app_access(&self.app.scoped(&alice()), app_id.clone()).await
     }
 
     async fn issue(&self, app_id: &str, secret: &str) -> DomainResult<AppToken> {
-        let cmd = IssueAppToken {
-            app_id: AppId::new(app_id),
-            secret: AppSecret::new(secret).unwrap(),
-        };
-        AppsRpc::issue_app_token(&self.app.scoped(&anonymous()), cmd).await
+        let secret = AppSecret::new(secret).unwrap();
+        AppsRpc::issue_app_token(&self.app.scoped(&anonymous()), AppId::new(app_id), secret).await
     }
 }
 
@@ -493,11 +456,8 @@ async fn a_create_checks_the_permission_then_stores_the_app_with_its_default_sec
 async fn a_create_with_a_secret_label_names_the_first_secret_with_it() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
 
-    let labelled = CreateApp {
-        secret_label: Some(AppSecretLabel::new("build-01.example.com").unwrap()),
-        ..create()
-    };
-    lab.create_with(labelled).await.unwrap();
+    let label = AppSecretLabel::new("build-01.example.com").unwrap();
+    lab.create_with(ci_bot(), Some(label)).await.unwrap();
 
     let credentials = lab.apps.credentials.lock().unwrap();
     assert_eq!(credentials[0].label().as_str(), "build-01.example.com");
@@ -507,12 +467,9 @@ async fn a_create_with_a_secret_label_names_the_first_secret_with_it() {
 async fn a_create_without_a_label_cuts_a_long_name_to_the_label_limit() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
 
-    lab.create_with(CreateApp {
-        name: AppName::new("b".repeat(100)).unwrap(),
-        ..create()
-    })
-    .await
-    .unwrap();
+    lab.create_with(AppName::new("b".repeat(100)).unwrap(), None)
+        .await
+        .unwrap();
 
     let credentials = lab.apps.credentials.lock().unwrap();
     assert_eq!(credentials[0].label().as_str(), "b".repeat(64));
@@ -538,20 +495,9 @@ async fn reads_check_their_permission() {
     let caller = alice();
     let alice = lab.app.scoped(&caller);
 
-    let app = AppsRpc::get_app(&alice, GetApp { id: id.clone() })
-        .await
-        .unwrap();
-    let apps = AppsRpc::list_apps(
-        &alice,
-        ListApps {
-            organization_id: org(),
-        },
-    )
-    .await
-    .unwrap();
-    let secrets = AppsRpc::list_app_secrets(&alice, ListAppSecrets { app_id: id.clone() })
-        .await
-        .unwrap();
+    let app = AppsRpc::get_app(&alice, id.clone()).await.unwrap();
+    let apps = AppsRpc::list_apps(&alice, org()).await.unwrap();
+    let secrets = AppsRpc::list_app_secrets(&alice, id.clone()).await.unwrap();
 
     assert_eq!(app.id(), &id);
     assert_eq!(apps.len(), 1);
@@ -620,10 +566,7 @@ async fn a_create_refuses_the_reserved_runner_name_before_hashing() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
 
     let err = lab
-        .create_with(CreateApp {
-            name: AppName::new(TRIGGER_RUNNER_APP_NAME).unwrap(),
-            ..create()
-        })
+        .create_with(AppName::new(TRIGGER_RUNNER_APP_NAME).unwrap(), None)
         .await;
 
     assert!(matches!(err.err().unwrap(), DomainError::Validation(_)));

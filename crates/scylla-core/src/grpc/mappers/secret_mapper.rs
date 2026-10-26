@@ -1,7 +1,7 @@
-//! Wire to command, command outcome to wire. The handler holds none of it.
+//! Wire to the inputs of a use case, its outcome to wire. The handler holds none of it.
 
-use crate::application::secret::{CreateSecret, DeleteSecret, ListSecrets};
 use crate::grpc::convert::{Parse, id, ts, valid, wrap};
+use scylla_domain::domain::ids::{ProjectId, SecretId};
 use scylla_domain::domain::secret::{
     Secret as DomainSecret, SecretDescription, SecretName, SecretValue,
 };
@@ -22,21 +22,32 @@ pub fn secret_to_proto(secret: &DomainSecret) -> Secret {
 }
 
 impl Parse for CreateSecretRequest {
-    type Into = CreateSecret;
+    type Into = (ProjectId, SecretName, SecretDescription, SecretValue);
 
-    fn parse(self) -> Result<CreateSecret, Status> {
-        Ok(CreateSecret {
-            project_id: id(self.project_id, "project_id")?,
-            name: valid(self.name, SecretName::new)?,
-            description: valid(self.description, SecretDescription::new)?,
-            value: valid(self.value, SecretValue::new)?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let project_id = id(self.project_id, "project_id")?;
+        let name = valid(self.name, SecretName::new)?;
+        let description = valid(self.description, SecretDescription::new)?;
+        let value = valid(self.value, SecretValue::new)?;
+        Ok((project_id, name, description, value))
     }
 }
 
-parse!(ListSecretsRequest => ListSecrets { project_id: id(project_id) });
+impl Parse for ListSecretsRequest {
+    type Into = ProjectId;
 
-parse!(DeleteSecretRequest => DeleteSecret { id: id(secret_id) });
+    fn parse(self) -> Result<ProjectId, Status> {
+        id(self.project_id, "project_id")
+    }
+}
+
+impl Parse for DeleteSecretRequest {
+    type Into = SecretId;
+
+    fn parse(self) -> Result<SecretId, Status> {
+        id(self.secret_id, "secret_id")
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -45,8 +56,8 @@ mod tests {
     use tonic::Code;
 
     #[test]
-    fn a_create_request_becomes_a_command_with_validated_fields() {
-        let command = CreateSecretRequest {
+    fn a_create_request_becomes_the_validated_inputs() {
+        let inputs = CreateSecretRequest {
             project_id: wrap("proj-1"),
             name: " DB_PASSWORD ".into(),
             value: "hunter2".into(),
@@ -54,12 +65,21 @@ mod tests {
         }
         .parse()
         .unwrap();
+        assert!(!format!("{inputs:?}").contains("hunter2"));
+        let (project_id, name, description, value) = inputs;
 
-        assert_eq!(command.project_id.as_str(), "proj-1");
-        assert_eq!(command.name.as_str(), "DB_PASSWORD");
-        assert_eq!(command.value.as_str(), "hunter2");
-        assert_eq!(command.description.as_str(), "db");
-        assert!(!format!("{command:?}").contains("hunter2"));
+        assert_eq!(project_id.as_str(), "proj-1");
+        assert_eq!(name.as_str(), "DB_PASSWORD");
+        assert_eq!(value.as_str(), "hunter2");
+        assert_eq!(description.as_str(), "db");
+    }
+
+    #[test]
+    fn a_missing_secret_id_names_the_wire_field() {
+        let err = DeleteSecretRequest { secret_id: None }.parse().unwrap_err();
+
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert_eq!(err.message(), "missing secret_id");
     }
 
     #[test]

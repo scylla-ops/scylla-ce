@@ -5,6 +5,7 @@ use crate::{
     Secrets, Triggers, Users,
 };
 use scylla_auth::authz::{PermissionService, VisibilityResolver};
+use scylla_core::application::IngestOutcome;
 use scylla_core::application::{
     AgentDispatch, AppCredentialRepository, AppRepository, HashService, PipelineRepository,
     SecretResolver,
@@ -13,13 +14,12 @@ use scylla_core::application::{
     AppTokenRepository, DispatchUseCases, JobRepository, ProjectRepository, SecretCipher,
     SecretRepository, SessionRepository, user::UserRepository,
 };
-use scylla_core::application::{IngestOutcome, IngestWebhook};
 use scylla_core::config::BootstrapConfig;
 use scylla_core::domain::caller::CallerContext;
 use scylla_core::domain::errors::DomainResult;
 use scylla_core::error::BootstrapError;
 use scylla_core::grpc::auth_interceptor::{AuthContext, AuthInterceptor};
-use scylla_core::rest::webhook::WebhookIngress;
+use scylla_core::rest::webhook::{WebhookDelivery, WebhookIngress};
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -358,8 +358,8 @@ impl<E> WebhookIngress for EditionWebhooks<E>
 where
     E: Triggers + Send + Sync + 'static,
 {
-    async fn ingest(&self, command: IngestWebhook) -> DomainResult<IngestOutcome> {
-        Triggers::ingest_webhook(&*self.0, command).await
+    async fn ingest(&self, delivery: WebhookDelivery) -> DomainResult<IngestOutcome> {
+        Triggers::ingest_webhook(&*self.0, delivery).await
     }
 }
 

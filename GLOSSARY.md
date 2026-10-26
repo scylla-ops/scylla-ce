@@ -318,7 +318,7 @@ The hexagon is split across several crates. The model sits in the kernel; the us
 
 `crates/scylla-core/src/`:
 
-- `application/<feature>/repository.rs`: the ports; `mod.rs`: the shared rules; `commands.rs` / `queries.rs`: the commands and queries and their access rule (`Describe`).
+- `application/<feature>/repository.rs`: the ports; `mod.rs`: the shared rules and the outcome types of the use cases. The use cases and their access are in `crates/scylla-strata/src/<slice>.rs`.
 - `infrastructure/`: the adapters that need no database, `messaging/*` (in-process dispatch and log fan-out), `services/argon2_hash_service.rs`, and the rest.
 - `grpc/`: the mappers, the conversions, the auth interceptor and the agent stream frames; `rest/`: the webhook, health and UI routes. The gRPC services are in `crates/scylla-strata/src/grpc/`.
 - `config.rs`: the server configuration and its TOML loader.

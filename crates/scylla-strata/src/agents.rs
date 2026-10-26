@@ -1,20 +1,20 @@
 use crate::access::CallerOf;
 use scylla_auth::authz::{Grant, ORGANIZATION_AGENT_ROLE, Principal, Scope};
-use scylla_core::application::agent::{
-    AgentView, CreateAgent, CreatedAgent, GetAgent, GetAgentStats, ListAgents, RecordAgentHost,
-    TouchAgent,
-};
+use scylla_core::application::agent::{AgentView, CreatedAgent};
 use scylla_core::application::app::mint_app_secret;
 use scylla_core::application::guards::app_only;
 use scylla_core::application::{AgentRepository, AgentStats, JobRepository};
 use scylla_core::infrastructure::InMemoryAgentRegistry;
 use scylla_domain::domain::agent::{Agent, AgentHost};
-use scylla_domain::domain::app::{App, AppCredential, default_secret_label};
+use scylla_domain::domain::app::{
+    App, AppCredential, AppName, AppSecretLabel, default_secret_label,
+};
 use scylla_domain::domain::clock;
 use scylla_domain::domain::errors::DomainResult;
-use scylla_domain::domain::ids::AppId;
+use scylla_domain::domain::ids::{AppId, OrganizationId};
+use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::role::RoleName;
-use scylla_extension::Describe;
+use scylla_extension::Access;
 use sqlx::types::chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -58,21 +58,23 @@ pub trait Agents: crate::Apps {
     #[component]
     type AgentLinks = AgentConnections;
 
-    #[usecase(write, access = cmd.access())]
-    async fn create_agent(&self, cmd: CreateAgent) -> DomainResult<CreatedAgent> {
-        let app = App::create(cmd.organization_id.clone(), cmd.name.clone())?;
+    #[usecase(write, access = Access::Requires(Permission::CreateAgent(organization_id.clone())))]
+    async fn create_agent(
+        &self,
+        organization_id: OrganizationId,
+        name: AppName,
+        secret_label: Option<AppSecretLabel>,
+    ) -> DomainResult<CreatedAgent> {
+        let app = App::create(organization_id.clone(), name.clone())?;
         let secret = mint_app_secret();
         let secret_hash = self.app_hash().hash_secret(&secret).await?;
-        let label = cmd
-            .secret_label
-            .clone()
-            .unwrap_or_else(|| default_secret_label(cmd.name.as_str()));
+        let label = secret_label.unwrap_or_else(|| default_secret_label(name.as_str()));
         let credential = AppCredential::create(app.id().clone(), label, secret_hash);
         let agent = Agent::create(app.id().clone());
         let grant = Grant::new(
             Principal::App(app.id().clone()),
             RoleName::new(ORGANIZATION_AGENT_ROLE)?,
-            Scope::Organization(cmd.organization_id.clone()),
+            Scope::Organization(organization_id),
         );
         self.app_repo()
             .provision_agent(&app, &credential, &agent, &grant)
@@ -80,27 +82,29 @@ pub trait Agents: crate::Apps {
         Ok(CreatedAgent { app, secret })
     }
 
-    #[usecase(write, access = cmd.access())]
-    #[allow(unused_variables)]
-    async fn touch_agent(&self, cmd: TouchAgent) -> DomainResult<DateTime<Utc>> {
+    /// From the stream of the agent. No permission reaches the App of the agent (its grant is on an
+    /// organization or a project), thus it is `Authenticated` and the target is the caller.
+    #[usecase(write, access = Access::Authenticated)]
+    async fn touch_agent(&self) -> DomainResult<DateTime<Utc>> {
         let app_id = app_only(self.ctx().caller())?;
         let at = clock::now();
         self.agent_repo().touch_last_seen(&app_id, at).await?;
         Ok(at)
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn record_agent_host(&self, cmd: RecordAgentHost) -> DomainResult<AgentHost> {
+    /// From the stream of the agent, as `touch_agent`: the target is the caller.
+    #[usecase(write, access = Access::Authenticated)]
+    async fn record_agent_host(&self, host: AgentHost) -> DomainResult<AgentHost> {
         let app_id = app_only(self.ctx().caller())?;
-        self.agent_repo().record_host(&app_id, &cmd.host).await?;
-        Ok(cmd.host)
+        self.agent_repo().record_host(&app_id, &host).await?;
+        Ok(host)
     }
 
-    #[usecase(read, access = query.access())]
-    async fn list_agents(&self, query: ListAgents) -> DomainResult<Vec<AgentView>> {
+    #[usecase(read, access = Access::Requires(Permission::ListAgents(organization_id.clone())))]
+    async fn list_agents(&self, organization_id: OrganizationId) -> DomainResult<Vec<AgentView>> {
         let agents = self
             .agent_repo()
-            .list_by_organization(&query.organization_id)
+            .list_by_organization(&organization_id)
             .await?;
         let connected: HashSet<AppId> = self
             .app_registry()
@@ -129,9 +133,9 @@ pub trait Agents: crate::Apps {
         Ok(views)
     }
 
-    #[usecase(read, access = query.access())]
-    async fn get_agent(&self, query: GetAgent) -> DomainResult<AgentView> {
-        let id = &query.id;
+    #[usecase(read, access = Access::Requires(Permission::ReadApp(id.clone())))]
+    async fn get_agent(&self, id: AppId) -> DomainResult<AgentView> {
+        let id = &id;
         let app = self.app_repo().find_by_id(id).await?;
         let agent = self.agent_repo().find_by_app_id(id).await?;
         let in_flight = self
@@ -154,9 +158,9 @@ pub trait Agents: crate::Apps {
         })
     }
 
-    #[usecase(read, access = query.access())]
-    async fn get_agent_stats(&self, query: GetAgentStats) -> DomainResult<AgentStats> {
-        let app = self.app_repo().find_by_id(&query.id).await?;
+    #[usecase(read, access = Access::Requires(Permission::ReadAppStats(id.clone())))]
+    async fn get_agent_stats(&self, id: AppId) -> DomainResult<AgentStats> {
+        let app = self.app_repo().find_by_id(&id).await?;
         self.agent_repo().agent_stats(app.id()).await
     }
 }

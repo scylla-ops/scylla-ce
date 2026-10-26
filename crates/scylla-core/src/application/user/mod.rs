@@ -1,17 +1,8 @@
 pub mod account;
-pub mod commands;
-pub mod queries;
 pub mod repository;
 pub mod reset;
 
 pub use account::{AccountRepository, UserSession};
-pub use commands::{
-    ChangePassword, CreateUser, DeleteAccount, DeleteUser, RevokeUserSession, RevokeUserSessions,
-    SetUserActive, UpdateUser, UpdateUserEmail,
-};
-pub use queries::{
-    GetMe, GetUser, GetUserByEmail, GetUserByUsername, ListUserAccess, ListUserSessions, ListUsers,
-};
 pub use repository::{UserRepository, users_in_order};
 pub use reset::{
     PasswordResetDelivery, PasswordResetMessage, PasswordResetSender, PasswordResetUseCases,

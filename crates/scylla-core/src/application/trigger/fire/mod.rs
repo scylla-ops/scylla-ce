@@ -1,7 +1,3 @@
-pub mod commands;
-
-pub use commands::FireTriggerNow;
-
 use crate::domain::errors::DomainResult;
 use crate::domain::pipeline::{EnvKey, EnvValue};
 use crate::domain::trigger::{Trigger, TriggerInputSource};

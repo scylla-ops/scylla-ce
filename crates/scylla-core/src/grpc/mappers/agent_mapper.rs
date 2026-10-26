@@ -1,11 +1,10 @@
-//! Wire to command, command outcome to wire. The handler holds none of it.
+//! Wire to the inputs of a use case, its outcome to wire. The handler holds none of it.
 
-use crate::application::agent::{CreateAgent, GetAgent, GetAgentStats, ListAgents};
-use crate::application::app::DeleteApp;
 use crate::application::{AgentStats, AgentView};
 use crate::grpc::convert::{Parse, id, ts, valid, wrap};
 use scylla_domain::domain::agent::AgentHost;
 use scylla_domain::domain::app::{App, AppName, AppSecretLabel};
+use scylla_domain::domain::ids::{AppId, OrganizationId};
 use scylla_proto::agent::v1::{
     Agent as ProtoAgent, AgentHost as ProtoAgentHost, AgentStats as ProtoAgentStats,
     CreateAgentRequest, DailyOutcome as ProtoDailyOutcome, DeleteAgentRequest, GetAgentRequest,
@@ -79,24 +78,50 @@ pub fn agent_stats_to_proto(s: &AgentStats) -> ProtoAgentStats {
 }
 
 impl Parse for CreateAgentRequest {
-    type Into = CreateAgent;
+    type Into = (OrganizationId, AppName, Option<AppSecretLabel>);
 
-    fn parse(self) -> Result<CreateAgent, Status> {
-        Ok(CreateAgent {
-            organization_id: id(self.organization_id, "organization_id")?,
-            name: valid(self.name, AppName::new)?,
-            secret_label: self
-                .secret_label
-                .map(|label| valid(label, AppSecretLabel::new))
-                .transpose()?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let organization_id = id(self.organization_id, "organization_id")?;
+        let name = valid(self.name, AppName::new)?;
+        let secret_label = self
+            .secret_label
+            .map(|label| valid(label, AppSecretLabel::new))
+            .transpose()?;
+        Ok((organization_id, name, secret_label))
     }
 }
 
-parse!(ListAgentsRequest => ListAgents { organization_id: id(organization_id) });
-parse!(GetAgentRequest => GetAgent { id: id(agent_id) });
-parse!(GetAgentStatsRequest => GetAgentStats { id: id(agent_id) });
-parse!(DeleteAgentRequest => DeleteApp { id: id(agent_id) });
+impl Parse for ListAgentsRequest {
+    type Into = OrganizationId;
+
+    fn parse(self) -> Result<OrganizationId, Status> {
+        id(self.organization_id, "organization_id")
+    }
+}
+
+impl Parse for GetAgentRequest {
+    type Into = AppId;
+
+    fn parse(self) -> Result<AppId, Status> {
+        id(self.agent_id, "agent_id")
+    }
+}
+
+impl Parse for GetAgentStatsRequest {
+    type Into = AppId;
+
+    fn parse(self) -> Result<AppId, Status> {
+        id(self.agent_id, "agent_id")
+    }
+}
+
+impl Parse for DeleteAgentRequest {
+    type Into = AppId;
+
+    fn parse(self) -> Result<AppId, Status> {
+        id(self.agent_id, "agent_id")
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -105,8 +130,8 @@ mod tests {
     use tonic::Code;
 
     #[test]
-    fn a_create_request_becomes_a_command_with_validated_fields() {
-        let command = CreateAgentRequest {
+    fn a_create_request_becomes_the_validated_inputs() {
+        let (organization_id, name, secret_label) = CreateAgentRequest {
             organization_id: wrap("acme"),
             name: "runner-1".into(),
             secret_label: Some("Build-01.example.com".into()),
@@ -114,12 +139,9 @@ mod tests {
         .parse()
         .unwrap();
 
-        assert_eq!(command.organization_id.as_str(), "acme");
-        assert_eq!(command.name.as_str(), "runner-1");
-        assert_eq!(
-            command.secret_label.unwrap().as_str(),
-            "Build-01.example.com"
-        );
+        assert_eq!(organization_id.as_str(), "acme");
+        assert_eq!(name.as_str(), "runner-1");
+        assert_eq!(secret_label.unwrap().as_str(), "Build-01.example.com");
     }
 
     #[test]
@@ -138,13 +160,15 @@ mod tests {
 
     #[test]
     fn an_agent_is_deleted_as_its_app() {
-        let command: DeleteApp = DeleteAgentRequest {
+        let id: AppId = DeleteAgentRequest {
             agent_id: wrap("agent-1"),
         }
         .parse()
         .unwrap();
 
-        assert_eq!(command.id.as_str(), "agent-1");
+        assert_eq!(id.as_str(), "agent-1");
+        let missing = DeleteAgentRequest { agent_id: None }.parse().unwrap_err();
+        assert_eq!(missing.message(), "missing agent_id");
     }
 
     #[test]

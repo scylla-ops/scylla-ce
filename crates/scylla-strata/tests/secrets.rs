@@ -3,7 +3,6 @@
 
 use async_trait::async_trait;
 use scylla_auth::authz::PermissionService;
-use scylla_core::application::secret::{CreateSecret, DeleteSecret, ListSecrets};
 use scylla_core::application::{
     DispatchSecretResolver, SecretCipher, SecretRepository, SecretResolver,
 };
@@ -108,11 +107,19 @@ fn ctx() -> ScyllaCtx {
 
 impl Lab {
     async fn create(&self) -> DomainResult<Secret> {
-        SecretsRpc::create_secret(&self.app.scoped(&ctx()), create()).await
+        let (project_id, name, description, value) = create();
+        SecretsRpc::create_secret(
+            &self.app.scoped(&ctx()),
+            project_id,
+            name,
+            description,
+            value,
+        )
+        .await
     }
 
     async fn delete(&self, id: &SecretId) -> DomainResult<()> {
-        SecretsRpc::delete_secret(&self.app.scoped(&ctx()), DeleteSecret { id: id.clone() }).await
+        SecretsRpc::delete_secret(&self.app.scoped(&ctx()), id.clone()).await
     }
 }
 
@@ -140,13 +147,13 @@ fn project() -> ProjectId {
     ProjectId::new("proj-1")
 }
 
-fn create() -> CreateSecret {
-    CreateSecret {
-        project_id: project(),
-        name: SecretName::new("DB_PASSWORD").unwrap(),
-        description: SecretDescription::new("desc").unwrap(),
-        value: SecretValue::new("value").unwrap(),
-    }
+fn create() -> (ProjectId, SecretName, SecretDescription, SecretValue) {
+    (
+        project(),
+        SecretName::new("DB_PASSWORD").unwrap(),
+        SecretDescription::new("desc").unwrap(),
+        SecretValue::new("value").unwrap(),
+    )
 }
 
 #[tokio::test]
@@ -181,14 +188,9 @@ async fn a_list_checks_its_permission_and_reads_the_project_secrets() {
     let lab = lab(permissions.clone()).await;
     let created = lab.create().await.unwrap();
 
-    let secrets = SecretsRpc::list_secrets(
-        &lab.app.scoped(&ctx()),
-        ListSecrets {
-            project_id: project(),
-        },
-    )
-    .await
-    .unwrap();
+    let secrets = SecretsRpc::list_secrets(&lab.app.scoped(&ctx()), project())
+        .await
+        .unwrap();
 
     assert_eq!(secrets.len(), 1);
     assert_eq!(secrets[0].id(), created.id());

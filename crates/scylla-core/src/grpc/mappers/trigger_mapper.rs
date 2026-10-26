@@ -1,11 +1,8 @@
-//! Wire to command, command outcome to wire. The handler holds none of it.
+//! Wire to the inputs of a use case, its outcome to wire. The handler holds none of it.
 
-use crate::application::trigger::{
-    CreateTrigger, DeleteTrigger, FireTriggerNow, GetTrigger, ListPipelineTriggers,
-    SetTriggerEnabled, UpdateTrigger,
-};
 use crate::grpc::convert::{Parse, id, ts, valid, wrap};
 use crate::grpc::mappers::domain_error_to_status;
+use scylla_domain::domain::ids::{PipelineId, TriggerId};
 use scylla_domain::domain::pipeline::EnvKey;
 use scylla_domain::domain::trigger::{
     CronSpec, FireObservation, Trigger, TriggerActivation, TriggerInput, TriggerInputSource,
@@ -22,43 +19,73 @@ use scylla_proto::trigger::v1::{
 use tonic::Status;
 
 impl Parse for CreateTriggerRequest {
-    type Into = CreateTrigger;
+    type Into = (PipelineId, TriggerName, TriggerSource, Vec<TriggerInput>);
 
-    fn parse(self) -> Result<CreateTrigger, Status> {
-        Ok(CreateTrigger {
-            pipeline_id: id(self.pipeline_id, "pipeline_id")?,
-            name: valid(self.name, TriggerName::new)?,
-            source: create_source_to_domain(self.source)?,
-            inputs: proto_inputs_to_domain(self.inputs)?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let pipeline_id = id(self.pipeline_id, "pipeline_id")?;
+        let name = valid(self.name, TriggerName::new)?;
+        let source = create_source_to_domain(self.source)?;
+        let inputs = proto_inputs_to_domain(self.inputs)?;
+        Ok((pipeline_id, name, source, inputs))
     }
 }
 
 impl Parse for UpdateTriggerRequest {
-    type Into = UpdateTrigger;
+    type Into = (TriggerId, TriggerName, TriggerSource, Vec<TriggerInput>);
 
-    fn parse(self) -> Result<UpdateTrigger, Status> {
-        Ok(UpdateTrigger {
-            id: id(self.trigger_id, "trigger_id")?,
-            name: valid(
-                self.name
-                    .ok_or_else(|| Status::invalid_argument("missing name"))?,
-                TriggerName::new,
-            )?,
-            source: update_source_to_domain(self.source)?,
-            inputs: proto_inputs_to_domain(self.inputs)?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let trigger_id = id(self.trigger_id, "trigger_id")?;
+        let name = valid(
+            self.name
+                .ok_or_else(|| Status::invalid_argument("missing name"))?,
+            TriggerName::new,
+        )?;
+        let source = update_source_to_domain(self.source)?;
+        let inputs = proto_inputs_to_domain(self.inputs)?;
+        Ok((trigger_id, name, source, inputs))
     }
 }
 
-parse!(GetTriggerRequest => GetTrigger { id: id(trigger_id) });
-parse!(ListPipelineTriggersRequest => ListPipelineTriggers { pipeline_id: id(pipeline_id) });
-parse!(SetTriggerEnabledRequest => SetTriggerEnabled {
-    id: id(trigger_id),
-    enabled: copy,
-});
-parse!(DeleteTriggerRequest => DeleteTrigger { id: id(trigger_id) });
-parse!(FireTriggerNowRequest => FireTriggerNow { id: id(trigger_id) });
+impl Parse for GetTriggerRequest {
+    type Into = TriggerId;
+
+    fn parse(self) -> Result<TriggerId, Status> {
+        id(self.trigger_id, "trigger_id")
+    }
+}
+
+impl Parse for ListPipelineTriggersRequest {
+    type Into = PipelineId;
+
+    fn parse(self) -> Result<PipelineId, Status> {
+        id(self.pipeline_id, "pipeline_id")
+    }
+}
+
+impl Parse for SetTriggerEnabledRequest {
+    type Into = (TriggerId, bool);
+
+    fn parse(self) -> Result<Self::Into, Status> {
+        let trigger_id = id(self.trigger_id, "trigger_id")?;
+        Ok((trigger_id, self.enabled))
+    }
+}
+
+impl Parse for DeleteTriggerRequest {
+    type Into = TriggerId;
+
+    fn parse(self) -> Result<TriggerId, Status> {
+        id(self.trigger_id, "trigger_id")
+    }
+}
+
+impl Parse for FireTriggerNowRequest {
+    type Into = TriggerId;
+
+    fn parse(self) -> Result<TriggerId, Status> {
+        id(self.trigger_id, "trigger_id")
+    }
+}
 
 fn create_source_to_domain(
     source: Option<create_trigger_request::Source>,
@@ -197,8 +224,8 @@ mod tests {
     }
 
     #[test]
-    fn a_create_request_becomes_a_command_with_validated_fields() {
-        let command = CreateTriggerRequest {
+    fn a_create_request_becomes_the_validated_inputs() {
+        let (pipeline_id, name, source, inputs) = CreateTriggerRequest {
             pipeline_id: wrap("pl-1"),
             name: " nightly ".into(),
             source: cron("0 3 * * *"),
@@ -210,18 +237,16 @@ mod tests {
         .parse()
         .unwrap();
 
-        assert_eq!(command.pipeline_id.as_str(), "pl-1");
-        assert_eq!(command.name.as_str(), "nightly");
-        assert!(
-            matches!(command.source, TriggerSource::Cron(ref c) if c.expression() == "0 3 * * *")
-        );
-        assert_eq!(command.inputs.len(), 1);
-        assert_eq!(command.inputs[0].key().to_string(), "MODE");
+        assert_eq!(pipeline_id.as_str(), "pl-1");
+        assert_eq!(name.as_str(), "nightly");
+        assert!(matches!(source, TriggerSource::Cron(ref c) if c.expression() == "0 3 * * *"));
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].key().to_string(), "MODE");
     }
 
     #[test]
     fn a_blank_signature_header_means_the_default_one() {
-        let command = CreateTriggerRequest {
+        let (_, _, source, _) = CreateTriggerRequest {
             pipeline_id: wrap("pl-1"),
             name: "hook".into(),
             source: Some(create_trigger_request::Source::Webhook(ProtoWebhookSpec {
@@ -232,7 +257,7 @@ mod tests {
         .parse()
         .unwrap();
 
-        let TriggerSource::Webhook(spec) = command.source else {
+        let TriggerSource::Webhook(spec) = source else {
             panic!("expected a webhook source");
         };
         assert_eq!(spec, WebhookSpec::new(None).unwrap());
@@ -286,6 +311,46 @@ mod tests {
         assert_eq!(
             err.message(),
             "trigger input 'MODE' has no source (literal or json_pointer)"
+        );
+    }
+
+    #[test]
+    fn a_create_request_checks_the_source_before_the_inputs() {
+        let err = CreateTriggerRequest {
+            pipeline_id: wrap("pl-1"),
+            name: "nightly".into(),
+            source: None,
+            inputs: vec![ProtoTriggerInput {
+                key: "MODE".into(),
+                source: None,
+            }],
+        }
+        .parse()
+        .unwrap_err();
+
+        assert_eq!(
+            err.message(),
+            "trigger source is required (cron or webhook)"
+        );
+    }
+
+    #[test]
+    fn an_update_request_checks_the_source_before_the_inputs() {
+        let err = UpdateTriggerRequest {
+            trigger_id: wrap("t-1"),
+            name: Some("nightly".into()),
+            source: None,
+            inputs: vec![ProtoTriggerInput {
+                key: "MODE".into(),
+                source: None,
+            }],
+        }
+        .parse()
+        .unwrap_err();
+
+        assert_eq!(
+            err.message(),
+            "trigger source is required (cron or webhook)"
         );
     }
 

@@ -1,16 +1,14 @@
 use crate::access::CallerOf;
 use scylla_auth::authz::{
     AuthzEntityProvider, Grant, GrantRepository, Principal, PrincipalKind, Role, RoleRepository,
-    Scope, check_grantable, ensure_owner_remains,
+    Scope, ScopeKind, check_grantable, ensure_owner_remains,
 };
 use scylla_core::application::agent::AgentDispatch;
-use scylla_core::application::grant::{
-    CreateGrant, ListGrantableRoles, ListGrants, RevokeAllAccess, RevokeGrant,
-};
 use scylla_domain::domain::errors::{DomainError, DomainResult};
-use scylla_domain::domain::ids::OrganizationId;
-use scylla_domain::domain::permission::ResourceRef;
-use scylla_extension::Describe;
+use scylla_domain::domain::ids::{GrantId, OrganizationId};
+use scylla_domain::domain::permission::{Permission, ResourceRef};
+use scylla_domain::domain::role::RoleName;
+use scylla_extension::Access;
 use std::sync::Arc;
 
 /// Writes a new grant. An edition overrides it to admit the grant in the same store
@@ -92,26 +90,31 @@ pub trait Grants: crate::Access {
         }
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn create_grant(&self, cmd: CreateGrant) -> DomainResult<Grant> {
-        let organization = self.scope_organization(&cmd.scope).await?;
+    #[usecase(write, access = Access::Requires(scope.manage_permission()))]
+    async fn create_grant(
+        &self,
+        principal: Principal,
+        role: RoleName,
+        scope: Scope,
+    ) -> DomainResult<Grant> {
+        let organization = self.scope_organization(&scope).await?;
         let grants = self.grant_repo().list_all().await?;
         check_grantable(
             &self.role_repo().list_all().await?,
             &grants,
             self.ctx().caller(),
-            cmd.principal.kind(),
-            &cmd.role,
-            &cmd.scope,
+            principal.kind(),
+            &role,
+            &scope,
             organization.as_ref(),
         )?;
-        self.require_grantee_in(&grants, &cmd.principal, &cmd.scope, organization.as_ref())
+        self.require_grantee_in(&grants, &principal, &scope, organization.as_ref())
             .await?;
         let grant = self
             .admission()
             .create(
                 self.grant_repo().as_ref(),
-                &Grant::new(cmd.principal, cmd.role, cmd.scope),
+                &Grant::new(principal, role, scope),
             )
             .await?;
         if let Principal::App(app_id) = &grant.principal {
@@ -120,30 +123,32 @@ pub trait Grants: crate::Access {
         Ok(grant)
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn revoke_all_access(&self, cmd: RevokeAllAccess) -> DomainResult<u64> {
+    /// The rows go in one statement, by principal and scope. The return is the number of grants
+    /// removed.
+    #[usecase(write, access = Access::Requires(scope.manage_permission()))]
+    async fn revoke_all_access(&self, principal: Principal, scope: Scope) -> DomainResult<u64> {
         let grants = self.grant_repo().list_all().await?;
         ensure_owner_remains(&grants, |g| {
-            g.principal == cmd.principal
-                && match &cmd.scope {
+            g.principal == principal
+                && match &scope {
                     Scope::System => g.scope != Scope::System,
                     scope => &g.scope == scope,
                 }
         })?;
-        let removed = self
-            .grant_repo()
-            .revoke_all(&cmd.principal, &cmd.scope)
-            .await?;
-        if let Principal::App(app_id) = &cmd.principal {
+        let removed = self.grant_repo().revoke_all(&principal, &scope).await?;
+        if let Principal::App(app_id) = &principal {
             self.registry().disconnect(app_id);
         }
         Ok(removed)
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn revoke_grant(&self, cmd: RevokeGrant) -> DomainResult<()> {
+    /// An unknown id changes nothing and the call succeeds. The last grant of a user on an
+    /// organization is its membership: its revoke removes the grants of the user under the
+    /// organization too, as `revoke_all_access` does.
+    #[usecase(write, access = Access::Requires(Permission::RevokeGrant(id.clone())))]
+    async fn revoke_grant(&self, id: GrantId) -> DomainResult<()> {
         let grants = self.grant_repo().list_all().await?;
-        let id = cmd.id.as_str();
+        let id = id.as_str();
         let Some(grant) = grants.iter().find(|g| g.id == id).cloned() else {
             return Ok(());
         };
@@ -166,21 +171,30 @@ pub trait Grants: crate::Access {
         Ok(())
     }
 
-    #[usecase(read, access = query.access())]
-    async fn list_grants(&self, query: ListGrants) -> DomainResult<Vec<Grant>> {
+    /// Without a scope, each grant of the installation; with a scope, the grants bound at that scope.
+    #[usecase(read, access = Access::Requires(scope.as_ref().map_or(Permission::ManageSystemGrants, Scope::manage_permission)))]
+    async fn list_grants(&self, scope: Option<Scope>) -> DomainResult<Vec<Grant>> {
         let grants = self.grant_repo().list_all().await?;
-        Ok(match &query.scope {
+        Ok(match &scope {
             Some(scope) => grants.into_iter().filter(|g| &g.scope == scope).collect(),
             None => grants,
         })
     }
 
-    #[usecase(read, access = query.access())]
-    async fn list_grantable_roles(&self, query: ListGrantableRoles) -> DomainResult<Vec<Role>> {
+    /// The roles that a grant can bind: the platform roles, and with an organization the roles of
+    /// that organization, which its members can read.
+    #[usecase(read, access = match &organization_id {
+        Some(o) => Access::Requires(Permission::ReadOrganization(o.clone())),
+        None => Access::Authenticated,
+    })]
+    async fn list_grantable_roles(
+        &self,
+        scope_kind: Option<ScopeKind>,
+        organization_id: Option<OrganizationId>,
+    ) -> DomainResult<Vec<Role>> {
         let mut roles = self.role_repo().list_all().await?;
         roles.retain(|r| {
-            r.usable_in(query.organization_id.as_ref())
-                && query.scope_kind.is_none_or(|k| r.scope == k)
+            r.usable_in(organization_id.as_ref()) && scope_kind.is_none_or(|k| r.scope == k)
         });
         Ok(roles)
     }

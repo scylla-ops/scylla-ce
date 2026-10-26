@@ -24,7 +24,8 @@ impl<A: JobControl> JobService for Grpc<A> {
     ) -> Result<Response<pb::GetJobResponse>, Status> {
         self.unary_rpc(rpc("get_job"), request, |call, req| async move {
             authed(&call).await?;
-            let job = JobControlRpc::get_job(&call.scoped(), parse(req)?)
+            let id = parse(req)?;
+            let job = JobControlRpc::get_job(&call.scoped(), id)
                 .await
                 .map_err(domain_error_to_status)?;
             Ok(pb::GetJobResponse {
@@ -40,7 +41,8 @@ impl<A: JobControl> JobService for Grpc<A> {
     ) -> Result<Response<pb::CancelJobResponse>, Status> {
         self.unary_rpc(rpc("cancel_job"), request, |call, req| async move {
             authed(&call).await?;
-            let job = JobControlRpc::cancel_job(&call.scoped(), parse(req)?)
+            let id = parse(req)?;
+            let job = JobControlRpc::cancel_job(&call.scoped(), id)
                 .await
                 .map_err(domain_error_to_status)?;
             Ok(pb::CancelJobResponse {
@@ -56,7 +58,8 @@ impl<A: JobControl> JobService for Grpc<A> {
     ) -> Result<Response<pb::DeleteJobResponse>, Status> {
         self.unary_rpc(rpc("delete_job"), request, |call, req| async move {
             authed(&call).await?;
-            JobControlRpc::delete_job(&call.scoped(), parse(req)?)
+            let id = parse(req)?;
+            JobControlRpc::delete_job(&call.scoped(), id)
                 .await
                 .map_err(domain_error_to_status)?;
             Ok(pb::DeleteJobResponse {})
@@ -70,7 +73,8 @@ impl<A: JobControl> JobService for Grpc<A> {
     ) -> Result<Response<pb::ListJobsResponse>, Status> {
         self.unary_rpc(rpc("list_jobs"), request, |call, req| async move {
             authed(&call).await?;
-            Ok(JobControlRpc::list_jobs(&call.scoped(), parse(req)?)
+            let pagination = parse(req)?;
+            Ok(JobControlRpc::list_jobs(&call.scoped(), pagination)
                 .await
                 .map_err(domain_error_to_status)?
                 .into())
@@ -84,8 +88,9 @@ impl<A: JobControl> JobService for Grpc<A> {
     ) -> Result<Response<pb::ListPipelineJobsResponse>, Status> {
         self.unary_rpc(rpc("list_pipeline_jobs"), request, |call, req| async move {
             authed(&call).await?;
+            let (pipeline_id, pagination) = parse(req)?;
             Ok(
-                JobControlRpc::list_pipeline_jobs(&call.scoped(), parse(req)?)
+                JobControlRpc::list_pipeline_jobs(&call.scoped(), pipeline_id, pagination)
                     .await
                     .map_err(domain_error_to_status)?
                     .into(),
@@ -100,8 +105,9 @@ impl<A: JobControl> JobService for Grpc<A> {
     ) -> Result<Response<pb::ListProjectJobsResponse>, Status> {
         self.unary_rpc(rpc("list_project_jobs"), request, |call, req| async move {
             authed(&call).await?;
+            let (project_id, pagination) = parse(req)?;
             Ok(
-                JobControlRpc::list_project_jobs(&call.scoped(), parse(req)?)
+                JobControlRpc::list_project_jobs(&call.scoped(), project_id, pagination)
                     .await
                     .map_err(domain_error_to_status)?
                     .into(),
@@ -119,12 +125,16 @@ impl<A: JobControl> JobService for Grpc<A> {
             request,
             |call, req| async move {
                 authed(&call).await?;
-                Ok(
-                    JobControlRpc::list_organization_jobs(&call.scoped(), parse(req)?)
-                        .await
-                        .map_err(domain_error_to_status)?
-                        .into(),
+                let (organization_id, agent_id, pagination) = parse(req)?;
+                Ok(JobControlRpc::list_organization_jobs(
+                    &call.scoped(),
+                    organization_id,
+                    agent_id,
+                    pagination,
                 )
+                .await
+                .map_err(domain_error_to_status)?
+                .into())
             },
         )
         .await
@@ -136,10 +146,13 @@ impl<A: JobControl> JobService for Grpc<A> {
     ) -> Result<Response<pb::ListJobLogsResponse>, Status> {
         self.unary_rpc(rpc("list_job_logs"), request, |call, req| async move {
             authed(&call).await?;
-            Ok(JobControlRpc::list_job_logs(&call.scoped(), parse(req)?)
-                .await
-                .map_err(domain_error_to_status)?
-                .into())
+            let (job_id, node_id, pagination) = parse(req)?;
+            Ok(
+                JobControlRpc::list_job_logs(&call.scoped(), job_id, node_id, pagination)
+                    .await
+                    .map_err(domain_error_to_status)?
+                    .into(),
+            )
         })
         .await
     }
@@ -156,7 +169,8 @@ impl<A: JobControl> JobService for Grpc<A> {
         AccessRpc::authenticated(&scoped)
             .await
             .map_err(domain_error_to_status)?;
-        let tail = JobControlRpc::tail_job_logs(&scoped, parse(request.into_inner())?)
+        let (job_id, node_id) = parse(request.into_inner())?;
+        let tail = JobControlRpc::tail_job_logs(&scoped, job_id, node_id)
             .await
             .map_err(domain_error_to_status)?;
         Ok(Response::new(Box::pin(spawn_log_forwarder(tail))))

@@ -8,7 +8,6 @@ pub mod organization;
 pub mod pagination;
 pub mod pipeline;
 pub mod project;
-pub mod role;
 pub mod secret;
 pub mod signup;
 pub mod trigger;
@@ -27,8 +26,8 @@ pub use project::ProjectRepository;
 pub use secret::{DispatchSecretResolver, SecretCipher, SecretRepository, SecretResolver};
 pub use signup::{NewAccount, NoOrganization, SignupRepository};
 pub use trigger::{
-    CronSchedule, IngestOutcome, IngestWebhook, NextFire, TriggerDeliveryRepository,
-    TriggerRepository, TriggerUseCases,
+    CronSchedule, IngestOutcome, NextFire, TriggerDeliveryRepository, TriggerRepository,
+    TriggerUseCases,
 };
 pub use user::{
     AccountRepository, PasswordResetDelivery, PasswordResetMessage, PasswordResetSender,

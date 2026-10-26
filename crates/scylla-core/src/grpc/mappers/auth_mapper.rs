@@ -1,9 +1,6 @@
-//! Wire to command, command outcome to wire. The handler holds none of it.
+//! Wire to the inputs of a use case, its outcome to wire. The handler holds none of it.
 
-use crate::application::auth::{Login, RevokeToken, ValidateToken};
-use crate::application::user::reset::{RequestPasswordReset, ResetPassword};
-use crate::grpc::convert::{Parse, ParseWithClient, required, valid};
-use scylla_domain::domain::session::SessionClient;
+use crate::grpc::convert::{Parse, required, valid};
 use scylla_domain::domain::user::{Email, Password, ResetToken};
 use scylla_proto::auth::v1::{
     LoginRequest, RequestPasswordResetRequest, ResetPasswordRequest, RevokeTokenRequest,
@@ -11,50 +8,52 @@ use scylla_proto::auth::v1::{
 };
 use tonic::Status;
 
-impl ParseWithClient for LoginRequest {
-    type Into = Login;
+/// The client of the call (for the new session) comes from the context, not from the request.
+impl Parse for LoginRequest {
+    type Into = (String, Password);
 
-    fn parse_with_client(self, client: SessionClient) -> Result<Login, Status> {
-        Ok(Login {
-            identifier: self.identifier,
-            password: valid(self.password, Password::new)?,
-            client,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let password = valid(self.password, Password::new)?;
+        Ok((self.identifier, password))
     }
 }
 
-parse!(ValidateTokenRequest => ValidateToken { token: copy });
+/// No check: the use case answers `false` for an empty token.
+impl Parse for ValidateTokenRequest {
+    type Into = String;
+
+    fn parse(self) -> Result<String, Status> {
+        Ok(self.token)
+    }
+}
 
 impl Parse for RevokeTokenRequest {
-    type Into = RevokeToken;
+    type Into = String;
 
-    fn parse(self) -> Result<RevokeToken, Status> {
+    fn parse(self) -> Result<String, Status> {
         if self.token.is_empty() {
             return Err(Status::invalid_argument("Token cannot be empty"));
         }
-        Ok(RevokeToken { token: self.token })
+        Ok(self.token)
     }
 }
 
 impl Parse for RequestPasswordResetRequest {
-    type Into = RequestPasswordReset;
+    type Into = Email;
 
-    fn parse(self) -> Result<RequestPasswordReset, Status> {
-        Ok(RequestPasswordReset {
-            email: valid(required(self.email, "email")?, Email::new)?,
-        })
+    fn parse(self) -> Result<Email, Status> {
+        valid(required(self.email, "email")?, Email::new)
     }
 }
 
 /// A token of another shape is an unknown link: FAILED_PRECONDITION, not INVALID_ARGUMENT.
 impl Parse for ResetPasswordRequest {
-    type Into = ResetPassword;
+    type Into = (ResetToken, Password);
 
-    fn parse(self) -> Result<ResetPassword, Status> {
-        Ok(ResetPassword {
-            token: valid(self.token, ResetToken::new)?,
-            new_password: valid(self.new_password, Password::new)?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let token = valid(self.token, ResetToken::new)?;
+        let new_password = valid(self.new_password, Password::new)?;
+        Ok((token, new_password))
     }
 }
 
@@ -69,12 +68,12 @@ mod tests {
 
     #[test]
     fn a_reset_request_needs_a_valid_email() {
-        let command = RequestPasswordResetRequest {
+        let email = RequestPasswordResetRequest {
             email: wrap("Kevin@Example.com"),
         }
         .parse()
         .unwrap();
-        assert_eq!(command.email.as_str(), "kevin@example.com");
+        assert_eq!(email.as_str(), "kevin@example.com");
 
         for email in [None, wrap("nope")] {
             let Err(err) = RequestPasswordResetRequest { email }.parse() else {
@@ -110,27 +109,25 @@ mod tests {
         };
         assert_eq!(err.code(), Code::InvalidArgument);
 
-        let command = ResetPasswordRequest {
+        let (token, _) = ResetPasswordRequest {
             token: TOKEN.into(),
             new_password: "SecurePass123!".into(),
         }
         .parse()
         .unwrap();
-        assert_eq!(command.token.as_str(), TOKEN);
+        assert_eq!(token.as_str(), TOKEN);
     }
 
     #[test]
-    fn a_login_request_keeps_the_identifier_and_the_client() {
-        let client = SessionClient::new(Some("curl/8.0"), Some("192.0.2.1"));
-        let command = LoginRequest {
+    fn a_login_request_keeps_the_identifier() {
+        let (identifier, _) = LoginRequest {
             identifier: "kevin@example.com".into(),
             password: "SecurePass123!".into(),
         }
-        .parse_with_client(client.clone())
+        .parse()
         .unwrap();
 
-        assert_eq!(command.identifier, "kevin@example.com");
-        assert_eq!(command.client, client);
+        assert_eq!(identifier, "kevin@example.com");
     }
 
     #[test]
@@ -139,11 +136,22 @@ mod tests {
             identifier: "kevin".into(),
             password: String::new(),
         }
-        .parse_with_client(SessionClient::default()) else {
+        .parse() else {
             panic!("an empty password must not parse");
         };
 
         assert_eq!(err.code(), Code::InvalidArgument);
+    }
+
+    #[test]
+    fn an_empty_token_to_validate_parses() {
+        let token = ValidateTokenRequest {
+            token: String::new(),
+        }
+        .parse()
+        .unwrap();
+
+        assert!(token.is_empty());
     }
 
     #[test]

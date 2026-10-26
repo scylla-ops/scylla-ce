@@ -1,9 +1,9 @@
-//! Wire to command, command outcome to wire. The handler holds none of it.
+//! Wire to the inputs of a use case, its outcome to wire. The handler holds none of it.
 
-use crate::application::job::{
-    CancelJob, DeleteJob, GetJob, ListJobs, ListOrganizationJobs, ListPipelineJobs, ListProjectJobs,
-};
-use crate::grpc::convert::{ts, wrap};
+use crate::application::pagination::PaginationParams;
+use crate::grpc::convert::{Parse, id, optional_id, ts, wrap};
+use crate::grpc::mappers::proto_to_domain_pagination;
+use scylla_domain::domain::ids::{AppId, JobId, OrganizationId, PipelineId, ProjectId};
 use scylla_domain::domain::job::JobOrigin;
 use scylla_domain::domain::job::{
     Job, JobNode, JobState, NodeExecution, NodeOutcome, TerminalOutcome,
@@ -15,6 +15,7 @@ use scylla_proto::job::v1::{
     ListProjectJobsRequest, ListProjectJobsResponse, NodeOutcome as ProtoNodeOutcome, job,
     job_node,
 };
+use tonic::Status;
 
 pub fn job_to_proto(job: &Job) -> ProtoJob {
     ProtoJob {
@@ -116,26 +117,69 @@ fn node_outcome_to_proto(outcome: NodeOutcome) -> ProtoNodeOutcome {
     }
 }
 
-parse!(GetJobRequest => GetJob { id: id(job_id) });
-parse!(CancelJobRequest => CancelJob { id: id(job_id) });
-parse!(DeleteJobRequest => DeleteJob { id: id(job_id) });
-parse!(ListJobsRequest => ListJobs { pagination: page });
+impl Parse for GetJobRequest {
+    type Into = JobId;
 
-parse!(ListPipelineJobsRequest => ListPipelineJobs {
-    pipeline_id: id(pipeline_id),
-    pagination: page,
-});
+    fn parse(self) -> Result<JobId, Status> {
+        id(self.job_id, "job_id")
+    }
+}
 
-parse!(ListProjectJobsRequest => ListProjectJobs {
-    project_id: id(project_id),
-    pagination: page,
-});
+impl Parse for CancelJobRequest {
+    type Into = JobId;
 
-parse!(ListOrganizationJobsRequest => ListOrganizationJobs {
-    organization_id: id(organization_id),
-    agent_id: optional_id(agent_id),
-    pagination: page,
-});
+    fn parse(self) -> Result<JobId, Status> {
+        id(self.job_id, "job_id")
+    }
+}
+
+impl Parse for DeleteJobRequest {
+    type Into = JobId;
+
+    fn parse(self) -> Result<JobId, Status> {
+        id(self.job_id, "job_id")
+    }
+}
+
+impl Parse for ListJobsRequest {
+    type Into = Option<PaginationParams>;
+
+    fn parse(self) -> Result<Option<PaginationParams>, Status> {
+        Ok(proto_to_domain_pagination(self.pagination))
+    }
+}
+
+impl Parse for ListPipelineJobsRequest {
+    type Into = (PipelineId, Option<PaginationParams>);
+
+    fn parse(self) -> Result<Self::Into, Status> {
+        let pipeline_id = id(self.pipeline_id, "pipeline_id")?;
+        Ok((pipeline_id, proto_to_domain_pagination(self.pagination)))
+    }
+}
+
+impl Parse for ListProjectJobsRequest {
+    type Into = (ProjectId, Option<PaginationParams>);
+
+    fn parse(self) -> Result<Self::Into, Status> {
+        let project_id = id(self.project_id, "project_id")?;
+        Ok((project_id, proto_to_domain_pagination(self.pagination)))
+    }
+}
+
+impl Parse for ListOrganizationJobsRequest {
+    type Into = (OrganizationId, Option<AppId>, Option<PaginationParams>);
+
+    fn parse(self) -> Result<Self::Into, Status> {
+        let organization_id = id(self.organization_id, "organization_id")?;
+        let agent_id = optional_id(self.agent_id, "agent_id")?;
+        Ok((
+            organization_id,
+            agent_id,
+            proto_to_domain_pagination(self.pagination),
+        ))
+    }
+}
 
 page_response!(
     Job => jobs: job_to_proto;
@@ -153,14 +197,14 @@ mod tests {
     use tonic::Code;
 
     #[test]
-    fn a_get_request_becomes_a_query_on_the_job() {
-        let query = GetJobRequest {
+    fn a_get_request_becomes_the_job_id() {
+        let id = GetJobRequest {
             job_id: wrap("job-1"),
         }
         .parse()
         .unwrap();
 
-        assert_eq!(query.id.as_str(), "job-1");
+        assert_eq!(id.as_str(), "job-1");
     }
 
     #[test]
@@ -196,39 +240,39 @@ mod tests {
     }
 
     #[test]
-    fn a_cancel_request_becomes_a_command_on_the_job() {
-        let command = CancelJobRequest {
+    fn a_cancel_request_becomes_the_job_id() {
+        let id = CancelJobRequest {
             job_id: wrap("job-1"),
         }
         .parse()
         .unwrap();
 
-        assert_eq!(command.id.as_str(), "job-1");
+        assert_eq!(id.as_str(), "job-1");
     }
 
     #[test]
     fn a_pipeline_list_request_carries_its_pipeline_and_page() {
-        let query = ListPipelineJobsRequest {
+        let (pipeline_id, pagination) = ListPipelineJobsRequest {
             pipeline_id: wrap("pipe-1"),
             pagination: None,
         }
         .parse()
         .unwrap();
 
-        assert_eq!(query.pipeline_id.as_str(), "pipe-1");
-        assert!(query.pagination.is_none());
+        assert_eq!(pipeline_id.as_str(), "pipe-1");
+        assert!(pagination.is_none());
     }
 
     #[test]
     fn an_organization_list_request_carries_its_agent() {
-        let query = ListOrganizationJobsRequest {
+        let (organization_id, agent_id, _) = ListOrganizationJobsRequest {
             organization_id: wrap("acme"),
             pagination: None,
             agent_id: wrap("agent-1"),
         }
         .parse()
         .unwrap();
-        let unfiltered = ListOrganizationJobsRequest {
+        let (_, unfiltered, _) = ListOrganizationJobsRequest {
             organization_id: wrap("acme"),
             pagination: None,
             agent_id: None,
@@ -236,9 +280,9 @@ mod tests {
         .parse()
         .unwrap();
 
-        assert_eq!(query.organization_id.as_str(), "acme");
-        assert_eq!(query.agent_id.unwrap().as_str(), "agent-1");
-        assert!(unfiltered.agent_id.is_none());
+        assert_eq!(organization_id.as_str(), "acme");
+        assert_eq!(agent_id.unwrap().as_str(), "agent-1");
+        assert!(unfiltered.is_none());
     }
 
     #[test]

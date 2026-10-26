@@ -6,10 +6,6 @@ use scylla_auth::authz::{
     Grant, GrantRepository, PermissionService, Principal, Role, RoleKind, RoleRepository, Scope,
     ScopeKind,
 };
-use scylla_core::application::role::{
-    CreateRole, DeleteRole, GetEffectivePermissions, GetMyPermissions, GetRole,
-    ListAuthzVocabulary, ListRoles, UpdateRole,
-};
 use scylla_core::test_support::authz::{DenyingPermissionService, RecordingPermissionService};
 use scylla_core::test_support::stubs::{ScopesByAgent, StubGrants, StubRoles, alice};
 use scylla_domain::domain::caller::{CallerContext, ServiceIdentity};
@@ -134,8 +130,41 @@ fn owned(id: &str, organization: &str, permissions: &[&str]) -> Role {
     }
 }
 
-fn create(permissions: &[&str]) -> CreateRole {
-    CreateRole {
+struct NewRole {
+    organization_id: Option<OrganizationId>,
+    name: RoleDisplayName,
+    description: RoleDescription,
+    scope: ScopeKind,
+    kind: RoleKind,
+    permissions: Vec<String>,
+}
+
+async fn create_role(app: &impl RolesRpc<TestRoles>, r: NewRole) -> DomainResult<Role> {
+    RolesRpc::create_role(
+        app,
+        r.organization_id,
+        r.name,
+        r.description,
+        r.scope,
+        r.kind,
+        r.permissions,
+    )
+    .await
+}
+
+struct RoleChange {
+    id: RoleName,
+    name: RoleDisplayName,
+    description: RoleDescription,
+    permissions: Vec<String>,
+}
+
+async fn update_role(app: &impl RolesRpc<TestRoles>, r: RoleChange) -> DomainResult<Role> {
+    RolesRpc::update_role(app, r.id, r.name, r.description, r.permissions).await
+}
+
+fn create(permissions: &[&str]) -> NewRole {
+    NewRole {
         organization_id: None,
         name: RoleDisplayName::new("CI Runner").unwrap(),
         description: RoleDescription::new("").unwrap(),
@@ -145,15 +174,15 @@ fn create(permissions: &[&str]) -> CreateRole {
     }
 }
 
-fn create_in(organization: &str, permissions: &[&str]) -> CreateRole {
-    CreateRole {
+fn create_in(organization: &str, permissions: &[&str]) -> NewRole {
+    NewRole {
         organization_id: Some(OrganizationId::new(organization)),
         ..create(permissions)
     }
 }
 
-fn update(role: &str, name: &str, description: &str, permissions: &[&str]) -> UpdateRole {
-    UpdateRole {
+fn update(role: &str, name: &str, description: &str, permissions: &[&str]) -> RoleChange {
+    RoleChange {
         id: id(role),
         name: RoleDisplayName::new(name).unwrap(),
         description: RoleDescription::new(description).unwrap(),
@@ -166,7 +195,7 @@ async fn a_create_checks_manage_roles_then_stores() {
     let permissions = Arc::new(RecordingPermissionService::new());
     let lab = lab(permissions.clone(), vec![], vec![]).await;
 
-    let created = RolesRpc::create_role(&lab.app.scoped(&on(&root())), create(&["readPipeline"]))
+    let created = create_role(&lab.app.scoped(&on(&root())), create(&["readPipeline"]))
         .await
         .unwrap();
 
@@ -180,7 +209,7 @@ async fn a_create_checks_manage_roles_then_stores() {
 async fn a_denied_create_never_stores() {
     let lab = lab(Arc::new(DenyingPermissionService::new()), vec![], vec![]).await;
 
-    let err = RolesRpc::create_role(&lab.app.scoped(&on(&alice())), create(&["readPipeline"]))
+    let err = create_role(&lab.app.scoped(&on(&alice())), create(&["readPipeline"]))
         .await
         .unwrap_err();
 
@@ -192,7 +221,7 @@ async fn a_denied_create_never_stores() {
 async fn a_permission_out_of_the_role_scope_is_refused_before_anything_is_stored() {
     let lab = lab(Arc::new(RecordingPermissionService::new()), vec![], vec![]).await;
 
-    let err = RolesRpc::create_role(
+    let err = create_role(
         &lab.app.scoped(&on(&alice())),
         create(&["createOrganization"]),
     )
@@ -214,7 +243,7 @@ async fn an_update_validates_against_the_stored_scope_and_rewrites_the_role() {
     let ctx = on(&root());
     let root = lab.app.scoped(&ctx);
 
-    let err = RolesRpc::update_role(
+    let err = update_role(
         &root,
         update("ci", "CI", "runs the builds", &["createProject"]),
     )
@@ -222,7 +251,7 @@ async fn an_update_validates_against_the_stored_scope_and_rewrites_the_role() {
     .unwrap_err();
     assert!(matches!(err, DomainError::Validation(_)));
 
-    let updated = RolesRpc::update_role(
+    let updated = update_role(
         &root,
         update("ci", "CI", "runs the builds", &["runPipeline"]),
     )
@@ -237,7 +266,7 @@ async fn an_update_validates_against_the_stored_scope_and_rewrites_the_role() {
 async fn a_missing_role_is_not_found() {
     let lab = lab(Arc::new(RecordingPermissionService::new()), vec![], vec![]).await;
 
-    let err = RolesRpc::get_role(&lab.app.scoped(&on(&alice())), GetRole { id: id("ghost") })
+    let err = RolesRpc::get_role(&lab.app.scoped(&on(&alice())), id("ghost"))
         .await
         .unwrap_err();
 
@@ -262,15 +291,11 @@ async fn a_builtin_role_or_a_role_in_use_cannot_be_deleted() {
     let root = lab.app.scoped(&ctx);
 
     for role in ["organization-admin", "ci"] {
-        let err = RolesRpc::delete_role(&root, DeleteRole { id: id(role) })
-            .await
-            .unwrap_err();
+        let err = RolesRpc::delete_role(&root, id(role)).await.unwrap_err();
         assert!(matches!(err, DomainError::BusinessRule(_)), "{role}");
     }
 
-    RolesRpc::delete_role(&root, DeleteRole { id: id("unused") })
-        .await
-        .unwrap();
+    RolesRpc::delete_role(&root, id("unused")).await.unwrap();
     assert!(!lab.roles.rows().iter().any(|r| r.id == "unused"));
     assert_eq!(
         permissions.permissions().last(),
@@ -284,7 +309,7 @@ async fn a_role_of_an_organization_is_created_there_with_its_permission() {
     let permissions = Arc::new(RecordingPermissionService::new());
     let lab = lab(permissions.clone(), vec![], vec![]).await;
 
-    let created = RolesRpc::create_role(
+    let created = create_role(
         &lab.app.scoped(&on(&root())),
         create_in("o1", &["readPipeline"]),
     )
@@ -302,18 +327,18 @@ async fn a_role_of_an_organization_is_created_there_with_its_permission() {
 #[tokio::test]
 async fn a_role_of_an_organization_is_never_system_scoped_nor_an_admin_role() {
     let lab = lab(Arc::new(RecordingPermissionService::new()), vec![], vec![]).await;
-    let system = CreateRole {
+    let system = NewRole {
         scope: ScopeKind::System,
         ..create_in("o1", &["readOrganization"])
     };
-    let admin = CreateRole {
+    let admin = NewRole {
         kind: RoleKind::Admin,
         ..create(&["readPipeline"])
     };
     let ctx = on(&root());
 
     for command in [system, admin] {
-        let err = RolesRpc::create_role(&lab.app.scoped(&ctx), command)
+        let err = create_role(&lab.app.scoped(&ctx), command)
             .await
             .unwrap_err();
         assert!(matches!(err, DomainError::Validation(_)));
@@ -341,11 +366,11 @@ async fn a_role_holds_only_permissions_its_author_holds() {
     let ctx = on(&CallerContext::User(UserId::new("dave")));
     let dave = lab.app.scoped(&ctx);
 
-    let err = RolesRpc::create_role(&dave, create_in("o1", &["deleteProject"]))
+    let err = create_role(&dave, create_in("o1", &["deleteProject"]))
         .await
         .unwrap_err();
     assert!(matches!(err, DomainError::BusinessRule(_)));
-    let err = RolesRpc::create_role(&dave, create_in("o2", &["readProject"]))
+    let err = create_role(&dave, create_in("o2", &["readProject"]))
         .await
         .unwrap_err();
     assert!(
@@ -353,7 +378,7 @@ async fn a_role_holds_only_permissions_its_author_holds() {
         "a grant on o1 confers nothing on o2"
     );
 
-    let created = RolesRpc::create_role(&dave, create_in("o1", &["readProject"]))
+    let created = create_role(&dave, create_in("o1", &["readProject"]))
         .await
         .unwrap();
     assert_eq!(created.owner_org, Some(OrganizationId::new("o1")));
@@ -383,19 +408,19 @@ async fn an_update_checks_only_the_permissions_it_adds() {
     let ctx = on(&CallerContext::User(UserId::new("dave")));
     let dave = lab.app.scoped(&ctx);
 
-    RolesRpc::update_role(
+    update_role(
         &dave,
         update("deployer", "Renamed", "", &["readProject", "runPipeline"]),
     )
     .await
     .expect("keeping a permission the author lacks is no escalation");
-    RolesRpc::update_role(
+    update_role(
         &dave,
         update("owner", "Renamed", "", &["readProject", "deleteProject"]),
     )
     .await
     .expect("narrowing full control adds nothing");
-    let err = RolesRpc::update_role(
+    let err = update_role(
         &dave,
         update("deployer", "Renamed", "", &["runPipeline", "deleteProject"]),
     )
@@ -419,9 +444,7 @@ async fn an_organization_lists_the_platform_roles_and_its_own() {
 
     let roles = RolesRpc::list_roles(
         &lab.app.scoped(&on(&root())),
-        ListRoles {
-            organization_id: Some(OrganizationId::new("o1")),
-        },
+        Some(OrganizationId::new("o1")),
     )
     .await
     .unwrap();
@@ -473,9 +496,7 @@ async fn effective_permissions_group_the_grants_by_scope_behind_manage_system_gr
     let scopes = RolesRpc::get_effective_permissions(
         &lab.app
             .scoped(&on(&CallerContext::Service(ServiceIdentity::recorder()))),
-        GetEffectivePermissions {
-            principal: alice_principal,
-        },
+        alice_principal,
     )
     .await
     .unwrap();
@@ -513,7 +534,7 @@ async fn my_permissions_asks_for_no_permission_and_refuses_a_non_principal() {
     .await;
     let ctx = on(&alice());
 
-    let scopes = RolesRpc::get_my_permissions(&lab.app.scoped(&ctx), GetMyPermissions)
+    let scopes = RolesRpc::get_my_permissions(&lab.app.scoped(&ctx))
         .await
         .unwrap();
     assert_eq!(scopes.len(), 1);
@@ -521,9 +542,7 @@ async fn my_permissions_asks_for_no_permission_and_refuses_a_non_principal() {
 
     let err = RolesRpc::get_effective_permissions(
         &lab.app.scoped(&ctx),
-        GetEffectivePermissions {
-            principal: Principal::User(UserId::new("bob")),
-        },
+        Principal::User(UserId::new("bob")),
     )
     .await
     .unwrap_err();
@@ -533,7 +552,7 @@ async fn my_permissions_asks_for_no_permission_and_refuses_a_non_principal() {
         CallerContext::Service(ServiceIdentity::recorder()),
         CallerContext::Anonymous,
     ] {
-        let err = RolesRpc::get_my_permissions(&lab.app.scoped(&on(&caller)), GetMyPermissions)
+        let err = RolesRpc::get_my_permissions(&lab.app.scoped(&on(&caller)))
             .await
             .unwrap_err();
         assert!(matches!(err, DomainError::Forbidden(_)), "{caller}");
@@ -545,10 +564,9 @@ async fn the_vocabulary_is_the_permission_catalog_and_asks_no_permission() {
     let permissions = Arc::new(RecordingPermissionService::new());
     let lab = lab(permissions.clone(), vec![], vec![]).await;
 
-    let vocabulary =
-        RolesRpc::list_authz_vocabulary(&lab.app.scoped(&on(&alice())), ListAuthzVocabulary)
-            .await
-            .unwrap();
+    let vocabulary = RolesRpc::list_authz_vocabulary(&lab.app.scoped(&on(&alice())))
+        .await
+        .unwrap();
 
     assert_eq!(vocabulary.len(), PERMISSION_CATALOG.len());
     assert!(permissions.permissions().is_empty());

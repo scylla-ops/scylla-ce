@@ -5,15 +5,14 @@
 use async_trait::async_trait;
 use scylla_auth::authz::{Grant, PermissionService};
 use scylla_core::application::trigger::{
-    ClaimDueTriggers, CreateTrigger, CreatedTrigger, CronSchedule, DEFAULT_SIGNATURE_HEADER,
-    DeleteTrigger, FireTriggerNow, GetTrigger, IngestOutcome, IngestWebhook, ListPipelineTriggers,
-    NextFire, RecordTriggerFire, ResolveTriggerRun, ScheduleCronTriggers, SetTriggerEnabled,
-    TriggerDeliveryRepository, TriggerRepository, UpdateTrigger,
+    CreatedTrigger, CronSchedule, DEFAULT_SIGNATURE_HEADER, IngestOutcome, NextFire,
+    TriggerDeliveryRepository, TriggerRepository,
 };
 use scylla_core::application::{
     AppRepository, JobRepository, PipelineRepository, PrincipalAccess, ProjectRepository,
     SecretCipher, SecretResolver,
 };
+use scylla_core::rest::webhook::WebhookDelivery;
 use scylla_core::test_support::authz::{DenyingPermissionService, RecordingPermissionService};
 use scylla_core::test_support::pipelines::PipelineBuilder;
 use scylla_core::test_support::projects::ProjectBuilder;
@@ -319,30 +318,34 @@ fn cron_scheduler() -> CallerContext {
 
 impl Lab {
     async fn create(&self, source: TriggerSource) -> DomainResult<CreatedTrigger> {
-        TriggersRpc::create_trigger(&self.app.scoped(&ctx(alice())), create(source)).await
+        TriggersRpc::create_trigger(
+            &self.app.scoped(&ctx(alice())),
+            pipeline_id(),
+            nightly(),
+            source,
+            Vec::new(),
+        )
+        .await
     }
 
     async fn update(&self, id: &TriggerId) -> DomainResult<Trigger> {
-        let cmd = UpdateTrigger {
-            id: id.clone(),
-            name: TriggerName::new("hourly").unwrap(),
-            source: cron(),
-            inputs: Vec::new(),
-        };
-        TriggersRpc::update_trigger(&self.app.scoped(&ctx(alice())), cmd).await
+        let name = TriggerName::new("hourly").unwrap();
+        TriggersRpc::update_trigger(
+            &self.app.scoped(&ctx(alice())),
+            id.clone(),
+            name,
+            cron(),
+            Vec::new(),
+        )
+        .await
     }
 
     async fn delete(&self, id: &TriggerId) -> DomainResult<()> {
-        let cmd = DeleteTrigger { id: id.clone() };
-        TriggersRpc::delete_trigger(&self.app.scoped(&ctx(alice())), cmd).await
+        TriggersRpc::delete_trigger(&self.app.scoped(&ctx(alice())), id.clone()).await
     }
 
     async fn enable(&self, id: &TriggerId, enabled: bool) -> DomainResult<Trigger> {
-        let cmd = SetTriggerEnabled {
-            id: id.clone(),
-            enabled,
-        };
-        TriggersRpc::set_trigger_enabled(&self.app.scoped(&ctx(alice())), cmd).await
+        TriggersRpc::set_trigger_enabled(&self.app.scoped(&ctx(alice())), id.clone(), enabled).await
     }
 
     async fn fire(&self, id: &TriggerId) -> DomainResult<Job> {
@@ -398,14 +401,10 @@ impl Lab {
     async fn tick(&self) -> (usize, Vec<TriggerId>) {
         let scheduler = ctx(cron_scheduler());
         let view = self.app.scoped(&scheduler);
-        TriggersRpc::schedule_cron_triggers(&view, ScheduleCronTriggers)
+        TriggersRpc::schedule_cron_triggers(&view).await.unwrap();
+        let due = TriggersRpc::claim_due_triggers(&view, clock::now(), 100)
             .await
             .unwrap();
-        let claim = ClaimDueTriggers {
-            now: clock::now(),
-            limit: 100,
-        };
-        let due = TriggersRpc::claim_due_triggers(&view, claim).await.unwrap();
         let mut fired = 0;
         let ids: Vec<TriggerId> = due.iter().map(|t| t.id().clone()).collect();
         for trigger in due {
@@ -478,13 +477,8 @@ fn webhook() -> TriggerSource {
     TriggerSource::Webhook(WebhookSpec::new(None).unwrap())
 }
 
-fn create(source: TriggerSource) -> CreateTrigger {
-    CreateTrigger {
-        pipeline_id: pipeline_id(),
-        name: TriggerName::new("nightly").unwrap(),
-        source,
-        inputs: Vec::new(),
-    }
+fn nightly() -> TriggerName {
+    TriggerName::new("nightly").unwrap()
 }
 
 #[tokio::test]
@@ -589,15 +583,16 @@ async fn a_manager_without_run_rights_cannot_create_a_trigger() {
 #[tokio::test]
 async fn a_create_on_an_unknown_pipeline_is_not_found_and_writes_nothing() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
-    let cmd = CreateTrigger {
-        pipeline_id: PipelineId::new("ghost"),
-        ..create(cron())
-    };
-
-    let err = TriggersRpc::create_trigger(&lab.app.scoped(&ctx(alice())), cmd)
-        .await
-        .err()
-        .unwrap();
+    let err = TriggersRpc::create_trigger(
+        &lab.app.scoped(&ctx(alice())),
+        PipelineId::new("ghost"),
+        nightly(),
+        cron(),
+        Vec::new(),
+    )
+    .await
+    .err()
+    .unwrap();
 
     assert!(matches!(err, DomainError::NotFound(_)));
     assert!(lab.triggers.rows.lock().unwrap().is_empty());
@@ -610,14 +605,10 @@ async fn a_pipeline_list_checks_manage_triggers() {
     let lab = lab(permissions.clone()).await;
     let seeded = lab.seed();
 
-    let triggers = TriggersRpc::list_pipeline_triggers(
-        &lab.app.scoped(&ctx(alice())),
-        ListPipelineTriggers {
-            pipeline_id: pipeline_id(),
-        },
-    )
-    .await
-    .unwrap();
+    let triggers =
+        TriggersRpc::list_pipeline_triggers(&lab.app.scoped(&ctx(alice())), pipeline_id())
+            .await
+            .unwrap();
 
     assert_eq!(
         permissions.permissions(),
@@ -633,14 +624,9 @@ async fn a_get_checks_manage_on_the_trigger() {
     let lab = lab(permissions.clone()).await;
     let seeded = lab.seed();
 
-    let trigger = TriggersRpc::get_trigger(
-        &lab.app.scoped(&ctx(alice())),
-        GetTrigger {
-            id: seeded.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
+    let trigger = TriggersRpc::get_trigger(&lab.app.scoped(&ctx(alice())), seeded.id().clone())
+        .await
+        .unwrap();
 
     assert_eq!(trigger.id(), seeded.id());
     assert_eq!(
@@ -739,14 +725,10 @@ async fn a_tick_seeds_the_unscheduled_then_fires_every_due_trigger_with_no_permi
 
     let scheduler = ctx(cron_scheduler());
     let view = lab.app.scoped(&scheduler);
-    let seeded = TriggersRpc::schedule_cron_triggers(&view, ScheduleCronTriggers)
+    let seeded = TriggersRpc::schedule_cron_triggers(&view).await.unwrap();
+    let due = TriggersRpc::claim_due_triggers(&view, clock::now(), 100)
         .await
         .unwrap();
-    let claim = ClaimDueTriggers {
-        now: clock::now(),
-        limit: 100,
-    };
-    let due = TriggersRpc::claim_due_triggers(&view, claim).await.unwrap();
     assert_eq!(permissions.checks().len(), before, "no permission asked");
     for trigger in &due {
         lab.fire(trigger.id()).await.unwrap();
@@ -849,20 +831,15 @@ async fn the_cron_passes_refuse_a_caller_that_is_not_a_service() {
     let user = ctx(alice());
     let scheduler = ctx(cron_scheduler());
 
-    let seed = TriggersRpc::schedule_cron_triggers(&lab.app.scoped(&user), ScheduleCronTriggers)
+    let seed = TriggersRpc::schedule_cron_triggers(&lab.app.scoped(&user))
         .await
         .unwrap_err();
-    let claim = ClaimDueTriggers {
-        now: clock::now(),
-        limit: 10,
-    };
-    let claim = TriggersRpc::claim_due_triggers(&lab.app.scoped(&user), claim)
+    let claim = TriggersRpc::claim_due_triggers(&lab.app.scoped(&user), clock::now(), 10)
         .await
         .unwrap_err();
-    let scheduled =
-        TriggersRpc::schedule_cron_triggers(&lab.app.scoped(&scheduler), ScheduleCronTriggers)
-            .await
-            .unwrap();
+    let scheduled = TriggersRpc::schedule_cron_triggers(&lab.app.scoped(&scheduler))
+        .await
+        .unwrap();
 
     assert!(matches!(seed, DomainError::Forbidden(_)));
     assert!(matches!(claim, DomainError::Forbidden(_)));
@@ -928,19 +905,12 @@ async fn a_fire_record_does_not_undo_a_disable_that_committed_during_the_run() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
     let id = lab.create(cron()).await.unwrap().trigger.id().clone();
     let service = ctx(firer());
-    TriggersRpc::resolve_trigger_run(
-        &lab.app.scoped(&service),
-        ResolveTriggerRun { id: id.clone() },
-    )
-    .await
-    .unwrap();
+    TriggersRpc::resolve_trigger_run(&lab.app.scoped(&service), id.clone())
+        .await
+        .unwrap();
     lab.enable(&id, false).await.unwrap();
 
-    let record = RecordTriggerFire {
-        id: id.clone(),
-        status: "ok",
-    };
-    TriggersRpc::record_trigger_fire(&lab.app.scoped(&service), record)
+    TriggersRpc::record_trigger_fire(&lab.app.scoped(&service), id.clone(), "ok")
         .await
         .unwrap();
 
@@ -955,14 +925,9 @@ async fn a_fire_now_checks_run_on_the_trigger_then_fires_it() {
     let trigger = lab.create(cron()).await.unwrap().trigger;
     let before = permissions.checks().len();
 
-    let job = TriggersRpc::fire_trigger_now(
-        &lab.app.scoped(&ctx(alice())),
-        FireTriggerNow {
-            id: trigger.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
+    let job = TriggersRpc::fire_trigger_now(&lab.app.scoped(&ctx(alice())), trigger.id().clone())
+        .await
+        .unwrap();
 
     assert_eq!(
         permissions.checks()[before],
@@ -979,15 +944,11 @@ async fn the_resolve_refuses_a_caller_that_is_not_a_service() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
     let trigger = lab.seed();
 
-    let err = TriggersRpc::resolve_trigger_run(
-        &lab.app.scoped(&ctx(alice())),
-        ResolveTriggerRun {
-            id: trigger.id().clone(),
-        },
-    )
-    .await
-    .err()
-    .unwrap();
+    let err =
+        TriggersRpc::resolve_trigger_run(&lab.app.scoped(&ctx(alice())), trigger.id().clone())
+            .await
+            .err()
+            .unwrap();
 
     assert!(matches!(err, DomainError::Forbidden(_)));
 }
@@ -1161,14 +1122,14 @@ impl Lab {
                 HashMap::from([(name, s.to_string())])
             })
             .unwrap_or_default();
-        let cmd = IngestWebhook {
+        let delivery = WebhookDelivery {
             trigger_id: id.clone(),
             headers,
             delivery_id: delivery_id.map(str::to_string),
             event: event.map(str::to_string),
             body: body.to_vec(),
         };
-        Triggers::ingest_webhook(&self.app, cmd).await
+        Triggers::ingest_webhook(&self.app, delivery).await
     }
 
     async fn ingest(
@@ -1456,14 +1417,14 @@ async fn a_custom_signature_header_is_read_under_its_lowercase_name() {
         .ingest(hook.id(), Some(SIG), Some("d-1"), None)
         .await
         .unwrap_err();
-    let cmd = IngestWebhook {
+    let delivery = WebhookDelivery {
         trigger_id: hook.id().clone(),
         headers: HashMap::from([("x-hub-signature-256".to_string(), format!("sha256={SIG}"))]),
         delivery_id: Some("d-1".to_string()),
         event: None,
         body: MSG.to_vec(),
     };
-    let custom = Triggers::ingest_webhook(&lab.app, cmd).await.unwrap();
+    let custom = Triggers::ingest_webhook(&lab.app, delivery).await.unwrap();
 
     assert!(matches!(default_header, DomainError::Unauthorized(_)));
     assert!(matches!(custom, IngestOutcome::Fired(_)));
@@ -1572,5 +1533,7 @@ async fn an_audit_slot_sees_the_run_and_the_record_of_each_fire() {
             ),
         ]
     );
+    assert_eq!(rows[0].2.to_string(), "runPipeline");
+    assert_eq!(rows[1].2.to_string(), "manageTriggers");
     assert_eq!(jobs.rows().len(), 1);
 }

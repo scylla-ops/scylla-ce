@@ -3,12 +3,7 @@ use scylla_auth::authz::{
     Grant, ORGANIZATION_AGENT_ROLE, PermissionService, Principal, Scope, Visibility,
     VisibilityResolver,
 };
-use scylla_core::application::agent::{
-    AgentDispatch, CreateAgent, CreatedAgent, DispatchPendingJobs, GetAgent, GetAgentStats,
-    ListAgents, RecordAgentHost, TouchAgent,
-};
-use scylla_core::application::app::DeleteApp;
-use scylla_core::application::job::CancelJob;
+use scylla_core::application::agent::{AgentDispatch, CreatedAgent};
 use scylla_core::application::pagination::{PaginatedResult, PaginationParams};
 use scylla_core::application::{
     AgentRepository, AgentStats, AppCredentialRepository, AppRepository, AppTokenRepository,
@@ -401,11 +396,9 @@ impl Lab {
     async fn create(&self) -> DomainResult<CreatedAgent> {
         let created = AgentsRpc::create_agent(
             &self.app.scoped(&alice()),
-            CreateAgent {
-                organization_id: org(),
-                name: AppName::new("runner-1").unwrap(),
-                secret_label: None,
-            },
+            org(),
+            AppName::new("runner-1").unwrap(),
+            None,
         )
         .await?;
         self.agents
@@ -447,11 +440,9 @@ async fn a_create_with_a_secret_label_names_the_first_secret_with_it() {
 
     AgentsRpc::create_agent(
         &lab.app.scoped(&alice()),
-        CreateAgent {
-            organization_id: org(),
-            name: AppName::new("runner-1").unwrap(),
-            secret_label: Some(AppSecretLabel::new("build-01.example.com").unwrap()),
-        },
+        org(),
+        AppName::new("runner-1").unwrap(),
+        Some(AppSecretLabel::new("build-01.example.com").unwrap()),
     )
     .await
     .unwrap();
@@ -487,18 +478,9 @@ async fn reads_check_their_permission_and_join_the_registry_and_the_placed_jobs(
     let caller = alice();
     let alice = lab.app.scoped(&caller);
 
-    let views = AgentsRpc::list_agents(
-        &alice,
-        ListAgents {
-            organization_id: org(),
-        },
-    )
-    .await
-    .unwrap();
-    let view = AgentsRpc::get_agent(&alice, GetAgent { id: id.clone() })
-        .await
-        .unwrap();
-    let stats = AgentsRpc::get_agent_stats(&alice, GetAgentStats { id: id.clone() })
+    let views = AgentsRpc::list_agents(&alice, org()).await.unwrap();
+    let view = AgentsRpc::get_agent(&alice, id.clone()).await.unwrap();
+    let stats = AgentsRpc::get_agent_stats(&alice, id.clone())
         .await
         .unwrap();
 
@@ -523,15 +505,10 @@ async fn reads_check_their_permission_and_join_the_registry_and_the_placed_jobs(
 async fn a_get_of_an_app_that_is_not_an_agent_is_not_found() {
     let AdminLab { lab, .. } = admin_lab(Arc::new(RecordingPermissionService::new())).await;
 
-    let err = AgentsRpc::get_agent(
-        &lab.app.scoped(&alice()),
-        GetAgent {
-            id: AppId::new("ghost"),
-        },
-    )
-    .await
-    .err()
-    .unwrap();
+    let err = AgentsRpc::get_agent(&lab.app.scoped(&alice()), AppId::new("ghost"))
+        .await
+        .err()
+        .unwrap();
 
     assert!(matches!(err, DomainError::NotFound(_)));
 }
@@ -540,15 +517,10 @@ async fn a_get_of_an_app_that_is_not_an_agent_is_not_found() {
 async fn the_stats_of_an_unknown_app_are_not_found() {
     let AdminLab { lab, .. } = admin_lab(Arc::new(RecordingPermissionService::new())).await;
 
-    let err = AgentsRpc::get_agent_stats(
-        &lab.app.scoped(&alice()),
-        GetAgentStats {
-            id: AppId::new("ghost"),
-        },
-    )
-    .await
-    .err()
-    .unwrap();
+    let err = AgentsRpc::get_agent_stats(&lab.app.scoped(&alice()), AppId::new("ghost"))
+        .await
+        .err()
+        .unwrap();
 
     assert!(matches!(err, DomainError::NotFound(_)));
 }
@@ -559,11 +531,9 @@ async fn the_runner_name_is_refused() {
 
     let err = AgentsRpc::create_agent(
         &lab.app.scoped(&alice()),
-        CreateAgent {
-            organization_id: org(),
-            name: AppName::new(TRIGGER_RUNNER_APP_NAME).unwrap(),
-            secret_label: None,
-        },
+        org(),
+        AppName::new(TRIGGER_RUNNER_APP_NAME).unwrap(),
+        None,
     )
     .await
     .err()
@@ -592,10 +562,8 @@ async fn an_agent_touches_and_reports_its_own_row_with_no_permission_asked() {
     let caller = ctx(CallerContext::App(AppId::new("agent-1")));
     let agent = lab.app.scoped(&caller);
 
-    AgentsRpc::touch_agent(&agent, TouchAgent).await.unwrap();
-    let reported = AgentsRpc::record_agent_host(&agent, RecordAgentHost { host: host() })
-        .await
-        .unwrap();
+    AgentsRpc::touch_agent(&agent).await.unwrap();
+    let reported = AgentsRpc::record_agent_host(&agent, host()).await.unwrap();
 
     assert!(permissions.permissions().is_empty());
     assert_eq!(
@@ -614,8 +582,8 @@ async fn only_an_agent_reports_its_own_state() {
     let caller = alice();
     let alice = lab.app.scoped(&caller);
 
-    let touch = AgentsRpc::touch_agent(&alice, TouchAgent).await;
-    let report = AgentsRpc::record_agent_host(&alice, RecordAgentHost { host: host() }).await;
+    let touch = AgentsRpc::touch_agent(&alice).await;
+    let report = AgentsRpc::record_agent_host(&alice, host()).await;
 
     assert!(matches!(touch, Err(DomainError::Forbidden(_))));
     assert!(matches!(report, Err(DomainError::Forbidden(_))));
@@ -629,7 +597,7 @@ async fn a_delete_of_an_agent_removes_its_app_and_drops_its_stream() {
     let AdminLab { lab, registry } = admin_lab(permissions.clone()).await;
     let id = lab.create().await.unwrap().app.id().clone();
 
-    AppsRpc::delete_app(&lab.app.scoped(&alice()), DeleteApp { id: id.clone() })
+    AppsRpc::delete_app(&lab.app.scoped(&alice()), id.clone())
         .await
         .unwrap();
 
@@ -773,14 +741,9 @@ async fn a_stream_reconciles_its_jobs_takes_a_cancel_and_ends_on_a_disconnect() 
     agent.hello(&[&kept]).await;
     until(|| lab.jobs.row(lost.id()).status() == Phase::Orphaned).await;
     assert_eq!(lab.jobs.row(kept.id()).status(), Phase::Running);
-    JobControlRpc::cancel_job(
-        &lab.app.scoped(&alice()),
-        CancelJob {
-            id: kept.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
+    JobControlRpc::cancel_job(&lab.app.scoped(&alice()), kept.id().clone())
+        .await
+        .unwrap();
     assert_eq!(cancelled(agent.order().await), lost.id().to_string());
     assert_eq!(cancelled(agent.order().await), kept.id().to_string());
 
@@ -799,7 +762,7 @@ async fn dispatch_pass(lab: &Lab) -> Vec<Job> {
         &lab.app.scoped(&ctx(CallerContext::Service(
             ServiceIdentity::job_dispatcher(),
         ))),
-        DispatchPendingJobs { agents: None },
+        None,
     )
     .await
     .unwrap()
@@ -1016,15 +979,9 @@ async fn a_denied_list_get_or_stats_is_forbidden() {
     let alice = lab.app.scoped(&caller);
     let id = AppId::new("agent-1");
 
-    let list = AgentsRpc::list_agents(
-        &alice,
-        ListAgents {
-            organization_id: org(),
-        },
-    )
-    .await;
-    let get = AgentsRpc::get_agent(&alice, GetAgent { id: id.clone() }).await;
-    let stats = AgentsRpc::get_agent_stats(&alice, GetAgentStats { id }).await;
+    let list = AgentsRpc::list_agents(&alice, org()).await;
+    let get = AgentsRpc::get_agent(&alice, id.clone()).await;
+    let stats = AgentsRpc::get_agent_stats(&alice, id).await;
 
     assert!(matches!(list, Err(DomainError::Forbidden(_))));
     assert!(matches!(get, Err(DomainError::Forbidden(_))));

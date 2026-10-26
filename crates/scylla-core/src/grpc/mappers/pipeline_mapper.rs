@@ -1,11 +1,9 @@
-//! Wire to command, command outcome to wire. The handler holds none of it.
+//! Wire to the inputs of a use case, its outcome to wire. The handler holds none of it.
 
-use crate::application::pipeline::{
-    CreatePipeline, DeletePipeline, GetPipeline, ListOrganizationPipelines, ListPipelines,
-    ListProjectPipelines, RunPipeline, UpdatePipeline,
-};
+use crate::application::pagination::PaginationParams;
 use crate::grpc::convert::{Parse, id, required, ts, valid, wrap};
-use crate::grpc::mappers::domain_error_to_status;
+use crate::grpc::mappers::{domain_error_to_status, proto_to_domain_pagination};
+use scylla_domain::domain::ids::{OrganizationId, PipelineId, ProjectId};
 use scylla_domain::domain::pipeline::{
     EnvKey, EnvSource, EnvVar as DomainEnvVar, NodeId, PipelineName, Step, WorkingDir,
 };
@@ -155,50 +153,85 @@ fn proto_nodes_to_domain(nodes: Vec<PipelineNode>) -> Result<Vec<DomainPipelineN
 }
 
 impl Parse for CreatePipelineRequest {
-    type Into = CreatePipeline;
+    type Into = (ProjectId, PipelineName, Vec<DomainPipelineNode>);
 
-    fn parse(self) -> Result<CreatePipeline, Status> {
+    fn parse(self) -> Result<Self::Into, Status> {
         let name = valid(self.name, PipelineName::new)?;
-        Ok(CreatePipeline {
-            project_id: id(self.project_id, "project_id")?,
-            name,
-            nodes: proto_nodes_to_domain(self.nodes)?,
-        })
+        let project_id = id(self.project_id, "project_id")?;
+        let nodes = proto_nodes_to_domain(self.nodes)?;
+        Ok((project_id, name, nodes))
     }
 }
 
-parse!(GetPipelineRequest => GetPipeline { id: id(pipeline_id) });
+impl Parse for GetPipelineRequest {
+    type Into = PipelineId;
+
+    fn parse(self) -> Result<PipelineId, Status> {
+        id(self.pipeline_id, "pipeline_id")
+    }
+}
 
 impl Parse for UpdatePipelineRequest {
-    type Into = UpdatePipeline;
+    type Into = (
+        PipelineId,
+        Option<PipelineName>,
+        Option<Vec<DomainPipelineNode>>,
+    );
 
     // An empty node list leaves the nodes as they are: the wire has no way to send "no change".
-    fn parse(self) -> Result<UpdatePipeline, Status> {
-        Ok(UpdatePipeline {
-            id: id(self.pipeline_id, "pipeline_id")?,
-            name: self.name.map(|n| valid(n, PipelineName::new)).transpose()?,
-            nodes: if self.nodes.is_empty() {
-                None
-            } else {
-                Some(proto_nodes_to_domain(self.nodes)?)
-            },
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let pipeline_id = id(self.pipeline_id, "pipeline_id")?;
+        let name = self.name.map(|n| valid(n, PipelineName::new)).transpose()?;
+        let nodes = if self.nodes.is_empty() {
+            None
+        } else {
+            Some(proto_nodes_to_domain(self.nodes)?)
+        };
+        Ok((pipeline_id, name, nodes))
     }
 }
 
-parse!(DeletePipelineRequest => DeletePipeline { id: id(pipeline_id) });
-parse!(RunPipelineRequest => RunPipeline { id: id(pipeline_id) });
-parse!(ListPipelinesRequest => ListPipelines { pagination: page });
+impl Parse for DeletePipelineRequest {
+    type Into = PipelineId;
 
-parse!(ListProjectPipelinesRequest => ListProjectPipelines {
-    project_id: id(project_id),
-    pagination: page,
-});
+    fn parse(self) -> Result<PipelineId, Status> {
+        id(self.pipeline_id, "pipeline_id")
+    }
+}
 
-parse!(ListOrganizationPipelinesRequest => ListOrganizationPipelines {
-    organization_id: id(organization_id),
-    pagination: page,
-});
+impl Parse for RunPipelineRequest {
+    type Into = PipelineId;
+
+    fn parse(self) -> Result<PipelineId, Status> {
+        id(self.pipeline_id, "pipeline_id")
+    }
+}
+
+impl Parse for ListPipelinesRequest {
+    type Into = Option<PaginationParams>;
+
+    fn parse(self) -> Result<Option<PaginationParams>, Status> {
+        Ok(proto_to_domain_pagination(self.pagination))
+    }
+}
+
+impl Parse for ListProjectPipelinesRequest {
+    type Into = (ProjectId, Option<PaginationParams>);
+
+    fn parse(self) -> Result<Self::Into, Status> {
+        let project_id = id(self.project_id, "project_id")?;
+        Ok((project_id, proto_to_domain_pagination(self.pagination)))
+    }
+}
+
+impl Parse for ListOrganizationPipelinesRequest {
+    type Into = (OrganizationId, Option<PaginationParams>);
+
+    fn parse(self) -> Result<Self::Into, Status> {
+        let organization_id = id(self.organization_id, "organization_id")?;
+        Ok((organization_id, proto_to_domain_pagination(self.pagination)))
+    }
+}
 
 page_response!(
     Pipeline => pipelines: pipeline_to_proto_summary;
@@ -229,8 +262,8 @@ mod tests {
     }
 
     #[test]
-    fn a_create_request_becomes_a_command_with_validated_nodes() {
-        let command = CreatePipelineRequest {
+    fn a_create_request_becomes_the_validated_inputs() {
+        let (project_id, name, nodes) = CreatePipelineRequest {
             project_id: wrap("proj-1"),
             name: " build ".into(),
             nodes: vec![exec_node("a")],
@@ -238,11 +271,11 @@ mod tests {
         .parse()
         .unwrap();
 
-        assert_eq!(command.project_id.as_str(), "proj-1");
-        assert_eq!(command.name.as_str(), "build");
-        assert_eq!(command.nodes.len(), 1);
+        assert_eq!(project_id.as_str(), "proj-1");
+        assert_eq!(name.as_str(), "build");
+        assert_eq!(nodes.len(), 1);
         assert!(matches!(
-            command.nodes[0].env()[0].source(),
+            nodes[0].env()[0].source(),
             EnvSource::Secret(name) if name.as_str() == "API_TOKEN"
         ));
     }
@@ -322,7 +355,7 @@ mod tests {
 
     #[test]
     fn an_update_with_no_nodes_leaves_them_unchanged() {
-        let command = UpdatePipelineRequest {
+        let (id, name, nodes) = UpdatePipelineRequest {
             pipeline_id: wrap("pl-1"),
             name: None,
             nodes: Vec::new(),
@@ -330,9 +363,36 @@ mod tests {
         .parse()
         .unwrap();
 
-        assert_eq!(command.id.as_str(), "pl-1");
-        assert!(command.name.is_none());
-        assert!(command.nodes.is_none());
+        assert_eq!(id.as_str(), "pl-1");
+        assert!(name.is_none());
+        assert!(nodes.is_none());
+    }
+
+    #[test]
+    fn a_create_request_checks_the_name_before_the_project_id() {
+        let err = CreatePipelineRequest {
+            project_id: None,
+            name: "  ".into(),
+            nodes: Vec::new(),
+        }
+        .parse()
+        .unwrap_err();
+
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert_eq!(err.message(), "Pipeline name cannot be empty");
+    }
+
+    #[test]
+    fn a_get_or_delete_request_without_a_pipeline_id_names_the_wire_field() {
+        let get = GetPipelineRequest { pipeline_id: None }
+            .parse()
+            .unwrap_err();
+        let delete = DeletePipelineRequest { pipeline_id: None }
+            .parse()
+            .unwrap_err();
+
+        assert_eq!(get.message(), "missing pipeline_id");
+        assert_eq!(delete.message(), "missing pipeline_id");
     }
 
     #[test]

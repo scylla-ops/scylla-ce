@@ -3,10 +3,7 @@
 
 use async_trait::async_trait;
 use scylla_auth::authz::{Grant, PermissionService};
-use scylla_core::application::organization::{
-    CreateOrganization, DeleteOrganization, GetOrganization, OrganizationRepository,
-    UpdateOrganization,
-};
+use scylla_core::application::organization::OrganizationRepository;
 use scylla_core::application::pagination::{PaginatedResult, PaginationParams};
 use scylla_core::application::{AppRepository, PrincipalAccess, UserRepository};
 use scylla_core::test_support::authz::{DenyingPermissionService, RecordingPermissionService};
@@ -20,7 +17,9 @@ use scylla_domain::domain::app::{App, AppCredential, AppName};
 use scylla_domain::domain::caller::CallerContext;
 use scylla_domain::domain::errors::{DomainError, DomainResult};
 use scylla_domain::domain::ids::{AppId, OrganizationId, ProjectId, UserId};
-use scylla_domain::domain::organization::{Organization, OrganizationName};
+use scylla_domain::domain::organization::{
+    Organization, OrganizationDescription, OrganizationName,
+};
 use scylla_domain::domain::permission::Permission;
 use scylla_proto::organization::v1::CreateOrganizationRequest;
 use scylla_strata::grpc::{OrganizationServiceClient, OrganizationServiceServer};
@@ -171,7 +170,8 @@ struct Lab {
 
 impl Lab {
     async fn create(&self, name: &str) -> DomainResult<Organization> {
-        OrganizationsRpc::create_organization(&self.app.scoped(&as_(alice())), create(name)).await
+        OrganizationsRpc::create_organization(&self.app.scoped(&as_(alice())), org_name(name), None)
+            .await
     }
 }
 
@@ -213,11 +213,8 @@ async fn lab(permissions: Arc<dyn PermissionService>) -> Lab {
     }
 }
 
-fn create(name: &str) -> CreateOrganization {
-    CreateOrganization {
-        name: OrganizationName::new(name).unwrap(),
-        description: None,
-    }
+fn org_name(name: &str) -> OrganizationName {
+    OrganizationName::new(name).unwrap()
 }
 
 #[tokio::test]
@@ -270,11 +267,9 @@ async fn an_update_stages_the_change_and_persists_it() {
 
     let updated = OrganizationsRpc::update_organization(
         &lab.app.scoped(&as_(alice())),
-        UpdateOrganization {
-            id: created.id().clone(),
-            name: Some(OrganizationName::new("new").unwrap()),
-            description: None,
-        },
+        created.id().clone(),
+        Some(OrganizationName::new("new").unwrap()),
+        None,
     )
     .await
     .unwrap();
@@ -293,19 +288,42 @@ async fn an_update_stages_the_change_and_persists_it() {
 }
 
 #[tokio::test]
+async fn an_update_keeps_clears_or_sets_the_description() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    let ctx = as_(alice());
+    let alice = lab.app.scoped(&ctx);
+    let described = |d: &str| Some(OrganizationDescription::new(d).unwrap());
+    let created =
+        OrganizationsRpc::create_organization(&alice, org_name("acme"), described("widgets"))
+            .await
+            .unwrap();
+    let id = created.id().clone();
+    let description = |o: &Organization| o.description().map(|d| d.as_str().to_owned());
+
+    let kept = OrganizationsRpc::update_organization(&alice, id.clone(), None, None)
+        .await
+        .unwrap();
+    let cleared = OrganizationsRpc::update_organization(&alice, id.clone(), None, Some(None))
+        .await
+        .unwrap();
+    let set = OrganizationsRpc::update_organization(&alice, id, None, Some(described("gadgets")))
+        .await
+        .unwrap();
+
+    assert_eq!(description(&kept).as_deref(), Some("widgets"));
+    assert_eq!(description(&cleared), None);
+    assert_eq!(description(&set).as_deref(), Some("gadgets"));
+}
+
+#[tokio::test]
 async fn a_delete_removes_the_organization() {
     let permissions = Arc::new(RecordingPermissionService::new());
     let lab = lab(permissions.clone()).await;
     let created = lab.create("gone").await.unwrap();
 
-    OrganizationsRpc::delete_organization(
-        &lab.app.scoped(&as_(alice())),
-        DeleteOrganization {
-            id: created.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
+    OrganizationsRpc::delete_organization(&lab.app.scoped(&as_(alice())), created.id().clone())
+        .await
+        .unwrap();
 
     assert!(lab.organizations.rows.lock().unwrap().is_empty());
     assert_eq!(
@@ -328,14 +346,9 @@ async fn a_delete_stops_the_live_jobs_of_the_organization_on_their_agents() {
             .build(),
     );
 
-    OrganizationsRpc::delete_organization(
-        &lab.app.scoped(&as_(alice())),
-        DeleteOrganization {
-            id: created.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
+    OrganizationsRpc::delete_organization(&lab.app.scoped(&as_(alice())), created.id().clone())
+        .await
+        .unwrap();
 
     assert_eq!(lab.registry.cancelled(), [(agent, running.id().clone())]);
 }
@@ -354,14 +367,9 @@ async fn a_delete_closes_the_agent_streams_of_the_organization_apps() {
     let ours = app(&created, "runner");
     app(&other, "runner");
 
-    OrganizationsRpc::delete_organization(
-        &lab.app.scoped(&as_(alice())),
-        DeleteOrganization {
-            id: created.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
+    OrganizationsRpc::delete_organization(&lab.app.scoped(&as_(alice())), created.id().clone())
+        .await
+        .unwrap();
 
     assert_eq!(lab.registry.disconnected(), [ours.id().clone()]);
 }
@@ -372,14 +380,10 @@ async fn a_read_checks_its_permission() {
     let lab = lab(permissions.clone()).await;
     let created = lab.create("seen").await.unwrap();
 
-    let read = OrganizationsRpc::get_organization(
-        &lab.app.scoped(&as_(alice())),
-        GetOrganization {
-            id: created.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
+    let read =
+        OrganizationsRpc::get_organization(&lab.app.scoped(&as_(alice())), created.id().clone())
+            .await
+            .unwrap();
 
     assert_eq!(read.id(), created.id());
     assert_eq!(

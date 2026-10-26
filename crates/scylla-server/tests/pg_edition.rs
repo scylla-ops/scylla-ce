@@ -8,12 +8,7 @@ use scylla_auth::authz::{
     Grant, GrantRepository, ORGANIZATION_ADMIN_ROLE, ORGANIZATION_MEMBER_ROLE,
     ORGANIZATION_VIEWER_ROLE, Principal, Scope,
 };
-use scylla_core::application::app::{IssueAppToken, mint_app_secret};
-use scylla_core::application::auth::Login;
-use scylla_core::application::grant::CreateGrant;
-use scylla_core::application::role::{GetEffectivePermissions, GetMyPermissions};
-use scylla_core::application::user::UpdateUser;
-use scylla_core::application::user::reset::{RequestPasswordReset, ResetPassword};
+use scylla_core::application::app::mint_app_secret;
 use scylla_core::application::{
     AppRepository, AppTokenRepository, HashService, OrganizationRepository, PasswordResetDelivery,
     PasswordResetMessage, PasswordResetSender, ProjectRepository, SessionRepository,
@@ -28,7 +23,6 @@ use scylla_core::domain::organization::{Organization, OrganizationName};
 use scylla_core::domain::permission::Permission;
 use scylla_core::domain::project::{Project, ProjectDescription, ProjectName};
 use scylla_core::domain::role::RoleName;
-use scylla_core::domain::session::SessionClient;
 use scylla_core::domain::user::{
     DisplayName, Email, Password, RESET_LINK_INVALID, ResetToken, User, Username,
 };
@@ -134,10 +128,13 @@ pub trait SeatLimit: scylla_strata::Grants {
     type Members = Members;
 
     #[before(scylla_strata::Grants::create_grant)]
-    async fn seat_before_grant(&self, cmd: &CreateGrant) -> DomainResult<()> {
-        let (Principal::User(user), Scope::Organization(organization)) =
-            (&cmd.principal, &cmd.scope)
-        else {
+    async fn seat_before_grant(
+        &self,
+        principal: &Principal,
+        _: &RoleName,
+        scope: &Scope,
+    ) -> DomainResult<()> {
+        let (Principal::User(user), Scope::Organization(organization)) = (principal, scope) else {
             return Ok(());
         };
         let members = &self.members().0;
@@ -290,12 +287,8 @@ async fn grant_on(pool: &PgPool, user: &User, name: &str, scope: Scope) {
         .unwrap();
 }
 
-fn login(identifier: &str, password: &str) -> Login {
-    Login {
-        identifier: identifier.to_string(),
-        password: Password::new(password).unwrap(),
-        client: SessionClient::default(),
-    }
+fn password(value: &str) -> Password {
+    Password::new(value).unwrap()
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -305,13 +298,17 @@ async fn a_login_takes_the_email_or_the_username(pool: PgPool) {
     let anonymous = anonymous();
     let auth = app.scoped(&anonymous);
 
-    AuthRpc::login(&auth, login("kevin@example.com", "SecurePass123!"))
-        .await
-        .expect("login by email");
-    AuthRpc::login(&auth, login("kevin", "SecurePass123!"))
+    AuthRpc::login(
+        &auth,
+        "kevin@example.com".to_string(),
+        password("SecurePass123!"),
+    )
+    .await
+    .expect("login by email");
+    AuthRpc::login(&auth, "kevin".to_string(), password("SecurePass123!"))
         .await
         .expect("login by username");
-    let err = AuthRpc::login(&auth, login("kevin", "WrongPass123!"))
+    let err = AuthRpc::login(&auth, "kevin".to_string(), password("WrongPass123!"))
         .await
         .expect_err("wrong password rejected");
     assert!(matches!(err, DomainError::Unauthorized(_)), "{err}");
@@ -325,48 +322,31 @@ async fn a_reset_link_changes_the_password_and_ends_every_session(pool: PgPool) 
     let anonymous = anonymous();
     let auth = app.scoped(&anonymous);
     let sessions = PgSessionRepository::new(pool.clone());
-    let old_session = AuthRpc::login(&auth, login("kevin", "OldPass123!"))
+    let old_session = AuthRpc::login(&auth, "kevin".to_string(), password("OldPass123!"))
         .await
         .unwrap();
 
-    let delivery = AuthRpc::request_password_reset(
-        &auth,
-        RequestPasswordReset {
-            email: Email::new("kevin@example.com").unwrap(),
-        },
-    )
-    .await
-    .unwrap();
+    let delivery = AuthRpc::request_password_reset(&auth, Email::new("kevin@example.com").unwrap())
+        .await
+        .unwrap();
     let token = outbox.token().await;
-    AuthRpc::reset_password(
-        &auth,
-        ResetPassword {
-            token: token.clone(),
-            new_password: Password::new("NewPass123!").unwrap(),
-        },
-    )
-    .await
-    .unwrap();
+    AuthRpc::reset_password(&auth, token.clone(), Password::new("NewPass123!").unwrap())
+        .await
+        .unwrap();
 
     assert_eq!(delivery, PasswordResetDelivery::ServerLog);
     assert!(sessions.find_by_token(old_session.token()).await.is_err());
     assert!(
-        AuthRpc::login(&auth, login("kevin", "OldPass123!"))
+        AuthRpc::login(&auth, "kevin".to_string(), password("OldPass123!"))
             .await
             .is_err()
     );
-    AuthRpc::login(&auth, login("kevin", "NewPass123!"))
+    AuthRpc::login(&auth, "kevin".to_string(), password("NewPass123!"))
         .await
         .unwrap();
-    let again = AuthRpc::reset_password(
-        &auth,
-        ResetPassword {
-            token,
-            new_password: Password::new("ThirdPass123!").unwrap(),
-        },
-    )
-    .await
-    .unwrap_err();
+    let again = AuthRpc::reset_password(&auth, token, Password::new("ThirdPass123!").unwrap())
+        .await
+        .unwrap_err();
     assert!(matches!(&again, DomainError::BusinessRule(m) if m == RESET_LINK_INVALID));
 }
 
@@ -382,28 +362,28 @@ async fn a_user_sets_its_own_display_name_but_not_its_own_email(pool: PgPool) {
     let app = edition::<ScyllaCeOnDb>(&pool).await;
     let caller = ctx(CallerContext::User(kevin.id().clone()));
     let own = app.scoped(&caller);
-    let update = |display_name: Option<&str>, email: Option<&str>| UpdateUser {
-        id: kevin.id().clone(),
-        username: None,
-        display_name: display_name.map(|d| Some(DisplayName::new(d).unwrap())),
-        email: email.map(|e| Email::new(e).unwrap()),
-    };
+    let display_name = |d: &str| Some(DisplayName::new(d).unwrap());
+    let id = kevin.id().clone();
 
-    let named = UsersRpc::update_user(&own, update(Some("Kev"), None))
+    let named = UsersRpc::update_user(&own, id.clone(), None, Some(display_name("Kev")), None)
         .await
         .unwrap();
-    let err = UsersRpc::update_user(&own, update(None, Some("kev@example.com")))
-        .await
-        .unwrap_err();
+    let err = UsersRpc::update_user(
+        &own,
+        id,
+        None,
+        None,
+        Some(Email::new("kev@example.com").unwrap()),
+    )
+    .await
+    .unwrap_err();
     let lena = seed_user(&pool, "lena", None).await;
     let other = UsersRpc::update_user(
         &own,
-        UpdateUser {
-            id: lena.id().clone(),
-            username: None,
-            display_name: Some(Some(DisplayName::new("Not Lena").unwrap())),
-            email: None,
-        },
+        lena.id().clone(),
+        None,
+        Some(Some(DisplayName::new("Not Lena").unwrap())),
+        None,
     )
     .await
     .unwrap_err();
@@ -448,14 +428,7 @@ async fn seed_app(pool: &PgPool, secret: &AppSecret) -> App {
 
 async fn issue(app: &ScyllaCeOnDb, seeded: &App, secret: AppSecret) -> DomainResult<AppToken> {
     let anonymous = anonymous();
-    AppsRpc::issue_app_token(
-        &app.scoped(&anonymous),
-        IssueAppToken {
-            app_id: seeded.id().clone(),
-            secret,
-        },
-    )
-    .await
+    AppsRpc::issue_app_token(&app.scoped(&anonymous), seeded.id().clone(), secret).await
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -489,6 +462,23 @@ async fn an_app_token_needs_the_right_secret_and_the_store_keeps_its_digest(pool
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn an_anonymous_caller_gets_an_app_token_when_the_access_model_refuses_all(pool: PgPool) {
+    let secret = mint_app_secret();
+    let seeded = seed_app(&pool, &secret).await;
+    let app = edition::<ClosedCe>(&pool).await;
+    let anonymous = anonymous();
+
+    let token =
+        AppsRpc::issue_app_token(&app.scoped(&anonymous), seeded.id().clone(), secret).await;
+
+    assert!(
+        token.is_ok(),
+        "issue_app_token is public: {:?}",
+        token.err()
+    );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn the_effective_permissions_join_the_roles_and_the_direct_grants(pool: PgPool) {
     for sql in [
         "INSERT INTO roles (id, name, scope_kind, builtin) VALUES ('ci', 'CI', 'project', FALSE)",
@@ -514,9 +504,7 @@ async fn the_effective_permissions_join_the_roles_and_the_direct_grants(pool: Pg
 
     let scopes = RolesRpc::get_effective_permissions(
         &app.scoped(&recorder),
-        GetEffectivePermissions {
-            principal: Principal::User(alice.id().clone()),
-        },
+        Principal::User(alice.id().clone()),
     )
     .await
     .unwrap();
@@ -552,30 +540,28 @@ async fn my_permissions_need_no_permission_unlike_the_admin_view(pool: PgPool) {
     let bob = ctx(CallerContext::User(UserId::new("bob")));
     let recorder = ctx(CallerContext::Service(ServiceIdentity::recorder()));
 
-    let scopes = RolesRpc::get_my_permissions(&app.scoped(&alice), GetMyPermissions)
+    let scopes = RolesRpc::get_my_permissions(&app.scoped(&alice))
         .await
         .expect("own permissions");
     assert_eq!(scopes.len(), 1);
     assert!(matches!(&scopes[0].scope, Scope::Organization(o) if o == &org));
     assert!(scopes[0].full_control, "organization-admin confers '*'");
 
-    let scopes = RolesRpc::get_my_permissions(&app.scoped(&bob), GetMyPermissions)
+    let scopes = RolesRpc::get_my_permissions(&app.scoped(&bob))
         .await
         .unwrap();
     assert!(scopes.is_empty());
 
     let other = RolesRpc::get_effective_permissions(
         &app.scoped(&alice),
-        GetEffectivePermissions {
-            principal: Principal::User(UserId::new("bob")),
-        },
+        Principal::User(UserId::new("bob")),
     )
     .await;
     assert!(
         other.is_err(),
         "reading another principal must still require manageSystemGrants"
     );
-    let refused = RolesRpc::get_my_permissions(&app.scoped(&recorder), GetMyPermissions).await;
+    let refused = RolesRpc::get_my_permissions(&app.scoped(&recorder)).await;
     assert!(refused.is_err());
 }
 
@@ -615,17 +601,13 @@ async fn a_hook_before_create_grant_sees_the_grantee_and_the_members(pool: PgPoo
     let organizations = PgOrganizationRepository::new(pool.clone());
     let app = edition::<SeatCe>(&pool).await;
     let caller = ctx(CallerContext::User(admin.id().clone()));
-    let grant = |user: &User, name: &str| CreateGrant {
-        principal: Principal::User(user.id().clone()),
-        role: role(name),
-        scope: on_acme(),
-    };
+    let grant =
+        |user: &User, name: &str| (Principal::User(user.id().clone()), role(name), on_acme());
 
-    let refused = GrantsRpc::create_grant(
-        &app.scoped(&caller),
-        grant(&newcomer, ORGANIZATION_MEMBER_ROLE),
-    )
-    .await;
+    let refused = {
+        let (principal, role, scope) = grant(&newcomer, ORGANIZATION_MEMBER_ROLE);
+        GrantsRpc::create_grant(&app.scoped(&caller), principal, role, scope).await
+    };
     assert!(
         matches!(refused, Err(DomainError::QuotaExceeded(_))),
         "{refused:?}"
@@ -637,11 +619,10 @@ async fn a_hook_before_create_grant_sees_the_grantee_and_the_members(pool: PgPoo
             .unwrap()
     );
 
-    GrantsRpc::create_grant(
-        &app.scoped(&caller),
-        grant(&member, ORGANIZATION_VIEWER_ROLE),
-    )
-    .await
+    {
+        let (principal, role, scope) = grant(&member, ORGANIZATION_VIEWER_ROLE);
+        GrantsRpc::create_grant(&app.scoped(&caller), principal, role, scope).await
+    }
     .expect("a member gets one more role");
     assert_eq!(organizations.count_members(&acme).await.unwrap(), 2);
     assert!(
@@ -983,4 +964,212 @@ async fn the_reset_sender_of_the_server_answers_both_reset_calls(pool: PgPool) {
         roots, 1,
         "a second start on the same database creates no second admin"
     );
+}
+
+/// Keeps each line that the subscriber writes.
+#[derive(Clone, Default)]
+struct LogLines(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogLines {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn bearer<T>(message: T, token: &str) -> tonic::Request<T> {
+    let mut request = tonic::Request::new(message);
+    request
+        .metadata_mut()
+        .insert("authorization", format!("Bearer {token}").parse().unwrap());
+    request
+}
+
+/// The credentials that the calls carry, as the server sees them over gRPC.
+struct Credentials {
+    password: String,
+    session_tokens: Vec<String>,
+    app_secret: String,
+    reset_token: String,
+    secret_value: String,
+}
+
+async fn calls_with_credentials(address: std::net::SocketAddr, mailbox: &Mailbox) -> Credentials {
+    use scylla_proto::app::v1::app_auth_service_client::AppAuthServiceClient;
+    use scylla_proto::app::v1::app_service_client::AppServiceClient;
+    use scylla_proto::app::v1::{CreateAppRequest, IssueTokenRequest};
+    use scylla_proto::auth::v1::auth_service_client::AuthServiceClient;
+    use scylla_proto::auth::v1::{
+        LoginRequest, RequestPasswordResetRequest, ResetPasswordRequest, RevokeTokenRequest,
+        ValidateTokenRequest,
+    };
+    use scylla_proto::organization::v1::CreateOrganizationRequest;
+    use scylla_proto::organization::v1::organization_service_client::OrganizationServiceClient;
+    use scylla_proto::project::v1::CreateProjectRequest;
+    use scylla_proto::project::v1::project_service_client::ProjectServiceClient;
+    use scylla_proto::secret::v1::CreateSecretRequest;
+    use scylla_proto::secret::v1::secret_service_client::SecretServiceClient;
+    let endpoint = format!("http://{address}");
+    let password = "SecurePass123!".to_string();
+    let mut auth = AuthServiceClient::connect(endpoint.clone()).await.unwrap();
+    let login = || LoginRequest {
+        identifier: "root".to_string(),
+        password: password.clone(),
+    };
+    let checked = auth.login(login()).await.unwrap().into_inner().token;
+    let admin = auth.login(login()).await.unwrap().into_inner().token;
+    auth.validate_token(ValidateTokenRequest {
+        token: checked.clone(),
+    })
+    .await
+    .unwrap();
+    auth.revoke_token(RevokeTokenRequest {
+        token: checked.clone(),
+    })
+    .await
+    .unwrap();
+
+    let organization = OrganizationServiceClient::connect(endpoint.clone())
+        .await
+        .unwrap()
+        .create_organization(bearer(
+            CreateOrganizationRequest {
+                name: "acme".to_string(),
+                description: None,
+            },
+            &admin,
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .organization
+        .unwrap()
+        .organization_id;
+    let project = ProjectServiceClient::connect(endpoint.clone())
+        .await
+        .unwrap()
+        .create_project(bearer(
+            CreateProjectRequest {
+                organization_id: organization.clone(),
+                name: "web".to_string(),
+                description: None,
+            },
+            &admin,
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .project
+        .unwrap()
+        .project_id;
+    let secret_value = "the-value-of-the-secret-0123456789".to_string();
+    SecretServiceClient::connect(endpoint.clone())
+        .await
+        .unwrap()
+        .create_secret(bearer(
+            CreateSecretRequest {
+                project_id: project,
+                name: "DB_PASSWORD".to_string(),
+                value: secret_value.clone(),
+                description: String::new(),
+            },
+            &admin,
+        ))
+        .await
+        .unwrap();
+
+    let created = AppServiceClient::connect(endpoint.clone())
+        .await
+        .unwrap()
+        .create_app(bearer(
+            CreateAppRequest {
+                organization_id: organization,
+                name: "ci-bot".to_string(),
+                secret_label: None,
+            },
+            &admin,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let app_secret = created.secret;
+    assert!(app_secret.len() >= 32);
+    AppAuthServiceClient::connect(endpoint.clone())
+        .await
+        .unwrap()
+        .issue_token(IssueTokenRequest {
+            app_id: created.app.unwrap().app_id,
+            secret: app_secret.clone(),
+        })
+        .await
+        .unwrap();
+
+    auth.request_password_reset(RequestPasswordResetRequest {
+        email: Some(scylla_proto::common::v1::Email {
+            value: "root@example.com".to_string(),
+        }),
+    })
+    .await
+    .unwrap();
+    let link = mailbox.wait_for(1).await.remove(0);
+    let reset_token = link.rsplit_once("#token=").unwrap().1.to_string();
+    auth.reset_password(ResetPasswordRequest {
+        token: reset_token.clone(),
+        new_password: "OtherPass123!".to_string(),
+    })
+    .await
+    .unwrap();
+
+    Credentials {
+        password,
+        session_tokens: vec![checked, admin],
+        app_secret,
+        reset_token,
+        secret_value,
+    }
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn no_credential_of_a_call_reaches_the_log(pool: PgPool) {
+    let lines = LogLines::default();
+    let writer = lines.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+        .with_ansi(false)
+        .with_writer(move || writer.clone())
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let mailbox = Arc::new(Mailbox::default());
+    let sender: Arc<dyn PasswordResetSender> = mailbox.clone();
+
+    let mut config = served_config();
+    config.override_master_key(scylla_core::config::DEV_MASTER_KEY);
+    let credentials = served(&pool, config, Some(sender), async |address| {
+        calls_with_credentials(address, &mailbox).await
+    })
+    .await;
+
+    let log = String::from_utf8(lines.0.lock().unwrap().clone()).unwrap();
+    assert!(
+        log.contains("grpc"),
+        "the spans of the calls are in the log"
+    );
+    let mut secrets = credentials.session_tokens.clone();
+    secrets.extend([
+        credentials.password,
+        credentials.app_secret,
+        credentials.reset_token,
+        credentials.secret_value,
+    ]);
+    for secret in secrets {
+        assert!(
+            !log.contains(&secret),
+            "a credential is in the log: {secret}"
+        );
+    }
 }

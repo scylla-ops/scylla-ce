@@ -1,13 +1,7 @@
 use async_trait::async_trait;
 use scylla_auth::authz::{PermissionService, Visibility, VisibilityResolver};
-use scylla_core::application::agent::{
-    AgentDispatch, AgentStream, DispatchNode, DispatchPendingJobs,
-};
-use scylla_core::application::job::{
-    AppendJobLogs, CancelJob, DeleteJob, GetJob, JobEvent, JobScope, ListJobLogs, ListJobs,
-    ListOrganizationJobs, ListPipelineJobs, ListProjectJobs, ReapOrphanedJobs, ReconcileAgentJobs,
-    RecordJobStatus, ReleaseAgentJobs, TailJobLogs,
-};
+use scylla_core::application::agent::{AgentDispatch, AgentStream, DispatchNode};
+use scylla_core::application::job::{JobEvent, JobScope};
 use scylla_core::application::pagination::{PaginatedResult, PaginationParams};
 use scylla_core::application::{
     JobLogLiveStream, JobLogRepository, JobLogStreamPort, JobRepository, SecretResolver,
@@ -332,38 +326,29 @@ impl Lab {
     }
 
     async fn record_at(&self, job: &Job, event: JobEvent, at: DateTime<Utc>) -> DomainResult<Job> {
-        let record = RecordJobStatus {
-            job_id: job.id().clone(),
-            event,
-            at,
-        };
-        JobControlRpc::record_job_status(&self.app.scoped(&agent()), record).await
+        JobControlRpc::record_job_status(&self.app.scoped(&agent()), job.id().clone(), event, at)
+            .await
     }
 
     async fn cancel(&self, id: &JobId) -> DomainResult<Job> {
-        JobControlRpc::cancel_job(&self.app.scoped(&alice()), CancelJob { id: id.clone() }).await
+        JobControlRpc::cancel_job(&self.app.scoped(&alice()), id.clone()).await
     }
 
     async fn delete(&self, id: &JobId) -> DomainResult<()> {
-        JobControlRpc::delete_job(&self.app.scoped(&alice()), DeleteJob { id: id.clone() }).await
+        JobControlRpc::delete_job(&self.app.scoped(&alice()), id.clone()).await
     }
 
     async fn reap(&self) -> DomainResult<u64> {
-        JobControlRpc::reap_orphaned_jobs(&self.app.scoped(&reaper()), ReapOrphanedJobs).await
+        JobControlRpc::reap_orphaned_jobs(&self.app.scoped(&reaper())).await
     }
 
     async fn release(&self, stream: &AgentStream) -> DomainResult<u64> {
-        let release = ReleaseAgentJobs {
-            stream: stream.id.clone(),
-        };
-        JobControlRpc::release_agent_jobs(&self.app.scoped(&agent()), release).await
+        JobControlRpc::release_agent_jobs(&self.app.scoped(&agent()), stream.id.clone()).await
     }
 
     async fn reconcile(&self, running: &[&Job]) -> DomainResult<u64> {
-        let reconcile = ReconcileAgentJobs {
-            running: running.iter().map(|job| job.id().clone()).collect(),
-        };
-        JobControlRpc::reconcile_agent_jobs(&self.app.scoped(&agent()), reconcile).await
+        let running = running.iter().map(|job| job.id().clone()).collect();
+        JobControlRpc::reconcile_agent_jobs(&self.app.scoped(&agent()), running).await
     }
 }
 
@@ -439,11 +424,9 @@ async fn only_the_agent_of_a_live_job_reports_it() {
     }
     let err = JobControlRpc::record_job_status(
         &lab.app.scoped(&alice()),
-        RecordJobStatus {
-            job_id: elsewhere.id().clone(),
-            event: JobEvent::JobStarted,
-            at: clock::now(),
-        },
+        elsewhere.id().clone(),
+        JobEvent::JobStarted,
+        clock::now(),
     )
     .await
     .unwrap_err();
@@ -588,45 +571,19 @@ async fn each_read_checks_its_own_permission() {
     let caller = alice();
     let alice = lab.app.scoped(&caller);
 
-    let got = JobControlRpc::get_job(
-        &alice,
-        GetJob {
-            id: seeded.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
-    JobControlRpc::list_jobs(&alice, ListJobs { pagination: None })
+    let got = JobControlRpc::get_job(&alice, seeded.id().clone())
         .await
         .unwrap();
-    JobControlRpc::list_pipeline_jobs(
-        &alice,
-        ListPipelineJobs {
-            pipeline_id: PipelineId::new("pipe"),
-            pagination: None,
-        },
-    )
-    .await
-    .unwrap();
-    JobControlRpc::list_project_jobs(
-        &alice,
-        ListProjectJobs {
-            project_id: ProjectId::new("p"),
-            pagination: None,
-        },
-    )
-    .await
-    .unwrap();
-    JobControlRpc::list_organization_jobs(
-        &alice,
-        ListOrganizationJobs {
-            organization_id: OrganizationId::new("acme"),
-            agent_id: None,
-            pagination: None,
-        },
-    )
-    .await
-    .unwrap();
+    JobControlRpc::list_jobs(&alice, None).await.unwrap();
+    JobControlRpc::list_pipeline_jobs(&alice, PipelineId::new("pipe"), None)
+        .await
+        .unwrap();
+    JobControlRpc::list_project_jobs(&alice, ProjectId::new("p"), None)
+        .await
+        .unwrap();
+    JobControlRpc::list_organization_jobs(&alice, OrganizationId::new("acme"), None, None)
+        .await
+        .unwrap();
 
     assert_eq!(got.id(), seeded.id());
     assert_eq!(
@@ -662,11 +619,9 @@ async fn an_organization_list_with_an_agent_keeps_its_permission_and_lists_only_
 
     let page = JobControlRpc::list_organization_jobs(
         &lab.app.scoped(&alice()),
-        ListOrganizationJobs {
-            organization_id: OrganizationId::new("acme"),
-            agent_id: Some(agent_id()),
-            pagination: None,
-        },
+        OrganizationId::new("acme"),
+        Some(agent_id()),
+        None,
     )
     .await
     .unwrap();
@@ -782,7 +737,7 @@ async fn a_reap_pass_refuses_a_caller_that_is_not_a_service() {
     lab.jobs
         .place(&job(&two_nodes()), &another_stream(&agent_id()));
 
-    let err = JobControlRpc::reap_orphaned_jobs(&lab.app.scoped(&alice()), ReapOrphanedJobs)
+    let err = JobControlRpc::reap_orphaned_jobs(&lab.app.scoped(&alice()))
         .await
         .unwrap_err();
 
@@ -852,12 +807,9 @@ async fn a_dispatch_pass_refuses_a_caller_that_is_not_a_service() {
     let (app, jobs, registry) = dispatch_lab(vec![job(&pl)]).await;
     registry.connect(&agent_id());
 
-    let err = JobControlRpc::dispatch_pending_jobs(
-        &app.scoped(&alice()),
-        DispatchPendingJobs { agents: None },
-    )
-    .await
-    .unwrap_err();
+    let err = JobControlRpc::dispatch_pending_jobs(&app.scoped(&alice()), None)
+        .await
+        .unwrap_err();
 
     assert!(matches!(err, DomainError::Forbidden(_)));
     assert!(registry.dispatched_to().is_empty());
@@ -890,15 +842,8 @@ async fn only_an_agent_releases_or_reconciles_its_jobs() {
     let caller = alice();
     let alice = lab.app.scoped(&caller);
 
-    let release = JobControlRpc::release_agent_jobs(
-        &alice,
-        ReleaseAgentJobs {
-            stream: lab.stream.id.clone(),
-        },
-    )
-    .await;
-    let reconcile =
-        JobControlRpc::reconcile_agent_jobs(&alice, ReconcileAgentJobs { running: vec![] }).await;
+    let release = JobControlRpc::release_agent_jobs(&alice, lab.stream.id.clone()).await;
+    let reconcile = JobControlRpc::reconcile_agent_jobs(&alice, vec![]).await;
 
     assert!(matches!(release, Err(DomainError::Forbidden(_))));
     assert!(matches!(reconcile, Err(DomainError::Forbidden(_))));
@@ -988,17 +933,42 @@ async fn log_lab(permissions: Arc<dyn PermissionService>) -> LogLab {
     LogLab { app, logs, live }
 }
 
-fn list(node: Option<&str>) -> ListJobLogs {
-    ListJobLogs {
+struct LogQuery {
+    job_id: JobId,
+    node_id: Option<NodeId>,
+    pagination: Option<PaginationParams>,
+}
+
+async fn list_job_logs<A: scylla_strata::JobControl>(
+    app: &impl JobControlRpc<A>,
+    q: LogQuery,
+) -> DomainResult<PaginatedResult<JobLog>> {
+    JobControlRpc::list_job_logs(app, q.job_id, q.node_id, q.pagination).await
+}
+
+struct LogBatch {
+    job_id: JobId,
+    logs: Vec<JobLog>,
+}
+
+async fn append_job_logs<A: scylla_strata::JobControl>(
+    app: &impl JobControlRpc<A>,
+    b: LogBatch,
+) -> DomainResult<Vec<JobLog>> {
+    JobControlRpc::append_job_logs(app, b.job_id, b.logs).await
+}
+
+fn list(node: Option<&str>) -> LogQuery {
+    LogQuery {
         job_id: JobId::new("job-1"),
         node_id: node.map(|n| NodeId::new(n).unwrap()),
         pagination: None,
     }
 }
 
-fn append(job: &str, lines: &[&str]) -> AppendJobLogs {
+fn append(job: &str, lines: &[&str]) -> LogBatch {
     let job_id = JobId::new(job);
-    AppendJobLogs {
+    LogBatch {
         logs: lines
             .iter()
             .map(|line| job_log(&job_id, "build", line))
@@ -1020,7 +990,7 @@ async fn an_append_checks_once_stores_one_batch_and_publishes_each_line_in_order
     let permissions = Arc::new(RecordingPermissionService::new());
     let lab = log_lab(permissions.clone()).await;
 
-    let stored = JobControlRpc::append_job_logs(
+    let stored = append_job_logs(
         &lab.app.scoped(&agent()),
         append("job-1", &["one", "two", "three"]),
     )
@@ -1044,7 +1014,7 @@ async fn only_the_agent_of_the_job_appends_to_it() {
     let lab = log_lab(Arc::new(RecordingPermissionService::new())).await;
     let other = ctx(CallerContext::App(AppId::new("other")));
 
-    let err = JobControlRpc::append_job_logs(&lab.app.scoped(&other), append("job-1", &["hello"]))
+    let err = append_job_logs(&lab.app.scoped(&other), append("job-1", &["hello"]))
         .await
         .unwrap_err();
 
@@ -1060,7 +1030,7 @@ async fn a_line_of_another_job_refuses_the_batch() {
         .logs
         .push(job_log(&JobId::new("job-2"), "build", "theirs"));
 
-    let err = JobControlRpc::append_job_logs(&lab.app.scoped(&agent()), batch)
+    let err = append_job_logs(&lab.app.scoped(&agent()), batch)
         .await
         .unwrap_err();
 
@@ -1072,10 +1042,9 @@ async fn a_line_of_another_job_refuses_the_batch() {
 async fn a_denied_append_stores_nothing() {
     let lab = log_lab(Arc::new(DenyingPermissionService::new())).await;
 
-    let err =
-        JobControlRpc::append_job_logs(&lab.app.scoped(&agent()), append("job-1", &["hello"]))
-            .await
-            .unwrap_err();
+    let err = append_job_logs(&lab.app.scoped(&agent()), append("job-1", &["hello"]))
+        .await
+        .unwrap_err();
 
     assert!(matches!(err, DomainError::Forbidden(_)));
     assert!(lab.logs.rows.lock().unwrap().is_empty());
@@ -1094,12 +1063,8 @@ async fn a_list_reads_every_node_or_the_one_it_names() {
     let caller = agent();
     let agent = lab.app.scoped(&caller);
 
-    let all = JobControlRpc::list_job_logs(&agent, list(None))
-        .await
-        .unwrap();
-    let one = JobControlRpc::list_job_logs(&agent, list(Some("build")))
-        .await
-        .unwrap();
+    let all = list_job_logs(&agent, list(None)).await.unwrap();
+    let one = list_job_logs(&agent, list(Some("build"))).await.unwrap();
 
     assert_eq!(all.items().len(), 2);
     assert_eq!(one.items().len(), 1);
@@ -1124,7 +1089,7 @@ async fn a_list_of_a_node_that_has_not_started_is_empty() {
         .unwrap()
         .push(job_log(&job_id, "test", "early"));
 
-    let page = JobControlRpc::list_job_logs(&lab.app.scoped(&agent()), list(Some("test")))
+    let page = list_job_logs(&lab.app.scoped(&agent()), list(Some("test")))
         .await
         .unwrap();
 
@@ -1150,10 +1115,8 @@ async fn a_tail_of_a_node_that_has_not_started_replays_nothing() {
 
     let tail = JobControlRpc::tail_job_logs(
         &lab.app.scoped(&agent()),
-        TailJobLogs {
-            job_id,
-            node_id: Some(NodeId::new("test").unwrap()),
-        },
+        job_id,
+        Some(NodeId::new("test").unwrap()),
     )
     .await
     .unwrap();
@@ -1180,15 +1143,9 @@ async fn a_tail_replays_the_snapshot_then_only_unseen_live_lines() {
         .unwrap()
         .extend([stored.clone(), newer.clone()]);
 
-    let tail = JobControlRpc::tail_job_logs(
-        &lab.app.scoped(&agent()),
-        TailJobLogs {
-            job_id: job_id.clone(),
-            node_id: None,
-        },
-    )
-    .await
-    .unwrap();
+    let tail = JobControlRpc::tail_job_logs(&lab.app.scoped(&agent()), job_id.clone(), None)
+        .await
+        .unwrap();
 
     assert_eq!(collect(tail).await, vec!["old", "new"]);
     assert_eq!(
@@ -1201,16 +1158,10 @@ async fn a_tail_replays_the_snapshot_then_only_unseen_live_lines() {
 async fn a_denied_tail_never_subscribes() {
     let lab = log_lab(Arc::new(DenyingPermissionService::new())).await;
 
-    let err = JobControlRpc::tail_job_logs(
-        &lab.app.scoped(&agent()),
-        TailJobLogs {
-            job_id: JobId::new("job-1"),
-            node_id: None,
-        },
-    )
-    .await
-    .err()
-    .unwrap();
+    let err = JobControlRpc::tail_job_logs(&lab.app.scoped(&agent()), JobId::new("job-1"), None)
+        .await
+        .err()
+        .unwrap();
 
     assert!(matches!(err, DomainError::Forbidden(_)));
     assert_eq!(*lab.live.subscribes.lock().unwrap(), 0);
@@ -1376,12 +1327,12 @@ async fn a_reap_pass_ends_a_stranded_running_job_that_has_no_agent() {
 #[tokio::test]
 async fn a_list_of_a_node_that_has_not_started_keeps_the_page_of_the_request() {
     let lab = log_lab(Arc::new(RecordingPermissionService::new())).await;
-    let query = ListJobLogs {
+    let query = LogQuery {
         pagination: Some(PaginationParams::new(3, 5).unwrap()),
         ..list(Some("test"))
     };
 
-    let page = JobControlRpc::list_job_logs(&lab.app.scoped(&agent()), query)
+    let page = list_job_logs(&lab.app.scoped(&agent()), query)
         .await
         .unwrap();
 
@@ -1471,11 +1422,8 @@ async fn pass_lab(connected: &[&str], jobs: Vec<Job>) -> PassLab {
 impl PassLab {
     async fn pass(&self, agents: Option<Vec<AppId>>) -> DomainResult<Vec<Job>> {
         let dispatcher = ctx(CallerContext::Service(ServiceIdentity::job_dispatcher()));
-        let placed = JobControlRpc::dispatch_pending_jobs(
-            &self.app.scoped(&dispatcher),
-            DispatchPendingJobs { agents },
-        )
-        .await;
+        let placed =
+            JobControlRpc::dispatch_pending_jobs(&self.app.scoped(&dispatcher), agents).await;
         assert!(
             self.permissions.checks().is_empty(),
             "a pass asks no permission"
@@ -1619,10 +1567,7 @@ async fn a_job_is_placed_on_the_stream_of_the_pass_and_only_that_stream_releases
         let agent = ctx(CallerContext::App(stream.agent.clone()));
         let id = stream.id.clone();
         let app = &lab.app;
-        async move {
-            JobControlRpc::release_agent_jobs(&app.scoped(&agent), ReleaseAgentJobs { stream: id })
-                .await
-        }
+        async move { JobControlRpc::release_agent_jobs(&app.scoped(&agent), id).await }
     };
 
     assert_eq!(lab.jobs.stream_of(waiting.id()), Some(first.id.clone()));

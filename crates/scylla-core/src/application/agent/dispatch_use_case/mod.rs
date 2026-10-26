@@ -1,9 +1,5 @@
 //! The placement of pending jobs on idle agents, and the orders that stop a job on its agent.
-//! Only `DispatchPendingJobs` places a job; a run stores the job and wakes the dispatcher.
-
-pub mod commands;
-
-pub use commands::DispatchPendingJobs;
+//! Only `dispatch_pending_jobs` places a job; a run stores the job and wakes the dispatcher.
 
 use crate::application::agent::dispatch_port::{AgentDispatch, AgentStream};
 use crate::application::job::JobScope;

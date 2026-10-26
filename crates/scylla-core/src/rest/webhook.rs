@@ -1,4 +1,4 @@
-use crate::application::{IngestOutcome, IngestWebhook};
+use crate::application::IngestOutcome;
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::TriggerId;
 use async_trait::async_trait;
@@ -16,10 +16,21 @@ use tracing::error;
 const DELIVERY_HEADERS: [&str; 2] = ["X-Scylla-Delivery", "X-GitHub-Delivery"];
 const EVENT_HEADERS: [&str; 2] = ["X-Scylla-Event", "X-GitHub-Event"];
 
+/// One webhook delivery, as the route reads it. It is not a use case: the ingress verifies it
+/// and fires the trigger as the trigger firer. No `Debug`: the headers carry the signature.
+/// `headers` is keyed by the lowercase name.
+pub struct WebhookDelivery {
+    pub trigger_id: TriggerId,
+    pub headers: HashMap<String, String>,
+    pub delivery_id: Option<String>,
+    pub event: Option<String>,
+    pub body: Vec<u8>,
+}
+
 /// Runs one webhook delivery for the route. The route maps the outcome to its status.
 #[async_trait]
 pub trait WebhookIngress: Send + Sync {
-    async fn ingest(&self, command: IngestWebhook) -> DomainResult<IngestOutcome>;
+    async fn ingest(&self, delivery: WebhookDelivery) -> DomainResult<IngestOutcome>;
 }
 
 #[derive(Clone)]
@@ -38,8 +49,8 @@ async fn handle(
     headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, &'static str) {
-    let command = ingest_webhook(&trigger_id, &headers, body);
-    reply(&ingress.ingest(command).await)
+    let delivery = webhook_delivery(&trigger_id, &headers, body);
+    reply(&ingress.ingest(delivery).await)
 }
 
 fn reply(result: &DomainResult<IngestOutcome>) -> (StatusCode, &'static str) {
@@ -59,7 +70,7 @@ fn reply(result: &DomainResult<IngestOutcome>) -> (StatusCode, &'static str) {
 }
 
 /// Each header keeps its first value, if that value is text, under its lowercase name.
-fn ingest_webhook(trigger_id: &str, headers: &HeaderMap, body: Bytes) -> IngestWebhook {
+fn webhook_delivery(trigger_id: &str, headers: &HeaderMap, body: Bytes) -> WebhookDelivery {
     let first_header = |names: &[&str]| {
         names.iter().find_map(|h| {
             headers
@@ -76,7 +87,7 @@ fn ingest_webhook(trigger_id: &str, headers: &HeaderMap, body: Bytes) -> IngestW
             Some((name.as_str().to_owned(), value.to_owned()))
         })
         .collect();
-    IngestWebhook {
+    WebhookDelivery {
         trigger_id: TriggerId::new(trigger_id),
         headers: values,
         delivery_id: first_header(&DELIVERY_HEADERS),
@@ -103,18 +114,21 @@ mod tests {
         headers.insert("x-scylla-event", HeaderValue::from_static("push"));
         headers.insert("X-Binary", HeaderValue::from_bytes(&[0xFF]).unwrap());
 
-        let cmd = ingest_webhook("t-1", &headers, Bytes::from_static(b"{}"));
+        let delivery = webhook_delivery("t-1", &headers, Bytes::from_static(b"{}"));
 
-        assert_eq!(cmd.trigger_id, TriggerId::new("t-1"));
+        assert_eq!(delivery.trigger_id, TriggerId::new("t-1"));
         assert_eq!(
-            cmd.headers.get("x-custom-signature").map(String::as_str),
+            delivery
+                .headers
+                .get("x-custom-signature")
+                .map(String::as_str),
             Some("sha256=abc")
         );
-        assert!(!cmd.headers.contains_key("X-Custom-Signature"));
-        assert!(!cmd.headers.contains_key("x-binary"));
-        assert_eq!(cmd.delivery_id.as_deref(), Some("d-1"));
-        assert_eq!(cmd.event.as_deref(), Some("push"));
-        assert_eq!(cmd.body, b"{}".to_vec());
+        assert!(!delivery.headers.contains_key("X-Custom-Signature"));
+        assert!(!delivery.headers.contains_key("x-binary"));
+        assert_eq!(delivery.delivery_id.as_deref(), Some("d-1"));
+        assert_eq!(delivery.event.as_deref(), Some("push"));
+        assert_eq!(delivery.body, b"{}".to_vec());
     }
 
     #[test]
@@ -123,10 +137,10 @@ mod tests {
         headers.insert("X-Scylla-Delivery", HeaderValue::from_static(""));
         headers.insert("X-GitHub-Delivery", HeaderValue::from_static("gh-1"));
 
-        let cmd = ingest_webhook("t-1", &headers, Bytes::new());
+        let delivery = webhook_delivery("t-1", &headers, Bytes::new());
 
-        assert_eq!(cmd.delivery_id.as_deref(), Some("gh-1"));
-        assert_eq!(cmd.event, None);
+        assert_eq!(delivery.delivery_id.as_deref(), Some("gh-1"));
+        assert_eq!(delivery.event, None);
     }
 
     #[test]

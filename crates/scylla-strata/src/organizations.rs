@@ -2,21 +2,21 @@ use crate::access::CallerOf;
 use crate::ports::JobDispatch;
 use scylla_auth::authz::{Grant, ORGANIZATION_ADMIN_ROLE, Principal, Scope};
 use scylla_core::application::job::JobScope;
-use scylla_core::application::organization::{
-    CreateOrganization, DeleteOrganization, GetOrganization, ListOrganizationMembers,
-    ListOrganizations, ListUserOrganizations, SetOrganizationActive, UpdateOrganization,
-};
-use scylla_core::application::pagination::PaginatedResult;
+use scylla_core::application::pagination::{PaginatedResult, PaginationParams};
 use scylla_core::application::user::users_in_order;
 use scylla_core::application::{
     AppRepository, DispatchUseCases, OrganizationRepository, UserRepository,
 };
 use scylla_domain::domain::caller::CallerContext;
 use scylla_domain::domain::errors::DomainResult;
-use scylla_domain::domain::organization::Organization;
+use scylla_domain::domain::ids::{OrganizationId, UserId};
+use scylla_domain::domain::organization::{
+    Organization, OrganizationDescription, OrganizationName,
+};
+use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::role::RoleName;
 use scylla_domain::domain::user::User;
-use scylla_extension::Describe;
+use scylla_extension::Access;
 use std::sync::Arc;
 use strata::{BuildCx, BuildError, Component};
 
@@ -42,9 +42,15 @@ pub trait Organizations: crate::Access {
     #[component]
     type OrgDispatch = OrgDispatcher;
 
-    #[usecase(write, access = cmd.access())]
-    async fn create_organization(&self, cmd: CreateOrganization) -> DomainResult<Organization> {
-        let organization = Organization::create(cmd.name, cmd.description)?;
+    /// For a user caller, the use case also writes the grant that makes the user the admin of the
+    /// organization, in the same transaction.
+    #[usecase(write, access = Access::Requires(Permission::CreateOrganization))]
+    async fn create_organization(
+        &self,
+        name: OrganizationName,
+        description: Option<OrganizationDescription>,
+    ) -> DomainResult<Organization> {
+        let organization = Organization::create(name, description)?;
         let owner = match self.ctx().caller() {
             CallerContext::User(user_id) => Some(Grant::new(
                 Principal::User(user_id.clone()),
@@ -66,36 +72,42 @@ pub trait Organizations: crate::Access {
         Ok(organization)
     }
 
-    #[usecase(read, access = query.access())]
-    async fn get_organization(&self, query: GetOrganization) -> DomainResult<Organization> {
-        self.org_repo().find_by_id(&query.id).await
+    #[usecase(read, access = Access::Requires(Permission::ReadOrganization(id.clone())))]
+    async fn get_organization(&self, id: OrganizationId) -> DomainResult<Organization> {
+        self.org_repo().find_by_id(&id).await
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn update_organization(&self, cmd: UpdateOrganization) -> DomainResult<Organization> {
-        let mut organization = self.org_repo().find_by_id(&cmd.id).await?;
-        if let Some(name) = cmd.name {
+    #[usecase(write, access = Access::Requires(Permission::UpdateOrganization(id.clone())))]
+    async fn update_organization(
+        &self,
+        id: OrganizationId,
+        name: Option<OrganizationName>,
+        description: Option<Option<OrganizationDescription>>,
+    ) -> DomainResult<Organization> {
+        let mut organization = self.org_repo().find_by_id(&id).await?;
+        if let Some(name) = name {
             organization.update_name(name)?;
         }
-        if let Some(description) = cmd.description {
+        if let Some(description) = description {
             organization.update_description(description)?;
         }
         self.org_repo().update(&organization).await
     }
 
-    #[usecase(write, access = cmd.access())]
+    #[usecase(write, access = Access::Requires(Permission::UpdateOrganization(id.clone())))]
     async fn set_organization_active(
         &self,
-        cmd: SetOrganizationActive,
+        id: OrganizationId,
+        is_active: bool,
     ) -> DomainResult<Organization> {
-        let mut organization = self.org_repo().find_by_id(&cmd.id).await?;
-        organization.set_active(cmd.is_active);
+        let mut organization = self.org_repo().find_by_id(&id).await?;
+        organization.set_active(is_active);
         self.org_repo().update(&organization).await
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn delete_organization(&self, cmd: DeleteOrganization) -> DomainResult<()> {
-        let organization = self.org_repo().find_by_id(&cmd.id).await?;
+    #[usecase(write, access = Access::Requires(Permission::DeleteOrganization(id.clone())))]
+    async fn delete_organization(&self, id: OrganizationId) -> DomainResult<()> {
+        let organization = self.org_repo().find_by_id(&id).await?;
         let apps = self
             .org_apps()
             .list_by_organization(organization.id())
@@ -113,33 +125,35 @@ pub trait Organizations: crate::Access {
         Ok(())
     }
 
-    #[usecase(read, access = query.access())]
+    #[usecase(read, access = Access::Requires(Permission::ListOrganizations))]
     async fn list_organizations(
         &self,
-        query: ListOrganizations,
+        pagination: Option<PaginationParams>,
     ) -> DomainResult<PaginatedResult<Organization>> {
-        self.org_repo().list_all(query.pagination.as_ref()).await
+        self.org_repo().list_all(pagination.as_ref()).await
     }
 
-    #[usecase(read, access = query.access())]
+    #[usecase(read, access = Access::Requires(Permission::ListOrganizationMembers(organization_id.clone())))]
     async fn list_organization_members(
         &self,
-        query: ListOrganizationMembers,
+        organization_id: OrganizationId,
+        pagination: Option<PaginationParams>,
     ) -> DomainResult<PaginatedResult<User>> {
         let ids = self
             .org_repo()
-            .list_principals(&query.organization_id, query.pagination.as_ref())
+            .list_principals(&organization_id, pagination.as_ref())
             .await?;
         users_in_order(self.org_members().as_ref(), ids).await
     }
 
-    #[usecase(read, access = query.access())]
+    #[usecase(read, access = Access::Requires(Permission::ListUserOrganizations(user_id.clone())))]
     async fn list_user_organizations(
         &self,
-        query: ListUserOrganizations,
+        user_id: UserId,
+        pagination: Option<PaginationParams>,
     ) -> DomainResult<PaginatedResult<Organization>> {
         self.org_repo()
-            .list_for_user(&query.user_id, query.pagination.as_ref())
+            .list_for_user(&user_id, pagination.as_ref())
             .await
     }
 }

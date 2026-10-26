@@ -1,24 +1,21 @@
 use crate::application::PrincipalAccess;
+use crate::application::pagination::PaginationParams;
 use crate::application::user::{
-    ChangePassword, CreateUser, DeleteAccount, DeleteUser, GetMe, GetUser, ListUserAccess,
-    ListUserSessions, ListUsers, PasswordResetDelivery, RevokeUserSession, RevokeUserSessions,
-    SetUserActive, UpdateUser, UserSession, reset::SendPasswordReset, wrong_current_password,
-    wrong_password,
+    PasswordResetDelivery, UserSession, wrong_current_password, wrong_password,
 };
-use crate::grpc::convert::{Parse, ParseInSession, id, optional, required, ts, valid, wrap};
-use crate::grpc::mappers::domain_error_to_status;
+use crate::grpc::convert::{Parse, id, optional, required, ts, valid, wrap};
+use crate::grpc::mappers::{domain_error_to_status, proto_to_domain_pagination};
 use scylla_domain::domain::errors::DomainError;
-use scylla_domain::domain::ids::SessionId;
+use scylla_domain::domain::ids::{SessionId, UserId};
 use scylla_domain::domain::user::{DisplayName, Email, Password, User, Username};
 use scylla_proto::auth::v1::PasswordResetDelivery as ProtoDelivery;
 use scylla_proto::common::v1 as common;
 use scylla_proto::user::v1::{
     ChangePasswordRequest, CreateUserRequest, DeleteAccountRequest, DeleteUserRequest,
-    GetMeRequest, GetUserRequest, ListUserAccessRequest, ListUserAccessResponse,
-    ListUserSessionsRequest, ListUserSessionsResponse, ListUsersRequest, ListUsersResponse,
-    RevokeUserSessionRequest, RevokeUserSessionsRequest, SendPasswordResetRequest,
-    SetUserActiveRequest, UpdateUserRequest, User as ProtoUser, UserAccess as ProtoUserAccess,
-    UserSession as ProtoUserSession,
+    GetUserRequest, ListUserAccessRequest, ListUserAccessResponse, ListUserSessionsRequest,
+    ListUserSessionsResponse, ListUsersRequest, ListUsersResponse, RevokeUserSessionRequest,
+    RevokeUserSessionsRequest, SendPasswordResetRequest, SetUserActiveRequest, UpdateUserRequest,
+    User as ProtoUser, UserAccess as ProtoUserAccess, UserSession as ProtoUserSession,
 };
 use tonic::Status;
 
@@ -80,78 +77,113 @@ fn attempt(value: String, wrong: fn() -> DomainError) -> Result<Password, Status
 }
 
 impl Parse for CreateUserRequest {
-    type Into = CreateUser;
+    type Into = (Username, Email, Password, Option<DisplayName>);
 
-    fn parse(self) -> Result<CreateUser, Status> {
-        Ok(CreateUser {
-            username: valid(self.username, Username::new)?,
-            password: valid(self.password, Password::new)?,
-            email: valid(required(self.email, "email")?, Email::new)?,
-            display_name: self.display_name.map(display_name).transpose()?.flatten(),
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let username = valid(self.username, Username::new)?;
+        let password = valid(self.password, Password::new)?;
+        let email = valid(required(self.email, "email")?, Email::new)?;
+        let display_name = self.display_name.map(display_name).transpose()?.flatten();
+        Ok((username, email, password, display_name))
     }
 }
 
-parse!(GetUserRequest => GetUser { id: id(user_id) });
-parse!(GetMeRequest => GetMe);
+impl Parse for GetUserRequest {
+    type Into = UserId;
+
+    fn parse(self) -> Result<UserId, Status> {
+        id(self.user_id, "user_id")
+    }
+}
 
 impl Parse for UpdateUserRequest {
-    type Into = UpdateUser;
+    type Into = (
+        UserId,
+        Option<Username>,
+        Option<Option<DisplayName>>,
+        Option<Email>,
+    );
 
-    fn parse(self) -> Result<UpdateUser, Status> {
-        Ok(UpdateUser {
-            id: id(self.user_id, "user_id")?,
-            username: self.username.map(|u| valid(u, Username::new)).transpose()?,
-            display_name: self.display_name.map(display_name).transpose()?,
-            email: optional(self.email)
-                .map(|e| valid(e, Email::new))
-                .transpose()?,
-        })
+    // A blank display name removes it: the wire has no way to send `Some(None)`.
+    fn parse(self) -> Result<Self::Into, Status> {
+        let user_id = id(self.user_id, "user_id")?;
+        let username = self.username.map(|u| valid(u, Username::new)).transpose()?;
+        let display_name = self.display_name.map(display_name).transpose()?;
+        let email = optional(self.email)
+            .map(|e| valid(e, Email::new))
+            .transpose()?;
+        Ok((user_id, username, display_name, email))
     }
 }
 
-parse!(DeleteUserRequest => DeleteUser { id: id(user_id) });
-parse!(ListUsersRequest => ListUsers { pagination: page });
+impl Parse for DeleteUserRequest {
+    type Into = UserId;
+
+    fn parse(self) -> Result<UserId, Status> {
+        id(self.user_id, "user_id")
+    }
+}
+
+impl Parse for ListUsersRequest {
+    type Into = Option<PaginationParams>;
+
+    fn parse(self) -> Result<Option<PaginationParams>, Status> {
+        Ok(proto_to_domain_pagination(self.pagination))
+    }
+}
+
 page_response!(User => users: user_to_proto; ListUsersResponse);
 
-impl ParseInSession for ChangePasswordRequest {
-    type Into = ChangePassword;
+impl Parse for ChangePasswordRequest {
+    type Into = (Password, Password);
 
-    fn parse_in_session(self, session: Option<SessionId>) -> Result<ChangePassword, Status> {
-        Ok(ChangePassword {
-            current_password: attempt(self.current_password, wrong_current_password)?,
-            new_password: valid(self.new_password, Password::new)?,
-            session,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let current_password = attempt(self.current_password, wrong_current_password)?;
+        let new_password = valid(self.new_password, Password::new)?;
+        Ok((current_password, new_password))
     }
 }
 
-parse!(SendPasswordResetRequest => SendPasswordReset { id: id(user_id) });
+impl Parse for SendPasswordResetRequest {
+    type Into = UserId;
 
-impl ParseInSession for RevokeUserSessionsRequest {
-    type Into = RevokeUserSessions;
-
-    fn parse_in_session(self, session: Option<SessionId>) -> Result<RevokeUserSessions, Status> {
-        Ok(RevokeUserSessions {
-            id: id(self.user_id, "user_id")?,
-            session,
-        })
+    fn parse(self) -> Result<UserId, Status> {
+        id(self.user_id, "user_id")
     }
 }
 
-parse!(SetUserActiveRequest => SetUserActive { id: id(user_id), is_active: copy });
+impl Parse for RevokeUserSessionsRequest {
+    type Into = UserId;
+
+    fn parse(self) -> Result<UserId, Status> {
+        id(self.user_id, "user_id")
+    }
+}
+
+impl Parse for SetUserActiveRequest {
+    type Into = (UserId, bool);
+
+    fn parse(self) -> Result<Self::Into, Status> {
+        let user_id = id(self.user_id, "user_id")?;
+        Ok((user_id, self.is_active))
+    }
+}
 
 impl Parse for DeleteAccountRequest {
-    type Into = DeleteAccount;
+    type Into = Password;
 
-    fn parse(self) -> Result<DeleteAccount, Status> {
-        Ok(DeleteAccount {
-            password: attempt(self.password, wrong_password)?,
-        })
+    fn parse(self) -> Result<Password, Status> {
+        attempt(self.password, wrong_password)
     }
 }
 
-parse!(ListUserAccessRequest => ListUserAccess { id: id(user_id) });
+impl Parse for ListUserAccessRequest {
+    type Into = UserId;
+
+    fn parse(self) -> Result<UserId, Status> {
+        id(self.user_id, "user_id")
+    }
+}
 
 pub fn user_access_response(access: &[PrincipalAccess]) -> ListUserAccessResponse {
     ListUserAccessResponse {
@@ -159,14 +191,11 @@ pub fn user_access_response(access: &[PrincipalAccess]) -> ListUserAccessRespons
     }
 }
 
-impl ParseInSession for ListUserSessionsRequest {
-    type Into = ListUserSessions;
+impl Parse for ListUserSessionsRequest {
+    type Into = UserId;
 
-    fn parse_in_session(self, session: Option<SessionId>) -> Result<ListUserSessions, Status> {
-        Ok(ListUserSessions {
-            id: id(self.user_id, "user_id")?,
-            session,
-        })
+    fn parse(self) -> Result<UserId, Status> {
+        id(self.user_id, "user_id")
     }
 }
 
@@ -176,7 +205,15 @@ pub fn user_sessions_response(sessions: &[UserSession]) -> ListUserSessionsRespo
     }
 }
 
-parse!(RevokeUserSessionRequest => RevokeUserSession { id: id(user_id), session_id: id(session_id) });
+impl Parse for RevokeUserSessionRequest {
+    type Into = (UserId, SessionId);
+
+    fn parse(self) -> Result<Self::Into, Status> {
+        let user_id = id(self.user_id, "user_id")?;
+        let session_id = id(self.session_id, "session_id")?;
+        Ok((user_id, session_id))
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -228,18 +265,32 @@ mod tests {
     }
 
     #[test]
-    fn a_create_request_becomes_a_command_with_validated_fields() {
-        let command = CreateUserRequest {
+    fn a_create_request_becomes_the_validated_inputs() {
+        let (username, email, password, display_name) = CreateUserRequest {
             display_name: Some("  Alice  ".into()),
             ..create_request()
         }
         .parse()
         .unwrap();
 
-        assert_eq!(command.username.as_str(), "alice");
-        assert_eq!(command.password.as_str(), "SecurePass123!");
-        assert_eq!(command.email.as_str(), "alice@example.com");
-        assert_eq!(command.display_name.unwrap().as_str(), "Alice");
+        assert_eq!(username.as_str(), "alice");
+        assert_eq!(password.as_str(), "SecurePass123!");
+        assert_eq!(email.as_str(), "alice@example.com");
+        assert_eq!(display_name.unwrap().as_str(), "Alice");
+    }
+
+    #[test]
+    fn a_create_request_checks_the_password_before_the_email() {
+        let err = CreateUserRequest {
+            password: "short".into(),
+            email: None,
+            ..create_request()
+        }
+        .parse()
+        .unwrap_err();
+
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert_eq!(err.message(), "Password too short, minimum length is 8");
     }
 
     #[test]
@@ -258,13 +309,13 @@ mod tests {
     #[test]
     fn an_absent_or_blank_display_name_is_none_at_creation() {
         for display_name in [None, Some(String::new()), Some("   ".into())] {
-            let command = CreateUserRequest {
+            let (.., display_name) = CreateUserRequest {
                 display_name,
                 ..create_request()
             }
             .parse()
             .unwrap();
-            assert!(command.display_name.is_none());
+            assert!(display_name.is_none());
         }
     }
 
@@ -307,36 +358,35 @@ mod tests {
 
     #[test]
     fn an_update_without_a_field_changes_nothing() {
-        let command = update_request().parse().unwrap();
+        let (id, username, display_name, email) = update_request().parse().unwrap();
 
-        assert_eq!(command.id.as_str(), "user-1");
-        assert!(command.username.is_none());
-        assert!(command.display_name.is_none());
-        assert!(command.email.is_none());
+        assert_eq!(id.as_str(), "user-1");
+        assert!(username.is_none());
+        assert!(display_name.is_none());
+        assert!(email.is_none());
     }
 
     #[test]
-    fn an_empty_display_name_in_an_update_removes_it() {
-        let command = UpdateUserRequest {
-            display_name: Some(String::new()),
-            ..update_request()
+    fn a_blank_display_name_in_an_update_removes_it() {
+        for blank in ["", "   "] {
+            let (_, _, display_name, _) = UpdateUserRequest {
+                display_name: Some(blank.into()),
+                ..update_request()
+            }
+            .parse()
+            .unwrap();
+            assert_eq!(display_name, Some(None));
         }
-        .parse()
-        .unwrap();
-        assert_eq!(command.display_name, Some(None));
 
-        let command = UpdateUserRequest {
+        let (_, _, display_name, email) = UpdateUserRequest {
             display_name: Some("Bob".into()),
             email: wrap("Bob@Example.com"),
             ..update_request()
         }
         .parse()
         .unwrap();
-        assert_eq!(
-            command.display_name,
-            Some(Some(DisplayName::new("Bob").unwrap()))
-        );
-        assert_eq!(command.email.unwrap().as_str(), "bob@example.com");
+        assert_eq!(display_name, Some(Some(DisplayName::new("Bob").unwrap())));
+        assert_eq!(email.unwrap().as_str(), "bob@example.com");
     }
 
     #[test]
@@ -345,7 +395,7 @@ mod tests {
             current_password: "short".into(),
             new_password: "SecurePass123!".into(),
         }
-        .parse_in_session(None)
+        .parse()
         .unwrap_err();
         assert_eq!(err.code(), Code::FailedPrecondition);
         assert_eq!(err.message(), WRONG_CURRENT_PASSWORD);
@@ -365,28 +415,9 @@ mod tests {
             current_password: "SecurePass123!".into(),
             new_password: "short".into(),
         }
-        .parse_in_session(None)
+        .parse()
         .unwrap_err();
         assert_eq!(err.code(), Code::InvalidArgument);
-    }
-
-    #[test]
-    fn the_session_of_the_call_goes_into_the_command() {
-        let session = SessionId::new("s1");
-        let command = RevokeUserSessionsRequest {
-            user_id: wrap("user-1"),
-        }
-        .parse_in_session(Some(session.clone()))
-        .unwrap();
-        assert_eq!(command.session, Some(session.clone()));
-
-        let command = ChangePasswordRequest {
-            current_password: "SecurePass123!".into(),
-            new_password: "OtherPass123!".into(),
-        }
-        .parse_in_session(Some(session.clone()))
-        .unwrap();
-        assert_eq!(command.session, Some(session));
     }
 
     #[test]
@@ -451,24 +482,22 @@ mod tests {
     }
 
     #[test]
-    fn a_session_list_names_the_session_of_the_call_and_a_revoke_needs_both_ids() {
-        let session = SessionId::new("s1");
-        let command = ListUserSessionsRequest {
+    fn a_session_list_needs_the_user_and_a_revoke_needs_both_ids() {
+        let id = ListUserSessionsRequest {
             user_id: wrap("user-1"),
         }
-        .parse_in_session(Some(session.clone()))
+        .parse()
         .unwrap();
-        assert_eq!(command.id.as_str(), "user-1");
-        assert_eq!(command.session, Some(session));
+        assert_eq!(id.as_str(), "user-1");
 
-        let command = RevokeUserSessionRequest {
+        let (id, session_id) = RevokeUserSessionRequest {
             user_id: wrap("user-1"),
             session_id: wrap("s2"),
         }
         .parse()
         .unwrap();
-        assert_eq!(command.id.as_str(), "user-1");
-        assert_eq!(command.session_id.as_str(), "s2");
+        assert_eq!(id.as_str(), "user-1");
+        assert_eq!(session_id.as_str(), "s2");
 
         let err = RevokeUserSessionRequest {
             user_id: wrap("user-1"),

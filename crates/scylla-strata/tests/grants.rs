@@ -4,9 +4,6 @@
 use async_trait::async_trait;
 use scylla_auth::authz::*;
 use scylla_core::application::agent::AgentDispatch;
-use scylla_core::application::grant::{
-    CreateGrant, ListGrantableRoles, ListGrants, RevokeAllAccess, RevokeGrant,
-};
 use scylla_core::test_support::authz::{DenyingPermissionService, RecordingPermissionService};
 use scylla_core::test_support::stubs::{ScopesByAgent, StubGrants, StubRegistry, StubRoles};
 use scylla_domain::domain::caller::{CallerContext, ServiceIdentity};
@@ -107,12 +104,13 @@ fn on(caller: &CallerContext) -> ScyllaCtx {
 
 impl Lab {
     async fn grant(&self, caller: &CallerContext, grant: &Grant) -> DomainResult<Grant> {
-        let cmd = CreateGrant {
-            principal: grant.principal.clone(),
-            role: grant.role.clone(),
-            scope: grant.scope.clone(),
-        };
-        GrantsRpc::create_grant(&self.app.scoped(&on(caller)), cmd).await
+        GrantsRpc::create_grant(
+            &self.app.scoped(&on(caller)),
+            grant.principal.clone(),
+            grant.role.clone(),
+            grant.scope.clone(),
+        )
+        .await
     }
 
     async fn revoke_all_access(
@@ -121,33 +119,29 @@ impl Lab {
         principal: &Principal,
         scope: &Scope,
     ) -> DomainResult<u64> {
-        let cmd = RevokeAllAccess {
-            principal: principal.clone(),
-            scope: scope.clone(),
-        };
-        GrantsRpc::revoke_all_access(&self.app.scoped(&on(caller)), cmd).await
-    }
-
-    async fn revoke(&self, id: &str) -> DomainResult<()> {
-        GrantsRpc::revoke_grant(
-            &self.app.scoped(&on(&admin())),
-            RevokeGrant {
-                id: GrantId::new(id),
-            },
+        GrantsRpc::revoke_all_access(
+            &self.app.scoped(&on(caller)),
+            principal.clone(),
+            scope.clone(),
         )
         .await
     }
 
+    async fn revoke(&self, id: &str) -> DomainResult<()> {
+        GrantsRpc::revoke_grant(&self.app.scoped(&on(&admin())), GrantId::new(id)).await
+    }
+
     async fn list(&self, scope: Option<Scope>) -> DomainResult<Vec<Grant>> {
-        GrantsRpc::list_grants(&self.app.scoped(&on(&admin())), ListGrants { scope }).await
+        GrantsRpc::list_grants(&self.app.scoped(&on(&admin())), scope).await
     }
 
     async fn grantable(
         &self,
         caller: &CallerContext,
-        query: ListGrantableRoles,
+        (scope_kind, organization_id): (Option<ScopeKind>, Option<OrganizationId>),
     ) -> DomainResult<Vec<Role>> {
-        GrantsRpc::list_grantable_roles(&self.app.scoped(&on(caller)), query).await
+        GrantsRpc::list_grantable_roles(&self.app.scoped(&on(caller)), scope_kind, organization_id)
+            .await
     }
 }
 
@@ -215,11 +209,11 @@ fn owner_grant(principal: Principal, scope: Scope) -> Grant {
     )
 }
 
-fn list_grantable(scope_kind: Option<ScopeKind>, organization: Option<&str>) -> ListGrantableRoles {
-    ListGrantableRoles {
-        scope_kind,
-        organization_id: organization.map(OrganizationId::new),
-    }
+fn list_grantable(
+    scope_kind: Option<ScopeKind>,
+    organization: Option<&str>,
+) -> (Option<ScopeKind>, Option<OrganizationId>) {
+    (scope_kind, organization.map(OrganizationId::new))
 }
 
 fn admin_role() -> Role {

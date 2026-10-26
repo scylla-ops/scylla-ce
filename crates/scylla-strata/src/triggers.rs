@@ -1,26 +1,27 @@
 use crate::access::{CallerOf, Permissions};
 use scylla_core::application::guards::service_only;
-use scylla_core::application::pipeline::RunPipelineWithInputs;
-use scylla_core::application::trigger::commands::generate_webhook_secret;
 use scylla_core::application::trigger::fire::resolve_inputs;
-use scylla_core::application::trigger::webhook::{Delivery, PING_EVENT};
+use scylla_core::application::trigger::webhook::PING_EVENT;
 use scylla_core::application::trigger::{
-    ClaimDueTriggers, CreateTrigger, CreatedTrigger, CronSchedule, DEFAULT_SIGNATURE_HEADER,
-    DeleteTrigger, FireTriggerNow, GetTrigger, IngestOutcome, IngestWebhook, ListPipelineTriggers,
-    RecordTriggerFire, ResolveTriggerRun, ScheduleCronTriggers, SetTriggerEnabled,
-    TriggerDeliveryRepository, TriggerRepository, TriggerRun, TriggerUseCases, UpdateTrigger,
-    verified_digest,
+    CreatedTrigger, CronSchedule, DEFAULT_SIGNATURE_HEADER, IngestOutcome,
+    TriggerDeliveryRepository, TriggerRepository, TriggerRun, TriggerUseCases,
+    generate_webhook_secret, verified_digest,
 };
 use scylla_core::application::{
     AppRepository, PipelineRepository, ProjectRepository, SecretCipher,
 };
+use scylla_core::rest::webhook::WebhookDelivery;
 use scylla_domain::domain::caller::{CallerContext, ServiceIdentity};
 use scylla_domain::domain::clock;
 use scylla_domain::domain::errors::{DomainError, DomainResult};
-use scylla_domain::domain::ids::TriggerId;
+use scylla_domain::domain::ids::{PipelineId, TriggerId};
 use scylla_domain::domain::job::{Job, JobOrigin};
-use scylla_domain::domain::trigger::{FireObservation, Trigger, TriggerSource};
-use scylla_extension::Describe;
+use scylla_domain::domain::permission::Permission;
+use scylla_domain::domain::trigger::{
+    FireObservation, Trigger, TriggerInput, TriggerName, TriggerSource,
+};
+use scylla_extension::Access;
+use sqlx::types::chrono::{DateTime, Utc};
 use std::sync::Arc;
 use strata::{BuildCx, BuildError, Component, Resource};
 
@@ -166,16 +167,12 @@ pub trait Triggers: crate::Pipelines {
                 delivery_id: delivery_id.map(str::to_owned),
             },
         };
-        let run = RunPipelineWithInputs {
-            id: trigger.pipeline_id().clone(),
-            inputs: resolve_inputs(trigger, payload)?,
-            origin,
-        };
-        let access = run.access();
-        let RunPipelineWithInputs { id, inputs, origin } = run;
+        let id = trigger.pipeline_id();
+        let inputs = resolve_inputs(trigger, payload)?;
+        let access = crate::pipelines::run_access(id);
         let outcome = async {
             self.require_as(&runner, access.clone()).await?;
-            let job = self.new_job(&id, origin, inputs).await?;
+            let job = self.new_job(id, origin, inputs).await?;
             self.start(&job).await
         }
         .await;
@@ -193,18 +190,17 @@ pub trait Triggers: crate::Pipelines {
     async fn record_as(
         &self,
         caller: &CallerContext,
-        record: RecordTriggerFire,
+        id: &TriggerId,
+        status: &'static str,
     ) -> DomainResult<()> {
-        let access = record.access();
+        let access = manage_access(id);
         let outcome = async {
             self.require_as(caller, access.clone()).await?;
             let observation = FireObservation {
                 fired_at: clock::now(),
-                status: record.status.to_owned(),
+                status: status.to_owned(),
             };
-            self.trigger_repo()
-                .record_fire(&record.id, &observation)
-                .await
+            self.trigger_repo().record_fire(id, &observation).await
         }
         .await;
         self.audit()
@@ -239,11 +235,8 @@ pub trait Triggers: crate::Pipelines {
             }
             Err(e) => Err(e),
         };
-        let record = RecordTriggerFire {
-            id: id.clone(),
-            status: if outcome.is_ok() { "ok" } else { "error" },
-        };
-        if let Err(e) = self.record_as(&service, record).await {
+        let status = if outcome.is_ok() { "ok" } else { "error" };
+        if let Err(e) = self.record_as(&service, id, status).await {
             tracing::warn!(trigger_id = %id, error = %e, "failed to record trigger fire status");
         }
         outcome
@@ -258,14 +251,19 @@ pub trait Triggers: crate::Pipelines {
         }
     }
 
-    /// Verifies the signature of `cmd` before any write. A verified ping is `Delivery::Ping`.
-    async fn verify_delivery(&self, cmd: &IngestWebhook) -> DomainResult<Delivery> {
-        let trigger = self.enabled_trigger(&cmd.trigger_id).await?;
+    /// Verifies the signature of `delivery` before any write. A verified ping is
+    /// `VerifiedDelivery::Ping`.
+    async fn verify_delivery(&self, delivery: &WebhookDelivery) -> DomainResult<VerifiedDelivery> {
+        let trigger = self.enabled_trigger(&delivery.trigger_id).await?;
         let TriggerSource::Webhook(spec) = trigger.source() else {
-            return Err(trigger_not_found(&cmd.trigger_id));
+            return Err(trigger_not_found(&delivery.trigger_id));
         };
         let header_name = spec.signature_header().unwrap_or(DEFAULT_SIGNATURE_HEADER);
-        let secret = match self.trigger_repo().webhook_secret(&cmd.trigger_id).await {
+        let secret = match self
+            .trigger_repo()
+            .webhook_secret(&delivery.trigger_id)
+            .await
+        {
             Ok(Some(enc)) => self
                 .trigger_cipher()
                 .decrypt(&enc)
@@ -278,41 +276,42 @@ pub trait Triggers: crate::Pipelines {
             Err(e) => return Err(internal(&e)),
         };
         let bad_signature = || DomainError::unauthorized("invalid signature");
-        let signature = cmd
+        let signature = delivery
             .headers
             .get(&header_name.to_ascii_lowercase())
             .ok_or_else(bad_signature)?;
-        let digest = verified_digest(&secret, &cmd.body, signature).ok_or_else(bad_signature)?;
-        if cmd
+        let digest =
+            verified_digest(&secret, &delivery.body, signature).ok_or_else(bad_signature)?;
+        if delivery
             .event
             .as_deref()
             .is_some_and(|e| e.trim().eq_ignore_ascii_case(PING_EVENT))
         {
-            return Ok(Delivery::Ping);
+            return Ok(VerifiedDelivery::Ping);
         }
-        let key = cmd
+        let key = delivery
             .delivery_id
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map_or(digest, str::to_owned);
-        Ok(Delivery::Event {
-            trigger_id: cmd.trigger_id.clone(),
+        Ok(VerifiedDelivery::Event {
+            trigger_id: delivery.trigger_id.clone(),
             key,
-            delivery_id: cmd.delivery_id.clone(),
-            payload: serde_json::from_slice(&cmd.body).ok(),
+            delivery_id: delivery.delivery_id.clone(),
+            payload: serde_json::from_slice(&delivery.body).ok(),
         })
     }
 
-    /// The webhook ingress, as the CE `IngestWebhook`: verify the signature, record the delivery
-    /// under its dedupe key, then fire. A failed fire forgets the delivery, so that a retry fires.
-    async fn ingest_webhook(&self, cmd: IngestWebhook) -> DomainResult<IngestOutcome> {
-        let Delivery::Event {
+    /// The webhook ingress: verify the signature, record the delivery under its dedupe key, then
+    /// fire. A failed fire forgets the delivery, thus a retry fires. It is not a use case.
+    async fn ingest_webhook(&self, delivery: WebhookDelivery) -> DomainResult<IngestOutcome> {
+        let VerifiedDelivery::Event {
             trigger_id,
             key,
             delivery_id,
             payload,
-        } = self.verify_delivery(&cmd).await?
+        } = self.verify_delivery(&delivery).await?
         else {
             return Ok(IngestOutcome::Ping);
         };
@@ -344,18 +343,21 @@ pub trait Triggers: crate::Pipelines {
         }
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn create_trigger(&self, cmd: CreateTrigger) -> DomainResult<CreatedTrigger> {
+    #[usecase(write, access = create_trigger_access(&pipeline_id))]
+    async fn create_trigger(
+        &self,
+        pipeline_id: PipelineId,
+        name: TriggerName,
+        source: TriggerSource,
+        inputs: Vec<TriggerInput>,
+    ) -> DomainResult<CreatedTrigger> {
         let rules = self.trigger_rules();
-        let pipeline = self
-            .trigger_pipelines()
-            .find_by_id(&cmd.pipeline_id)
-            .await?;
+        let pipeline = self.trigger_pipelines().find_by_id(&pipeline_id).await?;
         let project = self
             .trigger_projects()
             .find_by_id(pipeline.project_id())
             .await?;
-        let mut trigger = Trigger::create(cmd.pipeline_id, cmd.name, cmd.source, cmd.inputs)?;
+        let mut trigger = Trigger::create(pipeline_id, name, source, inputs)?;
         rules.schedule_next(&mut trigger)?;
         let (webhook_secret, webhook_secret_enc) = match trigger.source() {
             TriggerSource::Webhook(_) => {
@@ -376,23 +378,29 @@ pub trait Triggers: crate::Pipelines {
         })
     }
 
-    #[usecase(read, access = query.access())]
-    async fn get_trigger(&self, query: GetTrigger) -> DomainResult<Trigger> {
-        self.trigger_repo().find_by_id(&query.id).await
+    #[usecase(read, access = manage_access(&id))]
+    async fn get_trigger(&self, id: TriggerId) -> DomainResult<Trigger> {
+        self.trigger_repo().find_by_id(&id).await
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn update_trigger(&self, cmd: UpdateTrigger) -> DomainResult<Trigger> {
-        let mut trigger = self.trigger_repo().find_by_id(&cmd.id).await?;
-        trigger.update(cmd.name, cmd.source, cmd.inputs)?;
+    #[usecase(write, access = update_trigger_access(&id))]
+    async fn update_trigger(
+        &self,
+        id: TriggerId,
+        name: TriggerName,
+        source: TriggerSource,
+        inputs: Vec<TriggerInput>,
+    ) -> DomainResult<Trigger> {
+        let mut trigger = self.trigger_repo().find_by_id(&id).await?;
+        trigger.update(name, source, inputs)?;
         self.trigger_rules().schedule_next(&mut trigger)?;
         self.trigger_repo().update(&trigger).await
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn set_trigger_enabled(&self, cmd: SetTriggerEnabled) -> DomainResult<Trigger> {
-        let mut trigger = self.trigger_repo().find_by_id(&cmd.id).await?;
-        if cmd.enabled {
+    #[usecase(write, access = manage_access(&id))]
+    async fn set_trigger_enabled(&self, id: TriggerId, enabled: bool) -> DomainResult<Trigger> {
+        let mut trigger = self.trigger_repo().find_by_id(&id).await?;
+        if enabled {
             trigger.enable();
             self.trigger_rules().schedule_next(&mut trigger)?;
         } else {
@@ -401,51 +409,51 @@ pub trait Triggers: crate::Pipelines {
         self.trigger_repo().update(&trigger).await
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn delete_trigger(&self, cmd: DeleteTrigger) -> DomainResult<()> {
-        let trigger = self.trigger_repo().find_by_id(&cmd.id).await?;
+    #[usecase(write, access = manage_access(&id))]
+    async fn delete_trigger(&self, id: TriggerId) -> DomainResult<()> {
+        let trigger = self.trigger_repo().find_by_id(&id).await?;
         self.trigger_repo().delete(&trigger).await
     }
 
-    #[usecase(read, access = query.access())]
-    async fn list_pipeline_triggers(
-        &self,
-        query: ListPipelineTriggers,
-    ) -> DomainResult<Vec<Trigger>> {
-        self.trigger_repo()
-            .list_by_pipeline(&query.pipeline_id)
-            .await
+    #[usecase(read, access = Access::Requires(Permission::ManageTriggers(pipeline_id.clone())))]
+    async fn list_pipeline_triggers(&self, pipeline_id: PipelineId) -> DomainResult<Vec<Trigger>> {
+        self.trigger_repo().list_by_pipeline(&pipeline_id).await
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn fire_trigger_now(&self, cmd: FireTriggerNow) -> DomainResult<Job> {
-        self.fire(&cmd.id).await
+    /// The `runPipeline` of the caller on the trigger is the check. The fire then runs as the
+    /// trigger-runner App.
+    #[usecase(write, access = Access::Requires(Permission::RunTriggerPipeline(id.clone())))]
+    async fn fire_trigger_now(&self, id: TriggerId) -> DomainResult<Job> {
+        self.fire(&id).await
     }
 
-    #[usecase(read, access = query.access())]
-    async fn resolve_trigger_run(&self, query: ResolveTriggerRun) -> DomainResult<TriggerRun> {
+    /// What a fire needs, read by the trigger firer service.
+    #[usecase(read, access = Access::Authenticated)]
+    async fn resolve_trigger_run(&self, id: TriggerId) -> DomainResult<TriggerRun> {
         service_only(self.ctx().caller())?;
-        self.resolve_run(&query.id).await
+        self.resolve_run(&id).await
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn record_trigger_fire(&self, cmd: RecordTriggerFire) -> DomainResult<FireObservation> {
+    /// The outcome of a fire, sent by the trigger firer as a service. Only the observation is
+    /// written: an edit that committed during the run stays.
+    #[usecase(write, access = manage_access(&id))]
+    async fn record_trigger_fire(
+        &self,
+        id: TriggerId,
+        status: &'static str,
+    ) -> DomainResult<FireObservation> {
         let observation = FireObservation {
             fired_at: clock::now(),
-            status: cmd.status.to_owned(),
+            status: status.to_owned(),
         };
-        self.trigger_repo()
-            .record_fire(&cmd.id, &observation)
-            .await?;
+        self.trigger_repo().record_fire(&id, &observation).await?;
         Ok(observation)
     }
 
-    #[usecase(write, access = cmd.access())]
-    #[allow(unused_variables)]
-    async fn schedule_cron_triggers(
-        &self,
-        cmd: ScheduleCronTriggers,
-    ) -> DomainResult<Vec<Trigger>> {
+    /// One pass over the cron triggers that have no next fire time. A trigger whose next fire
+    /// time cannot be computed is logged and stays unscheduled.
+    #[usecase(write, access = Access::Authenticated)]
+    async fn schedule_cron_triggers(&self) -> DomainResult<Vec<Trigger>> {
         service_only(self.ctx().caller())?;
         let now = clock::now();
         let rules = self.trigger_rules();
@@ -454,17 +462,54 @@ pub trait Triggers: crate::Pipelines {
             .await
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn claim_due_triggers(&self, cmd: ClaimDueTriggers) -> DomainResult<Vec<Trigger>> {
+    /// One claim of the cron triggers due at `now`: the store advances each claimed row to its
+    /// next fire time in the same transaction, thus no pass and no instance claims a row twice.
+    #[usecase(write, access = Access::Authenticated)]
+    async fn claim_due_triggers(
+        &self,
+        now: DateTime<Utc>,
+        limit: i64,
+    ) -> DomainResult<Vec<Trigger>> {
         service_only(self.ctx().caller())?;
         let rules = self.trigger_rules();
-        let now = cmd.now;
         self.trigger_repo()
-            .claim_due_cron(now, cmd.limit, &|trigger| {
-                rules.next_cron_fire(trigger, now)
-            })
+            .claim_due_cron(now, limit, &|trigger| rules.next_cron_fire(trigger, now))
             .await
     }
+}
+
+/// A verified delivery. A ping is answered without a write. An event is recorded under its
+/// dedupe key, then fired. The key is the delivery id, else the verified digest, thus each form of
+/// one signature is one key.
+pub enum VerifiedDelivery {
+    Ping,
+    Event {
+        trigger_id: TriggerId,
+        key: String,
+        delivery_id: Option<String>,
+        payload: Option<serde_json::Value>,
+    },
+}
+
+/// The management of triggers does not give run rights, thus a create and an update also ask for
+/// them.
+fn create_trigger_access(pipeline_id: &PipelineId) -> Access {
+    Access::RequiresAll(vec![
+        Permission::ManageTriggers(pipeline_id.clone()),
+        Permission::RunPipeline(pipeline_id.clone()),
+    ])
+}
+
+fn update_trigger_access(id: &TriggerId) -> Access {
+    Access::RequiresAll(vec![
+        Permission::ManageTrigger(id.clone()),
+        Permission::RunTriggerPipeline(id.clone()),
+    ])
+}
+
+/// The access of a use case on one trigger, and of the record of a fire.
+fn manage_access(id: &TriggerId) -> Access {
+    Access::Requires(Permission::ManageTrigger(id.clone()))
 }
 
 fn trigger_not_found(id: &TriggerId) -> DomainError {
@@ -473,4 +518,22 @@ fn trigger_not_found(id: &TriggerId) -> DomainError {
 
 fn internal(e: &DomainError) -> DomainError {
     DomainError::internal(e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_create_or_an_update_also_needs_the_run_right() {
+        let created = create_trigger_access(&PipelineId::new("p1"));
+        let updated = update_trigger_access(&TriggerId::new("t1"));
+
+        assert_eq!(created.to_string(), "manageTriggers+runPipeline");
+        assert_eq!(updated.to_string(), "manageTriggers+runPipeline");
+        assert_eq!(
+            manage_access(&TriggerId::new("t1")).to_string(),
+            "manageTriggers"
+        );
+    }
 }

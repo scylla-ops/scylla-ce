@@ -1,9 +1,5 @@
-//! Wire to command, command outcome to wire. The handler holds none of it.
+//! Wire to the inputs of a use case, its outcome to wire. The handler holds none of it.
 
-use crate::application::role::{
-    CreateRole, DeleteRole, GetEffectivePermissions, GetMyPermissions, GetRole,
-    ListAuthzVocabulary, ListRoles, UpdateRole,
-};
 use crate::domain::ids::OrganizationId;
 use crate::domain::role::{RoleDescription, RoleDisplayName, RoleName};
 use crate::grpc::convert::{
@@ -11,12 +7,13 @@ use crate::grpc::convert::{
     scope_kind_from_proto, scope_kind_to_proto, scope_ref_to_proto, valid, wrap,
 };
 use crate::grpc::mappers::grant_mapper::{role_kind_from_proto, role_kind_to_proto};
-use scylla_auth::authz::{EffectiveScope, FULL_CONTROL, Role, resource_home_scope};
+use scylla_auth::authz::{
+    EffectiveScope, FULL_CONTROL, Principal, Role, RoleKind, ScopeKind, resource_home_scope,
+};
 use scylla_proto::authz::v1::{
     Access, AuthzAction, CreateRoleRequest, DeleteRoleRequest,
-    EffectiveScope as ProtoEffectiveScope, GetEffectivePermissionsRequest, GetMyPermissionsRequest,
-    GetRoleRequest, ListAuthzVocabularyRequest, ListRolesRequest, Permission, Role as ProtoRole,
-    UpdateRoleRequest, access, role,
+    EffectiveScope as ProtoEffectiveScope, GetEffectivePermissionsRequest, GetRoleRequest,
+    ListRolesRequest, Permission, Role as ProtoRole, UpdateRoleRequest, access, role,
 };
 use tonic::Status;
 
@@ -90,30 +87,35 @@ fn permissions_from_proto(access: Option<Access>) -> Result<Vec<String>, Status>
 }
 
 impl Parse for CreateRoleRequest {
-    type Into = CreateRole;
+    type Into = (
+        Option<OrganizationId>,
+        RoleDisplayName,
+        RoleDescription,
+        ScopeKind,
+        RoleKind,
+        Vec<String>,
+    );
 
-    fn parse(self) -> Result<CreateRole, Status> {
-        Ok(CreateRole {
-            organization_id: optional(self.organization_id).map(OrganizationId::new),
-            kind: role_kind_from_proto(self.kind)?,
-            scope: scope_kind_from_proto(self.scope_kind)?,
-            permissions: permissions_from_proto(self.access)?,
-            name: valid(self.name, RoleDisplayName::new)?,
-            description: valid(self.description, RoleDescription::new)?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let organization_id = optional(self.organization_id).map(OrganizationId::new);
+        let kind = role_kind_from_proto(self.kind)?;
+        let scope = scope_kind_from_proto(self.scope_kind)?;
+        let permissions = permissions_from_proto(self.access)?;
+        let name = valid(self.name, RoleDisplayName::new)?;
+        let description = valid(self.description, RoleDescription::new)?;
+        Ok((organization_id, name, description, scope, kind, permissions))
     }
 }
 
 impl Parse for UpdateRoleRequest {
-    type Into = UpdateRole;
+    type Into = (RoleName, RoleDisplayName, RoleDescription, Vec<String>);
 
-    fn parse(self) -> Result<UpdateRole, Status> {
-        Ok(UpdateRole {
-            id: role_id(self.role_id)?,
-            permissions: permissions_from_proto(self.access)?,
-            name: valid(self.name, RoleDisplayName::new)?,
-            description: valid(self.description, RoleDescription::new)?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let id = role_id(self.role_id)?;
+        let permissions = permissions_from_proto(self.access)?;
+        let name = valid(self.name, RoleDisplayName::new)?;
+        let description = valid(self.description, RoleDescription::new)?;
+        Ok((id, name, description, permissions))
     }
 }
 
@@ -122,52 +124,40 @@ fn role_id(field: Option<scylla_proto::common::v1::RoleId>) -> Result<RoleName, 
 }
 
 impl Parse for DeleteRoleRequest {
-    type Into = DeleteRole;
+    type Into = RoleName;
 
-    fn parse(self) -> Result<DeleteRole, Status> {
-        Ok(DeleteRole {
-            id: role_id(self.role_id)?,
-        })
+    fn parse(self) -> Result<RoleName, Status> {
+        role_id(self.role_id)
     }
 }
 
 impl Parse for GetRoleRequest {
-    type Into = GetRole;
+    type Into = RoleName;
 
-    fn parse(self) -> Result<GetRole, Status> {
-        Ok(GetRole {
-            id: role_id(self.role_id)?,
-        })
+    fn parse(self) -> Result<RoleName, Status> {
+        role_id(self.role_id)
     }
 }
 
 impl Parse for ListRolesRequest {
-    type Into = ListRoles;
+    type Into = Option<OrganizationId>;
 
-    fn parse(self) -> Result<ListRoles, Status> {
-        Ok(ListRoles {
-            organization_id: optional(self.organization_id).map(OrganizationId::new),
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        Ok(optional(self.organization_id).map(OrganizationId::new))
     }
 }
 
 impl Parse for GetEffectivePermissionsRequest {
-    type Into = GetEffectivePermissions;
+    type Into = Principal;
 
-    fn parse(self) -> Result<GetEffectivePermissions, Status> {
-        Ok(GetEffectivePermissions {
-            principal: principal_ref_from_proto(self.principal)?,
-        })
+    fn parse(self) -> Result<Principal, Status> {
+        principal_ref_from_proto(self.principal)
     }
 }
-
-parse!(GetMyPermissionsRequest => GetMyPermissions);
-parse!(ListAuthzVocabularyRequest => ListAuthzVocabulary);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scylla_auth::authz::ScopeKind;
     use scylla_proto::authz::v1::ScopeKind as ProtoScopeKind;
     use tonic::Code;
 
@@ -180,8 +170,8 @@ mod tests {
     }
 
     #[test]
-    fn a_create_request_becomes_a_command_with_permission_keys() {
-        let command = CreateRoleRequest {
+    fn a_create_request_becomes_the_inputs_with_permission_keys() {
+        let (_, name, _, scope, _, permissions) = CreateRoleRequest {
             organization_id: None,
             kind: 0,
             name: "CI".to_string(),
@@ -192,17 +182,17 @@ mod tests {
         .parse()
         .unwrap();
 
-        assert_eq!(command.name.as_str(), "CI");
-        assert_eq!(command.scope, ScopeKind::Project);
+        assert_eq!(name.as_str(), "CI");
+        assert_eq!(scope, ScopeKind::Project);
         assert_eq!(
-            command.permissions,
+            permissions,
             vec!["readPipeline".to_string(), "runPipeline".to_string()]
         );
     }
 
     #[test]
     fn full_control_becomes_the_wildcard() {
-        let command = CreateRoleRequest {
+        let (.., permissions) = CreateRoleRequest {
             organization_id: None,
             kind: 0,
             name: "Admin".to_string(),
@@ -215,7 +205,7 @@ mod tests {
         .parse()
         .unwrap();
 
-        assert_eq!(command.permissions, vec![FULL_CONTROL.to_string()]);
+        assert_eq!(permissions, vec![FULL_CONTROL.to_string()]);
     }
 
     #[test]
@@ -280,6 +270,49 @@ mod tests {
     }
 
     #[test]
+    fn a_create_request_checks_the_scope_kind_before_the_name() {
+        let err = CreateRoleRequest {
+            organization_id: None,
+            kind: 0,
+            name: "  ".to_string(),
+            description: String::new(),
+            scope_kind: ProtoScopeKind::Unspecified as i32,
+            access: restricted(&[Permission::ReadPipeline]),
+        }
+        .parse()
+        .unwrap_err();
+
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert_eq!(err.message(), "unknown or unspecified scope kind");
+    }
+
+    #[test]
+    fn an_update_request_checks_the_access_before_the_name() {
+        let err = UpdateRoleRequest {
+            role_id: wrap("ci"),
+            name: String::new(),
+            description: String::new(),
+            access: None,
+        }
+        .parse()
+        .unwrap_err();
+
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert_eq!(err.message(), "access is required");
+    }
+
+    #[test]
+    fn an_empty_organization_id_of_a_role_list_is_kept() {
+        let organization_id = ListRolesRequest {
+            organization_id: wrap(""),
+        }
+        .parse()
+        .unwrap();
+
+        assert_eq!(organization_id, Some(OrganizationId::new("")));
+    }
+
+    #[test]
     fn a_get_request_needs_a_role_id() {
         assert_eq!(
             GetRoleRequest {
@@ -287,7 +320,6 @@ mod tests {
             }
             .parse()
             .unwrap()
-            .id
             .as_str(),
             "ci"
         );

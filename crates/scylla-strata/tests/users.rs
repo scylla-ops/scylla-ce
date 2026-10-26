@@ -8,13 +8,10 @@ use scylla_auth::authz::{
     Grant, GrantRepository, ORGANIZATION_ADMIN_ROLE, PROJECT_ADMIN_ROLE, PermissionService,
     Principal, SYSTEM_ADMIN_ROLE, Scope,
 };
-use scylla_core::application::user::reset::{RESET_LINK_TTL, ResetLinks, SendPasswordReset};
+use scylla_core::application::user::reset::{RESET_LINK_TTL, ResetLinks};
 use scylla_core::application::user::{
-    AccountRepository, ChangePassword, CreateUser, DeleteAccount, DeleteUser, GetMe, GetUser,
-    GetUserByEmail, GetUserByUsername, ListUserAccess, ListUserSessions, PasswordResetDelivery,
-    PasswordResetMessage, PasswordResetSender, RevokeUserSession, RevokeUserSessions,
-    SetUserActive, UpdateUser, UpdateUserEmail, UserRepository, UserSession,
-    WRONG_CURRENT_PASSWORD, WRONG_PASSWORD,
+    AccountRepository, PasswordResetDelivery, PasswordResetMessage, PasswordResetSender,
+    UserRepository, UserSession, WRONG_CURRENT_PASSWORD, WRONG_PASSWORD,
 };
 use scylla_core::application::{HashService, PrincipalAccess};
 use scylla_core::test_support::authz::{DenyingPermissionService, RecordingPermissionService};
@@ -117,7 +114,7 @@ struct Lab {
 
 impl Lab {
     async fn create(&self, username: &str) -> DomainResult<User> {
-        UsersRpc::create_user(&self.app.scoped(&ctx(alice())), create(username)).await
+        create_user(&self.app.scoped(&ctx(alice())), create(username)).await
     }
 
     fn stored(&self, id: &UserId) -> User {
@@ -129,6 +126,13 @@ fn ctx(caller: CallerContext) -> ScyllaCtx {
     ScyllaCtx {
         caller,
         ..ScyllaCtx::default()
+    }
+}
+
+fn in_session(caller: CallerContext, session: &SessionId) -> ScyllaCtx {
+    ScyllaCtx {
+        session: Some(session.clone()),
+        ..ctx(caller)
     }
 }
 
@@ -167,8 +171,30 @@ async fn lab_with(
     }
 }
 
-fn create(username: &str) -> CreateUser {
-    CreateUser {
+struct NewUser {
+    username: Username,
+    email: Email,
+    password: Password,
+    display_name: Option<DisplayName>,
+}
+
+async fn create_user(app: &impl UsersRpc<TestCe>, u: NewUser) -> DomainResult<User> {
+    UsersRpc::create_user(app, u.username, u.email, u.password, u.display_name).await
+}
+
+struct UserChange {
+    id: UserId,
+    username: Option<Username>,
+    display_name: Option<Option<DisplayName>>,
+    email: Option<Email>,
+}
+
+async fn update_user(app: &impl UsersRpc<TestCe>, c: UserChange) -> DomainResult<User> {
+    UsersRpc::update_user(app, c.id, c.username, c.display_name, c.email).await
+}
+
+fn create(username: &str) -> NewUser {
+    NewUser {
         username: Username::new(username).unwrap(),
         email: email(&format!("{username}@example.com")),
         password: Password::new(PASSWORD).unwrap(),
@@ -200,8 +226,8 @@ fn app() -> CallerContext {
     CallerContext::App(AppId::new("agent-1"))
 }
 
-fn update(user: &User) -> UpdateUser {
-    UpdateUser {
+fn update(user: &User) -> UserChange {
+    UserChange {
         id: user.id().clone(),
         username: None,
         display_name: None,
@@ -246,9 +272,9 @@ async fn a_create_checks_the_permission_then_stores_the_hashed_user() {
 async fn a_create_stores_the_display_name_and_is_not_a_change() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
 
-    let user = UsersRpc::create_user(
+    let user = create_user(
         &lab.app.scoped(&ctx(alice())),
-        CreateUser {
+        NewUser {
             display_name: Some(DisplayName::new("Bob B.").unwrap()),
             ..create("bob")
         },
@@ -275,9 +301,9 @@ async fn a_taken_username_is_a_conflict_and_writes_nothing() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
     lab.create("bob").await.unwrap();
 
-    let err = UsersRpc::create_user(
+    let err = create_user(
         &lab.app.scoped(&ctx(alice())),
-        CreateUser {
+        NewUser {
             email: email("other@example.com"),
             ..create("bob")
         },
@@ -295,9 +321,9 @@ async fn an_update_stages_the_change_and_persists_it() {
     let lab = lab(permissions.clone()).await;
     let created = lab.create("old").await.unwrap();
 
-    let updated = UsersRpc::update_user(
+    let updated = update_user(
         &lab.app.scoped(&ctx(alice())),
-        UpdateUser {
+        UserChange {
             username: Some(Username::new("new").unwrap()),
             ..update(&created)
         },
@@ -319,9 +345,9 @@ async fn an_update_sets_then_removes_the_display_name() {
     let created = lab.create("bob").await.unwrap();
     let alice = ctx(alice());
 
-    let named = UsersRpc::update_user(
+    let named = update_user(
         &lab.app.scoped(&alice),
-        UpdateUser {
+        UserChange {
             display_name: Some(Some(DisplayName::new("Bobby").unwrap())),
             ..update(&created)
         },
@@ -330,9 +356,9 @@ async fn an_update_sets_then_removes_the_display_name() {
     .unwrap();
     assert_eq!(named.display_name().map(DisplayName::as_str), Some("Bobby"));
 
-    let unnamed = UsersRpc::update_user(
+    let unnamed = update_user(
         &lab.app.scoped(&alice),
-        UpdateUser {
+        UserChange {
             display_name: Some(None),
             ..update(&created)
         },
@@ -349,9 +375,9 @@ async fn an_email_change_also_needs_create_user() {
     let lab = lab(permissions.clone()).await;
     let created = lab.create("bob").await.unwrap();
 
-    let updated = UsersRpc::update_user(
+    let updated = update_user(
         &lab.app.scoped(&ctx(caller(&created))),
-        UpdateUser {
+        UserChange {
             email: Some(email("bobby@example.com")),
             ..update(&created)
         },
@@ -376,9 +402,9 @@ async fn an_email_change_without_create_user_is_refused_also_on_the_own_account(
     lab.users.insert(bob.clone());
     let as_bob = ctx(caller(&bob));
 
-    let err = UsersRpc::update_user(
+    let err = update_user(
         &lab.app.scoped(&as_bob),
-        UpdateUser {
+        UserChange {
             email: Some(email("bobby@example.com")),
             ..update(&bob)
         },
@@ -391,9 +417,9 @@ async fn an_email_change_without_create_user_is_refused_also_on_the_own_account(
         Some(&email("bob@example.com"))
     );
 
-    UsersRpc::update_user(
+    update_user(
         &lab.app.scoped(&as_bob),
-        UpdateUser {
+        UserChange {
             display_name: Some(Some(DisplayName::new("Bob").unwrap())),
             ..update(&bob)
         },
@@ -407,9 +433,9 @@ async fn an_update_to_its_own_username_is_not_a_conflict() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
     let created = lab.create("bob").await.unwrap();
 
-    UsersRpc::update_user(
+    update_user(
         &lab.app.scoped(&ctx(alice())),
-        UpdateUser {
+        UserChange {
             username: Some(Username::new("bob").unwrap()),
             ..update(&created)
         },
@@ -425,16 +451,16 @@ async fn an_update_to_a_taken_username_or_email_is_a_conflict() {
     let created = lab.create("bob").await.unwrap();
 
     for change in [
-        UpdateUser {
+        UserChange {
             username: Some(Username::new("taken").unwrap()),
             ..update(&created)
         },
-        UpdateUser {
+        UserChange {
             email: Some(email("taken@example.com")),
             ..update(&created)
         },
     ] {
-        let err = UsersRpc::update_user(&lab.app.scoped(&ctx(alice())), change)
+        let err = update_user(&lab.app.scoped(&ctx(alice())), change)
             .await
             .unwrap_err();
         assert!(matches!(err, DomainError::Conflict(_)));
@@ -447,14 +473,9 @@ async fn a_delete_removes_the_user() {
     let lab = lab(permissions.clone()).await;
     let created = lab.create("gone").await.unwrap();
 
-    UsersRpc::delete_user(
-        &lab.app.scoped(&ctx(alice())),
-        DeleteUser {
-            id: created.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
+    UsersRpc::delete_user(&lab.app.scoped(&ctx(alice())), created.id().clone())
+        .await
+        .unwrap();
 
     assert!(lab.users.rows().is_empty());
     assert_eq!(
@@ -467,14 +488,9 @@ async fn a_delete_removes_the_user() {
 async fn a_delete_of_a_missing_user_is_not_found() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
 
-    let err = UsersRpc::delete_user(
-        &lab.app.scoped(&ctx(alice())),
-        DeleteUser {
-            id: UserId::new("nobody"),
-        },
-    )
-    .await
-    .unwrap_err();
+    let err = UsersRpc::delete_user(&lab.app.scoped(&ctx(alice())), UserId::new("nobody"))
+        .await
+        .unwrap_err();
 
     assert!(matches!(err, DomainError::NotFound(_)));
 }
@@ -485,14 +501,9 @@ async fn a_read_checks_its_permission() {
     let lab = lab(permissions.clone()).await;
     let created = lab.create("seen").await.unwrap();
 
-    let read = UsersRpc::get_user(
-        &lab.app.scoped(&ctx(alice())),
-        GetUser {
-            id: created.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
+    let read = UsersRpc::get_user(&lab.app.scoped(&ctx(alice())), created.id().clone())
+        .await
+        .unwrap();
 
     assert_eq!(read.id(), created.id());
     assert_eq!(
@@ -508,10 +519,10 @@ async fn get_me_reads_the_caller_without_a_permission_and_refuses_an_app() {
     let bob = signed_in("bob");
     lab.users.insert(bob.clone());
 
-    let me = UsersRpc::get_me(&lab.app.scoped(&ctx(caller(&bob))), GetMe)
+    let me = UsersRpc::get_me(&lab.app.scoped(&ctx(caller(&bob))))
         .await
         .unwrap();
-    let err = UsersRpc::get_me(&lab.app.scoped(&ctx(app())), GetMe)
+    let err = UsersRpc::get_me(&lab.app.scoped(&ctx(app())))
         .await
         .unwrap_err();
 
@@ -528,9 +539,7 @@ async fn a_read_by_username_asks_for_list_users() {
 
     let read = UsersRpc::get_user_by_username(
         &lab.app.scoped(&ctx(alice())),
-        GetUserByUsername {
-            username: Username::new("admin").unwrap(),
-        },
+        Username::new("admin").unwrap(),
     )
     .await
     .unwrap();
@@ -545,24 +554,13 @@ async fn a_read_by_email_asks_for_list_users() {
     let lab = lab(permissions.clone()).await;
     let created = lab.create("admin").await.unwrap();
 
-    let read = UsersRpc::get_user_by_email(
-        &lab.app.scoped(&ctx(alice())),
-        GetUserByEmail {
-            email: email("admin@example.com"),
-        },
-    )
-    .await
-    .unwrap();
+    let read =
+        UsersRpc::get_user_by_email(&lab.app.scoped(&ctx(alice())), email("admin@example.com"))
+            .await
+            .unwrap();
 
     assert_eq!(read.id(), created.id());
     assert_eq!(permissions.permissions()[1], Permission::ListUsers);
-}
-
-fn set_email(user: &User, value: &str) -> UpdateUserEmail {
-    UpdateUserEmail {
-        id: user.id().clone(),
-        email: email(value),
-    }
 }
 
 #[tokio::test]
@@ -574,7 +572,8 @@ async fn an_email_update_gives_an_email_to_a_user_that_has_none() {
 
     let updated = UsersRpc::update_user_email(
         &lab.app.scoped(&ctx(alice())),
-        set_email(&legacy, "admin@example.com"),
+        legacy.id().clone(),
+        email("admin@example.com"),
     )
     .await
     .unwrap();
@@ -597,7 +596,8 @@ async fn an_email_update_keeps_another_email() {
 
     let err = UsersRpc::update_user_email(
         &lab.app.scoped(&ctx(alice())),
-        set_email(&created, "second@example.com"),
+        created.id().clone(),
+        email("second@example.com"),
     )
     .await
     .unwrap_err();
@@ -627,13 +627,7 @@ async fn delete_with(grants: impl Fn(&User, &User) -> Vec<Grant>) -> DomainResul
     )
     .await;
     lab.users.insert(doomed.clone());
-    UsersRpc::delete_user(
-        &lab.app.scoped(&ctx(alice())),
-        DeleteUser {
-            id: doomed.id().clone(),
-        },
-    )
-    .await
+    UsersRpc::delete_user(&lab.app.scoped(&ctx(alice())), doomed.id().clone()).await
 }
 
 fn o1() -> Scope {
@@ -680,14 +674,6 @@ async fn the_last_project_admin_is_deleted() {
     .unwrap();
 }
 
-fn change(current: &str, new: &str, session: Option<&SessionId>) -> ChangePassword {
-    ChangePassword {
-        current_password: password(current),
-        new_password: password(new),
-        session: session.cloned(),
-    }
-}
-
 #[tokio::test]
 async fn a_password_change_keeps_the_session_of_the_call_and_ends_the_rest() {
     let permissions = Arc::new(RecordingPermissionService::new());
@@ -702,8 +688,9 @@ async fn a_password_change_keeps_the_session_of_the_call_and_ends_the_rest() {
     lab.accounts.put_reset(reset_of(&bob));
 
     UsersRpc::change_password(
-        &lab.app.scoped(&ctx(caller(&bob))),
-        change(PASSWORD, "NewPass123!", Some(&this)),
+        &lab.app.scoped(&in_session(caller(&bob), &this)),
+        password(PASSWORD),
+        password("NewPass123!"),
     )
     .await
     .unwrap();
@@ -719,28 +706,6 @@ async fn a_password_change_keeps_the_session_of_the_call_and_ends_the_rest() {
 }
 
 #[tokio::test]
-async fn a_password_change_keeps_the_session_of_the_context() {
-    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
-    let bob = signed_in("bob");
-    lab.users.insert(bob.clone());
-    let this = lab.accounts.open_session(bob.id());
-    lab.accounts.open_session(bob.id());
-    let call = ScyllaCtx {
-        session: Some(this.clone()),
-        ..ctx(caller(&bob))
-    };
-
-    UsersRpc::change_password(
-        &lab.app.scoped(&call),
-        change(PASSWORD, "NewPass123!", None),
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(lab.accounts.sessions(bob.id()), vec![this]);
-}
-
-#[tokio::test]
 async fn a_wrong_current_password_is_a_failed_precondition_and_changes_nothing() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
     let bob = signed_in("bob");
@@ -749,7 +714,8 @@ async fn a_wrong_current_password_is_a_failed_precondition_and_changes_nothing()
 
     let err = UsersRpc::change_password(
         &lab.app.scoped(&ctx(caller(&bob))),
-        change("WrongPass123!", "NewPass123!", None),
+        password("WrongPass123!"),
+        password("NewPass123!"),
     )
     .await
     .unwrap_err();
@@ -766,28 +732,17 @@ async fn an_app_has_no_account_to_change_or_delete() {
 
     let change = UsersRpc::change_password(
         &lab.app.scoped(&as_app),
-        change(PASSWORD, "NewPass123!", None),
+        password(PASSWORD),
+        password("NewPass123!"),
     )
     .await
     .unwrap_err();
-    let delete = UsersRpc::delete_account(
-        &lab.app.scoped(&as_app),
-        DeleteAccount {
-            password: password(PASSWORD),
-        },
-    )
-    .await
-    .unwrap_err();
+    let delete = UsersRpc::delete_account(&lab.app.scoped(&as_app), password(PASSWORD))
+        .await
+        .unwrap_err();
 
     assert!(matches!(change, DomainError::Forbidden(_)));
     assert!(matches!(delete, DomainError::Forbidden(_)));
-}
-
-fn revoke(user: &User, session: Option<&SessionId>) -> RevokeUserSessions {
-    RevokeUserSessions {
-        id: user.id().clone(),
-        session: session.cloned(),
-    }
 }
 
 #[tokio::test]
@@ -800,10 +755,12 @@ async fn an_admin_revokes_every_session_of_a_user() {
     lab.accounts.open_session(bob.id());
     let admins = lab.accounts.open_session(&UserId::new("alice"));
 
-    let revoked =
-        UsersRpc::revoke_user_sessions(&lab.app.scoped(&ctx(alice())), revoke(&bob, Some(&admins)))
-            .await
-            .unwrap();
+    let revoked = UsersRpc::revoke_user_sessions(
+        &lab.app.scoped(&in_session(alice(), &admins)),
+        bob.id().clone(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(revoked, 2);
     assert!(lab.accounts.sessions(bob.id()).is_empty());
@@ -824,8 +781,8 @@ async fn a_user_that_revokes_its_own_sessions_keeps_the_session_of_the_call() {
     lab.accounts.open_session(bob.id());
 
     let revoked = UsersRpc::revoke_user_sessions(
-        &lab.app.scoped(&ctx(caller(&bob))),
-        revoke(&bob, Some(&this)),
+        &lab.app.scoped(&in_session(caller(&bob), &this)),
+        bob.id().clone(),
     )
     .await
     .unwrap();
@@ -838,21 +795,12 @@ async fn a_user_that_revokes_its_own_sessions_keeps_the_session_of_the_call() {
 async fn a_revoke_for_an_unknown_user_is_not_found() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
 
-    let err = UsersRpc::revoke_user_sessions(
-        &lab.app.scoped(&ctx(alice())),
-        revoke(&user("ghost"), None),
-    )
-    .await
-    .unwrap_err();
+    let err =
+        UsersRpc::revoke_user_sessions(&lab.app.scoped(&ctx(alice())), user("ghost").id().clone())
+            .await
+            .unwrap_err();
 
     assert!(err.is_not_found());
-}
-
-fn set_active(user: &User, is_active: bool) -> SetUserActive {
-    SetUserActive {
-        id: user.id().clone(),
-        is_active,
-    }
 }
 
 #[tokio::test]
@@ -864,7 +812,7 @@ async fn a_deactivation_ends_the_sessions_and_the_reset_links() {
     lab.accounts.open_session(bob.id());
     lab.accounts.put_reset(reset_of(&bob));
 
-    let off = UsersRpc::set_user_active(&lab.app.scoped(&ctx(alice())), set_active(&bob, false))
+    let off = UsersRpc::set_user_active(&lab.app.scoped(&ctx(alice())), bob.id().clone(), false)
         .await
         .unwrap();
 
@@ -877,7 +825,7 @@ async fn a_deactivation_ends_the_sessions_and_the_reset_links() {
         vec![Permission::UpdateUser(bob.id().clone())]
     );
 
-    let on = UsersRpc::set_user_active(&lab.app.scoped(&ctx(alice())), set_active(&bob, true))
+    let on = UsersRpc::set_user_active(&lab.app.scoped(&ctx(alice())), bob.id().clone(), true)
         .await
         .unwrap();
     assert!(on.is_active());
@@ -891,7 +839,7 @@ async fn setting_the_current_active_value_writes_nothing() {
     lab.users.insert(bob.clone());
     let session = lab.accounts.open_session(bob.id());
 
-    let same = UsersRpc::set_user_active(&lab.app.scoped(&ctx(alice())), set_active(&bob, true))
+    let same = UsersRpc::set_user_active(&lab.app.scoped(&ctx(alice())), bob.id().clone(), true)
         .await
         .unwrap();
 
@@ -909,7 +857,8 @@ async fn a_user_cannot_change_its_own_active_flag() {
     for is_active in [false, true] {
         let err = UsersRpc::set_user_active(
             &lab.app.scoped(&ctx(caller(&bob))),
-            set_active(&bob, is_active),
+            bob.id().clone(),
+            is_active,
         )
         .await
         .unwrap_err();
@@ -946,7 +895,7 @@ async fn the_last_active_system_admin_stays_active() {
         }
 
         let result =
-            UsersRpc::set_user_active(&lab.app.scoped(&ctx(alice())), set_active(&root, false))
+            UsersRpc::set_user_active(&lab.app.scoped(&ctx(alice())), root.id().clone(), false)
                 .await;
 
         let ids: Vec<&UserId> = admins.iter().map(|u| u.id()).collect();
@@ -969,15 +918,9 @@ async fn a_user_that_is_no_system_admin_is_deactivated_without_the_admin_rule() 
     lab.users.insert(root);
     lab.users.insert(bob.clone());
 
-    UsersRpc::set_user_active(&lab.app.scoped(&ctx(alice())), set_active(&bob, false))
+    UsersRpc::set_user_active(&lab.app.scoped(&ctx(alice())), bob.id().clone(), false)
         .await
         .unwrap();
-}
-
-fn delete_account(value: &str) -> DeleteAccount {
-    DeleteAccount {
-        password: password(value),
-    }
 }
 
 #[tokio::test]
@@ -988,13 +931,13 @@ async fn an_account_is_deleted_with_the_right_password() {
     lab.users.insert(bob.clone());
     let as_bob = ctx(caller(&bob));
 
-    let wrong = UsersRpc::delete_account(&lab.app.scoped(&as_bob), delete_account("WrongPass123!"))
+    let wrong = UsersRpc::delete_account(&lab.app.scoped(&as_bob), password("WrongPass123!"))
         .await
         .unwrap_err();
     assert!(matches!(&wrong, DomainError::BusinessRule(m) if m == WRONG_PASSWORD));
     assert!(lab.users.rows().contains_key(bob.id()));
 
-    UsersRpc::delete_account(&lab.app.scoped(&as_bob), delete_account(PASSWORD))
+    UsersRpc::delete_account(&lab.app.scoped(&as_bob), password(PASSWORD))
         .await
         .unwrap();
     assert!(lab.users.rows().is_empty());
@@ -1038,12 +981,9 @@ async fn the_last_admin_cannot_delete_its_account_and_the_message_names_the_orga
     lab.accounts
         .grant_access(bob.id(), named(&bob, "o3", "Shared"));
 
-    let err = UsersRpc::delete_account(
-        &lab.app.scoped(&ctx(caller(&bob))),
-        delete_account(PASSWORD),
-    )
-    .await
-    .unwrap_err();
+    let err = UsersRpc::delete_account(&lab.app.scoped(&ctx(caller(&bob))), password(PASSWORD))
+        .await
+        .unwrap_err();
 
     let DomainError::BusinessRule(message) = err else {
         panic!("expected a business rule, got {err}");
@@ -1076,12 +1016,9 @@ async fn an_admin_that_shares_each_organization_deletes_its_account() {
     .await;
     lab.users.insert(bob.clone());
 
-    UsersRpc::delete_account(
-        &lab.app.scoped(&ctx(caller(&bob))),
-        delete_account(PASSWORD),
-    )
-    .await
-    .unwrap();
+    UsersRpc::delete_account(&lab.app.scoped(&ctx(caller(&bob))), password(PASSWORD))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -1094,22 +1031,12 @@ async fn the_access_list_needs_read_user_and_a_known_user() {
         .grant_access(bob.id(), named(&bob, "o1", "Acme"));
     let alice = ctx(alice());
 
-    let access = UsersRpc::list_user_access(
-        &lab.app.scoped(&alice),
-        ListUserAccess {
-            id: bob.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
-    let unknown = UsersRpc::list_user_access(
-        &lab.app.scoped(&alice),
-        ListUserAccess {
-            id: UserId::new("ghost"),
-        },
-    )
-    .await
-    .unwrap_err();
+    let access = UsersRpc::list_user_access(&lab.app.scoped(&alice), bob.id().clone())
+        .await
+        .unwrap();
+    let unknown = UsersRpc::list_user_access(&lab.app.scoped(&alice), UserId::new("ghost"))
+        .await
+        .unwrap_err();
 
     assert_eq!(access, vec![named(&bob, "o1", "Acme")]);
     assert_eq!(
@@ -1137,20 +1064,6 @@ fn put(lab: &Lab, user: &User, session: &UserSession) -> SessionId {
     session.id.clone()
 }
 
-fn list(user: &User, session: Option<&SessionId>) -> ListUserSessions {
-    ListUserSessions {
-        id: user.id().clone(),
-        session: session.cloned(),
-    }
-}
-
-fn revoke_one(user: &User, session: &SessionId) -> RevokeUserSession {
-    RevokeUserSession {
-        id: user.id().clone(),
-        session_id: session.clone(),
-    }
-}
-
 #[tokio::test]
 async fn a_list_shows_the_live_sessions_most_recently_active_first_and_marks_the_current_one() {
     let permissions = Arc::new(RecordingPermissionService::new());
@@ -1166,10 +1079,12 @@ async fn a_list_shows_the_live_sessions_most_recently_active_first_and_marks_the
     put(&lab, &bob, &session_of(60 * 3, -1));
     put(&lab, &carol, &session_of(0, hour));
 
-    let sessions =
-        UsersRpc::list_user_sessions(&lab.app.scoped(&ctx(caller(&bob))), list(&bob, Some(&this)))
-            .await
-            .unwrap();
+    let sessions = UsersRpc::list_user_sessions(
+        &lab.app.scoped(&in_session(caller(&bob), &this)),
+        bob.id().clone(),
+    )
+    .await
+    .unwrap();
 
     let ids: Vec<_> = sessions.iter().map(|s| s.id.clone()).collect();
     assert_eq!(ids, vec![new, this.clone(), old]);
@@ -1202,13 +1117,15 @@ async fn the_sessions_of_another_user_need_the_read_permission() {
     let carols = allowed.accounts.open_session(carol.id());
     let as_carol = ctx(caller(&carol));
 
-    let err = UsersRpc::list_user_sessions(&refused.app.scoped(&as_carol), list(&bob, None))
+    let err = UsersRpc::list_user_sessions(&refused.app.scoped(&as_carol), bob.id().clone())
         .await
         .unwrap_err();
-    let seen =
-        UsersRpc::list_user_sessions(&allowed.app.scoped(&as_carol), list(&bob, Some(&carols)))
-            .await
-            .unwrap();
+    let seen = UsersRpc::list_user_sessions(
+        &allowed.app.scoped(&in_session(caller(&carol), &carols)),
+        bob.id().clone(),
+    )
+    .await
+    .unwrap();
 
     assert!(matches!(err, DomainError::Forbidden(_)));
     assert_eq!(seen.len(), 1);
@@ -1220,7 +1137,7 @@ async fn a_session_list_for_an_unknown_user_is_not_found() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
 
     let err =
-        UsersRpc::list_user_sessions(&lab.app.scoped(&ctx(alice())), list(&user("ghost"), None))
+        UsersRpc::list_user_sessions(&lab.app.scoped(&ctx(alice())), user("ghost").id().clone())
             .await
             .unwrap_err();
 
@@ -1240,12 +1157,12 @@ async fn a_user_revokes_one_of_its_sessions_and_can_revoke_the_session_of_the_ca
         ..ctx(caller(&bob))
     };
 
-    UsersRpc::revoke_user_session(&lab.app.scoped(&as_bob), revoke_one(&bob, &other))
+    UsersRpc::revoke_user_session(&lab.app.scoped(&as_bob), bob.id().clone(), other.clone())
         .await
         .unwrap();
     assert_eq!(lab.accounts.sessions(bob.id()), vec![this.clone()]);
 
-    UsersRpc::revoke_user_session(&lab.app.scoped(&as_bob), revoke_one(&bob, &this))
+    UsersRpc::revoke_user_session(&lab.app.scoped(&as_bob), bob.id().clone(), this.clone())
         .await
         .unwrap();
     assert!(lab.accounts.sessions(bob.id()).is_empty());
@@ -1275,13 +1192,20 @@ async fn a_session_of_another_user_needs_the_update_permission() {
     }
     let as_carol = ctx(caller(&carol));
 
-    let err =
-        UsersRpc::revoke_user_session(&refused.app.scoped(&as_carol), revoke_one(&bob, &ids[0]))
-            .await
-            .unwrap_err();
-    UsersRpc::revoke_user_session(&allowed.app.scoped(&as_carol), revoke_one(&bob, &ids[1]))
-        .await
-        .unwrap();
+    let err = UsersRpc::revoke_user_session(
+        &refused.app.scoped(&as_carol),
+        bob.id().clone(),
+        ids[0].clone(),
+    )
+    .await
+    .unwrap_err();
+    UsersRpc::revoke_user_session(
+        &allowed.app.scoped(&as_carol),
+        bob.id().clone(),
+        ids[1].clone(),
+    )
+    .await
+    .unwrap();
 
     assert!(matches!(err, DomainError::Forbidden(_)));
     assert_eq!(refused.accounts.sessions(bob.id()), vec![ids[0].clone()]);
@@ -1305,9 +1229,13 @@ async fn a_session_that_is_not_a_live_session_of_the_user_gives_one_not_found() 
         (&carol, SessionId::new("unknown")),
         (&user("ghost"), bobs.clone()),
     ] {
-        let err = UsersRpc::revoke_user_session(&lab.app.scoped(&as_carol), revoke_one(owner, &id))
-            .await
-            .unwrap_err();
+        let err = UsersRpc::revoke_user_session(
+            &lab.app.scoped(&as_carol),
+            owner.id().clone(),
+            id.clone(),
+        )
+        .await
+        .unwrap_err();
         assert!(
             matches!(&err, DomainError::NotFound(m) if m == &format!("Session '{id}' not found"))
         );
@@ -1334,13 +1262,7 @@ fn token_of(message: &PasswordResetMessage) -> ResetToken {
 }
 
 async fn send(lab: &Lab, user: &User) -> DomainResult<PasswordResetDelivery> {
-    UsersRpc::send_password_reset(
-        &lab.app.scoped(&ctx(alice())),
-        SendPasswordReset {
-            id: user.id().clone(),
-        },
-    )
-    .await
+    UsersRpc::send_password_reset(&lab.app.scoped(&ctx(alice())), user.id().clone()).await
 }
 
 #[tokio::test]

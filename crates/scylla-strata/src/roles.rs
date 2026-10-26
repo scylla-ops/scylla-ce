@@ -4,15 +4,11 @@ use scylla_auth::authz::{
     RoleRepository, Scope, ScopeKind, ensure_no_escalation, permissions_by_role,
     validate_role_permissions,
 };
-use scylla_core::application::role::{
-    CreateRole, DeleteRole, GetEffectivePermissions, GetMyPermissions, GetRole,
-    ListAuthzVocabulary, ListRoles, UpdateRole,
-};
 use scylla_domain::domain::errors::{DomainError, DomainResult};
 use scylla_domain::domain::ids::OrganizationId;
-use scylla_domain::domain::permission::PERMISSION_CATALOG;
-use scylla_domain::domain::role::RoleName;
-use scylla_extension::Describe;
+use scylla_domain::domain::permission::{PERMISSION_CATALOG, Permission};
+use scylla_domain::domain::role::{RoleDescription, RoleDisplayName, RoleName};
+use scylla_extension::Access;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -81,41 +77,49 @@ pub trait Roles: crate::Access {
             .collect())
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn create_role(&self, cmd: CreateRole) -> DomainResult<Role> {
-        if cmd.organization_id.is_some() && cmd.scope == ScopeKind::System {
+    /// With an organization, a role of that organization; without, a platform role.
+    #[usecase(write, access = Access::Requires(organization_id.as_ref().map_or(Permission::ManageRoles, |o| Permission::ManageOrgRoles(o.clone()))))]
+    async fn create_role(
+        &self,
+        organization_id: Option<OrganizationId>,
+        name: RoleDisplayName,
+        description: RoleDescription,
+        scope: ScopeKind,
+        kind: RoleKind,
+        permissions: Vec<String>,
+    ) -> DomainResult<Role> {
+        if organization_id.is_some() && scope == ScopeKind::System {
             return Err(DomainError::validation(
                 "a role of an organization is organization or project scoped",
             ));
         }
-        if cmd.kind == RoleKind::Admin {
+        if kind == RoleKind::Admin {
             return Err(DomainError::validation(
                 "the admin kind is reserved for the builtin roles",
             ));
         }
-        validate_role_permissions(&cmd.permissions, cmd.scope)?;
-        self.ensure_no_escalation(&cmd.permissions, cmd.organization_id.as_ref())
+        validate_role_permissions(&permissions, scope)?;
+        self.ensure_no_escalation(&permissions, organization_id.as_ref())
             .await?;
-        let role = Role::new_custom(
-            cmd.name,
-            cmd.description,
-            cmd.scope,
-            cmd.kind,
-            cmd.organization_id,
-            cmd.permissions,
-        );
+        let role = Role::new_custom(name, description, scope, kind, organization_id, permissions);
         self.role_repo().create(&role).await?;
         Ok(role)
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn update_role(&self, cmd: UpdateRole) -> DomainResult<Role> {
-        let mut role = self.role(&cmd.id).await?;
-        validate_role_permissions(&cmd.permissions, role.scope)?;
+    #[usecase(write, access = Access::Requires(Permission::ManageRole(id.clone())))]
+    async fn update_role(
+        &self,
+        id: RoleName,
+        name: RoleDisplayName,
+        description: RoleDescription,
+        permissions: Vec<String>,
+    ) -> DomainResult<Role> {
+        let mut role = self.role(&id).await?;
+        validate_role_permissions(&permissions, role.scope)?;
         let added: Vec<String> = if role.is_full_control() {
             Vec::new()
         } else {
-            cmd.permissions
+            permissions
                 .iter()
                 .filter(|p| !role.permissions.contains(p))
                 .cloned()
@@ -123,16 +127,16 @@ pub trait Roles: crate::Access {
         };
         self.ensure_no_escalation(&added, role.owner_org.as_ref())
             .await?;
-        role.name = cmd.name;
-        role.description = cmd.description;
-        role.permissions = cmd.permissions;
+        role.name = name;
+        role.description = description;
+        role.permissions = permissions;
         self.role_repo().update(&role).await?;
         Ok(role)
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn delete_role(&self, cmd: DeleteRole) -> DomainResult<()> {
-        let role = self.role(&cmd.id).await?;
+    #[usecase(write, access = Access::Requires(Permission::ManageRole(id.clone())))]
+    async fn delete_role(&self, id: RoleName) -> DomainResult<()> {
+        let role = self.role(&id).await?;
         if role.builtin {
             return Err(DomainError::business_rule(
                 "builtin roles cannot be deleted",
@@ -144,43 +148,43 @@ pub trait Roles: crate::Access {
         self.role_repo().delete(&role).await
     }
 
-    #[usecase(read, access = query.access())]
-    async fn list_roles(&self, query: ListRoles) -> DomainResult<Vec<Role>> {
+    /// With an organization, the platform roles and the roles of that organization; without, every
+    /// role.
+    #[usecase(read, access = Access::Requires(organization_id.as_ref().map_or(Permission::ManageRoles, |o| Permission::ManageOrgRoles(o.clone()))))]
+    async fn list_roles(&self, organization_id: Option<OrganizationId>) -> DomainResult<Vec<Role>> {
         let mut roles = self.role_repo().list_all().await?;
-        if let Some(organization) = &query.organization_id {
+        if let Some(organization) = &organization_id {
             roles.retain(|r| r.usable_in(Some(organization)));
         }
         Ok(roles)
     }
 
-    #[usecase(read, access = query.access())]
-    async fn get_role(&self, query: GetRole) -> DomainResult<Role> {
-        self.role(&query.id).await
+    #[usecase(read, access = Access::Requires(Permission::ManageRole(id.clone())))]
+    async fn get_role(&self, id: RoleName) -> DomainResult<Role> {
+        self.role(&id).await
     }
 
-    #[usecase(read, access = ListAuthzVocabulary.access())]
-    #[allow(unused_variables)]
-    async fn list_authz_vocabulary(
-        &self,
-        query: ListAuthzVocabulary,
-    ) -> DomainResult<&'static [(&'static str, &'static str)]> {
+    /// Each permission key with the resource type that it targets. It is compiled-in data, thus
+    /// each signed-in caller reads it.
+    #[usecase(read, access = Access::Authenticated)]
+    async fn list_authz_vocabulary(&self) -> DomainResult<&'static [(&'static str, &'static str)]> {
         Ok(PERMISSION_CATALOG.as_slice())
     }
 
-    #[usecase(read, access = query.access())]
+    /// The permissions of another principal: the admin view. A caller reads its own permissions
+    /// with `get_my_permissions`.
+    #[usecase(read, access = Access::Requires(Permission::ManageSystemGrants))]
     async fn get_effective_permissions(
         &self,
-        query: GetEffectivePermissions,
+        principal: Principal,
     ) -> DomainResult<Vec<EffectiveScope>> {
-        self.effective_scopes(&query.principal).await
+        self.effective_scopes(&principal).await
     }
 
-    #[usecase(read, access = GetMyPermissions.access())]
-    #[allow(unused_variables)]
-    async fn get_my_permissions(
-        &self,
-        query: GetMyPermissions,
-    ) -> DomainResult<Vec<EffectiveScope>> {
+    /// The permissions of the caller: no permission is asked. The use case refuses a service, not
+    /// the authorize stage: a service holds no grants, and an empty list reads as "no permissions".
+    #[usecase(read, access = Access::Authenticated)]
+    async fn get_my_permissions(&self) -> DomainResult<Vec<EffectiveScope>> {
         let principal = Principal::from_caller(self.ctx().caller()).ok_or_else(|| {
             DomainError::forbidden("this caller is not a principal that holds grants")
         })?;

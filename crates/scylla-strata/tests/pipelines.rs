@@ -5,10 +5,6 @@ use scylla_core::application::agent::{
 };
 use scylla_core::application::job::JobScope;
 use scylla_core::application::pagination::{PaginatedResult, PaginationParams};
-use scylla_core::application::pipeline::{
-    CreatePipeline, DeletePipeline, GetPipeline, ListProjectPipelines, RunPipeline,
-    RunPipelineWithInputs, UpdatePipeline,
-};
 use scylla_core::application::{
     DispatchUseCases, JobLogLiveStream, JobLogStreamPort, JobRepository, PipelineRepository,
     ProjectRepository, SecretResolver,
@@ -19,14 +15,10 @@ use scylla_core::test_support::pipelines::{PipelineBuilder, node};
 use scylla_core::test_support::projects::ProjectBuilder;
 use scylla_domain::domain::caller::{CallerContext, ServiceIdentity};
 use scylla_domain::domain::errors::{DomainError, DomainResult};
-use scylla_domain::domain::ids::{
-    AppId, JobId, OrganizationId, PipelineId, ProjectId, TriggerId, UserId,
-};
+use scylla_domain::domain::ids::{AppId, JobId, OrganizationId, PipelineId, ProjectId, UserId};
 use scylla_domain::domain::job::{Job, JobLog, JobOrigin, JobStatus};
 use scylla_domain::domain::permission::Permission;
-use scylla_domain::domain::pipeline::{
-    EnvKey, EnvValue, NodeId, Pipeline, PipelineName, PipelineNode, Shell, Step,
-};
+use scylla_domain::domain::pipeline::{NodeId, Pipeline, PipelineName, PipelineNode, Shell, Step};
 use scylla_domain::domain::project::Project;
 use scylla_proto::common::v1::PipelineId as PbPipelineId;
 use scylla_proto::pipeline::v1::RunPipelineRequest;
@@ -441,7 +433,8 @@ async fn lab(permissions: Arc<dyn PermissionService>) -> Lab<TestCe> {
 
 impl<E: scylla_strata::Pipelines + Contextual<Ctx = ScyllaCtx>> Lab<E> {
     async fn create(&self) -> DomainResult<Pipeline> {
-        PipelinesRpc::create_pipeline(&self.app.scoped(&alice()), create()).await
+        let (project_id, name, nodes) = create();
+        PipelinesRpc::create_pipeline(&self.app.scoped(&alice()), project_id, name, nodes).await
     }
 
     fn seed(&self) -> Pipeline {
@@ -458,30 +451,29 @@ impl<E: scylla_strata::Pipelines + Contextual<Ctx = ScyllaCtx>> Lab<E> {
     }
 
     async fn run_as(&self, caller: ScyllaCtx, pipeline: &Pipeline) -> DomainResult<Job> {
-        PipelinesRpc::run_pipeline(
-            &self.app.scoped(&caller),
-            RunPipeline {
-                id: pipeline.id().clone(),
-            },
-        )
-        .await
+        PipelinesRpc::run_pipeline(&self.app.scoped(&caller), pipeline.id().clone()).await
     }
 
     async fn run(&self, pipeline: &Pipeline) -> DomainResult<Job> {
         self.run_as(alice(), pipeline).await
     }
 
-    async fn update(&self, cmd: UpdatePipeline) -> DomainResult<Pipeline> {
-        PipelinesRpc::update_pipeline(&self.app.scoped(&alice()), cmd).await
+    async fn update(
+        &self,
+        id: PipelineId,
+        name: Option<PipelineName>,
+        nodes: Option<Vec<PipelineNode>>,
+    ) -> DomainResult<Pipeline> {
+        PipelinesRpc::update_pipeline(&self.app.scoped(&alice()), id, name, nodes).await
     }
 }
 
-fn create() -> CreatePipeline {
-    CreatePipeline {
-        project_id: project_id(),
-        name: PipelineName::new("build").unwrap(),
-        nodes: vec![node("a", &[])],
-    }
+fn create() -> (ProjectId, PipelineName, Vec<PipelineNode>) {
+    (
+        project_id(),
+        PipelineName::new("build").unwrap(),
+        vec![node("a", &[])],
+    )
 }
 
 #[tokio::test]
@@ -508,13 +500,15 @@ async fn a_create_checks_the_permission_on_the_project_then_writes() {
 async fn a_create_in_an_unknown_project_is_not_found_and_writes_nothing() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
 
-    let ghost = CreatePipeline {
-        project_id: ProjectId::new("ghost"),
-        ..create()
-    };
-    let err = PipelinesRpc::create_pipeline(&lab.app.scoped(&alice()), ghost)
-        .await
-        .unwrap_err();
+    let (_, name, nodes) = create();
+    let err = PipelinesRpc::create_pipeline(
+        &lab.app.scoped(&alice()),
+        ProjectId::new("ghost"),
+        name,
+        nodes,
+    )
+    .await
+    .unwrap_err();
 
     assert!(matches!(err, DomainError::NotFound(_)));
     assert!(lab.pipelines.rows.lock().unwrap().is_empty());
@@ -537,11 +531,11 @@ async fn an_update_checks_its_permission_and_changes_only_what_is_set() {
     let seeded = lab.seed();
 
     let updated = lab
-        .update(UpdatePipeline {
-            id: seeded.id().clone(),
-            name: Some(PipelineName::new("deploy").unwrap()),
-            nodes: None,
-        })
+        .update(
+            seeded.id().clone(),
+            Some(PipelineName::new("deploy").unwrap()),
+            None,
+        )
         .await
         .unwrap();
 
@@ -573,14 +567,9 @@ async fn a_delete_checks_its_permission_removes_the_row_then_stops_its_live_jobs
             .build(),
     );
 
-    PipelinesRpc::delete_pipeline(
-        &lab.app.scoped(&alice()),
-        DeletePipeline {
-            id: seeded.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
+    PipelinesRpc::delete_pipeline(&lab.app.scoped(&alice()), seeded.id().clone())
+        .await
+        .unwrap();
 
     assert_eq!(
         permissions.permissions(),
@@ -598,23 +587,12 @@ async fn a_get_and_a_project_list_check_their_permissions() {
     let caller = alice();
     let alice = lab.app.scoped(&caller);
 
-    let got = PipelinesRpc::get_pipeline(
-        &alice,
-        GetPipeline {
-            id: seeded.id().clone(),
-        },
-    )
-    .await
-    .unwrap();
-    let page = PipelinesRpc::list_project_pipelines(
-        &alice,
-        ListProjectPipelines {
-            project_id: project_id(),
-            pagination: None,
-        },
-    )
-    .await
-    .unwrap();
+    let got = PipelinesRpc::get_pipeline(&alice, seeded.id().clone())
+        .await
+        .unwrap();
+    let page = PipelinesRpc::list_project_pipelines(&alice, project_id(), None)
+        .await
+        .unwrap();
 
     assert_eq!(got.id(), seeded.id());
     assert_eq!(page.into_parts().0.len(), 1);
@@ -664,13 +642,9 @@ async fn a_job_keeps_the_nodes_of_its_pipeline_when_the_pipeline_changes() {
     );
     let job = lab.run(&seeded).await.unwrap();
 
-    lab.update(UpdatePipeline {
-        id: seeded.id().clone(),
-        name: None,
-        nodes: Some(vec![node("new", &[])]),
-    })
-    .await
-    .unwrap();
+    lab.update(seeded.id().clone(), None, Some(vec![node("new", &[])]))
+        .await
+        .unwrap();
 
     let stored = lab.jobs.row(job.id());
     let ids: Vec<&str> = stored.nodes().iter().map(|n| n.id().as_str()).collect();
@@ -746,41 +720,6 @@ async fn a_denied_run_creates_no_job() {
 
     assert!(matches!(err, DomainError::Forbidden(_)));
     assert!(lab.jobs.rows().is_empty());
-}
-
-#[tokio::test]
-async fn a_trigger_run_checks_run_pipeline_and_keeps_its_origin_and_inputs() {
-    let permissions = Arc::new(RecordingPermissionService::new());
-    let lab = lab(permissions.clone()).await;
-    let seeded = lab.seed();
-    let origin = JobOrigin::Cron {
-        trigger_id: TriggerId::new("t-1"),
-    };
-    let inputs = vec![(
-        EnvKey::new("MODE").unwrap(),
-        EnvValue::new("nightly").unwrap(),
-    )];
-    let runner = CallerContext::App(AppId::new("runner"));
-
-    let job = PipelinesRpc::run_pipeline_with_inputs(
-        &lab.app.scoped(&ctx(runner.clone())),
-        RunPipelineWithInputs {
-            id: seeded.id().clone(),
-            inputs: inputs.clone(),
-            origin: origin.clone(),
-        },
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(
-        permissions.checks(),
-        vec![(runner, Permission::RunPipeline(seeded.id().clone()))]
-    );
-    assert_eq!(job.origin(), &origin);
-    assert_eq!(job.inputs(), inputs.as_slice());
-    assert_eq!(lab.jobs.rows().len(), 1);
-    assert_eq!(lab.registry.wakes(), [None]);
 }
 
 async fn serve(app: TestCe) -> PipelineServiceClient<Channel> {

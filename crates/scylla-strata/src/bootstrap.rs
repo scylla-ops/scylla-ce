@@ -1,10 +1,6 @@
 use crate::access::CallerOf;
 use crate::{Grants, GrantsRpc, Users, UsersRpc};
 use scylla_auth::authz::{Principal, Scope};
-use scylla_core::application::grant::CreateGrant;
-use scylla_core::application::user::{
-    CreateUser, GetUserByEmail, GetUserByUsername, UpdateUserEmail,
-};
 use scylla_core::bootstrap::{AdminAccount, admin_account};
 use scylla_core::config::BootstrapConfig;
 use scylla_core::error::BootstrapError;
@@ -31,13 +27,9 @@ where
     let ctx = crate::workers::service::<<E as Contextual>::Ctx>(ServiceIdentity::bootstrap());
     let view = app.scoped(&ctx);
 
-    let create = CreateUser {
-        username: username.clone(),
-        email: email.clone(),
-        password,
-        display_name: None,
-    };
-    let user = match UsersRpc::create_user(&view, create).await {
+    let user = match UsersRpc::create_user(&view, username.clone(), email.clone(), password, None)
+        .await
+    {
         Ok(user) => {
             tracing::info!(user_id = %user.id(), username = %username, "bootstrap user created");
             user
@@ -49,12 +41,8 @@ where
         Err(e) => return Err(BootstrapError::CreateUser(e)),
     };
 
-    let grant = CreateGrant {
-        principal: Principal::User(user.id().clone()),
-        role: role.clone(),
-        scope: Scope::System,
-    };
-    GrantsRpc::create_grant(&view, grant)
+    let principal = Principal::User(user.id().clone());
+    GrantsRpc::create_grant(&view, principal, role.clone(), Scope::System)
         .await
         .map_err(BootstrapError::GrantPermission)?;
     tracing::info!(user_id = %user.id(), role = %role, "bootstrap system grant ensured");
@@ -66,30 +54,20 @@ async fn existing_admin<E: Users>(
     username: &Username,
     email: Email,
 ) -> Result<User, BootstrapError> {
-    let by_email = GetUserByEmail {
-        email: email.clone(),
-    };
-    match UsersRpc::get_user_by_email(view, by_email).await {
+    match UsersRpc::get_user_by_email(view, email.clone()).await {
         Ok(user) if user.username() == username => return Ok(user),
         Ok(_) => return Err(BootstrapError::EmailOfAnotherAccount),
         Err(e) if e.is_not_found() => {}
         Err(e) => return Err(BootstrapError::FindUser(e)),
     }
 
-    let by_username = GetUserByUsername {
-        username: username.clone(),
-    };
-    let user = UsersRpc::get_user_by_username(view, by_username)
+    let user = UsersRpc::get_user_by_username(view, username.clone())
         .await
         .map_err(BootstrapError::FindUser)?;
     if user.email().is_some() {
         return Err(BootstrapError::UsernameWithAnotherEmail);
     }
-    let update = UpdateUserEmail {
-        id: user.id().clone(),
-        email,
-    };
-    let user = UsersRpc::update_user_email(view, update)
+    let user = UsersRpc::update_user_email(view, user.id().clone(), email)
         .await
         .map_err(BootstrapError::UpdateEmail)?;
     tracing::info!(user_id = %user.id(), "bootstrap email set on the existing user");

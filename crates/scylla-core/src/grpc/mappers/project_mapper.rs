@@ -208,4 +208,25 @@ mod tests {
         assert!(name.is_none());
         assert!(matches!(description, Some(Some(_))));
     }
+
+    fn update_description(description: Option<&str>) -> Option<Option<String>> {
+        let (_, _, description) = UpdateProjectRequest {
+            project_id: wrap("p-1"),
+            name: None,
+            description: description.map(str::to_owned),
+        }
+        .parse()
+        .unwrap();
+        description.map(|d| d.map(|d| d.as_str().to_owned()))
+    }
+
+    #[test]
+    fn an_update_keeps_clears_or_sets_the_description() {
+        assert_eq!(update_description(None), None);
+        assert_eq!(update_description(Some("")), Some(Some(String::new())));
+        assert_eq!(
+            update_description(Some("moon")),
+            Some(Some("moon".to_string()))
+        );
+    }
 }

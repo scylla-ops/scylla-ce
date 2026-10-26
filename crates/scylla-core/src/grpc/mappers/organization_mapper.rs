@@ -1,10 +1,7 @@
-use crate::application::organization::{
-    CreateOrganization, DeleteOrganization, GetOrganization, ListOrganizationMembers,
-    ListOrganizations, ListUserOrganizations, SetOrganizationActive, UpdateOrganization,
-};
-use crate::application::pagination::PaginatedResult;
+use crate::application::pagination::{PaginatedResult, PaginationParams};
 use crate::grpc::convert::{Parse, id, ts, valid, wrap};
-use crate::grpc::mappers::domain_to_proto_metadata;
+use crate::grpc::mappers::{domain_to_proto_metadata, proto_to_domain_pagination};
+use scylla_domain::domain::ids::{OrganizationId, UserId};
 use scylla_domain::domain::organization::{
     Organization, OrganizationDescription, OrganizationName,
 };
@@ -33,57 +30,90 @@ pub fn organization_to_proto(org: &Organization) -> ProtoOrganization {
 }
 
 impl Parse for CreateOrganizationRequest {
-    type Into = CreateOrganization;
+    type Into = (OrganizationName, Option<OrganizationDescription>);
 
-    fn parse(self) -> Result<CreateOrganization, Status> {
-        Ok(CreateOrganization {
-            name: valid(self.name, OrganizationName::new)?,
-            description: self
-                .description
-                .map(|d| valid(d, OrganizationDescription::new))
-                .transpose()?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let name = valid(self.name, OrganizationName::new)?;
+        let description = self
+            .description
+            .map(|d| valid(d, OrganizationDescription::new))
+            .transpose()?;
+        Ok((name, description))
     }
 }
 
-parse!(GetOrganizationRequest => GetOrganization { id: id(organization_id) });
+impl Parse for GetOrganizationRequest {
+    type Into = OrganizationId;
+
+    fn parse(self) -> Result<OrganizationId, Status> {
+        id(self.organization_id, "organization_id")
+    }
+}
 
 impl Parse for UpdateOrganizationRequest {
-    type Into = UpdateOrganization;
+    type Into = (
+        OrganizationId,
+        Option<OrganizationName>,
+        Option<Option<OrganizationDescription>>,
+    );
 
     // A description that is set but empty clears it: the wire has no way to send `Some(None)`.
-    fn parse(self) -> Result<UpdateOrganization, Status> {
-        Ok(UpdateOrganization {
-            id: id(self.organization_id, "organization_id")?,
-            name: self
-                .name
-                .map(|n| valid(n, OrganizationName::new))
-                .transpose()?,
-            description: self
-                .description
-                .map(|d| valid(d, OrganizationDescription::new).map(Some))
-                .transpose()?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let organization_id = id(self.organization_id, "organization_id")?;
+        let name = self
+            .name
+            .map(|n| valid(n, OrganizationName::new))
+            .transpose()?;
+        let description = self
+            .description
+            .map(|d| valid(d, OrganizationDescription::new).map(Some))
+            .transpose()?;
+        Ok((organization_id, name, description))
     }
 }
 
-parse!(SetOrganizationActiveRequest => SetOrganizationActive {
-    id: id(organization_id),
-    is_active: copy,
-});
+impl Parse for SetOrganizationActiveRequest {
+    type Into = (OrganizationId, bool);
 
-parse!(DeleteOrganizationRequest => DeleteOrganization { id: id(organization_id) });
-parse!(ListOrganizationsRequest => ListOrganizations { pagination: page });
+    fn parse(self) -> Result<Self::Into, Status> {
+        let organization_id = id(self.organization_id, "organization_id")?;
+        Ok((organization_id, self.is_active))
+    }
+}
 
-parse!(ListOrganizationMembersRequest => ListOrganizationMembers {
-    organization_id: id(organization_id),
-    pagination: page,
-});
+impl Parse for DeleteOrganizationRequest {
+    type Into = OrganizationId;
 
-parse!(ListUserOrganizationsRequest => ListUserOrganizations {
-    user_id: id(user_id),
-    pagination: page,
-});
+    fn parse(self) -> Result<OrganizationId, Status> {
+        id(self.organization_id, "organization_id")
+    }
+}
+
+impl Parse for ListOrganizationsRequest {
+    type Into = Option<PaginationParams>;
+
+    fn parse(self) -> Result<Option<PaginationParams>, Status> {
+        Ok(proto_to_domain_pagination(self.pagination))
+    }
+}
+
+impl Parse for ListOrganizationMembersRequest {
+    type Into = (OrganizationId, Option<PaginationParams>);
+
+    fn parse(self) -> Result<Self::Into, Status> {
+        let organization_id = id(self.organization_id, "organization_id")?;
+        Ok((organization_id, proto_to_domain_pagination(self.pagination)))
+    }
+}
+
+impl Parse for ListUserOrganizationsRequest {
+    type Into = (UserId, Option<PaginationParams>);
+
+    fn parse(self) -> Result<Self::Into, Status> {
+        let user_id = id(self.user_id, "user_id")?;
+        Ok((user_id, proto_to_domain_pagination(self.pagination)))
+    }
+}
 
 page_response!(
     Organization => organizations: organization_to_proto;
@@ -114,20 +144,17 @@ mod tests {
     use tonic::Code;
 
     #[test]
-    fn a_create_request_becomes_a_command_with_validated_fields() {
-        let command = CreateOrganizationRequest {
+    fn a_create_request_becomes_the_validated_inputs() {
+        let (name, description) = CreateOrganizationRequest {
             name: "  acme ".into(),
             description: Some("widgets".into()),
         }
         .parse()
         .unwrap();
 
-        assert_eq!(command.name.as_str(), "acme");
+        assert_eq!(name.as_str(), "acme");
         assert_eq!(
-            command
-                .description
-                .as_ref()
-                .map(OrganizationDescription::as_str),
+            description.as_ref().map(OrganizationDescription::as_str),
             Some("widgets")
         );
     }
@@ -156,17 +183,44 @@ mod tests {
         assert_eq!(err.code(), Code::InvalidArgument);
     }
 
-    #[test]
-    fn an_update_with_a_description_set_carries_it_as_a_change() {
-        let command = UpdateOrganizationRequest {
+    fn update(description: Option<&str>) -> Option<Option<OrganizationDescription>> {
+        let (_, name, description) = UpdateOrganizationRequest {
             organization_id: wrap("org-1"),
             name: None,
-            description: Some(String::new()),
+            description: description.map(str::to_owned),
         }
         .parse()
         .unwrap();
+        assert!(name.is_none());
+        description
+    }
 
-        assert!(command.name.is_none());
-        assert!(matches!(command.description, Some(Some(_))));
+    #[test]
+    fn an_update_without_a_description_leaves_it() {
+        assert!(update(None).is_none());
+    }
+
+    #[test]
+    fn an_update_with_an_empty_description_carries_it_as_a_change() {
+        let description = update(Some(""));
+
+        assert_eq!(
+            description
+                .as_ref()
+                .map(|d| d.as_ref().map(OrganizationDescription::as_str)),
+            Some(Some(""))
+        );
+    }
+
+    #[test]
+    fn an_update_with_a_description_set_carries_the_value() {
+        let description = update(Some("widgets"));
+
+        assert_eq!(
+            description
+                .as_ref()
+                .map(|d| d.as_ref().map(OrganizationDescription::as_str)),
+            Some(Some("widgets"))
+        );
     }
 }

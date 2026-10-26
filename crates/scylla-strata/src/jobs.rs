@@ -3,14 +3,10 @@ use crate::ports::JobDispatch;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use scylla_auth::authz::{Visibility, VisibilityResolver};
 use scylla_core::application::agent::dispatch::assemble_dispatch;
-use scylla_core::application::agent::{AgentDispatch, AgentStream, DispatchPendingJobs};
+use scylla_core::application::agent::{AgentDispatch, AgentStream};
 use scylla_core::application::guards::{app_only, service_only};
-use scylla_core::application::job::{
-    AppendJobLogs, CancelJob, DeleteJob, GetJob, JobEvent, ListJobLogs, ListJobs,
-    ListOrganizationJobs, ListPipelineJobs, ListProjectJobs, ORPHAN_GRACE, ReapOrphanedJobs,
-    ReconcileAgentJobs, RecordJobStatus, ReleaseAgentJobs, TailJobLogs,
-};
-use scylla_core::application::pagination::PaginatedResult;
+use scylla_core::application::job::{JobEvent, ORPHAN_GRACE};
+use scylla_core::application::pagination::{PaginatedResult, PaginationParams};
 use scylla_core::application::{
     DispatchUseCases, JobLogLiveStream, JobLogRepository, JobLogStreamPort, JobRepository,
     SecretResolver,
@@ -18,11 +14,11 @@ use scylla_core::application::{
 use scylla_domain::domain::caller::CallerContext;
 use scylla_domain::domain::clock;
 use scylla_domain::domain::errors::{DomainError, DomainResult};
-use scylla_domain::domain::ids::{AppId, JobId, PipelineId};
+use scylla_domain::domain::ids::{AppId, JobId, OrganizationId, PipelineId, ProjectId, StreamId};
 use scylla_domain::domain::job::{Job, JobLog, LogStream, NodeOutcome};
 use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::pipeline::NodeId;
-use scylla_extension::Describe;
+use scylla_extension::Access;
 use sqlx::types::chrono::{DateTime, Utc};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -63,6 +59,16 @@ pub struct JobStopper(Arc<DispatchUseCases>);
 impl Component for JobStopper {
     async fn build(cx: &mut BuildCx<'_>) -> Result<Self, BuildError> {
         Ok(JobStopper(cx.resource::<JobDispatch>().await?.0))
+    }
+}
+
+/// The access of a read of the logs of a job. A node also needs `readJob`: the node of a job is
+/// read from the job.
+fn job_logs_access(job_id: &JobId, node_id: Option<&NodeId>) -> Access {
+    let logs = Permission::ReadJobLogs(job_id.clone());
+    match node_id {
+        Some(_) => Access::RequiresAll(vec![logs, Permission::ReadJob(job_id.clone())]),
+        None => Access::Requires(logs),
     }
 }
 
@@ -146,13 +152,23 @@ pub trait JobControl: crate::Access {
         }
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn record_job_status(&self, cmd: RecordJobStatus) -> DomainResult<Job> {
+    /// One `writeJobStatus` check. The reads and the write go through the port, thus an agent
+    /// needs no `readJob`. Only the agent that the job is placed on reports it, until the job
+    /// ends. `at` is the time of the event on the agent, kept between the creation of the job and
+    /// now. Each write of a job is versioned: a pass skips a job that changed since it read it
+    /// (`Stale`).
+    #[usecase(write, access = Access::Requires(Permission::WriteJobStatus(job_id.clone())))]
+    async fn record_job_status(
+        &self,
+        job_id: JobId,
+        event: JobEvent,
+        at: DateTime<Utc>,
+    ) -> DomainResult<Job> {
         let agent = app_only(self.ctx().caller())?;
-        let job = self.job_store().find_by_id(&cmd.job_id).await?;
+        let job = self.job_store().find_by_id(&job_id).await?;
         job.ensure_live_on(&agent)?;
-        let at = cmd.at.max(job.created_at()).min(clock::now());
-        let job = match &cmd.event {
+        let at = at.max(job.created_at()).min(clock::now());
+        let job = match &event {
             JobEvent::JobStarted => job.start(at)?,
             JobEvent::NodeStarted { node_id } => {
                 job.apply_node_started(&NodeId::new(node_id)?, at)?
@@ -169,7 +185,7 @@ pub trait JobControl: crate::Access {
             JobEvent::JobCompleted => job.complete(at)?,
             JobEvent::JobFailed { .. } => job.fail(at)?,
         };
-        let started = matches!(cmd.event, JobEvent::JobStarted);
+        let started = matches!(event, JobEvent::JobStarted);
         let job = self.job_store().update(&job).await?;
         if started {
             self.job_tails().0.open(job.id());
@@ -181,18 +197,18 @@ pub trait JobControl: crate::Access {
         Ok(job)
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn cancel_job(&self, cmd: CancelJob) -> DomainResult<Job> {
-        let job = self.job_store().find_by_id(&cmd.id).await?;
+    #[usecase(write, access = Access::Requires(Permission::UpdateJob(id.clone())))]
+    async fn cancel_job(&self, id: JobId) -> DomainResult<Job> {
+        let job = self.job_store().find_by_id(&id).await?;
         let job = job.cancel(clock::now())?;
         let job = self.job_store().update(&job).await?;
         self.job_stops().0.stop(&job);
         Ok(job)
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn delete_job(&self, cmd: DeleteJob) -> DomainResult<()> {
-        let job = self.job_store().find_by_id(&cmd.id).await?;
+    #[usecase(write, access = Access::Requires(Permission::DeleteJob(id.clone())))]
+    async fn delete_job(&self, id: JobId) -> DomainResult<()> {
+        let job = self.job_store().find_by_id(&id).await?;
         self.job_store().delete(&job).await?;
         if !job.is_terminal() {
             self.job_stops().0.stop(&job);
@@ -200,9 +216,13 @@ pub trait JobControl: crate::Access {
         Ok(())
     }
 
-    #[usecase(write, access = cmd.access())]
-    #[allow(unused_variables)]
-    async fn reap_orphaned_jobs(&self, cmd: ReapOrphanedJobs) -> DomainResult<u64> {
+    /// One pass: a running job becomes orphaned when its agent is not connected and was not seen
+    /// for `ORPHAN_GRACE`, or at once when its agent row is gone. The jobs placed on a stream that
+    /// is not open go back to the pool. The open streams are read after the jobs: a stream opens
+    /// before it holds a job, thus a stream that the pass finds closed is gone for good. The
+    /// return is the number of jobs changed.
+    #[usecase(write, access = Access::Authenticated)]
+    async fn reap_orphaned_jobs(&self) -> DomainResult<u64> {
         service_only(self.ctx().caller())?;
         let now = clock::now();
         let stranded = self.job_store().list_stranded(now - ORPHAN_GRACE).await?;
@@ -227,11 +247,11 @@ pub trait JobControl: crate::Access {
 
     /// One pass: each targeted agent that is connected, idle and holds `executeJob` in a scope
     /// gets the oldest pending job that it can run. `None` targets every connected agent.
-    #[usecase(write, access = cmd.access())]
-    async fn dispatch_pending_jobs(&self, cmd: DispatchPendingJobs) -> DomainResult<Vec<Job>> {
+    #[usecase(write, access = Access::Authenticated)]
+    async fn dispatch_pending_jobs(&self, agents: Option<Vec<AppId>>) -> DomainResult<Vec<Job>> {
         service_only(self.ctx().caller())?;
         let mut targets = self.job_agents().connected();
-        if let Some(agents) = &cmd.agents {
+        if let Some(agents) = &agents {
             targets.retain(|stream| agents.contains(&stream.agent));
         }
         let agents: Vec<AppId> = targets.iter().map(|stream| stream.agent.clone()).collect();
@@ -261,20 +281,23 @@ pub trait JobControl: crate::Access {
         Ok(placed)
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn release_agent_jobs(&self, cmd: ReleaseAgentJobs) -> DomainResult<u64> {
+    /// Sent by the agent stream as the agent when the stream ends: the jobs placed on the stream
+    /// that have not started go back to the pool. The return is their count.
+    #[usecase(write, access = Access::Authenticated)]
+    async fn release_agent_jobs(&self, stream: StreamId) -> DomainResult<u64> {
         let agent = app_only(self.ctx().caller())?;
-        let stream = AgentStream {
-            agent,
-            id: cmd.stream,
-        };
+        let stream = AgentStream { agent, id: stream };
         self.job_stops().0.release(&stream).await
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn reconcile_agent_jobs(&self, cmd: ReconcileAgentJobs) -> DomainResult<u64> {
+    /// Sent by the agent stream after each hello, as the agent. `running` is the list of jobs that
+    /// the agent runs: a running job of the agent that the list omits becomes orphaned, a listed
+    /// running job keeps its live tail across a restart of the server, and a listed job that does
+    /// not run on the agent gets a cancel. The return is the number of jobs changed.
+    #[usecase(write, access = Access::Authenticated)]
+    async fn reconcile_agent_jobs(&self, running: Vec<JobId>) -> DomainResult<u64> {
         let agent = app_only(self.ctx().caller())?;
-        let listed = &cmd.running;
+        let listed = &running;
         let now = clock::now();
         let mut orphans = Vec::new();
         let mut kept = Vec::new();
@@ -300,98 +323,108 @@ pub trait JobControl: crate::Access {
         Ok(orphaned)
     }
 
-    #[usecase(read, access = query.access())]
-    async fn get_job(&self, query: GetJob) -> DomainResult<Job> {
-        self.job_store().find_by_id(&query.id).await
+    #[usecase(read, access = Access::Requires(Permission::ReadJob(id.clone())))]
+    async fn get_job(&self, id: JobId) -> DomainResult<Job> {
+        self.job_store().find_by_id(&id).await
     }
 
-    #[usecase(read, access = query.access())]
-    async fn list_jobs(&self, query: ListJobs) -> DomainResult<PaginatedResult<Job>> {
-        self.job_store().list_all(query.pagination.as_ref()).await
+    #[usecase(read, access = Access::Requires(Permission::ListJobs))]
+    async fn list_jobs(
+        &self,
+        pagination: Option<PaginationParams>,
+    ) -> DomainResult<PaginatedResult<Job>> {
+        self.job_store().list_all(pagination.as_ref()).await
     }
 
-    #[usecase(read, access = query.access())]
+    #[usecase(read, access = Access::Requires(Permission::ListJobsByPipeline(pipeline_id.clone())))]
     async fn list_pipeline_jobs(
         &self,
-        query: ListPipelineJobs,
+        pipeline_id: PipelineId,
+        pagination: Option<PaginationParams>,
     ) -> DomainResult<PaginatedResult<Job>> {
         self.job_store()
-            .list_by_pipeline(&query.pipeline_id, query.pagination.as_ref())
+            .list_by_pipeline(&pipeline_id, pagination.as_ref())
             .await
     }
 
-    #[usecase(read, access = query.access())]
+    #[usecase(read, access = Access::Requires(Permission::ListJobsByProject(project_id.clone())))]
     async fn list_project_jobs(
         &self,
-        query: ListProjectJobs,
+        project_id: ProjectId,
+        pagination: Option<PaginationParams>,
     ) -> DomainResult<PaginatedResult<Job>> {
         self.job_store()
-            .list_by_project(&query.project_id, query.pagination.as_ref())
+            .list_by_project(&project_id, pagination.as_ref())
             .await
     }
 
-    #[usecase(read, access = query.access())]
+    /// With `agent_id`, only the jobs placed on that agent.
+    #[usecase(read, access = Access::Requires(Permission::ListJobsByOrganization(organization_id.clone())))]
     async fn list_organization_jobs(
         &self,
-        query: ListOrganizationJobs,
+        organization_id: OrganizationId,
+        agent_id: Option<AppId>,
+        pagination: Option<PaginationParams>,
     ) -> DomainResult<PaginatedResult<Job>> {
         self.job_store()
-            .list_by_organization(
-                &query.organization_id,
-                query.agent_id.as_ref(),
-                query.pagination.as_ref(),
-            )
+            .list_by_organization(&organization_id, agent_id.as_ref(), pagination.as_ref())
             .await
     }
 
-    #[usecase(write, access = cmd.access())]
-    async fn append_job_logs(&self, cmd: AppendJobLogs) -> DomainResult<Vec<JobLog>> {
+    /// Consecutive lines of one job from its agent, in the order received: one check and one
+    /// insert for the batch. Only the agent that the job is placed on appends, until the job ends.
+    #[usecase(write, access = Access::Requires(Permission::AppendJobLog(job_id.clone())))]
+    async fn append_job_logs(&self, job_id: JobId, logs: Vec<JobLog>) -> DomainResult<Vec<JobLog>> {
         let agent = app_only(self.ctx().caller())?;
-        if cmd.logs.iter().any(|log| log.job_id() != &cmd.job_id) {
+        if logs.iter().any(|log| log.job_id() != &job_id) {
             return Err(DomainError::validation("every line must belong to the job"));
         }
         self.job_store()
-            .find_by_id(&cmd.job_id)
+            .find_by_id(&job_id)
             .await?
             .ensure_live_on(&agent)?;
-        self.job_log_store().create_many(&cmd.logs).await?;
-        for log in &cmd.logs {
+        self.job_log_store().create_many(&logs).await?;
+        for log in &logs {
             self.job_tails().0.publish(log);
         }
-        Ok(cmd.logs)
+        Ok(logs)
     }
 
-    #[usecase(read, access = query.access())]
-    async fn list_job_logs(&self, query: ListJobLogs) -> DomainResult<PaginatedResult<JobLog>> {
-        let pagination = query.pagination.as_ref();
-        if !self
-            .job_node_readable(&query.job_id, query.node_id.as_ref())
-            .await?
-        {
-            let params = query.pagination.unwrap_or_default();
+    #[usecase(read, access = job_logs_access(&job_id, node_id.as_ref()))]
+    async fn list_job_logs(
+        &self,
+        job_id: JobId,
+        node_id: Option<NodeId>,
+        pagination: Option<PaginationParams>,
+    ) -> DomainResult<PaginatedResult<JobLog>> {
+        if !self.job_node_readable(&job_id, node_id.as_ref()).await? {
+            let params = pagination.unwrap_or_default();
             return Ok(PaginatedResult::new(Vec::new(), &params, 0));
         }
-        match &query.node_id {
+        let pagination = pagination.as_ref();
+        match &node_id {
             Some(node_id) => {
                 self.job_log_store()
-                    .list_by_job_and_node(&query.job_id, node_id, pagination)
+                    .list_by_job_and_node(&job_id, node_id, pagination)
                     .await
             }
-            None => {
-                self.job_log_store()
-                    .list_by_job(&query.job_id, pagination)
-                    .await
-            }
+            None => self.job_log_store().list_by_job(&job_id, pagination).await,
         }
     }
 
-    #[usecase(read, access = query.access())]
-    async fn tail_job_logs(&self, query: TailJobLogs) -> DomainResult<JobLogLiveStream> {
-        let node_id = query.node_id.as_ref();
-        let live = self.job_tails().0.subscribe(&query.job_id, node_id).await?;
-        let historical = if self.job_node_readable(&query.job_id, node_id).await? {
+    /// The stored lines, then the live ones. A live line already in the snapshot is dropped. A
+    /// node that has not started replays nothing.
+    #[usecase(read, access = job_logs_access(&job_id, node_id.as_ref()))]
+    async fn tail_job_logs(
+        &self,
+        job_id: JobId,
+        node_id: Option<NodeId>,
+    ) -> DomainResult<JobLogLiveStream> {
+        let node_id = node_id.as_ref();
+        let live = self.job_tails().0.subscribe(&job_id, node_id).await?;
+        let historical = if self.job_node_readable(&job_id, node_id).await? {
             self.job_log_store()
-                .list_all_by_job(&query.job_id, node_id)
+                .list_all_by_job(&job_id, node_id)
                 .await?
         } else {
             Vec::new()
@@ -422,5 +455,22 @@ pub trait JobControl: crate::Access {
         });
         let tail: JobLogLiveStream = Box::pin(historical_stream.chain(filtered_live));
         Ok(tail)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_read_of_the_logs_of_a_node_also_needs_read_job() {
+        let job = JobId::new("j1");
+        let node = NodeId::new("n1").unwrap();
+
+        assert_eq!(
+            job_logs_access(&job, Some(&node)).to_string(),
+            "readJobLogs+readJob"
+        );
+        assert_eq!(job_logs_access(&job, None).to_string(), "readJobLogs");
     }
 }

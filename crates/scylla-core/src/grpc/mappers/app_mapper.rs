@@ -1,12 +1,9 @@
-//! Wire to command, command outcome to wire. The handler holds none of it.
+//! Wire to the inputs of a use case, its outcome to wire. The handler holds none of it.
 
 use crate::application::PrincipalAccess;
-use crate::application::app::{
-    CreateApp, CreateAppSecret, DeleteApp, GetApp, IssueAppToken, ListAppAccess, ListAppSecrets,
-    ListApps, RevokeAppSecret, SetAppActive, SetAppSecretEnabled, SetAppSecretLabel,
-};
 use crate::grpc::convert::{Parse, id, ts, valid, wrap};
 use scylla_domain::domain::app::{App, AppCredential, AppName, AppSecret, AppSecretLabel};
+use scylla_domain::domain::ids::{AppCredentialId, AppId, OrganizationId};
 use scylla_proto::app::v1::{
     App as ProtoApp, AppAccess as ProtoAppAccess, AppSecret as ProtoAppSecret, CreateAppRequest,
     CreateAppSecretRequest, DeleteAppRequest, GetAppRequest, IssueTokenRequest,
@@ -42,71 +39,114 @@ pub fn app_access_to_proto(access: &PrincipalAccess) -> ProtoAppAccess {
 }
 
 impl Parse for CreateAppRequest {
-    type Into = CreateApp;
+    type Into = (OrganizationId, AppName, Option<AppSecretLabel>);
 
-    fn parse(self) -> Result<CreateApp, Status> {
-        Ok(CreateApp {
-            organization_id: id(self.organization_id, "organization_id")?,
-            name: valid(self.name, AppName::new)?,
-            secret_label: self
-                .secret_label
-                .map(|label| valid(label, AppSecretLabel::new))
-                .transpose()?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let organization_id = id(self.organization_id, "organization_id")?;
+        let name = valid(self.name, AppName::new)?;
+        let secret_label = self
+            .secret_label
+            .map(|label| valid(label, AppSecretLabel::new))
+            .transpose()?;
+        Ok((organization_id, name, secret_label))
     }
 }
 
-parse!(GetAppRequest => GetApp { id: id(app_id) });
-parse!(ListAppsRequest => ListApps { organization_id: id(organization_id) });
-parse!(DeleteAppRequest => DeleteApp { id: id(app_id) });
+impl Parse for GetAppRequest {
+    type Into = AppId;
 
-parse!(SetAppActiveRequest => SetAppActive {
-    id: id(app_id),
-    is_active: copy,
-});
+    fn parse(self) -> Result<AppId, Status> {
+        id(self.app_id, "app_id")
+    }
+}
+
+impl Parse for ListAppsRequest {
+    type Into = OrganizationId;
+
+    fn parse(self) -> Result<OrganizationId, Status> {
+        id(self.organization_id, "organization_id")
+    }
+}
+
+impl Parse for DeleteAppRequest {
+    type Into = AppId;
+
+    fn parse(self) -> Result<AppId, Status> {
+        id(self.app_id, "app_id")
+    }
+}
+
+impl Parse for SetAppActiveRequest {
+    type Into = (AppId, bool);
+
+    fn parse(self) -> Result<Self::Into, Status> {
+        let app_id = id(self.app_id, "app_id")?;
+        Ok((app_id, self.is_active))
+    }
+}
 
 impl Parse for CreateAppSecretRequest {
-    type Into = CreateAppSecret;
+    type Into = (AppId, AppSecretLabel);
 
-    fn parse(self) -> Result<CreateAppSecret, Status> {
-        Ok(CreateAppSecret {
-            app_id: id(self.app_id, "app_id")?,
-            label: valid(self.label, AppSecretLabel::new)?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let app_id = id(self.app_id, "app_id")?;
+        let label = valid(self.label, AppSecretLabel::new)?;
+        Ok((app_id, label))
     }
 }
 
-parse!(ListAppSecretsRequest => ListAppSecrets { app_id: id(app_id) });
-parse!(RevokeAppSecretRequest => RevokeAppSecret { id: id(app_secret_id) });
+impl Parse for ListAppSecretsRequest {
+    type Into = AppId;
 
-parse!(SetAppSecretEnabledRequest => SetAppSecretEnabled {
-    id: id(app_secret_id),
-    enabled: copy,
-});
+    fn parse(self) -> Result<AppId, Status> {
+        id(self.app_id, "app_id")
+    }
+}
+
+impl Parse for RevokeAppSecretRequest {
+    type Into = AppCredentialId;
+
+    fn parse(self) -> Result<AppCredentialId, Status> {
+        id(self.app_secret_id, "app_secret_id")
+    }
+}
+
+impl Parse for SetAppSecretEnabledRequest {
+    type Into = (AppCredentialId, bool);
+
+    fn parse(self) -> Result<Self::Into, Status> {
+        let app_secret_id = id(self.app_secret_id, "app_secret_id")?;
+        Ok((app_secret_id, self.enabled))
+    }
+}
 
 impl Parse for SetAppSecretLabelRequest {
-    type Into = SetAppSecretLabel;
+    type Into = (AppCredentialId, AppSecretLabel);
 
-    fn parse(self) -> Result<SetAppSecretLabel, Status> {
-        Ok(SetAppSecretLabel {
-            id: id(self.app_secret_id, "app_secret_id")?,
-            label: valid(self.label, AppSecretLabel::new)?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let app_secret_id = id(self.app_secret_id, "app_secret_id")?;
+        let label = valid(self.label, AppSecretLabel::new)?;
+        Ok((app_secret_id, label))
     }
 }
 
-parse!(ListAppAccessRequest => ListAppAccess { app_id: id(app_id) });
+impl Parse for ListAppAccessRequest {
+    type Into = AppId;
+
+    fn parse(self) -> Result<AppId, Status> {
+        id(self.app_id, "app_id")
+    }
+}
 
 impl Parse for IssueTokenRequest {
-    type Into = IssueAppToken;
+    type Into = (AppId, AppSecret);
 
     /// A malformed secret is an auth failure, so the response never says why.
-    fn parse(self) -> Result<IssueAppToken, Status> {
-        Ok(IssueAppToken {
-            app_id: id(self.app_id, "app_id")?,
-            secret: AppSecret::new(self.secret)
-                .map_err(|_| Status::unauthenticated("Invalid app credentials"))?,
-        })
+    fn parse(self) -> Result<Self::Into, Status> {
+        let app_id = id(self.app_id, "app_id")?;
+        let secret = AppSecret::new(self.secret)
+            .map_err(|_| Status::unauthenticated("Invalid app credentials"))?;
+        Ok((app_id, secret))
     }
 }
 
@@ -122,8 +162,8 @@ mod tests {
     use tonic::Code;
 
     #[test]
-    fn a_create_request_becomes_a_command_with_validated_fields() {
-        let command = CreateAppRequest {
+    fn a_create_request_becomes_the_validated_inputs() {
+        let (organization_id, name, secret_label) = CreateAppRequest {
             organization_id: wrap("acme"),
             name: "ci-bot".into(),
             secret_label: Some(" build-01 ".into()),
@@ -131,14 +171,14 @@ mod tests {
         .parse()
         .unwrap();
 
-        assert_eq!(command.organization_id.as_str(), "acme");
-        assert_eq!(command.name.as_str(), "ci-bot");
-        assert_eq!(command.secret_label.unwrap().as_str(), "build-01");
+        assert_eq!(organization_id.as_str(), "acme");
+        assert_eq!(name.as_str(), "ci-bot");
+        assert_eq!(secret_label.unwrap().as_str(), "build-01");
     }
 
     #[test]
-    fn a_create_request_without_a_label_leaves_it_to_the_command() {
-        let command = CreateAppRequest {
+    fn a_create_request_without_a_label_leaves_it_to_the_use_case() {
+        let (_, _, secret_label) = CreateAppRequest {
             organization_id: wrap("acme"),
             name: "ci-bot".into(),
             secret_label: None,
@@ -146,7 +186,7 @@ mod tests {
         .parse()
         .unwrap();
 
-        assert!(command.secret_label.is_none());
+        assert!(secret_label.is_none());
     }
 
     #[test]
@@ -165,15 +205,15 @@ mod tests {
 
     #[test]
     fn a_set_active_request_keeps_the_flag() {
-        let command = SetAppActiveRequest {
+        let (id, is_active) = SetAppActiveRequest {
             app_id: wrap("app-1"),
             is_active: false,
         }
         .parse()
         .unwrap();
 
-        assert_eq!(command.id.as_str(), "app-1");
-        assert!(!command.is_active);
+        assert_eq!(id.as_str(), "app-1");
+        assert!(!is_active);
     }
 
     #[test]
@@ -231,15 +271,15 @@ mod tests {
 
     #[test]
     fn a_label_change_parses_the_secret_and_the_label() {
-        let command = SetAppSecretLabelRequest {
+        let (id, label) = SetAppSecretLabelRequest {
             app_secret_id: wrap("secret-1"),
             label: " build-01.example.com ".into(),
         }
         .parse()
         .unwrap();
 
-        assert_eq!(command.id.as_str(), "secret-1");
-        assert_eq!(command.label.as_str(), "build-01.example.com");
+        assert_eq!(id.as_str(), "secret-1");
+        assert_eq!(label.as_str(), "build-01.example.com");
     }
 
     #[test]

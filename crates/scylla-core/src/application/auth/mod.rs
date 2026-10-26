@@ -1,11 +1,7 @@
-pub mod commands;
 pub mod hash_service;
-pub mod queries;
 pub mod session_repository;
 
-pub use commands::{Login, PurgeExpiredSessions, RevokeToken};
 pub use hash_service::HashService;
-pub use queries::ValidateToken;
 pub use session_repository::SessionRepository;
 
 use crate::domain::clock;
@@ -34,8 +30,8 @@ pub enum SessionLookup {
     Unknown,
 }
 
-/// The one session rule, for the interceptor and for `ValidateToken`. It only reads: the
-/// `PurgeExpiredSessions` pass deletes an expired session.
+/// The one session rule, for the interceptor and for `validate_token`. It only reads: the
+/// `purge_expired_sessions` pass deletes an expired session.
 pub async fn look_up_session(
     sessions: &dyn SessionRepository,
     token: &str,

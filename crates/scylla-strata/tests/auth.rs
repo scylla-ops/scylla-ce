@@ -4,12 +4,9 @@
 
 use async_trait::async_trait;
 use scylla_auth::authz::PermissionService;
-use scylla_core::application::auth::{
-    Login, PurgeExpiredSessions, RevokeToken, ValidateToken, record_activity,
-};
+use scylla_core::application::auth::record_activity;
 use scylla_core::application::user::reset::{
-    RESET_LINK_TTL, RequestPasswordReset, ResetLinks, ResetPassword, issue_and_deliver,
-    mint_reset_token,
+    RESET_LINK_TTL, ResetLinks, issue_and_deliver, mint_reset_token,
 };
 use scylla_core::application::user::{
     AccountRepository, PasswordResetDelivery, PasswordResetMessage, PasswordResetSender,
@@ -211,40 +208,28 @@ impl Lab {
         password: &str,
         client: SessionClient,
     ) -> DomainResult<Session> {
-        let login = Login {
-            identifier: identifier.to_string(),
-            password: Password::new(password).unwrap(),
-            client: SessionClient::default(),
-        };
         let ctx = ScyllaCtx {
             client: Some(client),
             ..anonymous()
         };
-        AuthRpc::login(&self.app.scoped(&ctx), login).await
+        let password = Password::new(password).unwrap();
+        AuthRpc::login(&self.app.scoped(&ctx), identifier.to_string(), password).await
     }
 
     async fn validate(&self, token: &str) -> bool {
-        let query = ValidateToken {
-            token: token.to_string(),
-        };
-        AuthRpc::validate_token(&self.app.scoped(&anonymous()), query)
+        AuthRpc::validate_token(&self.app.scoped(&anonymous()), token.to_string())
             .await
             .unwrap()
     }
 
     async fn request(&self, email: &str) -> DomainResult<PasswordResetDelivery> {
-        let cmd = RequestPasswordReset {
-            email: Email::new(email).unwrap(),
-        };
-        AuthRpc::request_password_reset(&self.app.scoped(&anonymous()), cmd).await
+        let email = Email::new(email).unwrap();
+        AuthRpc::request_password_reset(&self.app.scoped(&anonymous()), email).await
     }
 
     async fn reset(&self, token: &ResetToken, password: &str) -> DomainResult<()> {
-        let cmd = ResetPassword {
-            token: token.clone(),
-            new_password: Password::new(password).unwrap(),
-        };
-        AuthRpc::reset_password(&self.app.scoped(&anonymous()), cmd).await
+        let new_password = Password::new(password).unwrap();
+        AuthRpc::reset_password(&self.app.scoped(&anonymous()), token.clone(), new_password).await
     }
 
     fn stored(&self, id: &UserId) -> User {
@@ -433,11 +418,10 @@ async fn a_purge_deletes_the_expired_sessions_and_refuses_a_caller_that_is_not_a
         .unwrap();
     let service = ctx(CallerContext::Service(ServiceIdentity::session_sweeper()));
 
-    let refused =
-        AuthRpc::purge_expired_sessions(&lab.app.scoped(&anonymous()), PurgeExpiredSessions)
-            .await
-            .unwrap_err();
-    let purged = AuthRpc::purge_expired_sessions(&lab.app.scoped(&service), PurgeExpiredSessions)
+    let refused = AuthRpc::purge_expired_sessions(&lab.app.scoped(&anonymous()))
+        .await
+        .unwrap_err();
+    let purged = AuthRpc::purge_expired_sessions(&lab.app.scoped(&service))
         .await
         .unwrap();
 
@@ -483,14 +467,9 @@ async fn a_revoke_deletes_the_session() {
     )
     .await;
 
-    AuthRpc::revoke_token(
-        &lab.app.scoped(&anonymous()),
-        RevokeToken {
-            token: "t".to_string(),
-        },
-    )
-    .await
-    .unwrap();
+    AuthRpc::revoke_token(&lab.app.scoped(&anonymous()), "t".to_string())
+        .await
+        .unwrap();
 
     assert!(lab.sessions.rows().is_empty());
     assert_eq!(lab.sessions.deleted(), vec!["t".to_string()]);

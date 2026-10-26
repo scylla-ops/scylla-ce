@@ -1,16 +1,23 @@
-pub mod commands;
 pub mod credential_repository;
-pub mod queries;
 pub mod repository;
 pub mod secret_mint;
 pub mod token;
 
-pub use commands::{
-    CreateApp, CreateAppSecret, CreatedApp, CreatedAppSecret, DeleteApp, NewApp, NewAppSecret,
-    RevokeAppSecret, SetAppActive, SetAppSecretEnabled, SetAppSecretLabel,
-};
 pub use credential_repository::AppCredentialRepository;
-pub use queries::{GetApp, ListAppAccess, ListAppSecrets, ListApps};
 pub use repository::AppRepository;
 pub use secret_mint::mint_app_secret;
-pub use token::{AppTokenRepository, IssueAppToken};
+pub use token::AppTokenRepository;
+
+use crate::domain::app::{App, AppCredential, AppSecret};
+
+/// The outcome of `create_app`. No `Debug`: `secret` is the plaintext the caller sees once.
+pub struct CreatedApp {
+    pub app: App,
+    pub secret: AppSecret,
+}
+
+/// The outcome of `create_app_secret`. No `Debug`: `secret` is the plaintext the caller sees once.
+pub struct CreatedAppSecret {
+    pub credential: AppCredential,
+    pub secret: AppSecret,
+}

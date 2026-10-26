@@ -1,7 +1,5 @@
-pub mod commands;
 pub mod sender;
 
-pub use commands::{RequestPasswordReset, ResetPassword, SendPasswordReset};
 pub use sender::{PasswordResetDelivery, PasswordResetMessage, PasswordResetSender};
 
 use super::AccountRepository;
@@ -57,8 +55,8 @@ pub struct NewReset {
     pub message: PasswordResetMessage,
 }
 
-/// The reset links: `RequestPasswordReset` and `ResetPassword` for a caller without a session,
-/// `SendPasswordReset` for an administrator or the user.
+/// The reset links: `request_password_reset` and `reset_password` for a caller without a session,
+/// `send_password_reset` for an administrator or the user.
 #[derive(Constructor)]
 pub struct PasswordResetUseCases {
     accounts: Arc<dyn AccountRepository>,
@@ -93,7 +91,7 @@ impl PasswordResetUseCases {
     }
 }
 
-/// The work of `RequestPasswordReset` after its answer. It stores the link with the rule of
+/// The work of `request_password_reset` after its answer. It stores the link with the rule of
 /// `RESET_COOLDOWN`, which also cancels the earlier links, then delivers it. `false` when the rule
 /// stored and delivered nothing.
 pub async fn issue_and_deliver(
