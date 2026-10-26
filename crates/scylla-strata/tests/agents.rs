@@ -13,6 +13,7 @@ use scylla_core::application::pagination::{PaginatedResult, PaginationParams};
 use scylla_core::application::{
     AgentRepository, AgentStats, AppCredentialRepository, AppRepository, AppTokenRepository,
     DispatchUseCases, HashService, JobLogRepository, JobRepository, PrincipalAccess,
+    SecretResolver,
 };
 use scylla_core::infrastructure::InMemoryAgentRegistry;
 use scylla_core::test_support::authz::{
@@ -20,7 +21,9 @@ use scylla_core::test_support::authz::{
 };
 use scylla_core::test_support::jobs::JobBuilder;
 use scylla_core::test_support::pipelines::{PipelineBuilder, node};
-use scylla_core::test_support::stubs::{StubHash, StubJobs, StubRegistry, StubTails, dispatcher};
+use scylla_core::test_support::stubs::{
+    EchoResolver, StubHash, StubJobs, StubRegistry, StubTails, dispatcher,
+};
 use scylla_domain::domain::agent::{Agent, AgentHost};
 use scylla_domain::domain::app::{
     App, AppCredential, AppName, AppSecretLabel, AppToken, TRIGGER_RUNNER_APP_NAME,
@@ -324,6 +327,7 @@ async fn lab_of(parts: Parts) -> Lab {
         .provide_arc::<dyn AppTokenRepository>(Arc::new(NoTokens))
         .provide_arc::<dyn HashService>(hash.clone())
         .provide_arc::<dyn AgentDispatch>(parts.registry)
+        .provide_arc::<dyn SecretResolver>(Arc::new(EchoResolver))
         .provide_arc::<dyn AgentRepository>(agents.clone())
         .provide_arc::<dyn JobRepository>(parts.jobs.clone())
         .provide_arc::<dyn JobLogRepository>(lines.clone())

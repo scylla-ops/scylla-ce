@@ -1,8 +1,10 @@
-use crate::access::CallerOf;
+use crate::access::{AccessModel, CallerOf};
 use crate::ports::JobDispatch;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
+use scylla_auth::authz::{Visibility, VisibilityResolver};
 use scylla_core::application::actions::{app_only, service_only};
-use scylla_core::application::agent::AgentStream;
+use scylla_core::application::agent::dispatch::assemble_dispatch;
+use scylla_core::application::agent::{AgentDispatch, AgentStream, DispatchPendingJobs};
 use scylla_core::application::job::{
     AppendJobLogs, CancelJob, DeleteJob, GetJob, JobEvent, ListJobLogs, ListJobs,
     ListOrganizationJobs, ListPipelineJobs, ListProjectJobs, ORPHAN_GRACE, ReapOrphanedJobs,
@@ -11,11 +13,14 @@ use scylla_core::application::job::{
 use scylla_core::application::pagination::PaginatedResult;
 use scylla_core::application::{
     DispatchUseCases, JobLogLiveStream, JobLogRepository, JobLogStreamPort, JobRepository,
+    SecretResolver,
 };
+use scylla_domain::domain::caller::CallerContext;
 use scylla_domain::domain::clock;
 use scylla_domain::domain::errors::{DomainError, DomainResult};
-use scylla_domain::domain::ids::JobId;
+use scylla_domain::domain::ids::{AppId, JobId, PipelineId};
 use scylla_domain::domain::job::{Job, JobLog, LogStream, NodeOutcome};
+use scylla_domain::domain::permission::Permission;
 use scylla_domain::domain::pipeline::NodeId;
 use scylla_extension::Describe;
 use sqlx::types::chrono::{DateTime, Utc};
@@ -43,6 +48,16 @@ impl Component for LiveTails {
     }
 }
 
+/// The scopes in which an agent can run jobs. A dispatch pass reads them with no permission
+/// check, so it writes no audit row.
+pub struct AgentScopes(Arc<dyn VisibilityResolver>);
+
+impl Component for AgentScopes {
+    async fn build(cx: &mut BuildCx<'_>) -> Result<Self, BuildError> {
+        Ok(AgentScopes(cx.resource::<AccessModel>().await?.visibility))
+    }
+}
+
 pub struct JobStopper(Arc<DispatchUseCases>);
 
 impl Component for JobStopper {
@@ -64,6 +79,44 @@ pub trait JobControl: crate::Access {
 
     #[component]
     type JobStops = JobStopper;
+
+    #[component]
+    type JobAgents = Arc<dyn AgentDispatch>;
+
+    #[component]
+    type JobSecrets = Arc<dyn SecretResolver>;
+
+    #[component]
+    type JobScopes = AgentScopes;
+
+    /// Claims the oldest job that the agent can run and sends it on the stream. A job that
+    /// does not assemble fails, and the agent gets the next job.
+    async fn place_job(
+        &self,
+        stream: &AgentStream,
+        visible: &Visibility,
+    ) -> DomainResult<Option<Job>> {
+        while let Some((job, project_id)) = self.job_store().claim_next(stream, visible).await? {
+            match assemble_dispatch(self.job_secrets().as_ref(), &project_id, &job).await {
+                Ok(dispatch) => {
+                    if let Err(e) = self.job_agents().run(stream, dispatch) {
+                        tracing::warn!(app_id = %stream.agent, job_id = %job.id(), error = %e, "could not send the job; it goes back to the pool");
+                        self.job_stops().0.release(stream).await?;
+                        return Ok(None);
+                    }
+                    return Ok(Some(job));
+                }
+                Err(e) => {
+                    tracing::warn!(job_id = %job.id(), error = %e, "the job cannot be dispatched; it fails");
+                    match self.job_store().update(&job.fail(clock::now())?).await {
+                        Ok(_) | Err(DomainError::Stale(_)) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
 
     async fn orphan_jobs(&self, orphans: Vec<Job>) -> DomainResult<u64> {
         let mut written = 0;
@@ -170,6 +223,42 @@ pub trait JobControl: crate::Access {
             changed += self.job_stops().0.release(stream).await?;
         }
         Ok(changed)
+    }
+
+    /// One pass: each targeted agent that is connected, idle and holds `executeJob` in a scope
+    /// gets the oldest pending job that it can run. `None` targets every connected agent.
+    #[usecase(write, access = cmd.access())]
+    async fn dispatch_pending_jobs(&self, cmd: DispatchPendingJobs) -> DomainResult<Vec<Job>> {
+        service_only(self.ctx().caller())?;
+        let mut targets = self.job_agents().connected();
+        if let Some(agents) = &cmd.agents {
+            targets.retain(|stream| agents.contains(&stream.agent));
+        }
+        let agents: Vec<AppId> = targets.iter().map(|stream| stream.agent.clone()).collect();
+        let busy: HashSet<AppId> = self
+            .job_store()
+            .active_jobs(&agents)
+            .await?
+            .into_iter()
+            .map(|(agent, _)| agent)
+            .collect();
+        let execute = Permission::ExecuteJob(PipelineId::new("_"));
+        let mut staged = Vec::new();
+        for stream in targets.into_iter().filter(|s| !busy.contains(&s.agent)) {
+            let visible = self
+                .job_scopes()
+                .0
+                .visible_scopes(&CallerContext::App(stream.agent.clone()), execute.key())
+                .await?;
+            if !visible.is_empty() {
+                staged.push((stream, visible));
+            }
+        }
+        let mut placed = Vec::new();
+        for (stream, visible) in staged {
+            placed.extend(self.place_job(&stream, &visible).await?);
+        }
+        Ok(placed)
     }
 
     #[usecase(write, access = cmd.access())]

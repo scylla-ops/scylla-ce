@@ -756,6 +756,24 @@ async fn a_tick_seeds_the_unscheduled_then_fires_every_due_trigger_with_no_permi
 }
 
 #[tokio::test]
+async fn the_cron_worker_seeds_then_fires_each_due_trigger_as_the_scheduler_service() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    lab.create(cron()).await.unwrap();
+    let fresh = lab.seed();
+    let a = lab.due();
+    let b = lab.due();
+
+    assert_eq!(scylla_strata::fire_cron_triggers(&lab.app).await, 2);
+    assert_eq!(scylla_strata::fire_cron_triggers(&lab.app).await, 0);
+
+    assert!(lab.stored(fresh.id()).next_fire_at().is_some(), "seeded");
+    for id in [a.id(), b.id()] {
+        assert_eq!(lab.last_fire(id).as_deref(), Some("ok"));
+    }
+    assert_eq!(lab.jobs.rows().len(), 2);
+}
+
+#[tokio::test]
 async fn one_fire_failure_does_not_abort_the_pass() {
     let lab = lab(Arc::new(RecordingPermissionService::new())).await;
     lab.due();

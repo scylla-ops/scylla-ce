@@ -449,6 +449,32 @@ async fn a_purge_deletes_the_expired_sessions_and_refuses_a_caller_that_is_not_a
 }
 
 #[tokio::test]
+async fn the_sweeper_worker_purges_as_the_sweeper_service() {
+    let user_id = UserId::new("kevin");
+    let lab = session_lab(
+        true,
+        StubSessions::with(SessionBuilder::new(&user_id).token("live").build()),
+    )
+    .await;
+    lab.sessions
+        .create(
+            &SessionBuilder::new(&user_id)
+                .token("expired")
+                .expired(true)
+                .build(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(scylla_strata::sweep_sessions(&lab.app).await, 1);
+    assert_eq!(scylla_strata::sweep_sessions(&lab.app).await, 0);
+
+    let rows = lab.sessions.rows();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].token(), "live");
+}
+
+#[tokio::test]
 async fn a_revoke_deletes_the_session() {
     let user_id = UserId::new("kevin");
     let lab = session_lab(

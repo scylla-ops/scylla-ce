@@ -13,6 +13,7 @@ use scylla_core::application::{
     WebhookIngressUseCases,
 };
 use scylla_core::config::ControlPlaneConfig;
+use scylla_core::domain::ids::AppId;
 use scylla_core::error::StartupError;
 use scylla_core::grpc::auth_interceptor::AuthInterceptor;
 use scylla_core::infrastructure::{
@@ -27,6 +28,7 @@ use scylla_db::{
     PgTriggerRepository, PgUserRepository,
 };
 use scylla_extension::{Actions, Hooks};
+use scylla_strata::{Slice, Worker};
 use sqlx::PgPool;
 use std::future::Future;
 use std::sync::Arc;
@@ -61,6 +63,33 @@ pub(crate) struct Services {
     pub permission_checker: Arc<CedarPermissionService<PgAuthzEntityProvider>>,
     pub session_repo: Arc<PgSessionRepository>,
     pub app_token_repo: Arc<PgAppTokenRepository>,
+    pub wakes: Option<mpsc::UnboundedReceiver<Option<AppId>>>,
+}
+
+pub(crate) fn ce_workers(switched: &[Slice]) -> Vec<Worker> {
+    Worker::ALL
+        .iter()
+        .copied()
+        .filter(|worker| !worker.on_strata(switched))
+        .collect()
+}
+
+/// The CE adapters that a strata edition takes (`EditionHost::edition`), on `db`, with no
+/// Actions worker started. For the tests of an edition.
+pub async fn strata_shared(
+    config: &ControlPlaneConfig,
+    db: PgPool,
+    reset_sender: Arc<dyn PasswordResetSender>,
+) -> Result<scylla_strata::Shared, StartupError> {
+    let services = init_services(
+        config,
+        db,
+        Arc::new(Hooks::default()),
+        reset_sender,
+        Slice::ALL,
+    )
+    .await?;
+    Ok(services.shared)
 }
 
 pub(crate) async fn init_services(
@@ -68,7 +97,9 @@ pub(crate) async fn init_services(
     db: PgPool,
     hooks: Arc<Hooks>,
     reset_sender: Arc<dyn PasswordResetSender>,
+    switched: &[Slice],
 ) -> Result<Services, StartupError> {
+    let ce = ce_workers(switched);
     let user_repo = Arc::new(PgUserRepository::new(db.clone()));
     let account_repo = Arc::new(PgAccountRepository::new(db.clone()));
     let session_repo = Arc::new(PgSessionRepository::new(db.clone()));
@@ -239,7 +270,7 @@ pub(crate) async fn init_services(
     ));
 
     // The first tick fires immediately so a pre-restart backlog is picked up; 15s keeps latency under cron's minute.
-    {
+    if ce.contains(&Worker::CronTriggers) {
         let scheduler = TriggerCronScheduler::new(actions.clone(), trigger_uc.clone(), firing);
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(Duration::from_secs(15));
@@ -255,7 +286,7 @@ pub(crate) async fn init_services(
 
     // A wake names the agents a pass is for; the tick passes over every agent. The wakes that
     // arrived during a pass make one pass.
-    {
+    let wakes = if ce.contains(&Worker::DispatchJobs) {
         let scheduler = PendingJobScheduler::new(actions.clone(), dispatch_uc.clone());
         let mut woken = woken;
         tokio::spawn(async move {
@@ -271,9 +302,12 @@ pub(crate) async fn init_services(
                     .await;
             }
         });
-    }
+        None
+    } else {
+        Some(woken)
+    };
 
-    {
+    if ce.contains(&Worker::ReapJobs) {
         let reaper = JobReaper::new(actions.clone(), job_uc.clone());
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(Duration::from_secs(30));
@@ -285,7 +319,7 @@ pub(crate) async fn init_services(
         });
     }
 
-    {
+    if ce.contains(&Worker::SweepSessions) {
         let sweeper = SessionSweeper::new(actions.clone(), auth_uc.clone());
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(Duration::from_secs(3600));
@@ -359,6 +393,7 @@ pub(crate) async fn init_services(
         permission_checker,
         session_repo,
         app_token_repo,
+        wakes,
     })
 }
 
@@ -457,6 +492,7 @@ pub(crate) async fn run_server<F>(
     surface: Surface,
     strata: Option<(Box<dyn scylla_strata::Host>, Vec<scylla_strata::Slice>)>,
     in_flight: &strata::InFlight,
+    workers: scylla_strata::Workers,
     shutdown: F,
 ) -> Result<(), StartupError>
 where
@@ -665,6 +701,7 @@ where
             &mut grpc,
             &auth_interceptor,
             in_flight,
+            workers,
         )
         .await
         .map_err(|e| StartupError::Strata(format!("{e:#}")))?;
@@ -731,8 +768,23 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::grpc_classifier;
+    use super::{ce_workers, grpc_classifier};
+    use scylla_strata::{Slice, Worker};
     use tower_http::classify::{ClassifiedResponse, ClassifyResponse};
+
+    #[test]
+    fn a_switched_slice_takes_its_workers_off_ce() {
+        assert_eq!(ce_workers(&[]), Worker::ALL);
+        assert!(ce_workers(Slice::ALL).is_empty());
+        assert_eq!(
+            ce_workers(&[Slice::Jobs, Slice::Projects]),
+            [Worker::CronTriggers, Worker::SweepSessions]
+        );
+        assert_eq!(
+            ce_workers(&[Slice::Auth, Slice::Triggers]),
+            [Worker::DispatchJobs, Worker::ReapJobs]
+        );
+    }
 
     fn fails(code: u16) -> bool {
         let response = http::Response::builder()

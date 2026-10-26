@@ -165,6 +165,7 @@ pub type MountFuture<'a> = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Sen
 pub trait Host: Send + Sync + 'static {
     fn ready(&self) -> &[Slice];
 
+    /// Builds the edition, serves `slices` on `routes`, and starts the worker of each slice.
     fn mount<'a>(
         &'a self,
         shared: &'a Shared,
@@ -172,6 +173,7 @@ pub trait Host: Send + Sync + 'static {
         routes: &'a mut RoutesBuilder,
         auth: &'a AuthInterceptorLayer,
         in_flight: &'a InFlight,
+        workers: crate::Workers,
     ) -> MountFuture<'a>;
 }
 
@@ -198,6 +200,29 @@ impl<E: Edition> EditionHost<E> {
         self.provided
             .push(Box::new(move |builder| builder.provide(resource.clone())));
         self
+    }
+}
+
+impl<E: Edition + Send + Sync + 'static> EditionHost<E>
+where
+    E: Access
+        + Projects
+        + Secrets
+        + Pipelines
+        + Apps
+        + Roles
+        + Grants
+        + Organizations
+        + Users
+        + Auth
+        + Triggers
+        + JobControl
+        + Agents,
+{
+    /// Builds the edition on the CE adapters of `shared`, as `Host::mount` does. With
+    /// `production` false, a dev component is accepted (for tests).
+    pub async fn edition(&self, shared: &Shared, production: bool) -> anyhow::Result<Arc<E>> {
+        build::<E>(shared, &self.provided, production).await
     }
 }
 
@@ -233,12 +258,14 @@ where
         routes: &'a mut RoutesBuilder,
         auth: &'a AuthInterceptorLayer,
         in_flight: &'a InFlight,
+        workers: crate::Workers,
     ) -> MountFuture<'a> {
         Box::pin(async move {
             if slices.is_empty() {
                 return Ok(());
             }
-            let app = build::<E>(shared, &self.provided).await?;
+            let app = build::<E>(shared, &self.provided, true).await?;
+            crate::workers::spawn(&app, slices, workers);
             let grpc = Grpc::from_arc(app)
                 .with_in_flight(in_flight)
                 .on_deadline(OnDeadline::Cancel)
@@ -333,12 +360,13 @@ async fn build<
 >(
     shared: &Shared,
     provided: &[Provide<E>],
+    production: bool,
 ) -> anyhow::Result<Arc<E>> {
     let config = strata::Config::new();
     let builder = provided
         .iter()
         .fold(E::builder(&config), |builder, provide| provide(builder));
-    let app = builder
+    let builder = builder
         .provide(ScyllaRepos {
             db: shared.db.clone(),
             projects: shared.projects.clone(),
@@ -372,8 +400,13 @@ async fn build<
         .provide(crate::JobLogTails(shared.job_log_stream.clone()))
         .provide(crate::AgentStreams(shared.agent_streams.clone()))
         .provide_arc(shared.job_logs.clone())
-        .provide_arc(shared.agents.clone())
-        .production()
+        .provide_arc(shared.agents.clone());
+    let builder = if production {
+        builder.production()
+    } else {
+        builder
+    };
+    let app = builder
         .provide(AccessModel {
             permissions: shared.permissions.clone(),
             visibility: shared.visibility.clone(),

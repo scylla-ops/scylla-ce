@@ -16,6 +16,7 @@ mod roles;
 mod secrets;
 mod triggers;
 mod users;
+mod workers;
 
 pub use access::*;
 pub use agents::*;
@@ -32,6 +33,7 @@ pub use roles::*;
 pub use secrets::*;
 pub use triggers::*;
 pub use users::*;
+pub use workers::*;
 
 #[strata::edition(modules(
     Access,

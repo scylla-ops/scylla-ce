@@ -140,9 +140,15 @@ impl Server {
                 .context("feature prepare failed")?;
         }
 
-        let services = init_services(&config, db.clone(), Arc::new(hooks), password_reset_sender)
-            .await
-            .context("init_services failed")?;
+        let mut services = init_services(
+            &config,
+            db.clone(),
+            Arc::new(hooks),
+            password_reset_sender,
+            &slices,
+        )
+        .await
+        .context("init_services failed")?;
 
         let ctx = Context {
             db: db.clone(),
@@ -165,12 +171,17 @@ impl Server {
         let server_token = token.clone();
         let strata = strata.map(|host| (host, slices));
         let in_flight = strata::InFlight::waiting(strata::InFlight::DEFAULT_MAX);
+        let workers = scylla_strata::Workers {
+            wakes: services.wakes.take(),
+            stop: token.clone(),
+        };
         let server = run_server(
             &config,
             &services,
             surface,
             strata,
             &in_flight,
+            workers,
             async move {
                 server_token.cancelled().await;
             },

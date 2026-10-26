@@ -13,6 +13,22 @@ use scylla_domain::domain::permission::ResourceRef;
 use scylla_extension::Describe;
 use std::sync::Arc;
 
+/// Writes a new grant. An edition overrides it to admit the grant in the same store
+/// transaction as the write (for example a seat cap under a lock of the organization row).
+#[strata::port]
+pub trait GrantAdmission: Send + Sync + 'static {
+    async fn create(&self, grants: &dyn GrantRepository, grant: &Grant) -> DomainResult<Grant>;
+}
+
+#[derive(Default)]
+pub struct AdmitAll;
+
+impl GrantAdmission for AdmitAll {
+    async fn create(&self, grants: &dyn GrantRepository, grant: &Grant) -> DomainResult<Grant> {
+        grants.create(grant).await
+    }
+}
+
 #[strata::module(section = "grants")]
 pub trait Grants: crate::Access {
     #[component]
@@ -26,6 +42,9 @@ pub trait Grants: crate::Access {
 
     #[component]
     type EntityProvider = Arc<dyn AuthzEntityProvider>;
+
+    #[component]
+    type Admission: GrantAdmission = AdmitAll;
 
     async fn scope_organization(&self, scope: &Scope) -> DomainResult<Option<OrganizationId>> {
         match scope {
@@ -89,8 +108,11 @@ pub trait Grants: crate::Access {
         self.require_grantee_in(&grants, &cmd.principal, &cmd.scope, organization.as_ref())
             .await?;
         let grant = self
-            .grant_repo()
-            .create(&Grant::new(cmd.principal, cmd.role, cmd.scope))
+            .admission()
+            .create(
+                self.grant_repo().as_ref(),
+                &Grant::new(cmd.principal, cmd.role, cmd.scope),
+            )
             .await?;
         if let Principal::App(app_id) = &grant.principal {
             self.registry().wake(Some(app_id));

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use scylla_auth::authz::{PermissionService, Visibility, VisibilityResolver};
-use scylla_core::application::agent::AgentStream;
+use scylla_core::application::agent::{AgentDispatch, AgentStream, DispatchPendingJobs};
 use scylla_core::application::job::{
     AppendJobLogs, CancelJob, DeleteJob, GetJob, JobEvent, JobScope, ListJobLogs, ListJobs,
     ListOrganizationJobs, ListPipelineJobs, ListProjectJobs, ReapOrphanedJobs, ReconcileAgentJobs,
@@ -8,14 +8,16 @@ use scylla_core::application::job::{
 };
 use scylla_core::application::pagination::{PaginatedResult, PaginationParams};
 use scylla_core::application::{
-    JobLogLiveStream, JobLogRepository, JobLogStreamPort, JobRepository,
+    JobLogLiveStream, JobLogRepository, JobLogStreamPort, JobRepository, SecretResolver,
 };
 use scylla_core::infrastructure::InMemoryJobLogStream;
 use scylla_core::test_support::authz::{DenyingPermissionService, RecordingPermissionService};
 use scylla_core::test_support::job_logs::{JobLogBuilder, job_log};
 use scylla_core::test_support::jobs::{JobBuilder, job, stored};
 use scylla_core::test_support::pipelines::{PipelineBuilder, node};
-use scylla_core::test_support::stubs::{StubJobs, StubRegistry, StubTails, dispatcher};
+use scylla_core::test_support::stubs::{
+    EchoResolver, StubJobs, StubRegistry, StubTails, dispatcher,
+};
 use scylla_domain::domain::caller::{CallerContext, ServiceIdentity};
 use scylla_domain::domain::clock;
 use scylla_domain::domain::errors::{DomainError, DomainResult};
@@ -259,7 +261,13 @@ async fn build(
             permissions,
             visibility: Arc::new(SeeAll),
         })
-        .provide(JobDispatch(dispatcher(registry, dispatch_jobs, stub_tails)))
+        .provide(JobDispatch(dispatcher(
+            registry.clone(),
+            dispatch_jobs,
+            stub_tails,
+        )))
+        .provide_arc::<dyn AgentDispatch>(registry)
+        .provide_arc::<dyn SecretResolver>(Arc::new(EchoResolver))
         .provide_arc::<dyn JobRepository>(jobs)
         .provide_arc::<dyn JobLogRepository>(logs)
         .provide(JobLogTails(tails))
@@ -777,6 +785,80 @@ async fn a_reap_pass_refuses_a_caller_that_is_not_a_service() {
 
     assert!(matches!(err, DomainError::Forbidden(_)));
     assert!(lab.jobs.released().is_empty());
+}
+
+#[tokio::test]
+async fn the_reaper_worker_passes_as_the_reaper_service() {
+    let lab = lab(Arc::new(RecordingPermissionService::new())).await;
+    lab.insert(
+        &JobBuilder::new(&two_nodes())
+            .running(true)
+            .agent(AppId::new("agent-gone"))
+            .build(),
+    );
+
+    assert_eq!(scylla_strata::reap_jobs(&lab.app).await, 1);
+    assert_eq!(scylla_strata::reap_jobs(&lab.app).await, 0);
+    assert_eq!(lab.jobs.rows()[0].status(), JobStatus::Orphaned);
+}
+
+async fn dispatch_lab(jobs: Vec<Job>) -> (TestCe, Arc<StubJobs>, Arc<StubRegistry>) {
+    let jobs = Arc::new(StubJobs::with(jobs));
+    let registry = Arc::new(StubRegistry::accepting());
+    let tails = Arc::new(StubTails::default());
+    let app = build(
+        Arc::new(RecordingPermissionService::new()),
+        jobs.clone(),
+        jobs.clone(),
+        registry.clone(),
+        Arc::new(StubLogs::default()),
+        tails.clone(),
+        tails,
+    )
+    .await;
+    (app, jobs, registry)
+}
+
+#[tokio::test]
+async fn the_dispatch_worker_places_one_job_on_each_idle_agent_it_targets() {
+    let pl = two_nodes();
+    let (app, jobs, registry) = dispatch_lab(vec![job(&pl), job(&pl)]).await;
+    let agent = AppId::new("agent-1");
+    registry.connect(&agent);
+
+    let other = Some(vec![AppId::new("agent-2")]);
+    assert_eq!(scylla_strata::dispatch_jobs(&app, other).await, 0);
+    assert_eq!(scylla_strata::dispatch_jobs(&app, None).await, 1);
+    assert_eq!(
+        scylla_strata::dispatch_jobs(&app, None).await,
+        0,
+        "one job per agent"
+    );
+    assert_eq!(registry.dispatched_to(), std::slice::from_ref(&agent));
+    let placed: Vec<Job> = jobs
+        .rows()
+        .into_iter()
+        .filter(|j| j.agent_app_id() == Some(&agent))
+        .collect();
+    assert_eq!(placed.len(), 1);
+}
+
+#[tokio::test]
+async fn a_dispatch_pass_refuses_a_caller_that_is_not_a_service() {
+    let pl = two_nodes();
+    let (app, jobs, registry) = dispatch_lab(vec![job(&pl)]).await;
+    registry.connect(&agent_id());
+
+    let err = JobControlRpc::dispatch_pending_jobs(
+        &app.scoped(&alice()),
+        DispatchPendingJobs { agents: None },
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(err, DomainError::Forbidden(_)));
+    assert!(registry.dispatched_to().is_empty());
+    assert!(jobs.rows()[0].agent_app_id().is_none());
 }
 
 #[tokio::test]
