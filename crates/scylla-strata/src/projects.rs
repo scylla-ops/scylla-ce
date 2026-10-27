@@ -13,8 +13,8 @@ use scylla_domain::domain::project::{Project, ProjectDescription, ProjectName};
 use scylla_domain::domain::role::RoleName;
 use scylla_domain::domain::user::User;
 
-/// The projects of an organization. Each use case checks its permission first, as the
-/// authorize stage of Scylla does, then reads or writes through the store.
+/// The projects of an organization. Each use case checks its permission first, then reads
+/// or writes through the store.
 #[strata::module(section = "projects")]
 pub trait Projects: crate::Access {
     #[component]

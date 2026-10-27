@@ -110,7 +110,7 @@ impl ScopeKind {
     }
 }
 
-/// The one gate of `CreateGrant`: the role, its scope kind, an agent role for a user, and escalation.
+/// The one check of `create_grant`: the role, its scope kind, an agent role for a user, and escalation.
 pub fn check_grantable(
     roles: &[Role],
     grants: &[Grant],

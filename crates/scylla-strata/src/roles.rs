@@ -182,7 +182,7 @@ pub trait Roles: crate::Access {
     }
 
     /// The permissions of the caller: no permission is asked. The use case refuses a service, not
-    /// the authorize stage: a service holds no grants, and an empty list reads as "no permissions".
+    /// the access check: a service holds no grants, and an empty list reads as "no permissions".
     #[usecase(read, access = Access::Authenticated)]
     async fn get_my_permissions(&self) -> DomainResult<Vec<EffectiveScope>> {
         let principal = Principal::from_caller(self.ctx().caller()).ok_or_else(|| {

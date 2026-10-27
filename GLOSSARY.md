@@ -7,7 +7,7 @@ Reference for every domain-specific word used across Scylla's code, docs, and UI
 ### `scylla-ce`
 The Community Edition binary, and the process people call "the control plane". Serves everything on one port (`8080`): the compiled-in web UI, the gRPC API (user APIs, app token exchange, and the agent worker stream), its gRPC-Web translation for the browser, and the inbound webhook ingress. Job dispatch and log fan-out are in-process, there is no message broker and no recorder. Config lives in `binaries/scylla-ce/config/*.toml`.
 
-The package is a `main.rs` and nothing else: it loads a configuration, opens the pool and hands both to the `scylla_server::Server` builder, which owns the composition root; it registers no extension (see [Extension point](#extension-point)), so every write runs the pipeline with no hook. The use cases live in `scylla-core`, the access model in `scylla-auth`, the Postgres adapters in `scylla-db`.
+The package is a `main.rs` and nothing else: it loads a configuration, opens the pool and hands both to the `scylla_server::Server` builder, which owns the composition root; it adds no hook (see [Edition hook](#edition-hook)), so every write runs with no hook. The use cases live in `scylla-core`, the access model in `scylla-auth`, the Postgres adapters in `scylla-db`.
 
 The package name, the binary name, the Dockerfile stage name and the config directory path are load-bearing: the image is built with `--target scylla-ce` and `docker-compose.yaml` bind-mounts `binaries/scylla-ce/config`. So is the depth of `scylla-db` and `scylla-core` under `crates/`: `sqlx::migrate!("../../migrations")` and the rust-embed `#[folder = "../../web/dist/"]` resolve against `CARGO_MANIFEST_DIR`. Changing any of them breaks the image build or the container at runtime, not the `cargo` build.
 
@@ -329,7 +329,7 @@ The hexagon is split across several crates. The model sits in the kernel; the us
 
 `crates/scylla-server/src/`: `server.rs` (the `Server` builder, the public entry point), `startup.rs` (the `Services` struct and `init_services`, the one place that names every concrete adapter, `strata_shared`, plus `run_server`, which mounts every slice of the strata edition) and `cli.rs` (the command line, config loading and tracing setup shared by the edition binaries).
 
-`crates/scylla-strata/src/`: the CE backend on strata, one module per slice, see [Extension point](#extension-point) and `crates/scylla-strata/ARCHITECTURE.md`.
+`crates/scylla-strata/src/`: the CE backend on strata, one module per slice, see [Edition hook](#edition-hook) and `crates/scylla-strata/ARCHITECTURE.md`.
 
 Every crate re-exports the kernel's `domain` module, so `crate::domain::...` names the model from anywhere even though it lives in another crate. That is the only re-export of its kind: the access model is reached as `scylla_auth::authz`, and the Postgres adapters import the ports they implement from `scylla_core::application`.
 
@@ -365,6 +365,6 @@ The topological-sort routine behind `DagPlan` (`domain/pipeline/dag.rs`). One im
 ### Cargo features
 One in the whole workspace. `test-utils` exposes the `test_support` builders (`scylla-core`) and seeders (`scylla-db`) to downstream test code. `scylla-domain`, `scylla-agent`, `scylla-proto`, `scylla-auth`, `scylla-server` and `scylla-ce` have none.
 
-### Extension point
+### Edition hook
 A hook of a strata edition on a use case of the core: `#[before(scylla_strata::Grants::create_grant)]` on one use case, `#[before(scylla_strata::Projects::writes)]` on every write of a module, and `#[after(...)]`. It runs after the access check. An edition extends `ScyllaCeOnDb`, overrides a component or adds a module, and gives its host to the `Server` builder (`.strata(EditionHost::<MyEdition>::new(Slice::ALL))`); the core never knows which edition built it. The Community Edition adds no hook.
 
