@@ -933,7 +933,7 @@ async fn log_lab(permissions: Arc<dyn PermissionService>) -> LogLab {
     LogLab { app, logs, live }
 }
 
-struct LogQuery {
+struct LogFilter {
     job_id: JobId,
     node_id: Option<NodeId>,
     pagination: Option<PaginationParams>,
@@ -941,7 +941,7 @@ struct LogQuery {
 
 async fn list_job_logs<A: scylla_strata::JobControl>(
     app: &impl JobControlRpc<A>,
-    q: LogQuery,
+    q: LogFilter,
 ) -> DomainResult<PaginatedResult<JobLog>> {
     JobControlRpc::list_job_logs(app, q.job_id, q.node_id, q.pagination).await
 }
@@ -958,8 +958,8 @@ async fn append_job_logs<A: scylla_strata::JobControl>(
     JobControlRpc::append_job_logs(app, b.job_id, b.logs).await
 }
 
-fn list(node: Option<&str>) -> LogQuery {
-    LogQuery {
+fn list(node: Option<&str>) -> LogFilter {
+    LogFilter {
         job_id: JobId::new("job-1"),
         node_id: node.map(|n| NodeId::new(n).unwrap()),
         pagination: None,
@@ -1327,7 +1327,7 @@ async fn a_reap_pass_ends_a_stranded_running_job_that_has_no_agent() {
 #[tokio::test]
 async fn a_list_of_a_node_that_has_not_started_keeps_the_page_of_the_request() {
     let lab = log_lab(Arc::new(RecordingPermissionService::new())).await;
-    let query = LogQuery {
+    let query = LogFilter {
         pagination: Some(PaginationParams::new(3, 5).unwrap()),
         ..list(Some("test"))
     };
