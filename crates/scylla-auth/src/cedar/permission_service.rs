@@ -1259,6 +1259,57 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn a_secret_update_is_reached_through_the_secret_project_like_a_delete() {
+        let caller = CallerContext::User(UserId::new("u1"));
+        let update = || Permission::UpdateSecret(SecretId::new("s1"));
+
+        let own = service(secret_in("p1"), project_admin()).await;
+        assert!(own.check(&caller, update()).await.is_ok());
+
+        let other = service(secret_in("p2"), project_admin()).await;
+        assert!(other.check(&caller, update()).await.is_err());
+
+        let developer = service(
+            secret_in("p1"),
+            vec![Grant::new(
+                Principal::User(UserId::new("u1")),
+                role(PROJECT_DEVELOPER_ROLE),
+                Scope::Project(ProjectId::new("p1")),
+            )],
+        )
+        .await;
+        assert!(
+            developer.check(&caller, update()).await.is_err(),
+            "a developer does not update secrets"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_job_rerun_is_reached_by_run_pipeline_through_the_job_pipeline_project() {
+        let caller = CallerContext::User(UserId::new("u1"));
+        let rerun = || Permission::RerunJob(JobId::new("j1"));
+        let developer_on = |project: &str| {
+            vec![Grant::new(
+                Principal::User(UserId::new("u1")),
+                role(PROJECT_DEVELOPER_ROLE),
+                Scope::Project(ProjectId::new(project)),
+            )]
+        };
+
+        let own = service(trigger_in("p1"), developer_on("p1")).await;
+        assert!(own.check(&caller, rerun()).await.is_ok());
+
+        let other = service(trigger_in("p2"), developer_on("p1")).await;
+        assert!(other.check(&caller, rerun()).await.is_err());
+
+        let viewer = service(trigger_in("p1"), org_grant(ORGANIZATION_VIEWER_ROLE)).await;
+        assert!(
+            viewer.check(&caller, rerun()).await.is_err(),
+            "a viewer does not run pipelines"
+        );
+    }
+
     fn trigger_in(project: &str) -> ResourceAncestors {
         ResourceAncestors {
             organization: Some(OrganizationId::new("o1")),
@@ -1376,6 +1427,8 @@ mod tests {
             Permission::ReadJob(JobId::new("missing")),
             Permission::ReadApp(AppId::new("missing")),
             Permission::DeleteSecret(SecretId::new("missing")),
+            Permission::UpdateSecret(SecretId::new("missing")),
+            Permission::RerunJob(JobId::new("missing")),
             Permission::ManageTrigger(TriggerId::new("missing")),
             Permission::ManageAppSecret(AppCredentialId::new("missing")),
             Permission::RevokeGrant(GrantId::new("missing")),

@@ -25,12 +25,20 @@ pub enum NodeExecution {
     Pending,
     Running {
         started_at: DateTime<Utc>,
+        #[serde(default = "first_attempt")]
+        attempt: u32,
     },
     Finished {
         started_at: Option<DateTime<Utc>>,
         finished_at: DateTime<Utc>,
         outcome: NodeOutcome,
+        #[serde(default = "first_attempt")]
+        attempts: u32,
     },
+}
+
+fn first_attempt() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,7 +86,10 @@ impl JobNode {
         match self.execution {
             NodeExecution::Pending => Ok(Self {
                 node_id: self.node_id,
-                execution: NodeExecution::Running { started_at },
+                execution: NodeExecution::Running {
+                    started_at,
+                    attempt: first_attempt(),
+                },
             }),
             NodeExecution::Running { .. } | NodeExecution::Finished { .. } => Err(
                 DomainError::business_rule("Node must be pending to start execution"),
@@ -86,14 +97,39 @@ impl JobNode {
         }
     }
 
+    fn retry(self, attempt: u32, max_attempts: u32) -> DomainResult<Self> {
+        match self.execution {
+            NodeExecution::Running {
+                started_at,
+                attempt: current,
+            } if attempt == current + 1 && attempt <= max_attempts => Ok(Self {
+                node_id: self.node_id,
+                execution: NodeExecution::Running {
+                    started_at,
+                    attempt,
+                },
+            }),
+            NodeExecution::Running { .. } => Err(DomainError::business_rule(format!(
+                "Attempt {attempt} does not follow the current attempt of the node, or is above {max_attempts}"
+            ))),
+            NodeExecution::Pending | NodeExecution::Finished { .. } => {
+                Err(DomainError::business_rule("Node must be running to retry"))
+            }
+        }
+    }
+
     fn finish(self, outcome: NodeOutcome, finished_at: DateTime<Utc>) -> DomainResult<Self> {
         match self.execution {
-            NodeExecution::Running { started_at } => Ok(Self {
+            NodeExecution::Running {
+                started_at,
+                attempt,
+            } => Ok(Self {
                 node_id: self.node_id,
                 execution: NodeExecution::Finished {
                     started_at: Some(started_at),
                     finished_at,
                     outcome,
+                    attempts: attempt,
                 },
             }),
             NodeExecution::Pending => Err(DomainError::business_rule(
@@ -106,38 +142,31 @@ impl JobNode {
     }
 
     fn skip(self, finished_at: DateTime<Utc>) -> DomainResult<Self> {
-        let started_at = match self.execution {
-            NodeExecution::Pending => None,
-            NodeExecution::Running { started_at } => Some(started_at),
-            NodeExecution::Finished { .. } => {
-                return Err(DomainError::business_rule(
-                    "Cannot skip a node already in terminal state",
-                ));
-            }
-        };
-        Ok(Self {
-            node_id: self.node_id,
-            execution: NodeExecution::Finished {
-                started_at,
-                finished_at,
-                outcome: NodeOutcome::Skipped,
-            },
-        })
+        if matches!(self.execution, NodeExecution::Finished { .. }) {
+            return Err(DomainError::business_rule(
+                "Cannot skip a node already in terminal state",
+            ));
+        }
+        Ok(self.end_unfinished(NodeOutcome::Skipped, finished_at))
     }
 
     fn cancel_if_active(self, finished_at: DateTime<Utc>) -> Self {
-        let started_at = match self.execution {
-            NodeExecution::Pending => None,
-            NodeExecution::Running { started_at } => Some(started_at),
-            NodeExecution::Finished { .. } => return self,
-        };
+        if matches!(self.execution, NodeExecution::Finished { .. }) {
+            return self;
+        }
+        self.end_unfinished(NodeOutcome::Cancelled, finished_at)
+    }
+
+    fn end_unfinished(self, outcome: NodeOutcome, finished_at: DateTime<Utc>) -> Self {
+        let attempts = self.attempts();
         Self {
-            node_id: self.node_id,
             execution: NodeExecution::Finished {
-                started_at,
+                started_at: self.started_at(),
                 finished_at,
-                outcome: NodeOutcome::Cancelled,
+                outcome,
+                attempts,
             },
+            node_id: self.node_id,
         }
     }
 
@@ -164,7 +193,7 @@ impl JobNode {
     pub fn started_at(&self) -> Option<DateTime<Utc>> {
         match &self.execution {
             NodeExecution::Pending => None,
-            NodeExecution::Running { started_at } => Some(*started_at),
+            NodeExecution::Running { started_at, .. } => Some(*started_at),
             NodeExecution::Finished { started_at, .. } => *started_at,
         }
     }
@@ -174,6 +203,18 @@ impl JobNode {
         match &self.execution {
             NodeExecution::Pending | NodeExecution::Running { .. } => None,
             NodeExecution::Finished { finished_at, .. } => Some(*finished_at),
+        }
+    }
+
+    #[must_use]
+    pub fn attempts(&self) -> u32 {
+        match &self.execution {
+            NodeExecution::Pending
+            | NodeExecution::Finished {
+                started_at: None, ..
+            } => 0,
+            NodeExecution::Running { attempt, .. } => *attempt,
+            NodeExecution::Finished { attempts, .. } => *attempts,
         }
     }
 }
@@ -294,8 +335,35 @@ impl Job {
 
     #[must_use]
     pub fn create_from_pipeline(pipeline: &Pipeline, origin: JobOrigin) -> Self {
+        Self::pending(
+            pipeline.id().clone(),
+            pipeline.nodes().to_vec(),
+            Vec::new(),
+            origin,
+        )
+    }
+
+    pub fn rerun(&self, origin: JobOrigin) -> DomainResult<Self> {
+        if !self.is_terminal() {
+            return Err(DomainError::business_rule(
+                "only an ended job can run again",
+            ));
+        }
+        Ok(Self::pending(
+            self.pipeline_id.clone(),
+            self.nodes.clone(),
+            self.inputs.clone(),
+            origin,
+        ))
+    }
+
+    fn pending(
+        pipeline_id: PipelineId,
+        nodes: Vec<PipelineNode>,
+        inputs: Vec<(EnvKey, EnvValue)>,
+        origin: JobOrigin,
+    ) -> Self {
         let now = clock::now();
-        let nodes = pipeline.nodes().to_vec();
         let node_executions = nodes
             .iter()
             .map(|node| JobNode::new(node.id().clone()))
@@ -303,12 +371,12 @@ impl Job {
 
         Self {
             id: JobId::generate(),
-            pipeline_id: pipeline.id().clone(),
+            pipeline_id,
             state: JobState::Pending,
             agent_app_id: None,
             nodes,
             node_executions,
-            inputs: Vec::new(),
+            inputs,
             origin,
             created_at: now,
             updated_at: now,
@@ -396,6 +464,25 @@ impl Job {
     pub fn apply_node_skipped(mut self, node_id: &NodeId, at: DateTime<Utc>) -> DomainResult<Self> {
         self.transition_node(node_id, at, |node| node.skip(at))?;
         Ok(self)
+    }
+
+    pub fn apply_node_retrying(
+        mut self,
+        node_id: &NodeId,
+        attempt: u32,
+        at: DateTime<Utc>,
+    ) -> DomainResult<Self> {
+        let max_attempts = self.max_attempts(node_id);
+        self.transition_node(node_id, at, |node| node.retry(attempt, max_attempts))?;
+        Ok(self)
+    }
+
+    #[must_use]
+    pub fn max_attempts(&self, node_id: &NodeId) -> u32 {
+        self.nodes
+            .iter()
+            .find(|node| node.id() == node_id)
+            .map_or(1, |node| node.retries().max_attempts())
     }
 
     fn transition_node(
@@ -538,7 +625,7 @@ impl Job {
 mod tests {
     use super::*;
     use crate::domain::ids::{ProjectId, UserId};
-    use crate::domain::pipeline::PipelineName;
+    use crate::domain::pipeline::{NodeRetries, PipelineName};
     use chrono::Duration;
 
     fn node_id(s: &str) -> NodeId {
@@ -893,6 +980,148 @@ mod tests {
         assert!(job.apply_node_skipped(&node_id("a"), now).is_err());
     }
 
+    fn with_retries(id: &str, retries: u32) -> PipelineNode {
+        action(id, &[]).with_attempts(None, NodeRetries::new(retries).unwrap())
+    }
+
+    #[test]
+    fn apply_node_retrying_moves_to_the_next_attempt_up_to_the_maximum() {
+        let pipeline = make_pipeline(vec![with_retries("a", 2)]);
+        let now = clock::now();
+        let job = running_job(&pipeline)
+            .apply_node_started(&node_id("a"), now)
+            .unwrap();
+        assert_eq!(job.find_execution(&node_id("a")).unwrap().attempts(), 1);
+        assert_eq!(job.max_attempts(&node_id("a")), 3);
+
+        let job = job.apply_node_retrying(&node_id("a"), 2, now).unwrap();
+        assert_eq!(job.find_execution(&node_id("a")).unwrap().attempts(), 2);
+        assert!(
+            job.clone()
+                .apply_node_retrying(&node_id("a"), 2, now)
+                .is_err()
+        );
+        assert!(
+            job.clone()
+                .apply_node_retrying(&node_id("a"), 4, now)
+                .is_err()
+        );
+
+        let job = job.apply_node_retrying(&node_id("a"), 3, now).unwrap();
+        assert!(matches!(
+            job.clone().apply_node_retrying(&node_id("a"), 4, now),
+            Err(DomainError::BusinessRule(_))
+        ));
+
+        let job = job
+            .apply_node_finished(&node_id("a"), NodeOutcome::Failed, now)
+            .unwrap();
+        let node = job.find_execution(&node_id("a")).unwrap();
+        assert_eq!(node.state(), NodeState::Failed);
+        assert_eq!(node.attempts(), 3);
+        assert!(job.apply_node_retrying(&node_id("a"), 4, now).is_err());
+    }
+
+    #[test]
+    fn apply_node_retrying_refuses_a_pending_node_and_a_node_without_retries() {
+        let pipeline = make_pipeline(vec![with_retries("a", 2), action("b", &[])]);
+        let now = clock::now();
+
+        assert!(
+            running_job(&pipeline)
+                .apply_node_retrying(&node_id("a"), 2, now)
+                .is_err()
+        );
+        assert!(
+            running_job(&pipeline)
+                .apply_node_started(&node_id("b"), now)
+                .unwrap()
+                .apply_node_retrying(&node_id("b"), 2, now)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn an_unfinished_node_keeps_its_attempts_when_it_ends() {
+        let pipeline = make_pipeline(vec![with_retries("a", 2), with_retries("b", 2)]);
+        let now = clock::now();
+        let job = running_job(&pipeline)
+            .apply_node_started(&node_id("a"), now)
+            .unwrap()
+            .apply_node_retrying(&node_id("a"), 2, now)
+            .unwrap()
+            .cancel(now)
+            .unwrap();
+
+        assert_eq!(job.find_execution(&node_id("a")).unwrap().attempts(), 2);
+        assert_eq!(job.find_execution(&node_id("b")).unwrap().attempts(), 0);
+    }
+
+    #[test]
+    fn a_rerun_copies_the_nodes_and_the_inputs_of_an_ended_job() {
+        let pipeline = make_pipeline(vec![action("a", &[]), with_retries("b", 1)]);
+        let inputs = vec![(
+            EnvKey::new("GIT_COMMIT").unwrap(),
+            EnvValue::new("abc123").unwrap(),
+        )];
+        let ended = make_job(&pipeline)
+            .with_inputs(inputs)
+            .start(clock::now())
+            .unwrap()
+            .apply_node_started(&node_id("a"), clock::now())
+            .unwrap()
+            .fail(clock::now())
+            .unwrap();
+        let caller = UserId::generate();
+
+        let rerun = ended
+            .rerun(JobOrigin::Human {
+                user_id: caller.clone(),
+            })
+            .unwrap();
+
+        assert_ne!(rerun.id(), ended.id());
+        assert_eq!(rerun.pipeline_id(), ended.pipeline_id());
+        assert_eq!(rerun.status(), JobStatus::Pending);
+        assert_eq!(rerun.version(), 0);
+        assert!(rerun.agent_app_id().is_none());
+        assert_eq!(
+            format!("{:?}", rerun.nodes()),
+            format!("{:?}", ended.nodes())
+        );
+        assert_eq!(rerun.inputs(), ended.inputs());
+        assert!(matches!(rerun.origin(), JobOrigin::Human { user_id } if *user_id == caller));
+        assert!(
+            rerun
+                .node_executions()
+                .iter()
+                .all(|n| n.state() == NodeState::Pending)
+        );
+        assert_eq!(ended.status(), JobStatus::Failed);
+    }
+
+    #[test]
+    fn only_an_ended_job_runs_again() {
+        let pipeline = make_pipeline(vec![action("a", &[])]);
+        let origin = || JobOrigin::Human {
+            user_id: UserId::generate(),
+        };
+
+        for live in [make_job(&pipeline), running_job(&pipeline)] {
+            assert!(matches!(
+                live.rerun(origin()),
+                Err(DomainError::BusinessRule(_))
+            ));
+        }
+        for ended in [
+            running_job(&pipeline).complete(clock::now()).unwrap(),
+            running_job(&pipeline).cancel(clock::now()).unwrap(),
+            running_job(&pipeline).orphan(clock::now()).unwrap(),
+        ] {
+            assert!(ended.rerun(origin()).is_ok());
+        }
+    }
+
     #[test]
     fn is_terminal_reflects_status() {
         let pipeline = make_pipeline(vec![action("a", &[])]);
@@ -911,11 +1140,12 @@ mod tests {
     fn job_nodes_jsonb_shape_is_stable() {
         const STORED: &str = r#"[
             {"node_id":"a","execution":{"state":"pending"}},
-            {"node_id":"b","execution":{"state":"running","started_at":"2026-01-15T10:30:00Z"}},
+            {"node_id":"b","execution":{"state":"running","started_at":"2026-01-15T10:30:00Z",
+             "attempt":2}},
             {"node_id":"c","execution":{"state":"finished","started_at":"2026-01-15T10:30:00Z",
-             "finished_at":"2026-01-15T10:30:00Z","outcome":"completed"}},
+             "finished_at":"2026-01-15T10:30:00Z","outcome":"completed","attempts":3}},
             {"node_id":"d","execution":{"state":"finished","started_at":null,
-             "finished_at":"2026-01-15T10:30:00Z","outcome":"skipped"}}
+             "finished_at":"2026-01-15T10:30:00Z","outcome":"skipped","attempts":0}}
         ]"#;
 
         let nodes: Vec<JobNode> = serde_json::from_str(STORED).unwrap();
@@ -942,9 +1172,27 @@ mod tests {
             }
         ));
 
+        assert_eq!(nodes[1].attempts(), 2);
+        assert_eq!(nodes[2].attempts(), 3);
+
         let round_tripped: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&nodes).unwrap()).unwrap();
         let original: serde_json::Value = serde_json::from_str(STORED).unwrap();
         assert_eq!(round_tripped, original, "serialized shape drifted");
+    }
+
+    #[test]
+    fn an_old_job_node_reads_as_its_first_attempt() {
+        const LEGACY: &str = r#"[
+            {"node_id":"b","execution":{"state":"running","started_at":"2026-01-15T10:30:00Z"}},
+            {"node_id":"c","execution":{"state":"finished","started_at":"2026-01-15T10:30:00Z",
+             "finished_at":"2026-01-15T10:30:00Z","outcome":"failed"}},
+            {"node_id":"d","execution":{"state":"finished","started_at":null,
+             "finished_at":"2026-01-15T10:30:00Z","outcome":"skipped"}}
+        ]"#;
+
+        let nodes: Vec<JobNode> = serde_json::from_str(LEGACY).unwrap();
+        let attempts: Vec<u32> = nodes.iter().map(JobNode::attempts).collect();
+        assert_eq!(attempts, [1, 1, 0]);
     }
 }

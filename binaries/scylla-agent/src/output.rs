@@ -47,6 +47,7 @@ impl Secrets {
     }
 }
 
+#[derive(Clone)]
 pub struct NodeLog {
     publisher: StatusPublisher,
     node_id: String,
@@ -88,7 +89,7 @@ impl NodeLog {
     }
 }
 
-pub async fn forward(mut log: NodeLog, stdout: ChildStdout, stderr: ChildStderr) {
+pub async fn forward(mut log: NodeLog, stdout: ChildStdout, stderr: ChildStderr) -> NodeLog {
     let mut lines = FramedRead::new(stdout, Lines)
         .map(|line| (LogStream::Stdout, line))
         .merge(FramedRead::new(stderr, Lines).map(|line| (LogStream::Stderr, line)));
@@ -97,6 +98,7 @@ pub async fn forward(mut log: NodeLog, stdout: ChildStdout, stderr: ChildStderr)
             log.send(stream, &text(&line)).await;
         }
     }
+    log
 }
 
 fn text(line: &[u8]) -> Cow<'_, str> {

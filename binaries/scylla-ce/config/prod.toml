@@ -37,3 +37,9 @@ allow_origins = ["https://your-domain.example.com"]
 allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 allow_headers = ["content-type", "authorization"]
 max_age_seconds = 3600
+
+# The time limit of each attempt of a node that has no timeout of its own, in
+# seconds: 1 to 604800. The server applies it when it sends a job to an agent.
+# Unset: such a node has no time limit.
+# [jobs]
+# default_node_timeout_seconds = 3600

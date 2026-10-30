@@ -2,6 +2,7 @@ use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{OrganizationId, PipelineId, ProjectId};
 use crate::domain::pipeline::PipelineName;
 use crate::domain::pipeline::{Pipeline, PipelineNode};
+use crate::domain::secret::SecretName;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use scylla_core::application::PipelineRepository;
@@ -75,11 +76,16 @@ impl PipelineRepository for PgPipelineRepository {
     async fn list_by_project(
         &self,
         project_id: &ProjectId,
+        secret_ref: Option<&SecretName>,
         pagination: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<Pipeline>> {
         let params = pagination.copied().unwrap_or_default();
-        let total = queries::count(&self.pool, Scope::Project(project_id)).await?;
-        let items = queries::list_page(&self.pool, &params, Scope::Project(project_id)).await?;
+        let scope = match secret_ref {
+            Some(name) => Scope::Secret(project_id, name),
+            None => Scope::Project(project_id),
+        };
+        let total = queries::count(&self.pool, scope).await?;
+        let items = queries::list_page(&self.pool, &params, scope).await?;
         Ok(PaginatedResult::new(items, &params, total))
     }
 
@@ -101,6 +107,7 @@ impl PipelineRepository for PgPipelineRepository {
 pub enum Scope<'a> {
     All,
     Project(&'a ProjectId),
+    Secret(&'a ProjectId, &'a SecretName),
     Organization(&'a OrganizationId),
 }
 
@@ -245,6 +252,20 @@ pub mod queries {
             .fetch_one(executor)
             .await
             .to_domain()?,
+            Scope::Secret(project_id, name) => sqlx::query_scalar!(
+                r#"
+                SELECT COUNT(*) AS "count!"
+                FROM pipelines
+                WHERE project_id = $1
+                  AND nodes @> jsonb_build_array(jsonb_build_object('env', jsonb_build_array(
+                      jsonb_build_object('source', jsonb_build_object('secret', $2::text)))))
+                "#,
+                project_id.as_str(),
+                name.as_str(),
+            )
+            .fetch_one(executor)
+            .await
+            .to_domain()?,
             Scope::Organization(org_id) => sqlx::query_scalar!(
                 r#"
                 SELECT COUNT(*) AS "count!"
@@ -300,6 +321,27 @@ pub mod queries {
                 LIMIT $2 OFFSET $3
                 "#,
                 project_id.as_str(),
+                limit,
+                offset,
+            )
+            .fetch_all(executor)
+            .await
+            .to_domain()?,
+            Scope::Secret(project_id, name) => sqlx::query_as!(
+                PipelineRow,
+                r#"
+                SELECT id, project_id, name,
+                       nodes AS "nodes: Json<Vec<PipelineNode>>",
+                       created_at, updated_at, version
+                FROM pipelines
+                WHERE project_id = $1
+                  AND nodes @> jsonb_build_array(jsonb_build_object('env', jsonb_build_array(
+                      jsonb_build_object('source', jsonb_build_object('secret', $2::text)))))
+                ORDER BY created_at DESC
+                LIMIT $3 OFFSET $4
+                "#,
+                project_id.as_str(),
+                name.as_str(),
                 limit,
                 offset,
             )

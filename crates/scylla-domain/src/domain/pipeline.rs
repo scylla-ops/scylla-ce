@@ -1,3 +1,4 @@
+mod attempts;
 mod dag;
 mod env;
 mod name;
@@ -5,6 +6,7 @@ mod node_id;
 mod step;
 mod working_dir;
 
+pub use attempts::*;
 pub use dag::*;
 pub use env::*;
 pub use name::*;
@@ -30,6 +32,10 @@ pub struct PipelineNode {
     #[serde(default)]
     env: Vec<EnvVar>,
     step: Step,
+    #[serde(default)]
+    timeout_seconds: Option<NodeTimeout>,
+    #[serde(default)]
+    retries: NodeRetries,
 }
 
 impl PipelineNode {
@@ -47,7 +53,16 @@ impl PipelineNode {
             working_dir,
             env,
             step,
+            timeout_seconds: None,
+            retries: NodeRetries::default(),
         }
+    }
+
+    #[must_use]
+    pub fn with_attempts(mut self, timeout: Option<NodeTimeout>, retries: NodeRetries) -> Self {
+        self.timeout_seconds = timeout;
+        self.retries = retries;
+        self
     }
 
     #[must_use]
@@ -73,6 +88,16 @@ impl PipelineNode {
     #[must_use]
     pub fn env(&self) -> &[EnvVar] {
         &self.env
+    }
+
+    #[must_use]
+    pub fn timeout(&self) -> Option<NodeTimeout> {
+        self.timeout_seconds
+    }
+
+    #[must_use]
+    pub fn retries(&self) -> NodeRetries {
+        self.retries
     }
 
     fn validate(&self, ids: &HashSet<&NodeId>) -> DomainResult<()> {
@@ -433,9 +458,11 @@ mod tests {
         const STORED: &str = r#"[
             {"id":"build","deps":[],"working_dir":"crates/api",
              "env":[{"key":"RUST_LOG","source":{"literal":"debug"}}],
-             "step":{"kind":"exec","command":"cargo","args":["build"]}},
+             "step":{"kind":"exec","command":"cargo","args":["build"]},
+             "timeout_seconds":30,"retries":2},
             {"id":"test","deps":["build"],"working_dir":null,"env":[],
-             "step":{"kind":"script","script":"cargo test\n","shell":"bash"}}
+             "step":{"kind":"script","script":"cargo test\n","shell":"bash"},
+             "timeout_seconds":null,"retries":0}
         ]"#;
 
         let nodes: Vec<PipelineNode> = serde_json::from_str(STORED).unwrap();
@@ -443,6 +470,8 @@ mod tests {
         assert_eq!(nodes[0].id().as_str(), "build");
         assert_eq!(nodes[0].working_dir().unwrap().as_str(), "crates/api");
         assert_eq!(nodes[0].env().len(), 1);
+        assert_eq!(nodes[0].timeout().map(NodeTimeout::seconds), Some(30));
+        assert_eq!(nodes[0].retries().get(), 2);
         assert!(nodes[1].working_dir().is_none());
         assert_eq!(nodes[1].deps(), &[node_id("build")]);
 
@@ -460,5 +489,7 @@ mod tests {
         let nodes: Vec<PipelineNode> = serde_json::from_str(LEGACY).unwrap();
         assert!(nodes[0].working_dir().is_none());
         assert!(nodes[0].env().is_empty());
+        assert!(nodes[0].timeout().is_none());
+        assert_eq!(nodes[0].retries(), NodeRetries::default());
     }
 }

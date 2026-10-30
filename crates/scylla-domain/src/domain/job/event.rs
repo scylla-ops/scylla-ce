@@ -8,6 +8,7 @@ pub enum JobEvent {
     NodeCompleted { node_id: String },
     NodeFailed { node_id: String, error: String },
     NodeSkipped { node_id: String },
+    NodeRetrying { node_id: String, attempt: u32 },
     JobCompleted,
     JobFailed { error: String },
 }

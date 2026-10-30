@@ -5,7 +5,7 @@ use super::PipelineUseCases;
 use crate::application::actions::user_or_app;
 use crate::application::job::JobScope;
 use crate::domain::errors::DomainResult;
-use crate::domain::ids::{PipelineId, ProjectId};
+use crate::domain::ids::{JobId, PipelineId, ProjectId};
 use crate::domain::job::{Job, JobOrigin};
 use crate::domain::permission::Permission;
 use crate::domain::pipeline::{EnvKey, EnvValue, Pipeline, PipelineName, PipelineNode};
@@ -233,6 +233,40 @@ impl Run<Persist<RunPipelineWithInputs>> for PipelineUseCases {
         &self,
         input: Prepared<RunPipelineWithInputs>,
     ) -> DomainResult<Committed<RunPipelineWithInputs>> {
+        input
+            .commit(async |draft| self.start(&draft.into_inner()).await)
+            .await
+    }
+}
+
+#[derive(Debug)]
+pub struct RerunJob {
+    pub id: JobId,
+}
+
+impl Describe for RerunJob {
+    fn access(&self) -> Access {
+        Access::Requires(Permission::RerunJob(self.id.clone()))
+    }
+}
+
+impl Command for RerunJob {
+    type Staged = Draft<Job>;
+    type Committed = Job;
+}
+
+#[async_trait]
+impl Run<Prepare<RerunJob>> for PipelineUseCases {
+    async fn run(&self, input: Authorized<RerunJob>) -> DomainResult<Prepared<RerunJob>> {
+        let origin = user_or_app(input.caller())?;
+        let job = self.rerun_job(&input.command().id, origin).await?;
+        Ok(input.prepared(Draft::new(job)))
+    }
+}
+
+#[async_trait]
+impl Run<Persist<RerunJob>> for PipelineUseCases {
+    async fn run(&self, input: Prepared<RerunJob>) -> DomainResult<Committed<RerunJob>> {
         input
             .commit(async |draft| self.start(&draft.into_inner()).await)
             .await

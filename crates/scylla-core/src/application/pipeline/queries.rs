@@ -7,6 +7,7 @@ use crate::domain::errors::DomainResult;
 use crate::domain::ids::{OrganizationId, PipelineId, ProjectId};
 use crate::domain::permission::Permission;
 use crate::domain::pipeline::Pipeline;
+use crate::domain::secret::SecretName;
 use async_trait::async_trait;
 use scylla_extension::{Access, Authorized, Describe, Fetch, Fetched, Query, Run};
 
@@ -63,6 +64,7 @@ impl Run<Fetch<ListPipelines>> for PipelineUseCases {
 pub struct ListProjectPipelines {
     pub project_id: ProjectId,
     pub pagination: Option<PaginationParams>,
+    pub secret_ref: Option<SecretName>,
 }
 
 impl Describe for ListProjectPipelines {
@@ -84,7 +86,11 @@ impl Run<Fetch<ListProjectPipelines>> for PipelineUseCases {
         let query = input.command();
         let page = self
             .pipeline_repo
-            .list_by_project(&query.project_id, query.pagination.as_ref())
+            .list_by_project(
+                &query.project_id,
+                query.secret_ref.as_ref(),
+                query.pagination.as_ref(),
+            )
             .await?;
         Ok(input.fetched(page))
     }

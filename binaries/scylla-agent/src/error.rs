@@ -24,6 +24,9 @@ pub enum ExecutionError {
     #[error("node {node_id} was killed by signal")]
     NodeKilled { node_id: String },
 
+    #[error("node {node_id} timed out after {seconds}s")]
+    TimedOut { node_id: String, seconds: u32 },
+
     #[error("execution cancelled")]
     Cancelled,
 

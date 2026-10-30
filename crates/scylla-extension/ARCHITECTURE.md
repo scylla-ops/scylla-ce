@@ -586,6 +586,8 @@ decided on the staged value is therefore safe: the write goes through only if
 the row is still in the state the gate saw.
 
 Projects, pipelines, triggers, organizations, users and jobs carry a version.
+A project secret carries none: `UpdateSecret` writes only the fields that the
+request carries (`SecretChange`), and the last write of each field wins.
 Each Postgres adapter gives the result of its write to `written`
 (`scylla-db/src/postgres/version.rs`) and does not add its own helper. When
 the write changed no row, `written` reads the row: if the row is there, the
@@ -666,6 +668,11 @@ that gives `Stale`: a report of the agent came first.
   `ListUserAccess` asks for `ReadUser` and reads the user first, thus an
   unknown user gives `NotFound`. `ListAppAccess` asks for `ReadApp` and reads
   only the grants, thus an unknown App gives an empty list.
+- `ListProjectPipelines` with `secret_ref` keeps its permission
+  (`ListPipelinesByProject`) and its pages, and lists only the pipelines with
+  a node env var that names that secret. The Postgres adapter filters with a
+  JSONB containment on `pipelines.nodes` (the serde shape of
+  `EnvSource::Secret`).
 - `ListOrganizationJobs` with `agent_id` keeps its permission
   (`ListJobsByOrganization`) and lists only the jobs of the organization that
   the server placed on that agent (`jobs.agent_app_id`), at each state. The
@@ -749,11 +756,16 @@ that gives `Stale`: a report of the agent came first.
   `RecordTriggerFire` asks for `ManageTrigger`, and the `service` rule of the
   Cedar policies permits it. That check writes one audit row for each fire.
 - A job runs the nodes it was created with (`Job::nodes`); a dispatch never
-  reads the pipeline again. `RunPipeline` and `RunPipelineWithInputs` build
-  the job in `Prepare` and assemble its dispatch there (`assemble_dispatch`):
-  a secret that does not resolve, or a job larger than `MAX_DISPATCH_BYTES`,
-  stores nothing. The `commit` closure stores the job and wakes the
-  dispatcher; a run does not place its job.
+  reads the pipeline again. `RunPipeline`, `RunPipelineWithInputs` and
+  `RerunJob` build the job in `Prepare` and assemble its dispatch there
+  (`assemble_dispatch`): a secret that does not resolve, or a job larger than
+  `MAX_DISPATCH_BYTES`, stores nothing. `RerunJob` copies the nodes and the
+  inputs of an ended job (`Job::rerun`). The `commit` closure stores the job
+  and wakes the dispatcher; a run does not place its job.
+- `assemble_dispatch` gives each node without its own timeout the default of
+  the server (`[jobs].default_node_timeout_seconds`, which `DispatchUseCases`
+  holds), and copies the retries. Thus a pending job gets the default of the
+  server that sends it.
 - `DispatchPendingJobs` is the only action that places a job. A wake names the
   agents of the pass, or all of them. For each connected agent that has no job
   that has not ended, it reads the grants of the agent
@@ -834,7 +846,8 @@ that gives `Stale`: a report of the agent came first.
   `scylla-auth`: the `Run` impls need the struct in the crate that names the
   commands. `scylla-auth` keeps `Role`, `RoleRepository` and
   `validate_role_permissions`.
-- `DeleteSecret` asks for its permission on the secret, not on the project.
+- `DeleteSecret` and `UpdateSecret` ask for their permission on the secret, not
+  on the project.
   The access model finds the project of the secret in `Authorize`
   (`ResourceRef::Secret`, one join in `PgAuthzEntityProvider`). An unknown
   resource of any kind is under System only: without a System grant the caller
@@ -849,6 +862,11 @@ that gives `Stale`: a report of the agent came first.
   the same roles give them. They are not in the permission catalog, because a
   key is there one time only. `CreateTrigger` and `ListPipelineTriggers` keep
   `ManageTriggers` on the pipeline.
+- `RerunJob` uses the same method: it asks for `RerunJob` on the job
+  (`ResourceRef::Job`). It has the key `runPipeline`, which the Cedar schema
+  applies to `Job` too, so a grant on the pipeline or on its project reaches
+  it. It is not in the permission catalog. Its runner is `PipelineUseCases`,
+  the runner of `RunPipeline`; `JobService` sends it.
 - `RevokeAppSecret`, `SetAppSecretEnabled` and `SetAppSecretLabel` use the
   same method: they ask for `ManageAppSecret` on the secret
   (`ResourceRef::AppSecret`, one join to the app and its organization). It has

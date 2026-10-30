@@ -13,6 +13,7 @@ use crate::domain::clock;
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{AppId, JobId};
 use crate::domain::job::Job;
+use crate::domain::pipeline::NodeTimeout;
 use derive_more::Constructor;
 use scylla_auth::authz::{Visibility, VisibilityResolver};
 use std::sync::Arc;
@@ -27,9 +28,14 @@ pub struct DispatchUseCases {
     job_repo: Arc<dyn JobRepository>,
     secret_resolver: Arc<dyn SecretResolver>,
     log_stream: Arc<dyn JobLogStreamPort>,
+    default_node_timeout: Option<NodeTimeout>,
 }
 
 impl DispatchUseCases {
+    pub(crate) fn default_node_timeout(&self) -> Option<NodeTimeout> {
+        self.default_node_timeout
+    }
+
     pub(crate) fn wake(&self, agent: Option<&AppId>) {
         self.registry.wake(agent);
     }
@@ -87,7 +93,14 @@ impl DispatchUseCases {
     /// longer assembles fails, and the agent gets the next one.
     async fn place(&self, stream: &AgentStream, visible: &Visibility) -> DomainResult<Option<Job>> {
         while let Some((job, project_id)) = self.job_repo.claim_next(stream, visible).await? {
-            match assemble_dispatch(&*self.secret_resolver, &project_id, &job).await {
+            match assemble_dispatch(
+                &*self.secret_resolver,
+                &project_id,
+                &job,
+                self.default_node_timeout,
+            )
+            .await
+            {
                 Ok(dispatch) => {
                     if let Err(e) = self.registry.run(stream, dispatch) {
                         warn!(app_id = %stream.agent, job_id = %job.id(), error = %e, "could not send the job; it goes back to the pool");

@@ -18,6 +18,7 @@ use crate::domain::ids::{
 use crate::domain::job::{Job, JobLog, JobStatus};
 use crate::domain::pipeline::{NodeId, Pipeline, PipelineNode};
 use crate::domain::project::Project;
+use crate::domain::secret::SecretName;
 use crate::domain::session::{ACTIVITY_INTERVAL, Session, SessionClient};
 use crate::domain::user::{
     Email, Password, PasswordHash, PasswordReset, ResetToken, User, Username, reset_link_invalid,
@@ -547,6 +548,7 @@ pub fn dispatcher(
         jobs,
         Arc::new(EchoResolver),
         tails,
+        None,
     ))
 }
 
@@ -567,6 +569,8 @@ impl SecretResolver for EchoResolver {
                 working_dir: n.working_dir().map(|w| w.as_str().to_string()),
                 step: n.step().clone(),
                 env: Vec::new(),
+                timeout: n.timeout(),
+                retries: n.retries(),
             })
             .collect())
     }
@@ -685,6 +689,7 @@ impl PipelineRepository for OnePipeline {
     async fn list_by_project(
         &self,
         _: &ProjectId,
+        _: Option<&SecretName>,
         _: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<Pipeline>> {
         empty_page()

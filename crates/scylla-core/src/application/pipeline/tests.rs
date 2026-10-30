@@ -9,8 +9,9 @@ use crate::domain::ids::{AppId, OrganizationId, PipelineId, ProjectId, TriggerId
 use crate::domain::job::{JobOrigin, JobStatus};
 use crate::domain::permission::Permission;
 use crate::domain::pipeline::{
-    EnvKey, EnvValue, NodeId, Pipeline, PipelineName, PipelineNode, Shell, Step,
+    EnvKey, EnvSource, EnvValue, NodeId, Pipeline, PipelineName, PipelineNode, Shell, Step,
 };
+use crate::domain::secret::SecretName;
 use crate::test_support::authz::{DenyingPermissionService, RecordingPermissionService, actions};
 use crate::test_support::jobs::JobBuilder;
 use crate::test_support::pipelines::{PipelineBuilder, node};
@@ -81,9 +82,18 @@ impl PipelineRepository for StubPipelines {
     async fn list_by_project(
         &self,
         project_id: &ProjectId,
+        secret_ref: Option<&SecretName>,
         _: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<Pipeline>> {
-        self.page(|p| p.project_id() == project_id)
+        self.page(|p| {
+            p.project_id() == project_id
+                && secret_ref.is_none_or(|name| {
+                    p.nodes()
+                        .iter()
+                        .flat_map(PipelineNode::env)
+                        .any(|e| matches!(e.source(), EnvSource::Secret(s) if s == name))
+                })
+        })
     }
     async fn list_by_organization(
         &self,
@@ -135,6 +145,13 @@ impl Lab {
             id: pipeline.id().clone(),
         };
         self.actions.run(&self.uc, &alice(), run).await
+    }
+
+    async fn rerun(&self, job: &Job) -> DomainResult<Job> {
+        let rerun = RerunJob {
+            id: job.id().clone(),
+        };
+        self.actions.run(&self.uc, &alice(), rerun).await
     }
 }
 
@@ -325,6 +342,7 @@ async fn a_get_and_a_project_list_check_their_permissions() {
             ListProjectPipelines {
                 project_id: project_id(),
                 pagination: None,
+                secret_ref: None,
             },
         )
         .await
@@ -516,4 +534,179 @@ async fn a_trigger_run_checks_run_pipeline_and_keeps_its_origin_and_inputs() {
     assert_eq!(job.inputs(), inputs.as_slice());
     assert_eq!(lab.jobs.rows().len(), 1);
     assert_eq!(lab.registry.wakes(), [None]);
+}
+
+fn using_secret(id: &str, secret: &str) -> PipelineNode {
+    PipelineNode::new(
+        NodeId::new(id).unwrap(),
+        vec![],
+        Step::exec("env".into(), vec![]).unwrap(),
+        None,
+        vec![crate::domain::pipeline::EnvVar::secret(
+            EnvKey::new("TOKEN").unwrap(),
+            SecretName::new(secret).unwrap(),
+        )],
+    )
+}
+
+#[tokio::test]
+async fn a_project_list_with_a_secret_lists_only_the_pipelines_that_use_it() {
+    let permissions = Arc::new(RecordingPermissionService::new());
+    let lab = lab(permissions.clone());
+    let user = lab.seed_with(
+        PipelineBuilder::for_project_id(project_id())
+            .nodes(vec![node("a", &[]), using_secret("b", "API_TOKEN")])
+            .build(),
+    );
+    lab.seed_with(
+        PipelineBuilder::for_project_id(project_id())
+            .nodes(vec![using_secret("a", "OTHER")])
+            .build(),
+    );
+    lab.seed();
+
+    let page = lab
+        .actions
+        .run(
+            &lab.uc,
+            &alice(),
+            ListProjectPipelines {
+                project_id: project_id(),
+                pagination: None,
+                secret_ref: Some(SecretName::new("API_TOKEN").unwrap()),
+            },
+        )
+        .await
+        .unwrap();
+
+    let ids: Vec<PipelineId> = page.into_parts().0.iter().map(|p| p.id().clone()).collect();
+    assert_eq!(ids, [user.id().clone()]);
+    assert_eq!(
+        permissions.permissions(),
+        vec![Permission::ListPipelinesByProject(project_id())]
+    );
+}
+
+#[tokio::test]
+async fn a_rerun_checks_its_permission_on_the_job_and_stores_a_copy_as_the_caller() {
+    let permissions = Arc::new(RecordingPermissionService::new());
+    let lab = lab(permissions.clone());
+    let pipeline = lab.seed_with(
+        PipelineBuilder::for_project_id(project_id())
+            .nodes(vec![node("old1", &[]), node("old2", &["old1"])])
+            .build(),
+    );
+    let inputs = vec![(
+        EnvKey::new("GIT_COMMIT").unwrap(),
+        EnvValue::new("abc123").unwrap(),
+    )];
+    let ended = JobBuilder::new(&pipeline)
+        .terminated(JobStatus::Failed)
+        .origin(JobOrigin::Webhook {
+            trigger_id: TriggerId::new("t-1"),
+            delivery_id: None,
+        })
+        .build()
+        .with_inputs(inputs.clone());
+    lab.jobs.insert(&ended);
+    lab.actions
+        .run(
+            &lab.uc,
+            &alice(),
+            UpdatePipeline {
+                id: pipeline.id().clone(),
+                name: None,
+                nodes: Some(vec![node("new", &[])]),
+            },
+        )
+        .await
+        .unwrap();
+    lab.registry.connect(&AppId::new("agent-1"));
+
+    let rerun = lab.rerun(&ended).await.unwrap();
+
+    assert_eq!(
+        permissions.permissions().last(),
+        Some(&Permission::RerunJob(ended.id().clone()))
+    );
+    assert_ne!(rerun.id(), ended.id());
+    assert_eq!(rerun.status(), JobStatus::Pending);
+    assert_eq!(
+        rerun.origin(),
+        &JobOrigin::Human {
+            user_id: UserId::new("alice")
+        }
+    );
+    assert_eq!(rerun.inputs(), inputs.as_slice());
+    let ids: Vec<&str> = rerun.nodes().iter().map(|n| n.id().as_str()).collect();
+    assert_eq!(ids, ["old1", "old2"]);
+    assert_eq!(lab.jobs.rows().len(), 2);
+    assert_eq!(lab.jobs.row(ended.id()).status(), JobStatus::Failed);
+    assert_eq!(lab.registry.wakes(), [None]);
+}
+
+#[tokio::test]
+async fn a_rerun_of_a_job_that_has_not_ended_fails_its_precondition() {
+    let lab = lab(Arc::new(RecordingPermissionService::new()));
+    let pipeline = lab.seed();
+    let pending = lab.jobs.insert(&JobBuilder::new(&pipeline).build());
+    let running = lab
+        .jobs
+        .insert(&JobBuilder::new(&pipeline).running(true).build());
+
+    for live in [pending, running] {
+        let err = lab.rerun(&live).await.unwrap_err();
+        assert!(matches!(err, DomainError::BusinessRule(_)), "{err:?}");
+    }
+    assert_eq!(lab.jobs.rows().len(), 2);
+}
+
+#[tokio::test]
+async fn a_rerun_whose_secret_does_not_resolve_stores_nothing() {
+    let lab = lab_resolving(
+        Arc::new(RecordingPermissionService::new()),
+        Arc::new(NoSecret),
+    );
+    let pipeline = lab.seed();
+    let ended = lab.jobs.insert(
+        &JobBuilder::new(&pipeline)
+            .terminated(JobStatus::Completed)
+            .build(),
+    );
+
+    let err = lab.rerun(&ended).await.unwrap_err();
+
+    assert!(matches!(err, DomainError::NotFound(_)));
+    assert_eq!(lab.jobs.rows().len(), 1);
+    assert!(lab.registry.wakes().is_empty());
+}
+
+#[tokio::test]
+async fn a_rerun_of_an_unknown_job_is_not_found() {
+    let lab = lab(Arc::new(RecordingPermissionService::new()));
+    let pipeline = lab.seed();
+
+    let err = lab
+        .rerun(&JobBuilder::new(&pipeline).build())
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, DomainError::NotFound(_)));
+    assert!(lab.jobs.rows().is_empty());
+}
+
+#[tokio::test]
+async fn a_denied_rerun_stores_nothing() {
+    let lab = lab(Arc::new(DenyingPermissionService::new()));
+    let pipeline = lab.seed();
+    let ended = lab.jobs.insert(
+        &JobBuilder::new(&pipeline)
+            .terminated(JobStatus::Cancelled)
+            .build(),
+    );
+
+    let err = lab.rerun(&ended).await.unwrap_err();
+
+    assert!(matches!(err, DomainError::Forbidden(_)));
+    assert_eq!(lab.jobs.rows().len(), 1);
 }

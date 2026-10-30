@@ -2,6 +2,7 @@ use crate::application::pagination::{PaginatedResult, PaginationParams};
 use crate::domain::errors::DomainResult;
 use crate::domain::ids::{OrganizationId, PipelineId, ProjectId};
 use crate::domain::pipeline::Pipeline;
+use crate::domain::secret::SecretName;
 use async_trait::async_trait;
 
 #[async_trait]
@@ -25,6 +26,7 @@ pub trait PipelineRepository: Send + Sync {
     async fn list_by_project(
         &self,
         project_id: &ProjectId,
+        secret_ref: Option<&SecretName>,
         pagination: Option<&PaginationParams>,
     ) -> DomainResult<PaginatedResult<Pipeline>>;
 
