@@ -65,6 +65,9 @@ impl Run<Prepare<RecordJobStatus>> for JobUseCases {
             JobEvent::NodeSkipped { node_id } => {
                 job.apply_node_skipped(&NodeId::new(node_id)?, at)?
             }
+            JobEvent::NodeRetrying { node_id, attempt } => {
+                job.apply_node_retrying(&NodeId::new(node_id)?, *attempt, at)?
+            }
             JobEvent::JobCompleted => job.complete(at)?,
             JobEvent::JobFailed { .. } => job.fail(at)?,
         };

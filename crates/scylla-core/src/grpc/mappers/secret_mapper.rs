@@ -1,12 +1,12 @@
 //! Wire to command, command outcome to wire. The handler holds none of it.
 
-use crate::application::secret::{CreateSecret, DeleteSecret, ListSecrets};
+use crate::application::secret::{CreateSecret, DeleteSecret, ListSecrets, UpdateSecret};
 use crate::grpc::convert::{Parse, id, ts, valid, wrap};
 use scylla_domain::domain::secret::{
     Secret as DomainSecret, SecretDescription, SecretName, SecretValue,
 };
 use scylla_proto::secret::v1::{
-    CreateSecretRequest, DeleteSecretRequest, ListSecretsRequest, Secret,
+    CreateSecretRequest, DeleteSecretRequest, ListSecretsRequest, Secret, UpdateSecretRequest,
 };
 use tonic::Status;
 
@@ -37,6 +37,21 @@ impl Parse for CreateSecretRequest {
 parse!(ListSecretsRequest => ListSecrets { project_id: id(project_id) });
 
 parse!(DeleteSecretRequest => DeleteSecret { id: id(secret_id) });
+
+impl Parse for UpdateSecretRequest {
+    type Into = UpdateSecret;
+
+    fn parse(self) -> Result<UpdateSecret, Status> {
+        Ok(UpdateSecret {
+            id: id(self.secret_id, "secret_id")?,
+            value: self.value.map(|v| valid(v, SecretValue::new)).transpose()?,
+            description: self
+                .description
+                .map(|d| valid(d, SecretDescription::new))
+                .transpose()?,
+        })
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -74,6 +89,30 @@ mod tests {
             panic!("an oversized value must not parse");
         };
 
+        assert_eq!(err.code(), Code::InvalidArgument);
+    }
+
+    #[test]
+    fn an_update_request_keeps_each_absent_field() {
+        let command = UpdateSecretRequest {
+            secret_id: wrap("s1"),
+            value: Some("hunter2".into()),
+            description: None,
+        }
+        .parse()
+        .unwrap();
+
+        assert_eq!(command.id.as_str(), "s1");
+        assert_eq!(command.value.unwrap().as_str(), "hunter2");
+        assert!(command.description.is_none());
+
+        let err = UpdateSecretRequest {
+            secret_id: wrap("s1"),
+            value: Some("a".repeat(65_537)),
+            description: None,
+        }
+        .parse()
+        .unwrap_err();
         assert_eq!(err.code(), Code::InvalidArgument);
     }
 

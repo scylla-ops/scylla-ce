@@ -119,6 +119,44 @@ async fn a_status_event_of_the_agent_checks_write_job_status_and_persists_the_tr
 }
 
 #[tokio::test]
+async fn a_retry_of_the_agent_moves_the_node_to_its_next_attempt_only() {
+    use crate::domain::pipeline::NodeRetries;
+    let lab = lab(Arc::new(RecordingPermissionService::new()));
+    let pipeline = PipelineBuilder::for_project_id(ProjectId::new("p"))
+        .nodes(vec![
+            node("a", &[]).with_attempts(None, NodeRetries::new(1).unwrap()),
+            node("b", &["a"]),
+        ])
+        .build();
+    let seeded = lab.insert(&busy(&pipeline));
+    let retrying = |attempt| JobEvent::NodeRetrying {
+        node_id: "a".into(),
+        attempt,
+    };
+
+    let job = lab.record(&seeded, retrying(2)).await.unwrap();
+    let a = || {
+        lab.jobs
+            .row(seeded.id())
+            .find_execution(&NodeId::new("a").unwrap())
+            .unwrap()
+            .attempts()
+    };
+    assert_eq!(a(), 2);
+
+    for refused in [retrying(2), retrying(3)] {
+        let err = lab.record(&job, refused).await.unwrap_err();
+        assert!(matches!(err, DomainError::BusinessRule(_)), "{err:?}");
+    }
+    let pending = JobEvent::NodeRetrying {
+        node_id: "b".into(),
+        attempt: 2,
+    };
+    assert!(lab.record(&job, pending).await.is_err());
+    assert_eq!(a(), 2);
+}
+
+#[tokio::test]
 async fn a_denied_status_event_writes_nothing() {
     let lab = lab(Arc::new(DenyingPermissionService::new()));
     let seeded = lab.insert(&placed(&two_nodes()));

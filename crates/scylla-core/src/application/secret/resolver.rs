@@ -91,6 +91,8 @@ impl SecretResolver for DispatchSecretResolver {
                 working_dir: node.working_dir().map(|w| w.as_str().to_string()),
                 step: node.step().clone(),
                 env,
+                timeout: node.timeout(),
+                retries: node.retries(),
             });
         }
         Ok(out)

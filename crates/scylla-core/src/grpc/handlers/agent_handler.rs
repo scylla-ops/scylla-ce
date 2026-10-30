@@ -10,7 +10,7 @@ use crate::domain::clock;
 use crate::domain::errors::DomainResult;
 use crate::domain::ids::JobId;
 use crate::domain::job::JobLog;
-use crate::domain::pipeline::{NodeId, Step};
+use crate::domain::pipeline::{NodeId, NodeTimeout, Step};
 use crate::extract_auth_context;
 use crate::grpc::convert::dt;
 use crate::grpc::mappers::domain_error_to_status;
@@ -299,6 +299,8 @@ fn dispatch_to_proto(dispatch: &JobDispatch) -> ProtoJobDispatch {
                     masked: ev.masked,
                 })
                 .collect(),
+            timeout_seconds: n.timeout.map_or(0, NodeTimeout::seconds),
+            retries: n.retries.get(),
             step: Some(step_to_proto(&n.step)),
         })
         .collect();

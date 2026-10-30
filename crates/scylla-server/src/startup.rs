@@ -147,6 +147,7 @@ pub(crate) async fn init_services(
         job_repo.clone(),
         secret_resolver.clone(),
         job_log_stream.clone(),
+        config.jobs.default_node_timeout_seconds,
     ));
     let org_uc = Arc::new(OrganizationUseCases::new(
         org_repo.clone(),
@@ -473,6 +474,7 @@ where
         services.actions.clone(),
         services.job_uc.clone(),
         services.job_log_uc.clone(),
+        services.pipeline_uc.clone(),
     );
     let app_handler = AppHandler::new(services.actions.clone(), services.app_uc.clone());
     let secret_handler = SecretHandler::new(services.actions.clone(), services.secret_uc.clone());

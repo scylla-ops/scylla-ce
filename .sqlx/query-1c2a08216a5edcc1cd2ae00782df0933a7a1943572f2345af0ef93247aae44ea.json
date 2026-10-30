@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT COUNT(*) AS \"count!\"\n                FROM pipelines\n                WHERE project_id = $1\n                  AND nodes @> jsonb_build_array(jsonb_build_object('env', jsonb_build_array(\n                      jsonb_build_object('source', jsonb_build_object('secret', $2::text)))))\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1c2a08216a5edcc1cd2ae00782df0933a7a1943572f2345af0ef93247aae44ea"
+}

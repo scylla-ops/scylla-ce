@@ -1,6 +1,6 @@
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{ProjectId, SecretId};
-use crate::domain::secret::{Secret, SecretDescription, SecretName};
+use crate::domain::secret::{Secret, SecretChange, SecretDescription, SecretName};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use scylla_core::application::secret::SecretRepository;
@@ -106,6 +106,30 @@ impl SecretRepository for PgSecretRepository {
         .await
         .to_domain()?;
         rows.into_iter().map(Secret::try_from).collect()
+    }
+
+    #[instrument(skip_all, fields(secret_id = %change.id()))]
+    async fn update(&self, change: &SecretChange) -> DomainResult<Secret> {
+        sqlx::query_as!(
+            SecretRow,
+            r#"
+            UPDATE project_secrets
+            SET description = COALESCE($2, description),
+                encrypted_value = COALESCE($3, encrypted_value),
+                updated_at = $4
+            WHERE id = $1
+            RETURNING id, project_id, name, description, encrypted_value, created_at, updated_at
+            "#,
+            change.id().as_str(),
+            change.description().map(SecretDescription::as_str),
+            change.encrypted_value(),
+            change.updated_at(),
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .to_domain()?
+        .ok_or_else(|| DomainError::not_found("Secret", change.id()))?
+        .try_into()
     }
 
     #[instrument(skip_all, fields(secret_id = %id))]

@@ -4,7 +4,7 @@ use super::*;
 use crate::domain::errors::{DomainError, DomainResult};
 use crate::domain::ids::{ProjectId, SecretId};
 use crate::domain::permission::Permission;
-use crate::domain::secret::{Secret, SecretDescription, SecretName, SecretValue};
+use crate::domain::secret::{Secret, SecretChange, SecretDescription, SecretName, SecretValue};
 use crate::test_support::authz::{DenyingPermissionService, RecordingPermissionService, actions};
 use crate::test_support::stubs::alice;
 use async_trait::async_trait;
@@ -45,6 +45,29 @@ impl SecretRepository for StubSecrets {
             .cloned()
             .collect())
     }
+    async fn update(&self, change: &SecretChange) -> DomainResult<Secret> {
+        let mut rows = self.rows.lock().unwrap();
+        let row = rows
+            .get(change.id())
+            .ok_or_else(|| DomainError::not_found("Secret", change.id()))?;
+        let updated = Secret::from_persistence(
+            row.id().clone(),
+            row.project_id().clone(),
+            row.name().clone(),
+            change
+                .description()
+                .cloned()
+                .unwrap_or_else(|| row.description().clone()),
+            change
+                .encrypted_value()
+                .unwrap_or(row.encrypted_value())
+                .to_vec(),
+            row.created_at(),
+            change.updated_at(),
+        );
+        rows.insert(change.id().clone(), updated.clone());
+        Ok(updated)
+    }
     async fn delete(&self, id: &SecretId) -> DomainResult<()> {
         self.rows.lock().unwrap().remove(id);
         Ok(())
@@ -57,9 +80,9 @@ struct StubCipher {
 }
 
 impl SecretCipher for StubCipher {
-    fn encrypt(&self, _: &str) -> DomainResult<Vec<u8>> {
+    fn encrypt(&self, plaintext: &str) -> DomainResult<Vec<u8>> {
         *self.encrypted.lock().unwrap() += 1;
-        Ok(vec![0xAA, 0xBB])
+        Ok(plaintext.as_bytes().to_vec())
     }
     fn decrypt(&self, _: &[u8]) -> DomainResult<String> {
         unreachable!("no secret action decrypts")
@@ -83,11 +106,32 @@ impl Lab {
             .run(&self.uc, &alice(), DeleteSecret { id: id.clone() })
             .await
     }
+
+    async fn update(
+        &self,
+        id: &SecretId,
+        value: Option<&str>,
+        description: Option<&str>,
+    ) -> DomainResult<Secret> {
+        let update = UpdateSecret {
+            id: id.clone(),
+            value: value.map(|v| SecretValue::new(v).unwrap()),
+            description: description.map(|d| SecretDescription::new(d).unwrap()),
+        };
+        self.actions.run(&self.uc, &alice(), update).await
+    }
+
+    fn row(&self, id: &SecretId) -> Secret {
+        self.secrets.rows.lock().unwrap()[id].clone()
+    }
 }
 
 fn lab(permissions: Arc<dyn PermissionService>) -> Lab {
+    lab_with(permissions, Arc::new(StubCipher::default()))
+}
+
+fn lab_with(permissions: Arc<dyn PermissionService>, cipher: Arc<StubCipher>) -> Lab {
     let secrets = Arc::new(StubSecrets::default());
-    let cipher = Arc::new(StubCipher::default());
     Lab {
         actions: actions(permissions),
         uc: SecretUseCases::new(secrets.clone(), cipher.clone()),
@@ -120,7 +164,7 @@ async fn a_create_checks_the_permission_on_the_project_then_stores_the_ciphertex
         permissions.permissions(),
         vec![Permission::CreateSecret(project())]
     );
-    assert_eq!(secret.encrypted_value(), &[0xAA, 0xBB]);
+    assert_eq!(secret.encrypted_value(), b"value");
     assert!(lab.secrets.rows.lock().unwrap().contains_key(secret.id()));
 }
 
@@ -230,4 +274,130 @@ async fn an_unknown_secret_ref_names_the_secret_its_node_and_its_env_key() {
         message,
         "secret 'MISSING' referenced by node 'n1' env 'X' is not in this project"
     );
+}
+
+#[tokio::test]
+async fn an_update_checks_the_permission_on_the_secret_then_writes_a_new_ciphertext() {
+    let permissions = Arc::new(RecordingPermissionService::new());
+    let lab = lab(permissions.clone());
+    let created = lab.create().await.unwrap();
+
+    let updated = lab
+        .update(created.id(), Some("new-value"), None)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        permissions.permissions()[1],
+        Permission::UpdateSecret(created.id().clone())
+    );
+    let row = lab.row(created.id());
+    assert_eq!(row.encrypted_value(), b"new-value");
+    assert_eq!(row.description().as_str(), "desc");
+    assert_eq!(row.name(), created.name());
+    assert_eq!(row.created_at(), created.created_at());
+    assert!(row.updated_at() >= created.updated_at());
+    assert_eq!(updated.id(), created.id());
+}
+
+#[tokio::test]
+async fn an_update_of_the_description_alone_keeps_the_value_and_encrypts_nothing() {
+    let lab = lab(Arc::new(RecordingPermissionService::new()));
+    let created = lab.create().await.unwrap();
+
+    lab.update(created.id(), None, Some("rotated monthly"))
+        .await
+        .unwrap();
+
+    let row = lab.row(created.id());
+    assert_eq!(row.description().as_str(), "rotated monthly");
+    assert_eq!(row.encrypted_value(), created.encrypted_value());
+    assert_eq!(*lab.cipher.encrypted.lock().unwrap(), 1);
+}
+
+#[tokio::test]
+async fn an_update_with_neither_field_is_invalid_and_writes_nothing() {
+    let lab = lab(Arc::new(RecordingPermissionService::new()));
+    let created = lab.create().await.unwrap();
+
+    let err = lab.update(created.id(), None, None).await.unwrap_err();
+
+    assert!(matches!(err, DomainError::Validation(_)));
+    assert_eq!(lab.row(created.id()), created);
+}
+
+struct NoMasterKey;
+
+impl SecretCipher for NoMasterKey {
+    fn encrypt(&self, _: &str) -> DomainResult<Vec<u8>> {
+        Err(DomainError::business_rule("no secret master key"))
+    }
+    fn decrypt(&self, _: &[u8]) -> DomainResult<String> {
+        unreachable!("no secret action decrypts")
+    }
+}
+
+#[tokio::test]
+async fn a_new_value_without_a_master_key_fails_its_precondition() {
+    let secrets = Arc::new(StubSecrets::default());
+    let uc = SecretUseCases::new(secrets.clone(), Arc::new(NoMasterKey));
+    let actions = actions(Arc::new(RecordingPermissionService::new()));
+    let secret = Secret::create(
+        project(),
+        SecretName::new("DB_PASSWORD").unwrap(),
+        SecretDescription::new("").unwrap(),
+        vec![0xAA],
+    );
+    secrets.create(&secret).await.unwrap();
+    let update = |value: Option<&str>| UpdateSecret {
+        id: secret.id().clone(),
+        value: value.map(|v| SecretValue::new(v).unwrap()),
+        description: Some(SecretDescription::new("kept").unwrap()),
+    };
+
+    let err = actions
+        .run(&uc, &alice(), update(Some("new")))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DomainError::BusinessRule(_)));
+    assert_eq!(secrets.rows.lock().unwrap()[secret.id()], secret);
+
+    let described = actions.run(&uc, &alice(), update(None)).await.unwrap();
+    assert_eq!(described.description().as_str(), "kept");
+}
+
+#[tokio::test]
+async fn a_denied_update_never_reads_encrypts_or_writes() {
+    let lab = lab_with(
+        Arc::new(DenyingPermissionService::new()),
+        Arc::new(StubCipher::default()),
+    );
+    let secret = Secret::create(
+        project(),
+        SecretName::new("DB_PASSWORD").unwrap(),
+        SecretDescription::new("").unwrap(),
+        vec![0xAA],
+    );
+    lab.secrets.create(&secret).await.unwrap();
+
+    let err = lab
+        .update(secret.id(), Some("new"), None)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, DomainError::Forbidden(_)));
+    assert_eq!(*lab.cipher.encrypted.lock().unwrap(), 0);
+    assert_eq!(lab.row(secret.id()), secret);
+}
+
+#[tokio::test]
+async fn an_allowed_update_of_an_unknown_secret_is_not_found() {
+    let lab = lab(Arc::new(RecordingPermissionService::new()));
+
+    let err = lab
+        .update(&SecretId::new("missing"), Some("v"), None)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, DomainError::NotFound(_)));
 }

@@ -13,7 +13,9 @@ use tracing::{debug, error, info, warn};
 
 use scylla_domain::JobEvent;
 use scylla_domain::domain::pipeline::PipelineNode;
-use scylla_domain::domain::pipeline::{EnvKey, EnvVar, NodeId, Step, WorkingDir};
+use scylla_domain::domain::pipeline::{
+    EnvKey, EnvVar, NodeId, NodeRetries, NodeTimeout, Step, WorkingDir,
+};
 use scylla_proto::agent::MAX_MESSAGE_BYTES;
 use scylla_proto::agent::v1::agent_service_client::AgentServiceClient;
 use scylla_proto::agent::v1::{
@@ -470,7 +472,12 @@ fn to_domain_nodes(nodes: Vec<AgentNode>) -> Result<Vec<PipelineNode>, String> {
                 }
                 None => return Err("dispatch node is missing its step".to_string()),
             };
-            Ok(PipelineNode::new(id, deps, step, working_dir, env))
+            let timeout = match n.timeout_seconds {
+                0 => None,
+                seconds => Some(NodeTimeout::new(seconds).map_err(|e| e.to_string())?),
+            };
+            let retries = NodeRetries::new(n.retries).map_err(|e| e.to_string())?;
+            Ok(PipelineNode::new(id, deps, step, working_dir, env).with_attempts(timeout, retries))
         })
         .collect()
 }
@@ -518,6 +525,8 @@ mod tests {
                         value: "b".into(),
                         masked: false,
                     }],
+                    timeout_seconds: 0,
+                    retries: 0,
                     step: Some(agent_node::Step::Script(ScriptStep {
                         script: script.into(),
                         shell: Shell::Sh as i32,

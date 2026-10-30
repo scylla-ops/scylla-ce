@@ -102,6 +102,7 @@ async fn a_policy_in_the_hooks_vetoes_the_create_over_the_quota(pool: PgPool) {
             Arc::new(ChaChaSecretCipher::from_hex_key(None).unwrap()),
         )),
         Arc::new(InMemoryJobLogStream::new()),
+        None,
     ));
     let uc = ProjectUseCases::new(
         Arc::new(PgProjectRepository::new(pool.clone())),

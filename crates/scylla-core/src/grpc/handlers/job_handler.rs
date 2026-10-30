@@ -1,5 +1,6 @@
-use crate::application::{JobLogUseCases, JobUseCases};
+use crate::application::{JobLogUseCases, JobUseCases, PipelineUseCases};
 use crate::grpc::adapter::run;
+use crate::grpc::convert::wrap;
 use crate::grpc::mappers::job_to_proto;
 use crate::grpc::streaming::spawn_log_forwarder;
 use derive_more::Constructor;
@@ -8,8 +9,8 @@ use scylla_proto::job::v1::{
     CancelJobRequest, CancelJobResponse, DeleteJobRequest, DeleteJobResponse, GetJobRequest,
     GetJobResponse, ListJobLogsRequest, ListJobLogsResponse, ListJobsRequest, ListJobsResponse,
     ListOrganizationJobsRequest, ListOrganizationJobsResponse, ListPipelineJobsRequest,
-    ListPipelineJobsResponse, ListProjectJobsRequest, ListProjectJobsResponse, TailJobLogsRequest,
-    TailJobLogsResponse, job_service_server::JobService,
+    ListPipelineJobsResponse, ListProjectJobsRequest, ListProjectJobsResponse, RerunJobRequest,
+    RerunJobResponse, TailJobLogsRequest, TailJobLogsResponse, job_service_server::JobService,
 };
 use std::pin::Pin;
 use std::sync::Arc;
@@ -20,6 +21,7 @@ pub struct JobHandler {
     actions: Arc<Actions>,
     jobs: Arc<JobUseCases>,
     logs: Arc<JobLogUseCases>,
+    pipelines: Arc<PipelineUseCases>,
 }
 
 #[async_trait::async_trait]
@@ -102,5 +104,15 @@ impl JobService for JobHandler {
     ) -> Result<Response<Self::TailJobLogsStream>, Status> {
         let stream = run(&self.actions, &*self.logs, request).await?;
         Ok(Response::new(Box::pin(spawn_log_forwarder(stream))))
+    }
+
+    async fn rerun_job(
+        &self,
+        request: Request<RerunJobRequest>,
+    ) -> Result<Response<RerunJobResponse>, Status> {
+        let job = run(&self.actions, &*self.pipelines, request).await?;
+        Ok(Response::new(RerunJobResponse {
+            job_id: wrap(job.id().to_string()),
+        }))
     }
 }

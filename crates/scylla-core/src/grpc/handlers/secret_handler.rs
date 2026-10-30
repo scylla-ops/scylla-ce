@@ -5,7 +5,8 @@ use derive_more::Constructor;
 use scylla_extension::Actions;
 use scylla_proto::secret::v1::{
     CreateSecretRequest, CreateSecretResponse, DeleteSecretRequest, DeleteSecretResponse,
-    ListSecretsRequest, ListSecretsResponse, secret_service_server::SecretService,
+    ListSecretsRequest, ListSecretsResponse, UpdateSecretRequest, UpdateSecretResponse,
+    secret_service_server::SecretService,
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
@@ -44,5 +45,15 @@ impl SecretService for SecretHandler {
     ) -> Result<Response<DeleteSecretResponse>, Status> {
         run(&self.actions, &*self.secrets, request).await?;
         Ok(Response::new(DeleteSecretResponse {}))
+    }
+
+    async fn update_secret(
+        &self,
+        request: Request<UpdateSecretRequest>,
+    ) -> Result<Response<UpdateSecretResponse>, Status> {
+        let secret = run(&self.actions, &*self.secrets, request).await?;
+        Ok(Response::new(UpdateSecretResponse {
+            secret: Some(secret_to_proto(&secret)),
+        }))
     }
 }

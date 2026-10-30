@@ -45,11 +45,15 @@ A directed acyclic graph (DAG) of **nodes** describing what to run. A pipeline i
 ### Node (`PipelineNode`)
 One step in a pipeline. Carries a `command`, `args`, and a list of `deps` (other node IDs it depends on). Nodes must form a DAG — cycles are rejected at creation time.
 
+A node can also have a timeout and a number of retries. `timeout_seconds` (1 to 604800, 7 days) is the time limit of each attempt. At the limit, the agent sends `SIGTERM` to the step, then `SIGKILL` after 5 seconds, and the attempt fails. A node without its own timeout gets the default of the server when the server sends the job to an agent: the optional key `[jobs].default_node_timeout_seconds` (1 to 604800, else the server does not start). Without a default, an attempt has no time limit. `retries` (0 to 10) is the number of attempts after the first failed attempt. Each failed attempt starts the next attempt at once, in the same workspace: an exit status that is not 0, a death by signal, a failed spawn and a timeout fail an attempt. A cancel, or a stop because another node failed, ends the attempt with no retry. A node never skips itself. A value out of range fails `CreatePipeline` and `UpdatePipeline` with `INVALID_ARGUMENT`. A pipeline or a job stored before these fields reads as "no timeout, 0 retries".
+
 ### Job
 A single execution of a pipeline. Carries a `JobStatus`, the nodes of the pipeline when the job was created, and a `JobNode` for each of these nodes, with its state and its times. A change to the pipeline does not change a job that exists. Each write of a job names the version it read.
 
+`JobService.RerunJob` makes a new pending job from an ended job (completed, failed, cancelled or orphaned): the same nodes and the same trigger inputs, not the nodes of the pipeline as they are now. The origin of the new job is the caller, as for `RunPipeline`, and the new job does not refer to the old job. The old job does not change. It asks for `runPipeline` on the job (`Permission::RerunJob`), so a grant on the pipeline or on its project reaches it. A job that has not ended gives `FAILED_PRECONDITION`. The checks of `RunPipeline` apply before the server stores the job: each `secret_ref` resolves with the current value of the secret, else `NOT_FOUND`, and the resolved job is at most 8 MiB, else `INVALID_ARGUMENT`.
+
 ### JobNode
-The runtime record for one pipeline node inside a job. Holds `NodeState`, `started_at`, `finished_at`.
+The runtime record for one pipeline node inside a job. Holds `NodeState`, `started_at`, `finished_at` and the attempt count. A running node has its current attempt (1 at the start; each `NodeRetrying` of the agent adds 1). A finished node has the number of attempts that started (0 when the node never started). `JobNode.max_attempts` is `retries + 1` of the node in the job. The attempts are in the JSONB `jobs.node_executions`; an old row reads as attempt 1. `NodeRetrying` needs a running node, an attempt that is the current attempt plus 1, and an attempt that is at most `max_attempts`; else the job does not change.
 
 ### App
 A machine principal owned by an organization (an agent / automation). Identified by an `AppId`; authenticates with a secret (stored hashed) that it exchanges for an app token, and acts under scoped grants — typically the `organization-agent` role on its org. An App with an open agent stream is an online **agent**; "agent" now means an App running the agent binary.
@@ -110,7 +114,7 @@ The default sender is `LogPasswordResetSender` (`scylla_core::infrastructure`). 
 Terminal: `Completed`, `Failed`, `Cancelled`, `Orphaned`. Legal transitions: `Pending → Running | Failed | Cancelled | Orphaned`; `Running → Completed | Failed | Cancelled | Orphaned`. When a job ends, each node that has not finished becomes `Cancelled`.
 
 ### `NodeState`
-Per-node execution state: `Pending`, `Running`, `Completed`, `Failed`, `Cancelled`, `Skipped`. Terminal: everything but `Pending` and `Running`. Unlike `JobStatus` there is no `Orphaned`; conversely `Skipped` has no job-level equivalent, it marks a node whose dependency failed so it never ran.
+Per-node execution state: `Pending`, `Running`, `Completed`, `Failed`, `Cancelled`, `Skipped`. Terminal: everything but `Pending` and `Running`. Unlike `JobStatus` there is no `Orphaned`; conversely `Skipped` has no job-level equivalent: another node of the job failed, and the agent did not start this node or stopped it.
 
 ### Terminal state
 A state from which no transition is possible. A job or node in a terminal state is done.
@@ -357,7 +361,7 @@ A port describing persistence for one aggregate (`PipelineRepository`, `JobRepos
 `DomainError` from `domain/errors.rs` with variants like `validation`, `business_rule`, `not_found`. Returned as `DomainResult<T>` from the kernel and mapped to gRPC statuses by the control plane's handlers.
 
 ### `JobEvent`
-The lifecycle vocabulary a running agent reports: `JobStarted`, `NodeStarted`, `NodeCompleted`, `NodeFailed`, `NodeSkipped`, `JobCompleted`, `JobFailed`. Defined in the kernel because both binaries must agree on it: the agent emits it, the gRPC adapter maps it to and from its wire form, and the agent stream sends it as `RecordJobStatus`, which applies it to the `Job` aggregate.
+The lifecycle vocabulary a running agent reports: `JobStarted`, `NodeStarted`, `NodeCompleted`, `NodeFailed`, `NodeSkipped`, `NodeRetrying`, `JobCompleted`, `JobFailed`. Defined in the kernel because both binaries must agree on it: the agent emits it, the gRPC adapter maps it to and from its wire form, and the agent stream sends it as `RecordJobStatus`, which applies it to the `Job` aggregate.
 
 ### Kahn's algorithm
 The topological-sort routine behind `DagPlan` (`domain/pipeline/dag.rs`). One implementation serves both sides: the control plane calls `drains_completely()` once to reject a pipeline containing a cycle, and an agent drives the same structure incrementally (`drain_ready` / `mark_completed` / `mark_terminal`) to decide what to launch next. Keeping it single is what stops the two from disagreeing about which nodes are runnable.
