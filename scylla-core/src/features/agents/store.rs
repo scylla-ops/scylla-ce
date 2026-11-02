@@ -74,9 +74,12 @@ pub(super) async fn use_nonce(
     nonce: &str,
     expires_at: OffsetDateTime,
 ) -> Result<bool, sqlx::Error> {
+    // Forget the nonces of the expired assertions.
     sqlx::query!("DELETE FROM assertion_nonces WHERE expires_at < now()")
         .execute(&mut **tx)
         .await?;
+
+    // Add the nonce. A known nonce adds no row.
     let result = sqlx::query!(
         "INSERT INTO assertion_nonces (nonce, expires_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         nonce,

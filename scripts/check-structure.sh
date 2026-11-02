@@ -60,8 +60,14 @@ checks() {
   done | report "a crate sets a dependency version or features (use [workspace.dependencies])"
 
   rust_files | xargs grep -nE '^[[:space:]]*//([^/!]|$)' \
-    | grep -vE ':[[:space:]]*// (given|when|then)$' \
-    | report "a Rust file has a // comment (use /// or //!, or // given, when, then in a test)"
+    | grep -vE ':[[:space:]]*// ([A-Z].*\.|given|when|then)$' \
+    | report "a Rust file has a // comment that is not a step (// Do this.) or // given, when, then"
+
+  for file in $(rust_files); do
+    awk -v file="$file" '{ step = ($0 ~ /^[[:space:]]*\/\/ [A-Z]/) }
+      step && previous { print file ":" NR }
+      { previous = step }' "$file"
+  done | report "a step comment has more than one line"
 
   grep -rln $'\xe2\x80\x94' --exclude-dir=target --exclude-dir=.idea --exclude-dir=.sqlx --exclude=Cargo.lock . \
     | report "a file has an em dash"

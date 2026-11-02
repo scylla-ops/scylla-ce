@@ -46,6 +46,7 @@ pub struct OidcVerifier {
 impl OidcVerifier {
     /// Reads the discovery document and the keys of the issuer.
     pub async fn discover(issuer: &str, audience: &str) -> Result<Self, String> {
+        // Read the discovery document of the issuer.
         crate::crypto::install();
         let http = reqwest::Client::new();
         let url = format!(
@@ -53,6 +54,8 @@ impl OidcVerifier {
             issuer.trim_end_matches('/')
         );
         let discovery: Discovery = fetch(&http, &url).await?;
+
+        // Read the keys that it names, and keep their address for a key rotation.
         let keys: JwkSet = fetch(&http, &discovery.jwks_uri).await?;
         Ok(Self {
             issuer: issuer.to_owned(),
@@ -65,6 +68,7 @@ impl OidcVerifier {
 
     /// Checks an ID token and returns its identity. Only asymmetric signatures pass.
     pub(crate) async fn verify(&self, id_token: &str) -> Result<Identity, AccessError> {
+        // Refuse a symmetric signature.
         let header = decode_header(id_token).map_err(|_| invalid())?;
         if matches!(
             header.alg,
@@ -72,6 +76,8 @@ impl OidcVerifier {
         ) {
             return Err(invalid());
         }
+
+        // Verify the signature with the key of the issuer, then the issuer and the audience.
         let kid = header.kid.ok_or_else(invalid)?;
         let key = self.key(&kid).await?;
         let mut validation = Validation::new(header.alg);

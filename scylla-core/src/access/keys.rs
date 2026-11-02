@@ -17,10 +17,13 @@ pub struct TokenKeys {
 impl TokenKeys {
     /// Reads a hex Ed25519 private key and older public keys written as `id:hex`.
     pub fn new(private_hex: &str, key_id: u32, older: &[String]) -> Result<Self, String> {
+        // Read the signing key. Its public key verifies the tokens of `key_id`.
         let private = PrivateKey::from_bytes_hex(private_hex, Algorithm::Ed25519)
             .map_err(|_| "the token private key must be an Ed25519 key in hex".to_owned())?;
         let signer = KeyPair::from(&private);
         let mut verifiers = HashMap::from([(key_id, signer.public())]);
+
+        // Read the older public keys, for the tokens signed before a rotation.
         for entry in older {
             let (id, hex) = entry
                 .split_once(':')

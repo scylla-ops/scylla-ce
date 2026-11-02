@@ -98,6 +98,7 @@ impl Parse for Input {
 
 impl Parse for Block {
     fn parse(input: ParseStream) -> Result<Self> {
+        // Read the docs and the head: `definition <name> for <Type>` or `extend <Type> as <Holder>`.
         let attrs = input.call(Attribute::parse_outer)?;
         let keyword: Ident = input.parse()?;
         let head = if keyword == "definition" {
@@ -120,6 +121,8 @@ impl Parse for Block {
                 "expected `definition` or `extend`",
             ));
         };
+
+        // Read the items in the braces.
         let content;
         braced!(content in input);
         let mut items = Vec::new();
@@ -132,9 +135,12 @@ impl Parse for Block {
 
 impl Parse for Item {
     fn parse(input: ParseStream) -> Result<Self> {
+        // Read the docs, the keyword and the name.
         let attrs = input.call(Attribute::parse_outer)?;
         let keyword: Ident = input.parse()?;
         let name = input.parse()?;
+
+        // Read `: <Type>;` for a relation, or `= <expression>;` for a permission.
         let kind = if keyword == "relation" {
             input.parse::<Token![:]>()?;
             ItemKind::Relation(input.parse()?)
@@ -154,6 +160,7 @@ impl Parse for Item {
 
 impl Parse for Expr {
     fn parse(input: ParseStream) -> Result<Self> {
+        // Read the first term, then each operator and its term, until the end.
         let first = input.parse()?;
         let mut rest = Vec::new();
         loop {
@@ -179,11 +186,14 @@ impl Parse for Expr {
 
 impl Parse for Term {
     fn parse(input: ParseStream) -> Result<Self> {
+        // Read an expression in parentheses.
         if input.peek(token::Paren) {
             let content;
             parenthesized!(content in input);
             return Ok(Self::Group(Box::new(content.parse()?)));
         }
+
+        // Read `nil`, an arrow, or a name.
         let name: Ident = input.parse()?;
         if name == "nil" {
             return Ok(Self::Nil);

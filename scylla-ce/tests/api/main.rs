@@ -7,6 +7,7 @@ mod grpc_web;
 mod health;
 mod oidc;
 mod projects;
+mod routes;
 mod tls;
 mod tokens;
 

@@ -55,7 +55,8 @@ pub struct Project {
 }
 
 crate::authz! {
-    /// The permission model of the projects.
+    /// The permission model of the projects. `delete`, `edit` and `view` are groups, and each
+    /// route has its own permission.
     definition project for Project {
         /// The actor that owns the project.
         relation owner: Actor;
@@ -63,12 +64,22 @@ crate::authz! {
         relation editor: Actor;
         /// An actor that can read the project.
         relation viewer: Actor;
-        /// Delete the project: the actors that can act for its owner.
+        /// The group of the routes that delete the project: the actors that act for its owner.
         permission delete = owner->act_for;
-        /// Change the project.
+        /// The group of the routes that change the project.
         permission edit = delete + editor->act_for;
-        /// Read the project.
+        /// The group of the routes that read the project.
         permission view = edit + viewer->act_for;
+        /// The route `DeleteProject`.
+        permission delete_project = delete;
+    }
+
+    /// The routes of the projects that act on their owner.
+    extend Actor as ProjectOwner {
+        /// The route `CreateProject`, for this owner.
+        permission create_project = act_for;
+        /// The route `ListProjects`, for this owner.
+        permission list_projects = act_for;
     }
 }
 

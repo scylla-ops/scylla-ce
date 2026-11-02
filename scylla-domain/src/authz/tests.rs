@@ -1,8 +1,9 @@
 //! Unit tests of the permission model: the schema of the parts, and the typed values.
 
 use crate::actors::{Actor, ActorId};
+use crate::agents::AgentOwner;
 use crate::authz::{Model, Schema, SchemaError};
-use crate::projects::{Project, ProjectId};
+use crate::projects::{Project, ProjectId, ProjectOwner};
 
 crate::authz! {
     /// An auditor of the projects, as an edition adds it.
@@ -14,12 +15,15 @@ crate::authz! {
     }
 }
 
-/// The schema of the core definitions.
+/// The schema of the core, in the order of the core plugins.
 const CORE: &str = "\
 definition actor {
     relation identity: actor
     relation delegate: actor
     permission act_for = identity + delegate
+    permission register_agent = act_for
+    permission create_project = act_for
+    permission list_projects = act_for
 }
 
 definition project {
@@ -29,18 +33,23 @@ definition project {
     permission delete = owner->act_for
     permission edit = delete + editor->act_for
     permission view = edit + viewer->act_for
+    permission delete_project = delete
 }
 ";
 
-/// Returns the schema of the core definitions.
+/// Returns the schema of the core, in the order of the core plugins.
 fn core() -> Schema {
     let mut schema = Schema::default();
     schema.add(Actor::part()).expect("actor fits");
+    schema.add(AgentOwner::part()).expect("agent routes fit");
     schema.add(Project::part()).expect("project fits");
+    schema
+        .add(ProjectOwner::part())
+        .expect("project routes fit");
     schema
 }
 
-/// The core parts give the core schema, in the SpiceDB schema language.
+/// The core parts give the core schema, with one permission for each route.
 #[test]
 fn the_core_parts_give_the_core_schema() {
     // given
@@ -66,7 +75,7 @@ fn an_extension_adds_to_its_definition() {
     let text = schema.to_string();
     assert!(text.contains("    relation viewer: actor\n    relation auditor: actor\n"));
     assert!(text.contains(
-        "    permission view = edit + viewer->act_for\n    \
+        "    permission delete_project = delete\n    \
          permission audit = auditor->act_for + delete\n}"
     ));
 }

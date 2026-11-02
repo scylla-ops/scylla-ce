@@ -14,15 +14,15 @@ Read `AGENT.md` first. The reference feature is `projects`: copy the shape of it
 3. **Migration.** `sqlx migrate add --sequential --simple --source scylla-core/migrations <feature>`. Columns `id uuid PRIMARY KEY`, `owner_id` and `created_by` `uuid NOT NULL REFERENCES actors (id)` with an index each, `created_at timestamptz NOT NULL DEFAULT now()`. Run `just migrate`.
 4. **Store.** `store.rs`: `insert`, `list_by_owner`, `delete`, on `&mut Tx<'_>`, with `to_db()` and `from_db()` for ids. Map the owner foreign key to `Error::NotFound("owner")`.
 5. **Service.** `service.rs`: begin, `hooks.before_create` or `hooks.after_delete` with the context, store, commit.
-6. **gRPC.** `grpc.rs`: `let caller = self.gate.caller(&request).await?;`, parse with `parse::required`, `parse::or` (owner defaults to the caller), `parse::field`, `parse::optional`, then `self.gate.authorize(&caller, Actor::ACT_FOR.on(owner_id))` for a create or a list, or `<Entity>::<PERMISSION>.on(id)` on an object. Answer with `ToProto`.
-7. **Permissions.** In the domain file, `crate::authz! { definition <entity> for <Entity> { relation owner: Actor; permission delete = owner->act_for; ... } }`. The service ends a create with `access::commit(tx, gate, &[<Entity>::OWNER.of(id, owner_id)])`, and calls `gate.delete_object(&Object::of(id))` after a delete.
-8. **Plugin.** `plugin.rs`: `.authz::<Entity>()`, then the service with `ctx.pool()`, `ctx.hooks()`, `ctx.gate()`. Install it in `scylla-core/src/app.rs`.
+6. **gRPC.** `grpc.rs`: `let caller = self.gate.caller(&request).await?;`, parse with `parse::required`, `parse::or` (owner defaults to the caller), `parse::field`, `parse::optional`, then `self.gate.authorize(&caller, <route permission>.on(id))`: `<Entity>Owner::CREATE_<ENTITY>.on(owner_id)` for a create or a list, `<Entity>::DELETE_<ENTITY>.on(id)` on an object. Answer with `ToProto`.
+7. **Permissions.** In the domain file, one `crate::authz!` block: `definition <entity> for <Entity>` with `relation owner: Actor;`, the groups (`permission delete = owner->act_for;`, `edit`, `view`) and one permission for each route on the object (`permission delete_<entity> = delete;`), then `extend Actor as <Entity>Owner` with one permission for each route on the owner (`permission create_<entity> = act_for;`). The name of a route permission is the RPC name in snake case. The service ends a create with `access::commit(tx, gate, &[<Entity>::OWNER.of(id, owner_id)])`, and calls `gate.delete_object(&Object::of(id))` after a delete.
+8. **Plugin.** `plugin.rs`: `.authz::<Entity>()` and `.authz::<<Entity>Owner>()`, then the service with `ctx.pool()`, `ctx.hooks()`, `ctx.gate()`. Install it in `scylla-core/src/app.rs`.
 9. **Tests.** One helper per RPC in `scylla-testkit` (with `app.authed`). A module `scylla-ce/tests/api/<feature>.rs`: success, each error code, the boundaries of each value, the owner default, and a refusal for an actor with no permission. Test each role of the definition with `app.grant` and `app.can`. A unit test only for what the API cannot show.
 10. **Finish.** `just prepare`, then the `finish-change` skill.
 
 ## New RPC on a feature
 
-Proto (request and response messages), store function, service function (one transaction), handler method, testkit helper, API tests. If an edition must act on it, first add the hook with `change-extension-point`.
+Proto (request and response messages), the route permission (the RPC name in snake case, in the `authz!` block of the feature, on a group), store function, service function (one transaction), handler method, testkit helper, API tests. If an edition must act on it, first add the hook with `change-extension-point`.
 
 ## New field on an entity
 

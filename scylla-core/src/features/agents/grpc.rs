@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use scylla_domain::actors::Actor;
+use scylla_domain::agents::AgentOwner;
 use scylla_extension::Gate;
 use scylla_proto::agents::v1 as pb;
 use scylla_proto::agents::v1::agent_service_server::{AgentService, AgentServiceServer};
@@ -42,10 +42,13 @@ impl AgentsGrpc {
         &self,
         request: Request<pb::RegisterAgentRequest>,
     ) -> Result<pb::RegisterAgentResponse, Error> {
+        // Authenticate the caller, and check the route permission on the caller.
         let caller = self.gate.caller(&request).await?;
         self.gate
-            .authorize(&caller, Actor::ACT_FOR.on(caller.actor.id))
+            .authorize(&caller, AgentOwner::REGISTER_AGENT.on(caller.actor.id))
             .await?;
+
+        // Register the agent for the caller.
         let public_key = request.into_inner().public_key;
         let (agent_id, key_id) =
             service::register(&self.pool, self.gate.as_ref(), caller.actor.id, &public_key).await?;

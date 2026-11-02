@@ -12,6 +12,7 @@ const OWNER_FOREIGN_KEY: &str = "projects_owner_id_fkey";
 
 /// Inserts a project and returns it. An unknown owner gives `NotFound("owner")`.
 pub(super) async fn insert(tx: &mut Tx<'_>, new: &NewProject) -> Result<Project, Error> {
+    // Insert the row. An unknown owner breaks the foreign key of the owner.
     let id = ProjectId::generate();
     let row = sqlx::query!(
         "INSERT INTO projects (id, owner_id, created_by, name) VALUES ($1, $2, $3, $4)
@@ -30,6 +31,7 @@ pub(super) async fn insert(tx: &mut Tx<'_>, new: &NewProject) -> Result<Project,
         error => error.into(),
     })?;
 
+    // Return the project with the creation time of the database.
     Ok(Project {
         id,
         owner_id: new.owner_id,

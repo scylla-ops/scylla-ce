@@ -57,11 +57,14 @@ fn docs(attrs: &[Attribute], line: &str) -> TokenStream {
 
 /// Makes the code of a block whose names are correct.
 pub(crate) fn code(block: &Block, checks: &[TokenStream]) -> TokenStream {
+    // Find the resource of the constants: the type of the definition, or the extended type.
     let authz = quote!(::scylla_domain::authz);
     let resource = match &block.head {
         Head::Definition { ty, .. } => ty,
         Head::Extension { base, .. } => base,
     };
+
+    // Make the schema entry and the typed constant of each relation and permission.
     let mut relations = Vec::new();
     let mut permissions = Vec::new();
     let mut constants = Vec::new();
@@ -87,12 +90,15 @@ pub(crate) fn code(block: &Block, checks: &[TokenStream]) -> TokenStream {
             pub const #constant: #ty = <#ty>::new(#name);
         });
     }
+
+    // Make the code of the block, with the checks of the names in `Model::part`.
     let part = quote! {
         ::std::vec![#(#relations),*],
         ::std::vec![#(#permissions),*],
     };
     let attrs = &block.attrs;
     match &block.head {
+        // A definition: `Resource` and `Model` for the type, and the constants on the type.
         Head::Definition { name, ty } => {
             let name = name.to_string();
             quote! {
@@ -114,6 +120,7 @@ pub(crate) fn code(block: &Block, checks: &[TokenStream]) -> TokenStream {
                 }
             }
         }
+        // An extension: a holder struct with `Model` and the constants.
         Head::Extension { base, holder } => {
             let docs = docs(
                 attrs,

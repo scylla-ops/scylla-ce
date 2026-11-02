@@ -2,8 +2,7 @@
 
 use std::sync::Arc;
 
-use scylla_domain::actors::Actor;
-use scylla_domain::projects::{ListProjects, NewProject, Project, ProjectId};
+use scylla_domain::projects::{ListProjects, NewProject, Project, ProjectId, ProjectOwner};
 use scylla_extension::{Gate, Hooks};
 use scylla_proto::projects::v1 as pb;
 use scylla_proto::projects::v1::project_service_server::{ProjectService, ProjectServiceServer};
@@ -63,6 +62,7 @@ impl ProjectsGrpc {
         &self,
         request: Request<pb::CreateProjectRequest>,
     ) -> Result<pb::CreateProjectResponse, Error> {
+        // Authenticate the caller, then read the request.
         let caller = self.gate.caller(&request).await?;
         let request = request.into_inner();
         let new = NewProject {
@@ -70,9 +70,13 @@ impl ProjectsGrpc {
             created_by: caller.actor.id,
             name: parse::field(request.name, "name")?,
         };
+
+        // Check the route permission on the owner.
         self.gate
-            .authorize(&caller, Actor::ACT_FOR.on(new.owner_id))
+            .authorize(&caller, ProjectOwner::CREATE_PROJECT.on(new.owner_id))
             .await?;
+
+        // Create the project.
         let gate = self.gate.as_ref();
         let project = service::create(&self.pool, &self.hooks, gate, caller.actor, new).await?;
         Ok(pb::CreateProjectResponse {
@@ -85,15 +89,20 @@ impl ProjectsGrpc {
         &self,
         request: Request<pb::ListProjectsRequest>,
     ) -> Result<pb::ListProjectsResponse, Error> {
+        // Authenticate the caller, then read the request.
         let caller = self.gate.caller(&request).await?;
         let request = request.into_inner();
         let query = ListProjects {
             owner_id: parse::or(request.owner_id, "owner_id", caller.actor.id)?,
             page: parse::optional(request.page, "page")?,
         };
+
+        // Check the route permission on the owner.
         self.gate
-            .authorize(&caller, Actor::ACT_FOR.on(query.owner_id))
+            .authorize(&caller, ProjectOwner::LIST_PROJECTS.on(query.owner_id))
             .await?;
+
+        // Read one page.
         let page = service::list(&self.pool, query).await?;
         Ok(pb::ListProjectsResponse {
             projects: page.items.into_iter().map(ToProto::to_proto).collect(),
@@ -109,7 +118,9 @@ impl ProjectsGrpc {
     ) -> Result<pb::DeleteProjectResponse, Error> {
         let caller = self.gate.caller(&request).await?;
         let id: ProjectId = parse::required(request.into_inner().project_id, "project_id")?;
-        self.gate.authorize(&caller, Project::DELETE.on(id)).await?;
+        self.gate
+            .authorize(&caller, Project::DELETE_PROJECT.on(id))
+            .await?;
         let gate = self.gate.as_ref();
         service::delete(&self.pool, &self.hooks, gate, caller.actor, id).await?;
         Ok(pb::DeleteProjectResponse {})

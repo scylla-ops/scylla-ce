@@ -63,6 +63,7 @@ impl Default for ServeOptions {
 
 /// Checks the schema, then serves on the address of the config until SIGTERM or Ctrl+C.
 pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
+    // Read the optional parts: TLS and the identity provider.
     let tls = match (&config.tls_cert, &config.tls_key) {
         (Some(cert), Some(key)) => Some(Identity::from_pem(fs::read(cert)?, fs::read(key)?)),
         _ => None,
@@ -78,9 +79,13 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
         )),
         _ => None,
     };
+
+    // Connect, refuse a database with a missing migration, and make the gate.
     let pool = db::connect(config).await?;
     db::check_migrated(&pool, edition.migrators()).await?;
     let access = Arc::new(Access::from_config(config, pool.clone())?);
+
+    // Bind the address and serve until the stop signal.
     let listener = TcpListener::bind(config.bind_addr).await?;
     tracing::info!(
         edition = edition.name(),
@@ -104,6 +109,8 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
         stop_signal(),
     )
     .await?;
+
+    // Close the pool after the last request.
     pool.close().await;
     tracing::info!("stopped");
     Ok(())
@@ -118,6 +125,7 @@ pub async fn serve(
     options: ServeOptions,
     stop: impl Future<Output = ()>,
 ) -> Result<(), Error> {
+    // Add the services: health, tokens, then the services of the edition.
     let gate: Arc<dyn Gate> = access;
     let (health, health_service) = tonic_health::server::health_reporter();
     let mut routes = RoutesBuilder::default();
@@ -129,6 +137,7 @@ pub async fn serve(
     ));
     edition.add_services(&mut routes, &pool, &gate);
 
+    // At the stop signal, report `NOT_SERVING` first.
     let stop = async move {
         stop.await;
         health
@@ -136,6 +145,8 @@ pub async fn serve(
             .await;
         tracing::info!("stopping, waiting for the running requests");
     };
+
+    // Serve gRPC and gRPC-Web through the layers, from the outer one to the inner one.
     let mut server = Server::builder().accept_http1(true);
     if let Some(identity) = options.tls {
         server = server.tls_config(ServerTlsConfig::new().identity(identity))?;
@@ -186,11 +197,14 @@ fn cors_layer(origins: &[String]) -> CorsLayer {
 
 /// Completes on SIGTERM (Kubernetes, Docker) or on Ctrl+C.
 async fn stop_signal() {
+    // Wait for Ctrl+C, or forever if the process cannot listen for it.
     let ctrl_c = async {
         if tokio::signal::ctrl_c().await.is_err() {
             std::future::pending::<()>().await;
         }
     };
+
+    // Wait for SIGTERM on Unix. Other systems have no SIGTERM.
     #[cfg(unix)]
     let terminate = async {
         match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
@@ -202,6 +216,8 @@ async fn stop_signal() {
     };
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
+
+    // Complete at the first of the two.
     tokio::select! {
         () = ctrl_c => {}
         () = terminate => {}

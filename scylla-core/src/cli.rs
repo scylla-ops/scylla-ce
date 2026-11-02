@@ -83,9 +83,12 @@ pub async fn run<C>(config: &C, command: Command, edition: Edition) -> Result<()
 where
     C: AsRef<Config> + fmt::Debug,
 {
+    // Install the crypto provider and start the logs.
     crate::crypto::install();
     init_tracing();
     tracing::info!(edition = edition.name(), ?command, ?config, "starting");
+
+    // Run the command with the core settings.
     let core = config.as_ref();
     match command {
         Command::Serve => server::run(core, edition).await,
@@ -97,8 +100,11 @@ where
 
 /// Applies the migrations of the edition, then writes its SpiceDB schema.
 async fn migrate(config: &Config, edition: &Edition) -> Result<(), Error> {
+    // Apply the migrations of each migrator, in order.
     let pool = db::connect(config).await?;
     db::migrate(&pool, edition.migrators()).await?;
+
+    // Write the SpiceDB schema of the edition.
     let access = Access::from_config(config, pool.clone())?;
     access
         .spicedb()
@@ -126,12 +132,15 @@ async fn actor(config: &Config, command: ActorCommand) -> Result<(), Error> {
 
 /// Runs a token command.
 async fn token(config: &Config, command: TokenCommand) -> Result<(), Error> {
+    // Make a key pair. It needs no database and no key.
     if let TokenCommand::Keygen = command {
         let keys = TokenKeys::generate(config.token_key_id);
         println!("private: {}", keys.private_hex());
         println!("public: {}:{}", config.token_key_id, keys.public_hex());
         return Ok(());
     }
+
+    // Sign or revoke a token with the gate of the settings.
     let pool = db::connect(config).await?;
     let access = Access::from_config(config, pool.clone())?;
     match command {
@@ -159,6 +168,7 @@ fn id<T: ?Sized + 'static>(text: &str) -> Result<Id<T>, String> {
 
 /// Starts the logs on stderr with the filter of `RUST_LOG`. The default hides the sqlx logs.
 fn init_tracing() {
+    // Read the filter of `RUST_LOG`, or show INFO and the sqlx warnings.
     let filter = std::env::var("RUST_LOG")
         .ok()
         .and_then(|value| value.parse::<Targets>().ok())
@@ -167,6 +177,8 @@ fn init_tracing() {
                 .with_default(Level::INFO)
                 .with_target("sqlx", Level::WARN)
         });
+
+    // Write the logs to stderr.
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .with(filter)

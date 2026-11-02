@@ -93,8 +93,9 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 17. Comments
 
-- **Decision:** one `//!` line per file and a short `///` on each item, checked by the compiler. No reasons in the code: they go here.
-- **Why:** each item explains itself in the IDE and in `cargo doc`, and the code stays short.
+- **Decision:** one `//!` line per file and a short `///` on each item, checked by the compiler. A long function body has steps: a blank line between two steps, and one `// Step.` line at the head of each step. No reasons in the code: they go here.
+- **Why:** each item explains itself in the IDE and in `cargo doc`. A long function reads as a list of steps, and the code of a step tells how. The code stays short.
+- **Not kept:** no comment in a body (a long function was hard to read); a comment on each line (noise that gets old).
 
 ## 18. Offline SQL data
 
@@ -103,7 +104,7 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 19. SpiceDB permissions
 
-- **Decision:** SpiceDB holds the permissions, in Postgres (its own database). The subject is always `actor`, so the actor kinds stay open. `actor#act_for = identity + delegate`: an actor acts for itself and for the actors that delegate to it. A project gives `delete`, `edit` and `view` through `owner->act_for`. Each plugin registers the model of its types (`EditionBuilder::authz`, see 25), and `migrate` writes the full schema.
+- **Decision:** SpiceDB holds the permissions, in Postgres (its own database). The subject is always `actor`, so the actor kinds stay open. `actor#act_for = identity + delegate`: an actor acts for itself and for the actors that delegate to it. A project gives the groups `delete`, `edit` and `view` through `owner->act_for`, and each route has its own permission (see 28). Each plugin registers the model of its types (`EditionBuilder::authz`, see 25), and `migrate` writes the full schema.
 - **Why:** roles, sharing and delegation are relations, not code. An edition adds its definitions with no change to the core. A registered agent is a delegate of its user, so the user acts for the agent, not the reverse.
 - **Not kept:** permission checks in SQL in each feature.
 
@@ -151,3 +152,9 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 - **Decision:** the tests use `spicedb serve-testing` (`spicedb-test`, port 55052). Each `TestApp` uses a new key, and serve-testing gives an empty store in memory to each key.
 - **Why:** the tests run in parallel with different schemas (an edition extends a definition) and with no shared relationships, as `sqlx::test` gives a new database to each test. The dev SpiceDB keeps only dev data.
 - **Not kept:** the dev SpiceDB for the tests: the schema write of one test changes the schema of all the tests, and the relationships stay after the tests.
+
+## 28. One permission for each route
+
+- **Decision:** each route that verifies a token checks its own permission: the RPC name in snake case, on the object of the route. `CreateProject` checks `actor#create_project` on the owner, `DeleteProject` checks `project#delete_project`. A route permission uses a group: `act_for`, `delete`, `edit`, `view`. A feature adds the permissions of its routes on an owner with `extend Actor as <Feature>Owner`. The gate refuses a check of a permission that is not the route permission. After the route, the server refuses a success when the route verified a token and passed no check of its route permission: it answers `PERMISSION_DENIED` and logs an error.
+- **Why:** a role can give one route and not the others: a quota reader reads quotas and creates nothing. Groups keep the common case short, and a new role changes the schema, not the code. A route that forgets its check, or that checks a group, fails in the tests of its success.
+- **Not kept:** checks of groups in the routes (a new role gives all the routes of the group, or a change of code); a list of route permissions in a table (a second source next to the schema); a stop before the route runs when a check is missing (the server does not know the object of the route before the route reads the request). A route that must also check the permission of another route needs a new decision.

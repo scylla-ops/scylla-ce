@@ -55,12 +55,15 @@ impl Access {
 
     /// Makes the gate from the settings. The token key and the SpiceDB key are required.
     pub fn from_config(config: &Config, pool: PgPool) -> Result<Self, Error> {
+        // Read the keys that sign and verify the tokens.
         let private = Config::secret(&config.token_private_key, "SCYLLA_TOKEN_PRIVATE_KEY")?;
         let keys = TokenKeys::new(private, config.token_key_id, &config.token_public_keys)
             .map_err(|reason| Error::Config {
                 name: "SCYLLA_TOKEN_PRIVATE_KEY",
                 reason,
             })?;
+
+        // Make the SpiceDB client, then the gate.
         let key = Config::secret(&config.spicedb_key, "SCYLLA_SPICEDB_KEY")?;
         let spicedb =
             SpiceDb::new(&config.spicedb_endpoint, key).map_err(|reason| Error::Config {
@@ -82,12 +85,15 @@ impl Access {
 
     /// Revokes a token and each token made from it. Returns the revocation ids in hex.
     pub async fn revoke(&self, text: &str) -> Result<Vec<String>, Error> {
+        // Read the first revocation id: the tokens made from this token have it too.
         let token =
             Biscuit::from_base64(text, &self.keys).map_err(|_| unauthenticated("invalid token"))?;
         let ids = token.revocation_identifiers();
         let first = ids
             .first()
             .ok_or_else(|| unauthenticated("invalid token"))?;
+
+        // Store it as revoked.
         let mut tx = self.pool.begin().await?;
         store::revoke(&mut tx, first).await?;
         tx.commit().await?;
@@ -96,10 +102,13 @@ impl Access {
 
     /// Makes a token for an actor, valid for `ttl`.
     pub fn issue_for(&self, actor: &Actor, ttl: Duration) -> Result<IssuedToken, AccessError> {
+        // Set the expiry, in whole seconds.
         let now = OffsetDateTime::now_utc()
             .replace_nanosecond(0)
             .unwrap_or(OffsetDateTime::now_utc());
         let expires_at = now + ttl;
+
+        // Sign the first block: the actor, the expiry, and a check of the expiry.
         let params = HashMap::from([
             ("id".to_owned(), Term::Str(actor.id.to_string())),
             ("kind".to_owned(), Term::Str(actor.kind.as_str().to_owned())),
@@ -148,6 +157,7 @@ impl Gate for Access {
         metadata: &MetadataMap,
         operation: &Operation,
     ) -> Result<Principal, AccessError> {
+        // Read the Bearer token and verify its signature.
         let text = metadata
             .get(HEADER)
             .and_then(|value| value.to_str().ok())
@@ -155,6 +165,8 @@ impl Gate for Access {
             .ok_or_else(|| unauthenticated("a Bearer token is required"))?;
         let token =
             Biscuit::from_base64(text, &self.keys).map_err(|_| unauthenticated("invalid token"))?;
+
+        // Refuse an expired or revoked token.
         let (actor, expires) = claims(&token)?;
         if expires <= OffsetDateTime::now_utc().unix_timestamp() {
             return Err(unauthenticated("expired token"));
@@ -162,17 +174,33 @@ impl Gate for Access {
         if self.is_revoked(&token).await? {
             return Err(unauthenticated("revoked token"));
         }
+
+        // Record the token on the operation, for the route rule.
+        operation.set_authenticated();
         Ok(Principal::new(actor, operation.clone(), Arc::new(token)))
     }
 
     async fn authorize(&self, principal: &Principal, check: Check) -> Result<(), AccessError> {
+        // Refuse a check of a permission that is not the route permission.
+        let operation = principal.operation();
+        if check.permission() != operation.permission() {
+            tracing::error!(
+                operation = operation.as_str(),
+                permission = check.permission(),
+                "a route checks a permission that is not its own"
+            );
+            return Err(AccessError::Denied(
+                "the route checks a permission that is not its own".to_owned(),
+            ));
+        }
+
+        // Ask the token: its checks see the operation and the object.
         let token = principal
             .token()
             .downcast_ref::<Biscuit>()
             .ok_or_else(|| unauthenticated("unknown token type"))?;
-        let operation = principal.operation().as_str();
         let params = HashMap::from([
-            ("op".to_owned(), Term::Str(operation.to_owned())),
+            ("op".to_owned(), Term::Str(operation.as_str().to_owned())),
             (
                 "type".to_owned(),
                 Term::Str(check.object().kind().to_owned()),
@@ -194,8 +222,11 @@ impl Gate for Access {
             .map_err(|_| {
                 AccessError::Denied("the token does not allow this operation".to_owned())
             })?;
+
+        // Ask SpiceDB, and record a passed check for the route rule.
         let subject = Object::of(principal.actor.id);
         if self.spicedb.check(&subject, &check).await? {
+            operation.set_authorized();
             Ok(())
         } else {
             Err(AccessError::Denied(format!("{check} is denied")))
@@ -222,6 +253,7 @@ impl Gate for Access {
 
 /// Reads the actor and the expiry from the first block of a token. Later blocks cannot add them.
 fn claims(token: &Biscuit) -> Result<(Actor, i64), AccessError> {
+    // Query the facts of the first block.
     let mut authorizer = AuthorizerBuilder::new()
         .build(token)
         .map_err(|_| unauthenticated("invalid token"))?;
@@ -231,6 +263,8 @@ fn claims(token: &Biscuit) -> Result<(Actor, i64), AccessError> {
     let expiries: Vec<(i64,)> = authorizer
         .query("data($exp) <- expires($exp)")
         .unwrap_or_default();
+
+    // Keep exactly one actor and one expiry.
     let [(id, kind)] = actors.as_slice() else {
         return Err(unauthenticated("the token must name one actor"));
     };

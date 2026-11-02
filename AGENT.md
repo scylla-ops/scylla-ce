@@ -36,10 +36,12 @@ Load the skill of the task from `.claude/skills/`:
 
 - Each id is `Id<T>` (`ActorId`, `ProjectId`). The format is only in `scylla-domain/src/codec.rs`. Never use `Uuid` outside `to_db()` and `from_db()` in a store.
 - Each resource references `actors (id)`: `owner_id` (who owns it) and `created_by` (who did it). The actor kinds are open: a feature defines its own `KIND`.
-- Zero trust: each RPC that acts calls `gate.caller(&request)`, then `gate.authorize(&caller, <permission>.on(id))` for each permission that it needs. The token check uses the gRPC method of the request as the operation (`OperationLayer` adds it). Only `TokenService`, health and capabilities are public.
+- Zero trust: each RPC that acts calls `gate.caller(&request)`, then `gate.authorize(&caller, <route permission>.on(id))`. The token check uses the gRPC method of the request as the operation (`OperationLayer` adds it). Only `TokenService`, health and capabilities are public.
+- Each route has its own permission: the RPC name in snake case (`CreateProject` gives `create_project`), on the object of the route. Declare it in the domain next to the type: on the object (`permission delete_project = delete;`), or on the owner with `extend Actor as <Feature>Owner { permission create_project = act_for; }`.
+- A route permission uses a group: `act_for`, `delete`, `edit`, `view`. A group bundles routes, and a role (a relation) gives a group. Never check a group in a route: the gate refuses a check of a permission that is not the route permission, and the server refuses the success of a route that verified a token with no passed check of its route permission.
 - The permission model is Rust code. `scylla_domain::authz!` declares each SpiceDB definition next to its type, in the SpiceDB schema language. It makes the constants: `Project::DELETE` is a `Permission<Project>`, `Project::OWNER` is a `Relation<Project, Actor>`. Never write the name of a definition, relation or permission as text.
 - `Permission::on(id)` takes an id of its resource. `Relation::of(object, subject)` takes an id of each of its two resources. The compiler stops a wrong id, and a wrong name in a permission expression.
-- An `owner_id` that the request does not set is the caller. The caller must have `Actor::ACT_FOR` on the owner.
+- An `owner_id` that the request does not set is the caller. The caller must have the route permission on the owner, for example `ProjectOwner::CREATE_PROJECT`.
 - A write that gives rights ends with `access::commit(tx, gate, &grants)`: it writes the relationships, then commits, and deletes them again if the commit fails. A delete removes the relationships with `gate.delete_object(&Object::of(id))` after the commit.
 - A plugin registers the model of its types with `EditionBuilder::authz::<Type>()`. An edition adds relations and permissions to a core definition with `authz! { extend <Type> as <Holder> { ... } }`, registered after the core.
 - A secret never goes to the logs or the database in clear. The server stores public keys and hashes only.
@@ -51,7 +53,8 @@ This project overrides the global "no comments" rule.
 - Each `.rs` file starts with one `//!` line that tells what the file is.
 - Each item, private ones too, has a `///` of one or two short sentences: what it is or does. The compiler stops a missing doc (`missing_docs`, `clippy::missing_docs_in_private_items`).
 - No `# Why` sections and no long argument in the code. A decision and its reason go in `DECISIONS.md`.
-- No `//` in a body, except `// given`, `// when`, `// then` in a test.
+- A function body of more than 10 lines that does more than one thing has steps. A blank line separates two steps, and one `//` line at the head of each step tells what the step does: `// Refuse an expired or revoked token.` A step comment is one line. It starts with a capital letter and ends with a period. It tells what the step does, not why and not how.
+- No other `//` in a body, except `// given`, `// when`, `// then` in a test. No `//` at the end of a code line.
 - Write in ASD-STE100 Simplified Technical English. No em dashes.
 
 ## Tests

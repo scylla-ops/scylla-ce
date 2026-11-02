@@ -45,6 +45,7 @@ pub(super) async fn delete(
     actor: Actor,
     id: ProjectId,
 ) -> Result<(), Error> {
+    // Delete the row and run the hooks in one transaction.
     let mut tx = pool.begin().await?;
     let owner_id = store::delete(&mut tx, id)
         .await?
@@ -53,6 +54,8 @@ pub(super) async fn delete(
         .after_delete(&mut tx, &DeleteContext::new(KIND, actor, owner_id))
         .await?;
     tx.commit().await?;
+
+    // Remove the relationships after the commit. A failure only goes to the log.
     if let Err(error) = gate.delete_object(&Object::of(id)).await {
         tracing::error!(%error, project = %id, "relationships stay after a delete");
     }

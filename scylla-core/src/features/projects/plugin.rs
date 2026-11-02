@@ -1,6 +1,6 @@
 //! The plugin of the projects feature.
 
-use scylla_domain::projects::Project;
+use scylla_domain::projects::{Project, ProjectOwner};
 use scylla_extension::{EditionBuilder, Plugin};
 
 use super::grpc;
@@ -11,8 +11,11 @@ pub(crate) struct Projects;
 
 impl Plugin for Projects {
     fn install(self, edition: EditionBuilder) -> EditionBuilder {
-        edition.authz::<Project>().service(|routes, ctx| {
-            routes.add_service(grpc::server(ctx.pool(), ctx.hooks(), ctx.gate()));
-        })
+        edition
+            .authz::<Project>()
+            .authz::<ProjectOwner>()
+            .service(|routes, ctx| {
+                routes.add_service(grpc::server(ctx.pool(), ctx.hooks(), ctx.gate()));
+            })
     }
 }

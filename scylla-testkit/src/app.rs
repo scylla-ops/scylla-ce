@@ -30,8 +30,8 @@ use tonic_health::pb::HealthCheckRequest;
 /// names another. It gives an empty store to each key.
 const SPICEDB_ENDPOINT: &str = "http://127.0.0.1:55052";
 
-/// The operation of the checks that a test makes with `TestApp::can`.
-const TEST_OPERATION: &str = "/scylla.test.v1.TestService/Check";
+/// The service of the routes that `TestApp::can` makes for its checks.
+const TEST_SERVICE: &str = "/scylla.test.v1.TestService";
 
 /// A running server, its gate and its clients.
 pub struct TestApp {
@@ -55,16 +55,21 @@ impl TestApp {
 
     /// Applies the migrations and the schema of the edition, then starts its server.
     pub async fn spawn_with(pool: PgPool, edition: Edition, options: ServeOptions) -> Self {
+        // Apply the migrations to the test database.
         scylla_core::crypto::install();
         scylla_core::db::migrate(&pool, edition.migrators())
             .await
             .expect("migrations apply");
+
+        // Write the schema to a new SpiceDB store.
         let access = Arc::new(test_access(pool.clone()));
         access
             .spicedb()
             .write_schema(edition.authz_schema())
             .await
             .expect("schema applies");
+
+        // Start the server on a free port, and connect to it.
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("local addr");
         tokio::spawn(server::serve(
@@ -89,7 +94,7 @@ impl TestApp {
         }
     }
 
-    /// Creates an actor of a kind, with its identity relation, and returns its id.
+    /// Creates an actor of a kind, with its identity relationship, and returns its id.
     pub async fn actor_of(&self, kind: ActorKind) -> ActorId {
         actors::create(&self.pool, self.gate(), kind)
             .await
@@ -121,10 +126,19 @@ impl TestApp {
             .expect("write relationships");
     }
 
-    /// Returns `true` if an actor passes a check, with a fresh token, as in a request.
+    /// Returns `true` if an actor passes a check, with a fresh token, as in a request to the
+    /// route of the permission: `delete_project` is the route `DeleteProject`.
     pub async fn can(&self, actor: ActorId, check: Check) -> bool {
+        // Make the route of the permission: `delete_project` gives `DeleteProject`.
+        let method: String = check
+            .permission()
+            .split('_')
+            .map(|word| word[..1].to_uppercase() + &word[1..])
+            .collect();
+        let operation = Operation::from_path(&format!("{TEST_SERVICE}/{method}"));
+
+        // Authenticate a fresh token, then check, as the route would.
         let request = with_token(&self.token(actor).await, ());
-        let operation = Operation::from_path(TEST_OPERATION);
         let principal = self
             .gate()
             .authenticate(request.metadata(), &operation)

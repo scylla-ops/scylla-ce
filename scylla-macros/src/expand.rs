@@ -62,6 +62,7 @@ impl Errors {
 
 /// Checks the names of a block, then makes its code.
 fn block_code(block: &Block) -> Result<TokenStream> {
+    // Check the name of a definition. An extension has the name of its base.
     let mut errors = Errors::default();
     let (label, base) = match &block.head {
         Head::Definition { name, .. } => {
@@ -70,6 +71,8 @@ fn block_code(block: &Block) -> Result<TokenStream> {
         }
         Head::Extension { base, holder } => (holder.to_string(), Some(base)),
     };
+
+    // Collect the names of the block, and refuse a bad name or a name declared twice.
     let mut scope = Scope {
         label,
         relations: HashMap::new(),
@@ -94,6 +97,8 @@ fn block_code(block: &Block) -> Result<TokenStream> {
             }
         }
     }
+
+    // Check the names in the permissions, then make the code if there is no error.
     let mut checks = Vec::new();
     for item in &block.items {
         if let ItemKind::Permission(expr) = &item.kind {
@@ -112,6 +117,8 @@ fn references(expr: &Expr, scope: &Scope<'_>, checks: &mut Vec<TokenStream>, err
         match term {
             Term::Nil => {}
             Term::Group(inner) => references(inner, scope, checks, errors),
+
+            // A name of the block is correct. In an extension, another name is on the base.
             Term::Name(name) if scope.has(&name.to_string()) => {}
             Term::Name(name) => match scope.base {
                 Some(base) => checks.push(constant(base, name)),
@@ -123,6 +130,8 @@ fn references(expr: &Expr, scope: &Scope<'_>, checks: &mut Vec<TokenStream>, err
                     ),
                 )),
             },
+
+            // An arrow starts from a relation, and its target is on the subject type.
             Term::Arrow(relation, target) => {
                 let text = relation.to_string();
                 if let Some(subject) = scope.relations.get(&text) {
@@ -154,6 +163,7 @@ fn constant(ty: &Path, name: &Ident) -> TokenStream {
 /// Checks a SpiceDB name: 3 to 64 characters of `a-z`, `0-9` and `_`, a letter first, no `_`
 /// last, and not a word of the language.
 fn check_name(name: &Ident, errors: &mut Errors) {
+    // Check the length and the characters.
     let text = name.to_string();
     let valid = (3..=64).contains(&text.len())
         && text.starts_with(|c: char| c.is_ascii_lowercase())
@@ -161,6 +171,8 @@ fn check_name(name: &Ident, errors: &mut Errors) {
         && text
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+
+    // Refuse a bad name, or a word of the language.
     if !valid {
         errors.push(Error::new(
             name.span(),

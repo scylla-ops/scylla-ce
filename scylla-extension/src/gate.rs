@@ -10,22 +10,7 @@ use time::OffsetDateTime;
 use tonic::metadata::MetadataMap;
 use tonic::Request;
 
-/// The gRPC method of a request, for example `scylla.projects.v1.ProjectService/CreateProject`.
-/// The server adds it to each request. A token can restrict the operations.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Operation(String);
-
-impl Operation {
-    /// Reads the operation from the path of a request: `/<service>/<method>`.
-    pub fn from_path(path: &str) -> Self {
-        Self(path.trim_start_matches('/').to_owned())
-    }
-
-    /// Returns the operation as text.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+use crate::Operation;
 
 /// The actor of a request, proven by a token, and the operation of the request.
 #[derive(Clone)]
@@ -82,17 +67,20 @@ pub enum AccessError {
     Unavailable(String),
 }
 
-/// The gate of each request: tokens and permissions.
+/// The gate of each request: tokens and permissions. Each route checks its own permission: the
+/// server refuses the success of a route that verified a token but passed no such check.
 #[async_trait]
 pub trait Gate: Send + Sync + 'static {
-    /// Verifies the token of a request for an operation, and returns its principal.
+    /// Verifies the token of a request for an operation, records it on the operation, and
+    /// returns the principal.
     async fn authenticate(
         &self,
         metadata: &MetadataMap,
         operation: &Operation,
     ) -> Result<Principal, AccessError>;
 
-    /// Passes if the token allows the operation on the object, and the actor has the permission.
+    /// Passes if the check is of the permission of the route, the token allows the operation on
+    /// the object, and the actor has the permission. Records the passed check on the operation.
     async fn authorize(&self, principal: &Principal, check: Check) -> Result<(), AccessError>;
 
     /// Makes a short-lived token for an actor.

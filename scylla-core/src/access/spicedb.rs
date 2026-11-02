@@ -45,9 +45,12 @@ pub struct SpiceDb {
 impl SpiceDb {
     /// Makes a client. It connects at the first call.
     pub fn new(endpoint: &str, key: &str) -> Result<Self, String> {
+        // Make a channel that connects at the first call.
         let channel = Endpoint::from_shared(endpoint.to_owned())
             .map_err(|_| format!("{endpoint:?} is not a SpiceDB endpoint"))?
             .connect_lazy();
+
+        // Send the preshared key with each call of the two APIs.
         let key = MetadataValue::try_from(format!("Bearer {key}"))
             .map_err(|_| "the SpiceDB key must be ASCII".to_owned())?;
         let interceptor = PresharedKey(key);
@@ -72,12 +75,15 @@ impl SpiceDb {
 
     /// Returns `true` if `subject` passes the check.
     pub(super) async fn check(&self, subject: &Object, check: &Check) -> Result<bool, AccessError> {
+        // See at least the write of the check token, or else all the writes.
         let requirement = match check.freshness() {
             Some(token) if !token.is_empty() => Requirement::AtLeastAsFresh(ZedToken {
                 token: token.to_owned(),
             }),
             _ => Requirement::FullyConsistent(true),
         };
+
+        // Ask for the permission of the subject on the object.
         let request = CheckPermissionRequest {
             consistency: Some(Consistency {
                 requirement: Some(requirement),
@@ -102,6 +108,7 @@ impl SpiceDb {
         relationships: &[authz::Relationship],
         operation: Operation,
     ) -> Result<String, AccessError> {
+        // Make one update for each relationship.
         let updates = relationships
             .iter()
             .map(|relationship| RelationshipUpdate {
@@ -114,6 +121,8 @@ impl SpiceDb {
                 }),
             })
             .collect();
+
+        // Write them in one call, and keep the token of the write.
         let request = WriteRelationshipsRequest {
             updates,
             ..Default::default()

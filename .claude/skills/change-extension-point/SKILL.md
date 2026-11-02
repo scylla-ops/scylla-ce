@@ -28,7 +28,7 @@ Add the field and a parameter to `new()`. Change each call in the core. Tell the
 
 ## Access
 
-The `Gate` trait is the access contract: `authenticate`, `authorize`, `issue`, `write`, `delete`, `delete_object`, and the helper `caller`. A new way to sign in is a new exchange in `TokenService` that ends with `gate.issue`. A new kind of object is an `authz!` definition, registered with `EditionBuilder::authz`. An edition adds to a core definition with `authz! { extend ... }`. A new form of the schema language goes in `scylla-macros` (parse, checks, tests) and in `scylla_domain::authz::Schema`. Never add a way to skip the token or the permission check, or to make a `Check` or a `Relationship` from text.
+The `Gate` trait is the access contract: `authenticate`, `authorize`, `issue`, `write`, `delete`, `delete_object`, and the helper `caller`. A new way to sign in is a new exchange in `TokenService` that ends with `gate.issue`. A new kind of object is an `authz!` definition, registered with `EditionBuilder::authz`. An edition adds to a core definition with `authz! { extend ... }`. A new form of the schema language goes in `scylla-macros` (parse, checks, tests) and in `scylla_domain::authz::Schema`. Each route checks its own permission (the RPC name in snake case): `Access::authorize` and `OperationLayer` keep this rule. Never add a way to skip the token, the permission check or the route rule, or to make a `Check` or a `Relationship` from text.
 
 ## Finish
 

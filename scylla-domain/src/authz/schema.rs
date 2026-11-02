@@ -96,18 +96,24 @@ impl Schema {
     /// Adds a part. A definition comes one time, before its extensions, and a name comes one
     /// time in its definition. A part that does not fit changes nothing.
     pub fn add(&mut self, part: Part) -> Result<(), SchemaError> {
+        // Find the definition of the part in the parts before it.
         let known = self
             .definitions
             .iter()
             .position(|definition| definition.definition == part.definition);
         match (known, part.extension) {
+            // A definition comes one time, and an extension comes after its definition.
             (Some(_), false) => Err(SchemaError::Defined(part.definition)),
             (None, true) => Err(SchemaError::Undefined(part.definition)),
+
+            // A new definition: each name comes one time.
             (None, false) => {
                 unique(&[], &part)?;
                 self.definitions.push(part);
                 Ok(())
             }
+
+            // An extension: its names are new in the definition, and go after the others.
             (Some(index), true) => {
                 let definition = &mut self.definitions[index];
                 unique(&definition.names().collect::<Vec<_>>(), &part)?;
