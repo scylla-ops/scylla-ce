@@ -1,0 +1,13 @@
+[package]
+name = "scylla-extension"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+scylla-domain.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tonic.workspace = true

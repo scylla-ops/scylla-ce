@@ -1,0 +1,11 @@
+[package]
+name = "scylla-domain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true

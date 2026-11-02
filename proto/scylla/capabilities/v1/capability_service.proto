@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package scylla.capabilities.v1;
+
+// Tells a client which edition runs and which optional features it has.
+service CapabilityService {
+  // Returns the edition and its optional features.
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+}
+
+message GetCapabilitiesRequest {}
+
+message GetCapabilitiesResponse {
+  // Edition name, as the server reports it.
+  string edition = 1;
+  // Optional features of this edition. Core features are always present and not listed.
+  repeated string capabilities = 2;
+}

@@ -1,0 +1,21 @@
+[package]
+name = "scylla-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+prost-types.workspace = true
+scylla-domain.workspace = true
+scylla-extension.workspace = true
+scylla-proto.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+tonic-types.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO users (id, name) VALUES ($1, 'written by the guard')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ab7c58b33c21087a97bf38da89fa578ab3a2b9e114a6065ec95b75a3d41f3559"
+}

@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package scylla.projects.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// A project. It belongs to exactly one owner.
+message Project {
+  // Project id, UUID in text form.
+  string id = 1;
+  // Owner id, UUID in text form.
+  string owner_id = 2;
+  // Display name, 1 to 100 characters, trimmed.
+  string name = 3;
+  // Creation time, set by the server.
+  google.protobuf.Timestamp created_at = 4;
+}

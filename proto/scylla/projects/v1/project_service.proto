@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package scylla.projects.v1;
+
+import "scylla/projects/v1/project.proto";
+
+// Creates, lists and deletes projects.
+service ProjectService {
+  // Creates a project. The edition can refuse it with FAILED_PRECONDITION and a google.rpc.ErrorInfo detail.
+  rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse);
+  // Lists the projects of one owner, oldest first.
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  // Deletes a project.
+  rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+}
+
+message CreateProjectRequest {
+  // Owner id, UUID in text form. The owner must exist.
+  string owner_id = 1;
+  // Display name, 1 to 100 characters after trim.
+  string name = 2;
+}
+
+message CreateProjectResponse {
+  // The created project.
+  Project project = 1;
+}
+
+message ListProjectsRequest {
+  // Owner id, UUID in text form.
+  string owner_id = 1;
+  // Maximum number of projects in the page. 0 means 50. Values above 100 become 100.
+  int32 page_size = 2;
+  // next_page_token of the previous page. Empty for the first page.
+  string page_token = 3;
+}
+
+message ListProjectsResponse {
+  // Projects of the page, oldest first.
+  repeated Project projects = 1;
+  // Token of the next page. Empty on the last page.
+  string next_page_token = 2;
+}
+
+message DeleteProjectRequest {
+  // Project id, UUID in text form.
+  string project_id = 1;
+}
+
+message DeleteProjectResponse {}

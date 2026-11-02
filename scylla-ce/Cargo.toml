@@ -1,0 +1,17 @@
+[package]
+name = "scylla-ce"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+scylla-core.workspace = true
+scylla-extension.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+scylla-proto.workspace = true
+scylla-testkit.workspace = true
+sqlx.workspace = true
+tonic.workspace = true

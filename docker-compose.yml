@@ -1,0 +1,17 @@
+name: scylla-poc
+
+services:
+  db:
+    image: postgres:18-alpine
+    command: ["postgres", "-c", "max_connections=500", "-c", "fsync=off"]
+    environment:
+      POSTGRES_USER: scylla
+      POSTGRES_PASSWORD: scylla
+      POSTGRES_DB: scylla
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scylla -d scylla"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
