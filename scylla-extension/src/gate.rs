@@ -1,69 +1,56 @@
-//! Access control: each request proves its actor with a token, then passes a permission check.
+//! Access control: each request proves its actor with a token, then passes permission checks.
 
 use std::any::Any;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use scylla_domain::actors::Actor;
+use scylla_domain::authz::{Check, Object, Relationship};
 use time::OffsetDateTime;
 use tonic::metadata::MetadataMap;
+use tonic::Request;
 
-/// An object of the permission system, for example `project:<id>`.
+/// The gRPC method of a request, for example `scylla.projects.v1.ProjectService/CreateProject`.
+/// The server adds it to each request. A token can restrict the operations.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Object {
-    /// The type of the object, a definition of the SpiceDB schema.
-    pub kind: &'static str,
-    /// The id of the object.
-    pub id: String,
-}
+pub struct Operation(String);
 
-impl Object {
-    /// Makes an object reference.
-    pub fn new(kind: &'static str, id: impl ToString) -> Self {
-        Self {
-            kind,
-            id: id.to_string(),
-        }
+impl Operation {
+    /// Reads the operation from the path of a request: `/<service>/<method>`.
+    pub fn from_path(path: &str) -> Self {
+        Self(path.trim_start_matches('/').to_owned())
+    }
+
+    /// Returns the operation as text.
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
-/// A relation between two objects, for example `project:P#owner@actor:A`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Relation {
-    /// The object that has the relation.
-    pub object: Object,
-    /// The name of the relation.
-    pub relation: &'static str,
-    /// The subject of the relation.
-    pub subject: Object,
-}
-
-/// What a request needs: an operation on an object, and a permission on that object.
-#[derive(Clone, Copy, Debug)]
-pub struct Check<'a> {
-    /// The name of the operation, for example `projects.create`. A token can restrict it.
-    pub operation: &'static str,
-    /// The object of the operation.
-    pub object: &'a Object,
-    /// The permission that the actor needs on the object.
-    pub permission: &'static str,
-    /// A token of the permission system from a write: the check sees at least that write.
-    pub at_least_as_fresh: Option<&'a str>,
-}
-
-/// The actor of a request, proven by a token.
+/// The actor of a request, proven by a token, and the operation of the request.
 #[derive(Clone)]
 pub struct Principal {
     /// The actor.
     pub actor: Actor,
+    /// The operation of the request.
+    operation: Operation,
     /// The verified token, opaque for the plugins.
     token: Arc<dyn Any + Send + Sync>,
 }
 
 impl Principal {
     /// Makes a principal. Only a gate makes one.
-    pub fn new(actor: Actor, token: Arc<dyn Any + Send + Sync>) -> Self {
-        Self { actor, token }
+    pub fn new(actor: Actor, operation: Operation, token: Arc<dyn Any + Send + Sync>) -> Self {
+        Self {
+            actor,
+            operation,
+            token,
+        }
+    }
+
+    /// Returns the operation of the request.
+    pub fn operation(&self) -> &Operation {
+        &self.operation
     }
 
     /// Returns the verified token, for the gate that made it.
@@ -98,21 +85,36 @@ pub enum AccessError {
 /// The gate of each request: tokens and permissions.
 #[async_trait]
 pub trait Gate: Send + Sync + 'static {
-    /// Verifies the token of a request and returns its actor.
-    async fn authenticate(&self, metadata: &MetadataMap) -> Result<Principal, AccessError>;
+    /// Verifies the token of a request for an operation, and returns its principal.
+    async fn authenticate(
+        &self,
+        metadata: &MetadataMap,
+        operation: &Operation,
+    ) -> Result<Principal, AccessError>;
 
-    /// Passes if the token allows the operation and the actor has the permission.
-    async fn authorize(&self, principal: &Principal, check: Check<'_>) -> Result<(), AccessError>;
+    /// Passes if the token allows the operation on the object, and the actor has the permission.
+    async fn authorize(&self, principal: &Principal, check: Check) -> Result<(), AccessError>;
 
     /// Makes a short-lived token for an actor.
     fn issue(&self, actor: &Actor) -> Result<IssuedToken, AccessError>;
 
-    /// Writes relations, and returns a token of the permission system for later checks.
-    async fn write(&self, relations: &[Relation]) -> Result<String, AccessError>;
+    /// Writes relationships, and returns a token of the permission system for later checks.
+    async fn write(&self, relationships: &[Relationship]) -> Result<String, AccessError>;
 
-    /// Deletes relations.
-    async fn delete(&self, relations: &[Relation]) -> Result<(), AccessError>;
+    /// Deletes relationships.
+    async fn delete(&self, relationships: &[Relationship]) -> Result<(), AccessError>;
 
-    /// Deletes all relations of an object.
+    /// Deletes all relationships of an object.
     async fn delete_object(&self, object: &Object) -> Result<(), AccessError>;
+}
+
+impl dyn Gate {
+    /// Authenticates the caller of a gRPC request. The operation is the method of the request.
+    pub async fn caller<T: Sync>(&self, request: &Request<T>) -> Result<Principal, AccessError> {
+        let operation = request
+            .extensions()
+            .get::<Operation>()
+            .ok_or_else(|| AccessError::Denied("the request has no operation".to_owned()))?;
+        self.authenticate(request.metadata(), operation).await
+    }
 }

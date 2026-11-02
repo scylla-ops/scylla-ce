@@ -1,6 +1,7 @@
 //! The gRPC API tests of the Community edition: one binary, one module per feature.
 
 mod agents;
+mod authz;
 mod capabilities;
 mod grpc_web;
 mod health;

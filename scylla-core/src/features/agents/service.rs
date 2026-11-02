@@ -4,7 +4,7 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use prost::Message;
 use scylla_domain::actors::{Actor, ActorId};
 use scylla_domain::agents::{AgentKeyId, KIND};
-use scylla_extension::{AccessError, Gate, Object, Relation};
+use scylla_extension::{AccessError, Gate};
 use scylla_proto::auth::v1::AgentAssertion;
 use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
@@ -40,16 +40,11 @@ pub async fn register(
     store::insert_agent(&mut tx, agent.id, owner).await?;
     let key_id = AgentKeyId::generate();
     store::insert_key(&mut tx, key_id, agent.id, public_key).await?;
-    let relations = [
-        actors::identity(agent.id),
-        Relation {
-            object: Object::new("actor", agent.id),
-            relation: "delegate",
-            subject: Object::new("actor", owner),
-        },
+    let grants = [
+        Actor::IDENTITY.of(agent.id, agent.id),
+        Actor::DELEGATE.of(agent.id, owner),
     ];
-    gate.write(&relations).await?;
-    access::commit(tx, gate, &relations).await?;
+    access::commit(tx, gate, &grants).await?;
     Ok((agent.id, key_id))
 }
 

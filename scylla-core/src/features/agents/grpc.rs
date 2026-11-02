@@ -2,7 +2,8 @@
 
 use std::sync::Arc;
 
-use scylla_extension::{Check, Gate, Object};
+use scylla_domain::actors::Actor;
+use scylla_extension::Gate;
 use scylla_proto::agents::v1 as pb;
 use scylla_proto::agents::v1::agent_service_server::{AgentService, AgentServiceServer};
 use sqlx::PgPool;
@@ -41,23 +42,13 @@ impl AgentsGrpc {
         &self,
         request: Request<pb::RegisterAgentRequest>,
     ) -> Result<pb::RegisterAgentResponse, Error> {
-        let principal = self.gate.authenticate(request.metadata()).await?;
-        let caller = Object::new("actor", principal.actor.id);
-        let check = Check {
-            operation: "agents.register",
-            object: &caller,
-            permission: "act_for",
-            at_least_as_fresh: None,
-        };
-        self.gate.authorize(&principal, check).await?;
+        let caller = self.gate.caller(&request).await?;
+        self.gate
+            .authorize(&caller, Actor::ACT_FOR.on(caller.actor.id))
+            .await?;
         let public_key = request.into_inner().public_key;
-        let (agent_id, key_id) = service::register(
-            &self.pool,
-            self.gate.as_ref(),
-            principal.actor.id,
-            &public_key,
-        )
-        .await?;
+        let (agent_id, key_id) =
+            service::register(&self.pool, self.gate.as_ref(), caller.actor.id, &public_key).await?;
         Ok(pb::RegisterAgentResponse {
             agent_id: Some(agent_id.to_proto()),
             key_id: Some(key_id.to_proto()),

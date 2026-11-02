@@ -1,6 +1,7 @@
-//! The SpiceDB client: permission checks, relation writes and the schema.
+//! The SpiceDB client: permission checks, relationship writes and the schema.
 
-use scylla_extension::{AccessError, Object, Relation};
+use scylla_domain::authz::{self, Check, Object};
+use scylla_extension::AccessError;
 use spicedb_grpc_tonic::v1::consistency::Requirement;
 use spicedb_grpc_tonic::v1::permissions_service_client::PermissionsServiceClient;
 use spicedb_grpc_tonic::v1::relationship_update::Operation;
@@ -69,15 +70,9 @@ impl SpiceDb {
         Ok(())
     }
 
-    /// Returns `true` if `subject` has `permission` on `object`.
-    pub(super) async fn check(
-        &self,
-        subject: &Object,
-        object: &Object,
-        permission: &str,
-        fresh: Option<&str>,
-    ) -> Result<bool, AccessError> {
-        let requirement = match fresh {
+    /// Returns `true` if `subject` passes the check.
+    pub(super) async fn check(&self, subject: &Object, check: &Check) -> Result<bool, AccessError> {
+        let requirement = match check.freshness() {
             Some(token) if !token.is_empty() => Requirement::AtLeastAsFresh(ZedToken {
                 token: token.to_owned(),
             }),
@@ -87,8 +82,8 @@ impl SpiceDb {
             consistency: Some(Consistency {
                 requirement: Some(requirement),
             }),
-            resource: Some(reference(object)),
-            permission: permission.to_owned(),
+            resource: Some(reference(check.object())),
+            permission: check.permission().to_owned(),
             subject: Some(subject_reference(subject)),
             ..Default::default()
         };
@@ -101,20 +96,20 @@ impl SpiceDb {
         Ok(response.into_inner().permissionship == Permissionship::HasPermission as i32)
     }
 
-    /// Applies one operation to relations, and returns the token of the write.
+    /// Applies one operation to relationships, and returns the token of the write.
     pub(super) async fn update(
         &self,
-        relations: &[Relation],
+        relationships: &[authz::Relationship],
         operation: Operation,
     ) -> Result<String, AccessError> {
-        let updates = relations
+        let updates = relationships
             .iter()
-            .map(|relation| RelationshipUpdate {
+            .map(|relationship| RelationshipUpdate {
                 operation: operation as i32,
                 relationship: Some(Relationship {
-                    resource: Some(reference(&relation.object)),
-                    relation: relation.relation.to_owned(),
-                    subject: Some(subject_reference(&relation.subject)),
+                    resource: Some(reference(relationship.object())),
+                    relation: relationship.relation().to_owned(),
+                    subject: Some(subject_reference(relationship.subject())),
                     ..Default::default()
                 }),
             })
@@ -136,12 +131,12 @@ impl SpiceDb {
             .unwrap_or_default())
     }
 
-    /// Deletes all relations of an object.
+    /// Deletes all relationships of an object.
     pub(super) async fn delete_object(&self, object: &Object) -> Result<(), AccessError> {
         let request = DeleteRelationshipsRequest {
             relationship_filter: Some(RelationshipFilter {
-                resource_type: object.kind.to_owned(),
-                optional_resource_id: object.id.clone(),
+                resource_type: object.kind().to_owned(),
+                optional_resource_id: object.id().to_owned(),
                 ..Default::default()
             }),
             ..Default::default()
@@ -158,8 +153,8 @@ impl SpiceDb {
 /// Makes an object reference.
 fn reference(object: &Object) -> ObjectReference {
     ObjectReference {
-        object_type: object.kind.to_owned(),
-        object_id: object.id.clone(),
+        object_type: object.kind().to_owned(),
+        object_id: object.id().to_owned(),
     }
 }
 

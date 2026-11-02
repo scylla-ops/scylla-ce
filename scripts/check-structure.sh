@@ -29,10 +29,11 @@ checks() {
     head -n 1 "$file" | grep -q '^//!' || echo "$file"
   done | report "a Rust file does not start with a //! comment"
 
-  for file in $(find scylla-* \( -name mod.rs -o -name lib.rs \) -not -path '*/target/*' -not -path 'scylla-proto/*'); do
+  # A proc macro must be in the lib.rs of its crate, so scylla-macros/src/lib.rs has its function.
+  for file in $(find scylla-* \( -name mod.rs -o -name lib.rs \) -not -path '*/target/*' -not -path 'scylla-proto/*' -not -path 'scylla-macros/src/lib.rs'); do
     grep -vE '^[[:space:]]*(//|#\[)' "$file" | tr '\n' ' ' | tr ';' '\n' \
       | grep -vE '^[[:space:]]*$' \
-      | grep -vE '^[[:space:]]*(pub(\(crate\))? )?(mod|use) ' \
+      | grep -vE '^[[:space:]]*(pub(\(crate\))? )?(mod|use|extern crate) ' \
       | sed "s|^|$file: |"
   done | report "a mod.rs or lib.rs has more than mod and use lines"
 

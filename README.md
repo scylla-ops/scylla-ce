@@ -10,7 +10,7 @@ Users and agents own and create projects. The API is gRPC and gRPC-Web on one po
 ## Crates
 
 ```
-scylla-ce ──▶ scylla-core ──▶ scylla-extension ──▶ scylla-domain
+scylla-ce ──▶ scylla-core ──▶ scylla-extension ──▶ scylla-domain ──▶ scylla-macros
                   │
                   └──────▶ scylla-proto
 scylla-testkit (tests only) ──▶ scylla-core
@@ -18,7 +18,8 @@ scylla-testkit (tests only) ──▶ scylla-core
 
 | Crate | Contents |
 |---|---|
-| `scylla-domain` | pure types: `Id<T>` and its codec, actors, users, agents, projects, pages |
+| `scylla-macros` | `authz!`: the permission model in the SpiceDB schema language |
+| `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, actors, users, agents, projects, pages |
 | `scylla-extension` | the contract: `Edition`, `Plugin`, hooks, `Gate` |
 | `scylla-proto` | generated code of `proto/` |
 | `scylla-core` | access (Biscuit, SpiceDB), features (actors, users, agents, tokens, projects, capabilities), server, CLI |
@@ -31,8 +32,27 @@ scylla-testkit (tests only) ──▶ scylla-core
 |---|---|
 | A person signs in | OIDC ID token of the identity provider, then `TokenService.ExchangeIdToken`. The first sign-in creates the user. |
 | An agent signs in | `AgentService.RegisterAgent` (by its user, with the agent public key), then each time an assertion signed with the agent private key: `TokenService.ExchangeAgentAssertion`. |
-| Each request | `authorization: Bearer <biscuit>`. 10 minutes by default. A holder can attenuate it offline before it gives it to a step. |
+| Each request | `authorization: Bearer <biscuit>`. 10 minutes by default. A holder can attenuate it offline before it gives it to a step. The operation of a request is its gRPC method. |
 | Each operation | SpiceDB checks the permission: `act_for` on the owner, or `delete` on a project. |
+
+The permission model is Rust code. `authz!` declares a SpiceDB definition next to its type, and the compiler checks each name and each id:
+
+```rust
+authz! {
+    /// The permission model of the projects.
+    definition project for Project {
+        /// The actor that owns the project.
+        relation owner: Actor;
+        /// Delete the project.
+        permission delete = owner->act_for;
+    }
+}
+
+gate.authorize(&caller, Project::DELETE.on(project_id)).await?;
+access::commit(tx, gate, &[Project::OWNER.of(project.id, owner_id)]).await?;
+```
+
+An edition adds a definition the same way, or adds to a core definition with `authz! { extend Project as ProjectAudit { ... } }`.
 
 ## Tools
 
@@ -93,18 +113,23 @@ Then send the `id_token` to `scylla.auth.v1.TokenService/ExchangeIdToken`.
 ## Tests
 
 ```sh
-just test                      # Postgres and SpiceDB must run: just db-up
+just test                      # Postgres and the two SpiceDBs must run: just db-up
 ```
+
+The tests use `spicedb serve-testing` on port 55052: each test gets an empty SpiceDB store.
 
 | Tests | Where |
 |---|---|
 | Projects and their permissions, tokens, agents, OIDC, gRPC-Web, CORS, TLS, health | `scylla-ce/tests/api/` |
+| Permission model: core roles, an extension, a new definition | `scylla-ce/tests/api/authz.rs` |
+| Schema of the parts, typed values | `scylla-domain/src/authz/tests.rs` |
+| `authz!`: schema text, checks of the names, errors | `scylla-macros/src/tests.rs` |
 | Hook rollback, order and kind filter | `scylla-core/src/features/projects/tests.rs` |
 | Config and command line | `scylla-core/src/config.rs`, `scylla-core/src/cli.rs` |
 
 ## Releases for the Enterprise edition
 
-The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag. A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, `Check`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `TestApp`, `CORE_SCHEMA`, and the tables `actors` and `projects`.
+The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor` and `project`, `TestApp`, and the tables `actors` and `projects`.
 
 ## Known limits
 

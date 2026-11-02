@@ -1,8 +1,9 @@
 set dotenv-load
 
-# Starts Postgres (127.0.0.1:55432) and SpiceDB (127.0.0.1:55051).
+# Starts Postgres (127.0.0.1:55432), SpiceDB (127.0.0.1:55051) and the SpiceDB of the tests
+# (127.0.0.1:55052, an empty store for each key).
 db-up:
-    docker compose up -d --wait db spicedb
+    docker compose up -d --wait db spicedb spicedb-test
 
 # Starts the dev identity provider (Keycloak on 127.0.0.1:58080, user alice, password alice).
 keycloak:

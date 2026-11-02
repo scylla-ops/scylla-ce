@@ -3,12 +3,12 @@
 mod commit;
 mod gate;
 mod keys;
-mod schema;
+mod operation;
 mod spicedb;
 mod store;
 
 pub use commit::commit;
 pub use gate::{Access, AccessConfig};
 pub use keys::TokenKeys;
-pub use schema::CORE_SCHEMA;
+pub use operation::OperationLayer;
 pub use spicedb::SpiceDb;

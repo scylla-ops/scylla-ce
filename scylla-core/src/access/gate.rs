@@ -7,10 +7,9 @@ use std::time::Duration;
 use biscuit_auth::builder::Term;
 use biscuit_auth::{AuthorizerBuilder, Biscuit};
 use scylla_domain::actors::{Actor, ActorId, ActorKind};
-use scylla_extension::{
-    async_trait, AccessError, Check, Gate, IssuedToken, Object, Principal, Relation,
-};
-use spicedb_grpc_tonic::v1::relationship_update::Operation;
+use scylla_domain::authz::{Check, Object, Relationship};
+use scylla_extension::{async_trait, AccessError, Gate, IssuedToken, Operation, Principal};
+use spicedb_grpc_tonic::v1::relationship_update::Operation as Update;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use tonic::metadata::MetadataMap;
@@ -144,7 +143,11 @@ impl Access {
 
 #[async_trait]
 impl Gate for Access {
-    async fn authenticate(&self, metadata: &MetadataMap) -> Result<Principal, AccessError> {
+    async fn authenticate(
+        &self,
+        metadata: &MetadataMap,
+        operation: &Operation,
+    ) -> Result<Principal, AccessError> {
         let text = metadata
             .get(HEADER)
             .and_then(|value| value.to_str().ok())
@@ -159,18 +162,25 @@ impl Gate for Access {
         if self.is_revoked(&token).await? {
             return Err(unauthenticated("revoked token"));
         }
-        Ok(Principal::new(actor, Arc::new(token)))
+        Ok(Principal::new(actor, operation.clone(), Arc::new(token)))
     }
 
-    async fn authorize(&self, principal: &Principal, check: Check<'_>) -> Result<(), AccessError> {
+    async fn authorize(&self, principal: &Principal, check: Check) -> Result<(), AccessError> {
         let token = principal
             .token()
             .downcast_ref::<Biscuit>()
             .ok_or_else(|| unauthenticated("unknown token type"))?;
+        let operation = principal.operation().as_str();
         let params = HashMap::from([
-            ("op".to_owned(), Term::Str(check.operation.to_owned())),
-            ("type".to_owned(), Term::Str(check.object.kind.to_owned())),
-            ("object".to_owned(), Term::Str(check.object.id.clone())),
+            ("op".to_owned(), Term::Str(operation.to_owned())),
+            (
+                "type".to_owned(),
+                Term::Str(check.object().kind().to_owned()),
+            ),
+            (
+                "object".to_owned(),
+                Term::Str(check.object().id().to_owned()),
+            ),
         ]);
         AuthorizerBuilder::new()
             .time()
@@ -184,23 +194,11 @@ impl Gate for Access {
             .map_err(|_| {
                 AccessError::Denied("the token does not allow this operation".to_owned())
             })?;
-        let subject = Object::new("actor", principal.actor.id);
-        let allowed = self
-            .spicedb
-            .check(
-                &subject,
-                check.object,
-                check.permission,
-                check.at_least_as_fresh,
-            )
-            .await?;
-        if allowed {
+        let subject = Object::of(principal.actor.id);
+        if self.spicedb.check(&subject, &check).await? {
             Ok(())
         } else {
-            Err(AccessError::Denied(format!(
-                "{} on {}:{} is denied",
-                check.permission, check.object.kind, check.object.id
-            )))
+            Err(AccessError::Denied(format!("{check} is denied")))
         }
     }
 
@@ -208,12 +206,12 @@ impl Gate for Access {
         self.issue_for(actor, self.token_ttl)
     }
 
-    async fn write(&self, relations: &[Relation]) -> Result<String, AccessError> {
-        self.spicedb.update(relations, Operation::Touch).await
+    async fn write(&self, relationships: &[Relationship]) -> Result<String, AccessError> {
+        self.spicedb.update(relationships, Update::Touch).await
     }
 
-    async fn delete(&self, relations: &[Relation]) -> Result<(), AccessError> {
-        self.spicedb.update(relations, Operation::Delete).await?;
+    async fn delete(&self, relationships: &[Relationship]) -> Result<(), AccessError> {
+        self.spicedb.update(relationships, Update::Delete).await?;
         Ok(())
     }
 

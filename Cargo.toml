@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "scylla-macros",
     "scylla-domain",
     "scylla-extension",
     "scylla-proto",
@@ -26,6 +27,7 @@ missing_docs_in_private_items = "deny"
 scylla-core = { path = "scylla-core" }
 scylla-domain = { path = "scylla-domain" }
 scylla-extension = { path = "scylla-extension" }
+scylla-macros = { path = "scylla-macros" }
 scylla-proto = { path = "scylla-proto" }
 scylla-testkit = { path = "scylla-testkit" }
 
@@ -36,14 +38,17 @@ clap = { version = "4.6.7", features = ["derive", "env"] }
 ed25519-dalek = "3.0.0"
 hex = "0.4.3"
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto", "use_pem"] }
+proc-macro2 = "1.0.107"
 prost = "0.14.4"
 prost-types = "0.14.4"
+quote = "1.0.47"
 rcgen = "0.14.10"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "json", "http2"] }
 rustls = { version = "0.23.46", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
 spicedb-grpc-tonic = "1.0.0"
 sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "macros", "migrate", "sqlx-toml", "uuid", "time"] }
+syn = "3.0.9"
 thiserror = "2.0.21"
 time = "0.3.55"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "sync"] }
@@ -53,6 +58,7 @@ tonic-prost = "0.14.9"
 tonic-prost-build = { version = "0.14.9", default-features = false }
 tonic-types = "0.14.9"
 tonic-web = "0.14.9"
+tower = { version = "0.5.3", default-features = false }
 tower-http = { version = "0.7.1", default-features = false, features = ["cors", "trace"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "ansi", "std"] }

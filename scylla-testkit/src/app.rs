@@ -8,7 +8,8 @@ use scylla_core::access::{Access, AccessConfig, SpiceDb, TokenKeys};
 use scylla_core::features::actors;
 use scylla_core::server::{self, ServeOptions};
 use scylla_domain::actors::{ActorId, ActorKind};
-use scylla_extension::{Edition, Gate, Object, Relation};
+use scylla_domain::authz::{Check, Relationship};
+use scylla_extension::{AccessError, Edition, Gate, Operation};
 use scylla_proto::capabilities::v1::capability_service_client::CapabilityServiceClient;
 use scylla_proto::capabilities::v1::{GetCapabilitiesRequest, GetCapabilitiesResponse};
 use scylla_proto::common::v1 as common;
@@ -25,17 +26,18 @@ use tonic_health::pb::health_check_response::ServingStatus;
 use tonic_health::pb::health_client::HealthClient;
 use tonic_health::pb::HealthCheckRequest;
 
-/// The SpiceDB of the tests, unless `SCYLLA_SPICEDB_ENDPOINT` names another.
-const SPICEDB_ENDPOINT: &str = "http://127.0.0.1:55051";
+/// The SpiceDB of the tests (`spicedb serve-testing`), unless `SCYLLA_TEST_SPICEDB_ENDPOINT`
+/// names another. It gives an empty store to each key.
+const SPICEDB_ENDPOINT: &str = "http://127.0.0.1:55052";
 
-/// The preshared key of the dev SpiceDB, unless `SCYLLA_SPICEDB_KEY` gives another.
-const SPICEDB_KEY: &str = "scylla-dev-key";
+/// The operation of the checks that a test makes with `TestApp::can`.
+const TEST_OPERATION: &str = "/scylla.test.v1.TestService/Check";
 
 /// A running server, its gate and its clients.
 pub struct TestApp {
     /// The pool of the test database.
     pub pool: PgPool,
-    /// The gate of the server, to sign tokens and write relations in a test.
+    /// The gate of the server, to sign tokens and write relationships in a test.
     pub access: Arc<Access>,
     /// The channel to the server, to make more clients.
     pub channel: Channel,
@@ -111,17 +113,28 @@ impl TestApp {
         with_token(&self.token(actor).await, message)
     }
 
-    /// Writes a relation: `object#relation@subject`.
-    pub async fn grant(&self, object: Object, relation: &'static str, subject: Object) {
-        let relation = Relation {
-            object,
-            relation,
-            subject,
-        };
+    /// Writes relationships, for example `Actor::DELEGATE.of(owner, delegate)`.
+    pub async fn grant(&self, relationships: &[Relationship]) {
         self.gate()
-            .write(&[relation])
+            .write(relationships)
             .await
-            .expect("write relation");
+            .expect("write relationships");
+    }
+
+    /// Returns `true` if an actor passes a check, with a fresh token, as in a request.
+    pub async fn can(&self, actor: ActorId, check: Check) -> bool {
+        let request = with_token(&self.token(actor).await, ());
+        let operation = Operation::from_path(TEST_OPERATION);
+        let principal = self
+            .gate()
+            .authenticate(request.metadata(), &operation)
+            .await
+            .expect("valid token");
+        match self.gate().authorize(&principal, check).await {
+            Ok(()) => true,
+            Err(AccessError::Denied(_)) => false,
+            Err(error) => panic!("the check fails: {error}"),
+        }
     }
 
     /// Calls `CreateProject` as `actor`, for the actor itself.
@@ -201,10 +214,12 @@ impl TestApp {
     }
 }
 
-/// Makes the gate of a test: a new signing key, and the SpiceDB of the tests.
+/// Makes the gate of a test: a new signing key, and a new key of the SpiceDB of the tests, so
+/// each test starts with an empty SpiceDB store and runs in parallel with the others.
 pub fn test_access(pool: PgPool) -> Access {
-    let endpoint = env::var("SCYLLA_SPICEDB_ENDPOINT").unwrap_or_else(|_| SPICEDB_ENDPOINT.into());
-    let key = env::var("SCYLLA_SPICEDB_KEY").unwrap_or_else(|_| SPICEDB_KEY.into());
+    let endpoint =
+        env::var("SCYLLA_TEST_SPICEDB_ENDPOINT").unwrap_or_else(|_| SPICEDB_ENDPOINT.into());
+    let key = format!("test-{}", uuid::Uuid::now_v7());
     let config = AccessConfig {
         keys: TokenKeys::generate(1),
         token_ttl: Duration::from_secs(600),

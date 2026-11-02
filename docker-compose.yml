@@ -46,6 +46,17 @@ services:
       timeout: 2s
       retries: 30
 
+  spicedb-test:
+    image: authzed/spicedb:v1.57.0
+    command: ["serve-testing"]
+    ports:
+      - "127.0.0.1:55052:50051"
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50051"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.1
     profiles: ["oidc"]

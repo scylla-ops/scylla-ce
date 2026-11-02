@@ -54,7 +54,10 @@ async fn a_revoked_token_is_refused(pool: PgPool) {
     let app = app(pool).await;
     let user = app.user().await;
     let token = app.token(user).await;
-    let attenuated = attenuate(&token, r#"check if operation("projects.create");"#);
+    let attenuated = attenuate(
+        &token,
+        r#"check if operation("scylla.projects.v1.ProjectService/CreateProject");"#,
+    );
     app.access.revoke(&token).await.unwrap();
     let mut client = app.projects.clone();
 
@@ -76,7 +79,10 @@ async fn an_attenuated_token_allows_only_its_operations(pool: PgPool) {
     let app = app(pool).await;
     let user = app.user().await;
     let token = app.token(user).await;
-    let read_only = attenuate(&token, r#"check if operation("projects.list");"#);
+    let read_only = attenuate(
+        &token,
+        r#"check if operation("scylla.projects.v1.ProjectService/ListProjects");"#,
+    );
     let list = ListProjectsRequest {
         owner_id: None,
         page: None,

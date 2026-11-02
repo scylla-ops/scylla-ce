@@ -2421,6 +2421,7 @@ dependencies = [
  "tonic-health",
  "tonic-types",
  "tonic-web",
+ "tower",
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
@@ -2431,6 +2432,7 @@ dependencies = [
 name = "scylla-domain"
 version = "0.1.0"
 dependencies = [
+ "scylla-macros",
  "thiserror 2.0.21",
  "time",
  "uuid",
@@ -2446,6 +2448,15 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tonic",
+]
+
+[[package]]
+name = "scylla-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -2471,6 +2482,7 @@ dependencies = [
  "tokio",
  "tonic",
  "tonic-health",
+ "uuid",
 ]
 
 [[package]]

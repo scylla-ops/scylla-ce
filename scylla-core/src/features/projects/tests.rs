@@ -3,12 +3,12 @@
 use std::sync::{Arc, Mutex};
 
 use scylla_domain::actors::{Actor, ActorId, ActorKind};
+use scylla_domain::authz::{Check, Object, Relationship};
 use scylla_domain::projects::{NewProject, ProjectName, KIND};
 use scylla_domain::ResourceKind;
 use scylla_extension::{
-    async_trait, AccessError, AfterDelete, BeforeCreate, Check, CreateContext, DeleteContext,
-    Edition, EditionBuilder, Gate, HookError, Hooks, IssuedToken, Object, Principal, Rejection,
-    Relation, Tx,
+    async_trait, AccessError, AfterDelete, BeforeCreate, CreateContext, DeleteContext, Edition,
+    EditionBuilder, Gate, HookError, Hooks, IssuedToken, Operation, Principal, Rejection, Tx,
 };
 use sqlx::PgPool;
 use tonic::metadata::MetadataMap;
@@ -20,22 +20,22 @@ use crate::Error;
 /// The log of the `Record` hooks: hook name, kind, actor and owner of each call.
 type Log = Arc<Mutex<Vec<(&'static str, ResourceKind, ActorId, ActorId)>>>;
 
-/// A gate that allows each check and keeps no relation: these tests check only the hooks.
+/// A gate that allows each check and keeps no relationship: these tests check only the hooks.
 struct NoGate;
 
 #[async_trait]
 impl Gate for NoGate {
-    async fn authenticate(&self, _metadata: &MetadataMap) -> Result<Principal, AccessError> {
+    async fn authenticate(
+        &self,
+        _metadata: &MetadataMap,
+        _operation: &Operation,
+    ) -> Result<Principal, AccessError> {
         Err(AccessError::Unauthenticated(
             "no gate in unit tests".to_owned(),
         ))
     }
 
-    async fn authorize(
-        &self,
-        _principal: &Principal,
-        _check: Check<'_>,
-    ) -> Result<(), AccessError> {
+    async fn authorize(&self, _principal: &Principal, _check: Check) -> Result<(), AccessError> {
         Ok(())
     }
 
@@ -43,11 +43,11 @@ impl Gate for NoGate {
         Err(AccessError::Unavailable("no gate in unit tests".to_owned()))
     }
 
-    async fn write(&self, _relations: &[Relation]) -> Result<String, AccessError> {
+    async fn write(&self, _relationships: &[Relationship]) -> Result<String, AccessError> {
         Ok(String::new())
     }
 
-    async fn delete(&self, _relations: &[Relation]) -> Result<(), AccessError> {
+    async fn delete(&self, _relationships: &[Relationship]) -> Result<(), AccessError> {
         Ok(())
     }
 

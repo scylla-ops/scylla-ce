@@ -1,6 +1,6 @@
 //! The tests of `ProjectService`: data, validation and permissions.
 
-use scylla_extension::Object;
+use scylla_domain::actors::Actor;
 use scylla_proto::projects::v1::{CreateProjectRequest, ListProjectsRequest};
 use scylla_testkit::{id, text};
 use sqlx::PgPool;
@@ -76,9 +76,7 @@ async fn create_project_by_a_delegate_keeps_the_author(pool: PgPool) {
     let app = app(pool).await;
     let author = app.user().await;
     let owner = app.user().await;
-    let owner_object = Object::new("actor", owner);
-    app.grant(owner_object, "delegate", Object::new("actor", author))
-        .await;
+    app.grant(&[Actor::DELEGATE.of(owner, author)]).await;
     let request = create(Some(owner.to_string()), "alpha");
 
     // when

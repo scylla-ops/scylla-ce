@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use scylla_domain::actors::ActorId;
+use scylla_domain::actors::Actor;
 use scylla_domain::projects::{ListProjects, NewProject, Project, ProjectId};
-use scylla_extension::{Check, Gate, Hooks, Object, Principal};
+use scylla_extension::{Gate, Hooks};
 use scylla_proto::projects::v1 as pb;
 use scylla_proto::projects::v1::project_service_server::{ProjectService, ProjectServiceServer};
 use sqlx::PgPool;
@@ -58,39 +58,23 @@ impl ProjectService for ProjectsGrpc {
 }
 
 impl ProjectsGrpc {
-    /// Passes if the caller can act for `owner` in this operation.
-    async fn act_for(
-        &self,
-        principal: &Principal,
-        operation: &'static str,
-        owner: ActorId,
-    ) -> Result<(), Error> {
-        let object = Object::new("actor", owner);
-        let check = Check {
-            operation,
-            object: &object,
-            permission: "act_for",
-            at_least_as_fresh: None,
-        };
-        Ok(self.gate.authorize(principal, check).await?)
-    }
-
     /// Handles `CreateProject`. The owner is the caller if the request names no owner.
     async fn create(
         &self,
         request: Request<pb::CreateProjectRequest>,
     ) -> Result<pb::CreateProjectResponse, Error> {
-        let principal = self.gate.authenticate(request.metadata()).await?;
+        let caller = self.gate.caller(&request).await?;
         let request = request.into_inner();
         let new = NewProject {
-            owner_id: parse::or(request.owner_id, "owner_id", principal.actor.id)?,
-            created_by: principal.actor.id,
+            owner_id: parse::or(request.owner_id, "owner_id", caller.actor.id)?,
+            created_by: caller.actor.id,
             name: parse::field(request.name, "name")?,
         };
-        self.act_for(&principal, "projects.create", new.owner_id)
+        self.gate
+            .authorize(&caller, Actor::ACT_FOR.on(new.owner_id))
             .await?;
         let gate = self.gate.as_ref();
-        let project = service::create(&self.pool, &self.hooks, gate, principal.actor, new).await?;
+        let project = service::create(&self.pool, &self.hooks, gate, caller.actor, new).await?;
         Ok(pb::CreateProjectResponse {
             project: Some(project.to_proto()),
         })
@@ -101,13 +85,14 @@ impl ProjectsGrpc {
         &self,
         request: Request<pb::ListProjectsRequest>,
     ) -> Result<pb::ListProjectsResponse, Error> {
-        let principal = self.gate.authenticate(request.metadata()).await?;
+        let caller = self.gate.caller(&request).await?;
         let request = request.into_inner();
         let query = ListProjects {
-            owner_id: parse::or(request.owner_id, "owner_id", principal.actor.id)?,
+            owner_id: parse::or(request.owner_id, "owner_id", caller.actor.id)?,
             page: parse::optional(request.page, "page")?,
         };
-        self.act_for(&principal, "projects.list", query.owner_id)
+        self.gate
+            .authorize(&caller, Actor::ACT_FOR.on(query.owner_id))
             .await?;
         let page = service::list(&self.pool, query).await?;
         Ok(pb::ListProjectsResponse {
@@ -122,18 +107,11 @@ impl ProjectsGrpc {
         &self,
         request: Request<pb::DeleteProjectRequest>,
     ) -> Result<pb::DeleteProjectResponse, Error> {
-        let principal = self.gate.authenticate(request.metadata()).await?;
+        let caller = self.gate.caller(&request).await?;
         let id: ProjectId = parse::required(request.into_inner().project_id, "project_id")?;
-        let object = service::object(id);
-        let check = Check {
-            operation: "projects.delete",
-            object: &object,
-            permission: "delete",
-            at_least_as_fresh: None,
-        };
-        self.gate.authorize(&principal, check).await?;
+        self.gate.authorize(&caller, Project::DELETE.on(id)).await?;
         let gate = self.gate.as_ref();
-        service::delete(&self.pool, &self.hooks, gate, principal.actor, id).await?;
+        service::delete(&self.pool, &self.hooks, gate, caller.actor, id).await?;
         Ok(pb::DeleteProjectResponse {})
     }
 }

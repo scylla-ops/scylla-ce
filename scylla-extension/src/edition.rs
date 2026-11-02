@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use scylla_domain::authz::{Model, Schema};
 use scylla_domain::ResourceKind;
 use sqlx::migrate::Migrator;
 use sqlx::PgPool;
@@ -20,8 +21,8 @@ pub struct Edition {
     capabilities: Vec<&'static str>,
     /// The migrators, in the order to apply them.
     migrators: Vec<&'static Migrator>,
-    /// The pieces of the SpiceDB schema, in registration order.
-    authz_schemas: Vec<&'static str>,
+    /// The permission model: the definitions of the plugins, with their extensions.
+    authz: Schema,
     /// The hooks of each event and kind.
     hooks: Arc<Hooks>,
     /// The functions that add the gRPC services.
@@ -36,7 +37,7 @@ impl Edition {
                 name,
                 capabilities: Vec::new(),
                 migrators: Vec::new(),
-                authz_schemas: Vec::new(),
+                authz: Schema::default(),
                 hooks: Arc::new(Hooks::default()),
                 services: Vec::new(),
             },
@@ -59,9 +60,9 @@ impl Edition {
         &self.migrators
     }
 
-    /// Returns the full SpiceDB schema: the pieces of the plugins, in registration order.
+    /// Returns the SpiceDB schema of the permission model.
     pub fn authz_schema(&self) -> String {
-        self.authz_schemas.join("\n")
+        self.authz.to_string()
     }
 
     /// Returns the hooks.
@@ -146,9 +147,17 @@ impl EditionBuilder {
         self
     }
 
-    /// Adds a piece of the SpiceDB schema. `migrate` writes all pieces together.
-    pub fn authz_schema(mut self, schema: &'static str) -> Self {
-        self.edition.authz_schemas.push(schema);
+    /// Adds a piece of the permission model, from `scylla_domain::authz!`: `.authz::<Project>()`.
+    /// `migrate` writes the full schema.
+    ///
+    /// # Panics
+    ///
+    /// If the piece does not fit: a definition declared twice, an extension before its
+    /// definition, or a name declared twice in a definition. Each start of the edition finds it.
+    pub fn authz<M: Model>(mut self) -> Self {
+        if let Err(error) = self.edition.authz.add(M::part()) {
+            panic!("permission model: {error}");
+        }
         self
     }
 

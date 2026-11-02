@@ -1,4 +1,5 @@
-//! The gRPC server: gate, gRPC-Web, CORS, TLS, health, tracing, timeout and graceful shutdown.
+//! The gRPC server: gate, operations, gRPC-Web, CORS, TLS, health, tracing, timeout and graceful
+//! shutdown.
 
 use std::fs;
 use std::future::Future;
@@ -19,7 +20,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
-use crate::access::Access;
+use crate::access::{Access, OperationLayer};
 use crate::features::tokens;
 use crate::features::users::OidcVerifier;
 use crate::{db, Config, Error};
@@ -144,6 +145,7 @@ pub async fn serve(
         .layer(trace_layer())
         .layer(cors_layer(&options.cors_origins))
         .layer(GrpcWebLayer::new())
+        .layer(OperationLayer)
         .add_routes(routes.routes())
         .serve_with_incoming_shutdown(TcpIncoming::from(listener), stop)
         .await?;

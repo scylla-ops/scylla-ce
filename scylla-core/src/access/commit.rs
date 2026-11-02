@@ -1,14 +1,17 @@
-//! The commit of a transaction that wrote relations to SpiceDB before.
+//! The write of relationships with a transaction: SpiceDB first, then the commit, or the undo.
 
-use scylla_extension::{Gate, Relation, Tx};
+use scylla_domain::authz::Relationship;
+use scylla_extension::{Gate, Tx};
 
 use crate::Error;
 
-/// Commits, or deletes the relations again if the commit fails, so the two stores agree.
-pub async fn commit(tx: Tx<'_>, gate: &dyn Gate, written: &[Relation]) -> Result<(), Error> {
+/// Writes the relationships, then commits. If the commit fails, deletes the relationships
+/// again, so the two stores agree.
+pub async fn commit(tx: Tx<'_>, gate: &dyn Gate, grants: &[Relationship]) -> Result<(), Error> {
+    gate.write(grants).await?;
     if let Err(error) = tx.commit().await {
-        if let Err(undo) = gate.delete(written).await {
-            tracing::error!(%undo, "relations stay after a failed commit");
+        if let Err(undo) = gate.delete(grants).await {
+            tracing::error!(%undo, "relationships stay after a failed commit");
         }
         return Err(error.into());
     }

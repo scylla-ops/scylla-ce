@@ -24,8 +24,6 @@ pub(crate) async fn sign_in(
     }
     let actor = actors::insert(&mut tx, KIND).await?;
     store::insert(&mut tx, actor.id, &identity.issuer, &identity.subject).await?;
-    let relations = [actors::identity(actor.id)];
-    gate.write(&relations).await?;
-    access::commit(tx, gate, &relations).await?;
+    access::commit(tx, gate, &[Actor::IDENTITY.of(actor.id, actor.id)]).await?;
     Ok(actor)
 }

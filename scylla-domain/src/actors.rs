@@ -36,3 +36,15 @@ pub struct Actor {
     /// The kind of the actor.
     pub kind: ActorKind,
 }
+
+crate::authz! {
+    /// The permission model of the actors, for each kind.
+    definition actor for Actor {
+        /// The actor itself.
+        relation identity: Actor;
+        /// An actor that can act for this actor.
+        relation delegate: Actor;
+        /// Act for this actor: the actor itself and its delegates.
+        permission act_for = identity + delegate;
+    }
+}

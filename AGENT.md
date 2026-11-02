@@ -20,7 +20,7 @@ Load the skill of the task from `.claude/skills/`:
   |---|---|
   | `mod.rs` | `mod` and `pub use` lines only |
   | `plugin.rs` | the `Plugin` impl: it registers the services, hooks, authenticators and capability |
-  | `grpc.rs` | the tonic handler: authenticate, parse, call the service, answer |
+  | `grpc.rs` | the tonic handler: authenticate, parse, authorize, call the service, answer |
   | `service.rs` | free functions: begin the transaction, run the hooks, call the store, commit |
   | `store.rs` | the SQL, free functions on `&mut Tx<'_>`, no tonic |
   | `tests.rs` | unit tests of what the API cannot show |
@@ -36,10 +36,12 @@ Load the skill of the task from `.claude/skills/`:
 
 - Each id is `Id<T>` (`ActorId`, `ProjectId`). The format is only in `scylla-domain/src/codec.rs`. Never use `Uuid` outside `to_db()` and `from_db()` in a store.
 - Each resource references `actors (id)`: `owner_id` (who owns it) and `created_by` (who did it). The actor kinds are open: a feature defines its own `KIND`.
-- Zero trust: each RPC that acts calls `gate.authenticate`, then `gate.authorize` with a `Check { operation, object, permission }`. The operation name is `<feature>.<verb>`, for example `projects.create`. Only `TokenService`, health and capabilities are public.
-- An `owner_id` that the request does not set is the caller. The caller must have `act_for` on the owner.
-- A write that gives rights sends its relations with `gate.write` before the commit, then commits with `access::commit`. A delete removes the relations with `gate.delete_object` after the commit.
-- A new kind of object adds a piece of schema with `EditionBuilder::authz_schema`, next to `CORE_SCHEMA`.
+- Zero trust: each RPC that acts calls `gate.caller(&request)`, then `gate.authorize(&caller, <permission>.on(id))` for each permission that it needs. The token check uses the gRPC method of the request as the operation (`OperationLayer` adds it). Only `TokenService`, health and capabilities are public.
+- The permission model is Rust code. `scylla_domain::authz!` declares each SpiceDB definition next to its type, in the SpiceDB schema language. It makes the constants: `Project::DELETE` is a `Permission<Project>`, `Project::OWNER` is a `Relation<Project, Actor>`. Never write the name of a definition, relation or permission as text.
+- `Permission::on(id)` takes an id of its resource. `Relation::of(object, subject)` takes an id of each of its two resources. The compiler stops a wrong id, and a wrong name in a permission expression.
+- An `owner_id` that the request does not set is the caller. The caller must have `Actor::ACT_FOR` on the owner.
+- A write that gives rights ends with `access::commit(tx, gate, &grants)`: it writes the relationships, then commits, and deletes them again if the commit fails. A delete removes the relationships with `gate.delete_object(&Object::of(id))` after the commit.
+- A plugin registers the model of its types with `EditionBuilder::authz::<Type>()`. An edition adds relations and permissions to a core definition with `authz! { extend <Type> as <Holder> { ... } }`, registered after the core.
 - A secret never goes to the logs or the database in clear. The server stores public keys and hashes only.
 
 ## Comments
@@ -58,8 +60,8 @@ This project overrides the global "no comments" rule.
 - A unit test only for what the API cannot show (rollback, hook order) and for pure functions.
 - Name: `<rpc>_<expected behavior>`. A `///` line tells the rule under test.
 - Body: `// given`, `// when`, `// then` blocks.
-- One helper per core RPC in `scylla-testkit`, sent as an actor with `as_actor`.
-- Each test makes its own data. `sqlx::test` gives each test a new database.
+- One helper per core RPC in `scylla-testkit`, sent as an actor with `authed`. `app.grant(&[...])` writes relationships, and `app.can(actor, check)` checks a permission.
+- Each test makes its own data. `sqlx::test` gives each test a new database, and `TestApp` gives each test a new SpiceDB store.
 
 ## Protos
 
@@ -87,6 +89,6 @@ This project overrides the global "no comments" rule.
 
 ## Pitfalls
 
-- The database is on port 55432. SpiceDB is on 55051 and Keycloak on 58080. Port 5432 and the container `scylla-postgres` belong to another project. Do not touch them.
+- The database is on port 55432. SpiceDB is on 55051, the SpiceDB of the tests on 55052, and Keycloak on 58080. Port 5432 and the container `scylla-postgres` belong to another project. Do not touch them.
 - Use the latest tools: `cargo install sqlx-cli --locked --features sqlx-toml`, and `npm install -g @bufbuild/buf`. Remove an old version before you install a new one.
 - A clap `Args` struct needs a unique `#[group(id = ...)]`. The test `cli_is_valid` finds a conflict.

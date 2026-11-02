@@ -40,7 +40,7 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 ## 7. Biscuit tokens
 
 - **Decision:** the tokens are Biscuits, signed with an Ed25519 root key (`SCYLLA_TOKEN_PRIVATE_KEY`). The first block holds `actor(id, kind)`, `expires(unix)` and a time check. The default lifetime is 10 minutes. The key id is in each token, and `SCYLLA_TOKEN_PUBLIC_KEYS` keeps older public keys valid after a rotation. `token revoke` revokes a token and each token made from it.
-- **Why:** the check is offline (no call to a token server). A holder can attenuate a token offline (`check if operation("projects.list")`) before it gives it to a step of a pipeline. Only the first block can name the actor, so a later block cannot change it.
+- **Why:** the check is offline (no call to a token server). A holder can attenuate a token offline (`check if operation("scylla.projects.v1.ProjectService/ListProjects")`) before it gives it to a step of a pipeline. Only the first block can name the actor, so a later block cannot change it.
 - **Not kept:** JWT (no offline attenuation); opaque tokens in a table (a database read for each request). Biscuit 6.0.0 needs its `datalog-macro` feature to compile, and that feature brings `proc-macro-error2`, which gives a future-compatibility warning from upstream.
 
 ## 8. How each actor gets a token
@@ -73,8 +73,8 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 13. Crates
 
-- **Decision:** `scylla-domain` (pure types), `scylla-extension` (the contract), `scylla-proto` (generated code), `scylla-core`, `scylla-testkit`, `scylla-ce`.
-- **Why:** the Enterprise repository needs the domain types and the contract without the core internals. Pure types compile in parallel with sqlx and tonic. `protoc` runs only on a proto change. `scylla-proto` gives its proto folder to the Enterprise build script with `links` metadata, so a Git dependency works.
+- **Decision:** `scylla-macros` (the `authz!` procedural macro), `scylla-domain` (pure types), `scylla-extension` (the contract), `scylla-proto` (generated code), `scylla-core`, `scylla-testkit`, `scylla-ce`.
+- **Why:** the Enterprise repository needs the domain types and the contract without the core internals. Pure types compile in parallel with sqlx and tonic. `protoc` runs only on a proto change. `scylla-proto` gives its proto folder to the Enterprise build script with `links` metadata, so a Git dependency works. A procedural macro must be in its own crate, and `scylla-domain` gives it as `scylla_domain::authz!`.
 
 ## 14. Command line and settings
 
@@ -103,13 +103,13 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 19. SpiceDB permissions
 
-- **Decision:** SpiceDB holds the permissions, in Postgres (its own database). The subject is always `actor`, so the actor kinds stay open. `actor#act_for = identity + delegate`: an actor acts for itself and for the actors that delegate to it. A project gives `delete`, `edit` and `view` through `owner->act_for`. Each plugin registers its piece of schema (`EditionBuilder::authz_schema`), and `migrate` writes the full schema.
+- **Decision:** SpiceDB holds the permissions, in Postgres (its own database). The subject is always `actor`, so the actor kinds stay open. `actor#act_for = identity + delegate`: an actor acts for itself and for the actors that delegate to it. A project gives `delete`, `edit` and `view` through `owner->act_for`. Each plugin registers the model of its types (`EditionBuilder::authz`, see 25), and `migrate` writes the full schema.
 - **Why:** roles, sharing and delegation are relations, not code. An edition adds its definitions with no change to the core. A registered agent is a delegate of its user, so the user acts for the agent, not the reverse.
 - **Not kept:** permission checks in SQL in each feature.
 
 ## 20. Consistency between Postgres and SpiceDB
 
-- **Decision:** a write sends its relations to SpiceDB before the Postgres commit. A SpiceDB error rolls back the transaction. A failed commit deletes the relations again (`access::commit`). A delete removes the relations after the commit, and logs a failure. Each check is fully consistent.
+- **Decision:** a write ends with `access::commit(tx, gate, &grants)`. It sends the relationships to SpiceDB, then commits. A SpiceDB error rolls back the transaction, and a failed commit deletes the relationships again. A delete removes the relationships after the commit, and logs a failure. Each check is fully consistent.
 - **Why:** no worker to run, and no relation can give a right to a row that was not written. SpiceDB can answer from a cache up to 5 seconds old: a check just after a write would give a false refusal, so correctness comes first. A ZedToken can make a check faster later (`Check::at_least_as_fresh`).
 - **Not kept:** a transactional outbox (a worker, and a refusal just after a create).
 
@@ -133,3 +133,21 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 - **Decision:** the latest version of each tool and crate. The recipes call `cargo sqlx` and `buf`.
 - **Why:** one known version for each tool, with the latest fixes. The README gives the install lines.
 
+
+## 25. A typed permission model
+
+- **Decision:** the procedural macro `authz!` declares each SpiceDB definition next to its Rust type, in the SpiceDB schema language. It implements `Resource` and `Model` for the type, and makes one constant for each name: `Project::DELETE` is a `Permission<Project>`, `Project::OWNER` is a `Relation<Project, Actor>`. `Permission::on(id)` and `Relation::of(object, subject)` take typed ids, and only they make a `Check` or a `Relationship`. `EditionBuilder::authz::<T>()` adds the part of a type, and the edition writes the schema from the parts. `authz! { extend Project as ProjectAudit { ... } }` adds relations and permissions to a definition of another plugin.
+- **Why:** one source for the schema and the code. The compiler stops a wrong name, a wrong id type, and a wrong name in a permission expression (an arrow is checked on the subject type). SpiceDB checks the full schema each time a test writes it. An edition adds objects, relations and permissions with no change to the core.
+- **Not kept:** schema text and names as text (no check before run time); a `macro_rules!` macro (no constants in upper case, no check of the expressions); a typed SpiceDB client from another crate (it replaces the official client, and no crate is a standard); an extension that changes an existing permission (an extension only adds, so the core rules stay true).
+
+## 26. The operation is the gRPC method
+
+- **Decision:** `OperationLayer` adds the gRPC method of each request (`scylla.projects.v1.ProjectService/CreateProject`) to the request. `Gate::caller` gives it to the token check as `operation`.
+- **Why:** no name to write and keep in each handler, and the same name that the client sees. A token can allow one service with a prefix: `check if operation($op), $op.starts_with("scylla.projects.v1.ProjectService/")`.
+- **Not kept:** a name in each handler (`projects.create`): a handler can forget it or write a wrong one.
+
+## 27. One SpiceDB store for each test
+
+- **Decision:** the tests use `spicedb serve-testing` (`spicedb-test`, port 55052). Each `TestApp` uses a new key, and serve-testing gives an empty store in memory to each key.
+- **Why:** the tests run in parallel with different schemas (an edition extends a definition) and with no shared relationships, as `sqlx::test` gives a new database to each test. The dev SpiceDB keeps only dev data.
+- **Not kept:** the dev SpiceDB for the tests: the schema write of one test changes the schema of all the tests, and the relationships stay after the tests.

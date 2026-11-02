@@ -2,12 +2,13 @@
 
 use time::OffsetDateTime;
 
-use crate::actors::ActorId;
+use crate::actors::{Actor, ActorId};
+use crate::authz::Resource;
 use crate::page::{Page, PageRequest};
 use crate::{DomainError, Id, ResourceKind};
 
-/// The kind of a project, for the hooks.
-pub const KIND: ResourceKind = ResourceKind::new("project");
+/// The kind of a project, for the hooks: the name of its definition.
+pub const KIND: ResourceKind = ResourceKind::new(Project::NAME);
 
 /// The id of a project.
 pub type ProjectId = Id<Project>;
@@ -51,6 +52,24 @@ pub struct Project {
     pub name: String,
     /// The creation time, set by the database.
     pub created_at: OffsetDateTime,
+}
+
+crate::authz! {
+    /// The permission model of the projects.
+    definition project for Project {
+        /// The actor that owns the project.
+        relation owner: Actor;
+        /// An actor that can change the project.
+        relation editor: Actor;
+        /// An actor that can read the project.
+        relation viewer: Actor;
+        /// Delete the project: the actors that can act for its owner.
+        permission delete = owner->act_for;
+        /// Change the project.
+        permission edit = delete + editor->act_for;
+        /// Read the project.
+        permission view = edit + viewer->act_for;
+    }
 }
 
 /// The input of a project creation.
