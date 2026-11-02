@@ -1,18 +1,28 @@
-use std::sync::Arc;
+//! The gRPC handler of `CapabilityService`.
 
-use scylla_extension::CapabilityProvider;
 use scylla_proto::capabilities::v1 as pb;
 use scylla_proto::capabilities::v1::capability_service_server::{
     CapabilityService, CapabilityServiceServer,
 };
 use tonic::{Request, Response, Status};
 
-pub fn server(provider: Arc<dyn CapabilityProvider>) -> CapabilityServiceServer<CapabilitiesGrpc> {
-    CapabilityServiceServer::new(CapabilitiesGrpc { provider })
+/// Makes the service.
+pub(super) fn server(
+    edition: &'static str,
+    capabilities: &[&'static str],
+) -> CapabilityServiceServer<CapabilitiesGrpc> {
+    CapabilityServiceServer::new(CapabilitiesGrpc {
+        edition,
+        capabilities: capabilities.iter().map(|name| (*name).to_owned()).collect(),
+    })
 }
 
-pub struct CapabilitiesGrpc {
-    provider: Arc<dyn CapabilityProvider>,
+/// The handler. It holds the answer: the edition does not change after the start.
+pub(super) struct CapabilitiesGrpc {
+    /// The name of the edition.
+    edition: &'static str,
+    /// The optional features of the edition.
+    capabilities: Vec<String>,
 }
 
 #[tonic::async_trait]
@@ -22,13 +32,8 @@ impl CapabilityService for CapabilitiesGrpc {
         _request: Request<pb::GetCapabilitiesRequest>,
     ) -> Result<Response<pb::GetCapabilitiesResponse>, Status> {
         Ok(Response::new(pb::GetCapabilitiesResponse {
-            edition: self.provider.edition().to_owned(),
-            capabilities: self
-                .provider
-                .capabilities()
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
+            edition: self.edition.to_owned(),
+            capabilities: self.capabilities.clone(),
         }))
     }
 }

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO actors (id, kind) VALUES ($1, 'written by the hook')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "98b74afad4aecabecb17c53c942d6107af442a3f17d0e3449c90a91871c1ce65"
+}

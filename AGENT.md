@@ -1,50 +1,89 @@
 # Agent notes
 
-This is the public repository: the core and the Community edition. Read `README.md` first. It gives the dependency direction, the file rules and the recipe to add a feature.
+This is the public repository: the core and the Community edition. `README.md` tells what it is and how to run it. `DECISIONS.md` tells why the code has its shape. This file tells how to write code here. Follow it in each change.
 
-The Enterprise edition is in a separate repository (`../ee` in this POC). Do not change it from a task in this repository.
+The Enterprise edition is in a separate repository (`../ee` in this POC). Do not change it from here.
 
 ## Skills
 
-For a task, load its skill from `.claude/skills/`. A skill gives the steps and the decisions that are already made.
+Load the skill of the task from `.claude/skills/`:
 
-- `add-core-feature`: a new resource with its table and gRPC service in the core.
-- `add-rpc`: a new operation on an existing core feature.
-- `add-field`: a new field on an existing entity, from the migration to the tests.
-- `change-extension-point`: a new hook, context value or trait in `scylla-extension`.
-- `add-dependency`: a new crate, or a change of version or features.
-- `edit-proto`, `edit-migrations`, `write-tests`: the rules for protos, SQL and tests. The other skills load them.
-- `finish-change`: the checklist before you report a change as done. Do it after each change.
+- `add-feature`: a new resource, an RPC, or a field.
+- `change-extension-point`: a new hook, context value, authenticator need or builder method in `scylla-extension`.
+- `finish-change`: the checklist at the end of each change.
 
-For an Enterprise feature, work in the Enterprise repository. It has its own skills.
+## Structure
 
-## Rules to keep
+- A feature is one folder `scylla-core/src/features/<feature>/` with only the files that it needs:
 
-- Do not add EE words (`quota`, `plan`, `tenant`, `enterprise`) or `#[cfg(feature = ...)]` to `scylla-core`. If the core needs to know about an edition, add or change a trait in `scylla-extension`.
-- The code and the build files of this repository never refer to the Enterprise repository: no path, no crate, no file.
-- A change to the API for the editions (`README.md`, section "The API for the editions") can stop the Enterprise build. Tell the user about each such change.
-- Put each pure type of a feature in `scylla-domain/src/<feature>.rs`. A type is pure when it compiles with the dependencies of that crate only. Do not add a `model.rs` to a feature folder.
-- Do not add sqlx, tonic or tokio to `scylla-domain`. If a type needs one of them, keep it in the feature folder.
-- Import a domain type from `scylla-domain`. Do not re-export it from `scylla-core`.
-- To convert a domain type into a type of another crate, write a free function (`to_pb`, `to_rejection`). The orphan rule does not permit `impl From` between two types of other crates.
-- Import the module, not the function: `use super::store;`, then `store::insert(...)`. Store and service are free functions, not structs, because the transaction is a parameter of each call.
-- Keep the call order `grpc -> service -> guard -> store`.
-- The POC has no authentication. Do not add an access check. If a request names a role, write `No access check.` in the RPC comment, and tell the user.
-- Keep `mod.rs` and `lib.rs` to `mod` and `pub use` lines only.
+  | File | Contents |
+  |---|---|
+  | `mod.rs` | `mod` and `pub use` lines only |
+  | `plugin.rs` | the `Plugin` impl: it registers the services, hooks, authenticators and capability |
+  | `grpc.rs` | the tonic handler: authenticate, parse, call the service, answer |
+  | `service.rs` | free functions: begin the transaction, run the hooks, call the store, commit |
+  | `store.rs` | the SQL, free functions on `&mut Tx<'_>`, no tonic |
+  | `tests.rs` | unit tests of what the API cannot show |
+
+- The pure types of a feature go in `scylla-domain/src/<feature>.rs`. No `model.rs`.
+- The call order is `grpc -> service -> hooks -> store`. A `grpc.rs` never calls a store.
+- Import the module, not the function: `store::insert(...)`.
+- Each crate has one error type. The routes return `scylla_core::Error`.
 - Keep each file below 300 lines.
-- Put each new dependency in `[workspace.dependencies]` with all its features. Do not add features in a crate `Cargo.toml`.
-- Do not use em dashes in code, comments or documentation.
+- The code and the build files never refer to the Enterprise repository. Its feature names (`quota`, `plan`, `tenant`, `enterprise`) are not in the code.
+
+## Ids and actors
+
+- Each id is `Id<T>` (`ActorId`, `ProjectId`). The format is only in `scylla-domain/src/codec.rs`. Never use `Uuid` outside `to_db()` and `from_db()` in a store.
+- Each resource references `actors (id)`: `owner_id` (who owns it) and `created_by` (who did it). The core defines no actor kind.
+- Each RPC that acts gets the actor from `Authenticators` (API keys, and the dev header if it is on). An `owner_id` that the request does not set is the caller.
+- A secret never goes to the logs or the database in clear.
+
+## Comments
+
+This project overrides the global "no comments" rule.
+
+- Each `.rs` file starts with one `//!` line that tells what the file is.
+- Each item, private ones too, has a `///` of one or two short sentences: what it is or does. The compiler stops a missing doc (`missing_docs`, `clippy::missing_docs_in_private_items`).
+- No `# Why` sections and no long argument in the code. A decision and its reason go in `DECISIONS.md`.
+- No `//` in a body, except `// given`, `// when`, `// then` in a test.
+- Write in ASD-STE100 Simplified Technical English. No em dashes.
+
+## Tests
+
+- First, black-box gRPC tests: one binary per app (`tests/api/main.rs`), one module per feature.
+- A unit test only for what the API cannot show (rollback, hook order) and for pure functions.
+- Name: `<rpc>_<expected behavior>`. A `///` line tells the rule under test.
+- Body: `// given`, `// when`, `// then` blocks.
+- One helper per core RPC in `scylla-testkit`, sent as an actor with `as_actor`.
+- Each test makes its own data. `sqlx::test` gives each test a new database.
+
+## Protos
+
+- All ids use `scylla.common.v1.Id`. Lists use `PageRequest` and `PageResponse`.
+- Each service, RPC, message and field has a comment (`buf lint`, category `COMMENTS`).
+- Each RPC has its own request and response messages.
+- Never reuse or change a field number. A breaking change needs a `v2` package: ask the user.
+
+## SQL
+
+- Never change a migration that ran on a database. Write a new one.
+- An id column is `uuid`. A reference to an actor is `REFERENCES actors (id)`, with an index.
+- After a SQL change, run `just prepare` and keep `.sqlx/` in the change.
+
+## Dependencies
+
+- Use the standard crate for a solved problem (`clap` for the command line). Do not write it by hand.
+- Each dependency is in `[workspace.dependencies]` with all its features. A crate writes only `<name>.workspace = true`.
+- Tell the user about each change of version or feature: the Enterprise repository uses the same lines.
 
 ## Commands
 
-- Run cargo with `--workspace`, or with `-p scylla-ce`. With `-p` on another crate, Cargo builds a second copy of tokio and sqlx.
-- After a change to SQL, run `just prepare`. It refreshes `.sqlx` for all targets, tests included. Keep `.sqlx` in the repository: the offline build of the Enterprise edition uses it.
-- Before you report a change as done, do the `finish-change` skill. `just lint` also runs `scripts/check-structure.sh`, which checks the structure rules of this file.
+- `just run`, `just test`, `just lint`, `just prepare`, `just actor <kind>`, `just key <actor id>`.
+- Run cargo with `--workspace` or `-p scylla-ce`. On another crate, Cargo builds tokio and sqlx again.
 
 ## Pitfalls
 
-- The database of this POC is on port 55432. Port 5432 and the container `scylla-postgres` belong to another project of the user. Do not touch them.
-- The Enterprise repository uses the same database and the same `DATABASE_URL`. Its migrations can be in the database. This has no effect on the core.
-- sqlx-cli must have the `sqlx-toml` feature. Without it, `just migrate` stops with "the `sqlx-toml` feature was not enabled".
-- Each repository with migrations has its own ledger table in `sqlx.toml`. Do not change `table-name` on a database that has data.
-- The `sqlx::test` pool has 5 connections. A test that needs more connections takes `(PgPoolOptions, PgConnectOptions)`, builds its own pool, and closes it at the end.
+- The database is on port 55432. Port 5432 and the container `scylla-postgres` belong to another project. Do not touch them.
+- Use the latest tools: `cargo install sqlx-cli --locked --features sqlx-toml`, and `npm install -g @bufbuild/buf`. Remove an old version before you install a new one.
+- A clap `Args` struct needs a unique `#[group(id = ...)]`. The test `cli_is_valid` finds a conflict.

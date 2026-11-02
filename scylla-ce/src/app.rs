@@ -1,13 +1,8 @@
-use std::sync::Arc;
+//! The edition of the `scylla-ce` binary.
 
-use scylla_core::app::Edition;
-use scylla_extension::{AllowAll, CommunityCapabilities, NoExtraServices};
+use scylla_extension::Edition;
 
+/// Makes the Community edition: the core plugins only.
 pub fn edition() -> Edition {
-    Edition {
-        guard: Arc::new(AllowAll),
-        capabilities: Arc::new(CommunityCapabilities),
-        services: Arc::new(NoExtraServices),
-        migrations: &[],
-    }
+    scylla_core::edition("community").build()
 }

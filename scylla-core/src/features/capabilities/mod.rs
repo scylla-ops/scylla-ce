@@ -1,3 +1,6 @@
-mod grpc;
+//! The capabilities feature: `CapabilityService` tells a client which edition runs.
 
-pub(crate) use grpc::server;
+mod grpc;
+mod plugin;
+
+pub(crate) use plugin::Capabilities;

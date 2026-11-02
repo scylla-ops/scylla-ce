@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+links = "scylla_proto"
+
+[lints]
+workspace = true
 
 [dependencies]
 prost.workspace = true

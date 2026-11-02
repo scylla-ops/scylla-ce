@@ -1,25 +1,17 @@
-use std::sync::Arc;
+//! The start of each edition.
 
-use scylla_extension::{CapabilityProvider, ResourceGuard, ServiceProvider};
-use sqlx::migrate::Migrator;
-use sqlx::PgPool;
-use tonic::service::{Routes, RoutesBuilder};
+use scylla_extension::{Edition, EditionBuilder};
 
-use crate::features::{capabilities, projects};
+use crate::db::MIGRATOR;
+use crate::features::api_keys::ApiKeys;
+use crate::features::capabilities::Capabilities;
+use crate::features::projects::Projects;
 
-#[derive(Clone)]
-pub struct Edition {
-    pub guard: Arc<dyn ResourceGuard>,
-    pub capabilities: Arc<dyn CapabilityProvider>,
-    pub services: Arc<dyn ServiceProvider>,
-    pub migrations: &'static [&'static Migrator],
-}
-
-pub fn routes(pool: PgPool, edition: &Edition) -> Routes {
-    let mut routes = RoutesBuilder::default();
-    routes
-        .add_service(projects::server(pool.clone(), edition.guard.clone()))
-        .add_service(capabilities::server(edition.capabilities.clone()));
-    edition.services.add_services(&mut routes, &pool);
-    routes.routes()
+/// Starts an edition with the core migrations and the core plugins, before those of the edition.
+pub fn edition(name: &'static str) -> EditionBuilder {
+    Edition::builder(name)
+        .migrations(&MIGRATOR)
+        .plugin(ApiKeys)
+        .plugin(Projects)
+        .plugin(Capabilities)
 }

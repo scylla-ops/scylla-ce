@@ -5,17 +5,25 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
+clap.workspace = true
+getrandom.workspace = true
 prost-types.workspace = true
 scylla-domain.workspace = true
 scylla-extension.workspace = true
 scylla-proto.workspace = true
+sha2.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
 tonic.workspace = true
+tonic-health.workspace = true
 tonic-types.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true

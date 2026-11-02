@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Checks the structure rules of AGENT.md that the compiler and clippy do not check.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -16,15 +17,20 @@ rust_files() { find scylla-* -name '*.rs' -not -path '*/target/*'; }
 checks() {
   grep -rnwiE 'quotas?|plans?|tenants?|enterprise' scylla-* proto \
     --include='*.rs' --include='*.proto' --include='*.sql' \
-    | report "an EE word is in a public crate"
+    | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|--)' \
+    | report "an EE word is in the code of a public crate"
 
   grep -rn 'cfg(feature' scylla-*/src | report "a cargo feature flag is in the code"
 
   rust_files | xargs wc -l | awk '$2 != "total" && $1 > 300 { print $2 ": " $1 " lines" }' \
     | report "a file has more than 300 lines"
 
+  for file in $(rust_files); do
+    head -n 1 "$file" | grep -q '^//!' || echo "$file"
+  done | report "a Rust file does not start with a //! comment"
+
   for file in $(find scylla-* \( -name mod.rs -o -name lib.rs \) -not -path '*/target/*' -not -path 'scylla-proto/*'); do
-    tr '\n' ' ' <"$file" | tr ';' '\n' | sed 's/#\[cfg(test)\]//g' \
+    grep -vE '^[[:space:]]*(//|#\[)' "$file" | tr '\n' ' ' | tr ';' '\n' \
       | grep -vE '^[[:space:]]*$' \
       | grep -vE '^[[:space:]]*(pub(\(crate\))? )?(mod|use) ' \
       | sed "s|^|$file: |"
@@ -52,7 +58,9 @@ checks() {
     ' "$manifest"
   done | report "a crate sets a dependency version or features (use [workspace.dependencies])"
 
-  rust_files | xargs grep -nE '^[[:space:]]*//([^/!]|$)' | report "a Rust file has a // comment"
+  rust_files | xargs grep -nE '^[[:space:]]*//([^/!]|$)' \
+    | grep -vE ':[[:space:]]*// (given|when|then)$' \
+    | report "a Rust file has a // comment (use /// or //!, or // given, when, then in a test)"
 
   grep -rln $'\xe2\x80\x94' --exclude-dir=target --exclude-dir=.idea --exclude-dir=.sqlx --exclude=Cargo.lock . \
     | report "a file has an em dash"

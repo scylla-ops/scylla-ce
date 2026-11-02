@@ -8,11 +8,14 @@ service CapabilityService {
   rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
 }
 
+// The input of GetCapabilities. It is empty.
 message GetCapabilitiesRequest {}
 
+// The output of GetCapabilities.
 message GetCapabilitiesResponse {
-  // Edition name, as the server reports it.
+  // The edition name, as the server reports it.
   string edition = 1;
-  // Optional features of this edition. Core features are always present and not listed.
+  // The optional features of this edition. The core features are always present and are not
+  // in the list.
   repeated string capabilities = 2;
 }

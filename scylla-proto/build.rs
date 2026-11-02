@@ -1,11 +1,24 @@
+//! Compiles the public protos and gives their folder to dependents as `DEP_SCYLLA_PROTO_INCLUDE`.
+
+use std::env;
+use std::path::PathBuf;
+
+/// The proto files, relative to the `proto` folder.
+const PROTOS: &[&str] = &[
+    "scylla/capabilities/v1/capability_service.proto",
+    "scylla/common/v1/id.proto",
+    "scylla/common/v1/page.proto",
+    "scylla/projects/v1/project.proto",
+    "scylla/projects/v1/project_service.proto",
+];
+
+/// Compiles the protos, then prints the include folder for the dependent build scripts.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tonic_prost_build::configure().compile_protos(
-        &[
-            "../proto/scylla/capabilities/v1/capability_service.proto",
-            "../proto/scylla/projects/v1/project.proto",
-            "../proto/scylla/projects/v1/project_service.proto",
-        ],
-        &["../proto"],
-    )?;
+    let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?)
+        .join("..")
+        .join("proto");
+    let files: Vec<PathBuf> = PROTOS.iter().map(|file| root.join(file)).collect();
+    tonic_prost_build::configure().compile_protos(&files, std::slice::from_ref(&root))?;
+    println!("cargo::metadata=include={}", root.display());
     Ok(())
 }

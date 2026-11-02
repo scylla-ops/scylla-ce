@@ -5,13 +5,21 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
+clap.workspace = true
 scylla-core.workspace = true
 scylla-extension.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+rcgen.workspace = true
+scylla-domain.workspace = true
 scylla-proto.workspace = true
 scylla-testkit.workspace = true
 sqlx.workspace = true
 tonic.workspace = true
+tonic-health.workspace = true
+tonic-types.workspace = true

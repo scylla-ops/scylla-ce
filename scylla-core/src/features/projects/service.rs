@@ -1,49 +1,53 @@
+//! The logic of the projects: one transaction for each call, with the hooks inside.
+
+use scylla_domain::actors::Actor;
+use scylla_domain::page::Page;
 use scylla_domain::projects::{ListProjects, NewProject, Project, ProjectId, ProjectPage, KIND};
-use scylla_extension::{CreateContext, DeleteContext, ResourceGuard};
+use scylla_extension::{CreateContext, DeleteContext, Hooks};
 use sqlx::PgPool;
 
 use super::store;
 use crate::Error;
 
-pub async fn create(
+/// Creates a project if each `BeforeCreate` hook accepts it.
+pub(super) async fn create(
     pool: &PgPool,
-    guard: &dyn ResourceGuard,
+    hooks: &Hooks,
+    actor: Actor,
     new: NewProject,
 ) -> Result<Project, Error> {
     let mut tx = pool.begin().await?;
-    guard
-        .before_create(&mut tx, &CreateContext::new(KIND, new.owner_id))
+    hooks
+        .before_create(&mut tx, &CreateContext::new(KIND, actor, new.owner_id))
         .await?;
     let project = store::insert(&mut tx, &new).await?;
     tx.commit().await?;
     Ok(project)
 }
 
-pub async fn list(pool: &PgPool, query: ListProjects) -> Result<ProjectPage, Error> {
+/// Returns one page of the projects of an owner, oldest first.
+pub(super) async fn list(pool: &PgPool, query: ListProjects) -> Result<ProjectPage, Error> {
     let mut tx = pool.begin().await?;
-    let fetch = query.limit as i64 + 1;
-    let mut projects = store::list_by_owner(&mut tx, query.owner_id, query.after, fetch).await?;
+    let projects = store::list_by_owner(&mut tx, query.owner_id, query.page).await?;
     tx.commit().await?;
-
-    let next_after = if projects.len() > query.limit {
-        projects.truncate(query.limit);
-        projects.last().map(|project| project.id)
-    } else {
-        None
-    };
-    Ok(ProjectPage {
-        projects,
-        next_after,
-    })
+    Ok(Page::from_overfetch(projects, query.page.size, |project| {
+        project.id
+    }))
 }
 
-pub async fn delete(pool: &PgPool, guard: &dyn ResourceGuard, id: ProjectId) -> Result<(), Error> {
+/// Deletes a project, then runs the `AfterDelete` hooks before the commit.
+pub(super) async fn delete(
+    pool: &PgPool,
+    hooks: &Hooks,
+    actor: Actor,
+    id: ProjectId,
+) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     let owner_id = store::delete(&mut tx, id)
         .await?
         .ok_or(Error::NotFound("project"))?;
-    guard
-        .after_delete(&mut tx, &DeleteContext::new(KIND, owner_id))
+    hooks
+        .after_delete(&mut tx, &DeleteContext::new(KIND, actor, owner_id))
         .await?;
     tx.commit().await?;
     Ok(())

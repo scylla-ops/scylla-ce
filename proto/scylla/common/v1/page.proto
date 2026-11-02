@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package scylla.common.v1;
+
+// The part of a list request that selects one page. Not set means the first page with the
+// default size.
+message PageRequest {
+  // The maximum number of items in the page. 0 means 50. A value above 100 becomes 100. A
+  // negative value gives INVALID_ARGUMENT on the field "page.size".
+  int32 size = 1;
+  // The next_token of the previous page. Empty for the first page. Do not make a token: the
+  // server can change its format.
+  string token = 2;
+}
+
+// The part of a list response that tells how to get the next page.
+message PageResponse {
+  // The token of the next page. Empty on the last page.
+  string next_token = 1;
+}

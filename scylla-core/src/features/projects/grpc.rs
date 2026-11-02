@@ -1,26 +1,40 @@
+//! The gRPC handler of `ProjectService`: authenticate, parse, call the service, answer.
+
 use std::sync::Arc;
 
-use scylla_domain::projects::{ListProjects, NewProject, Project, ProjectId, ProjectName};
-use scylla_domain::users::UserId;
-use scylla_extension::ResourceGuard;
+use scylla_domain::actors::Actor;
+use scylla_domain::projects::{ListProjects, NewProject, Project};
+use scylla_extension::{Authenticators, Hooks};
 use scylla_proto::projects::v1 as pb;
 use scylla_proto::projects::v1::project_service_server::{ProjectService, ProjectServiceServer};
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
 use super::service;
-use crate::{convert, Error};
+use crate::parse::{self, ToProto};
+use crate::Error;
 
-const DEFAULT_PAGE_SIZE: usize = 50;
-const MAX_PAGE_SIZE: usize = 100;
-
-pub fn server(pool: PgPool, guard: Arc<dyn ResourceGuard>) -> ProjectServiceServer<ProjectsGrpc> {
-    ProjectServiceServer::new(ProjectsGrpc { pool, guard })
+/// Makes the service.
+pub(super) fn server(
+    pool: PgPool,
+    hooks: Arc<Hooks>,
+    authenticators: Arc<Authenticators>,
+) -> ProjectServiceServer<ProjectsGrpc> {
+    ProjectServiceServer::new(ProjectsGrpc {
+        pool,
+        hooks,
+        authenticators,
+    })
 }
 
-pub struct ProjectsGrpc {
+/// The handler.
+pub(super) struct ProjectsGrpc {
+    /// The database pool.
     pool: PgPool,
-    guard: Arc<dyn ResourceGuard>,
+    /// The hooks of the edition.
+    hooks: Arc<Hooks>,
+    /// The authenticators of the server.
+    authenticators: Arc<Authenticators>,
 }
 
 #[tonic::async_trait]
@@ -29,88 +43,94 @@ impl ProjectService for ProjectsGrpc {
         &self,
         request: Request<pb::CreateProjectRequest>,
     ) -> Result<Response<pb::CreateProjectResponse>, Status> {
-        Ok(Response::new(self.create(request.into_inner()).await?))
+        let actor = self.actor(&request).await?;
+        Ok(Response::new(
+            self.create(actor, request.into_inner()).await?,
+        ))
     }
 
     async fn list_projects(
         &self,
         request: Request<pb::ListProjectsRequest>,
     ) -> Result<Response<pb::ListProjectsResponse>, Status> {
-        Ok(Response::new(self.list(request.into_inner()).await?))
+        let actor = self.actor(&request).await?;
+        Ok(Response::new(self.list(actor, request.into_inner()).await?))
     }
 
     async fn delete_project(
         &self,
         request: Request<pb::DeleteProjectRequest>,
     ) -> Result<Response<pb::DeleteProjectResponse>, Status> {
-        Ok(Response::new(self.delete(request.into_inner()).await?))
+        let actor = self.actor(&request).await?;
+        Ok(Response::new(
+            self.delete(actor, request.into_inner()).await?,
+        ))
     }
 }
 
 impl ProjectsGrpc {
+    /// Returns the actor of a request.
+    async fn actor<M>(&self, request: &Request<M>) -> Result<Actor, Error> {
+        Ok(self
+            .authenticators
+            .authenticate(&self.pool, request.metadata())
+            .await?)
+    }
+
+    /// Handles `CreateProject`. The owner is the caller if the request names no owner.
     async fn create(
         &self,
+        actor: Actor,
         request: pb::CreateProjectRequest,
     ) -> Result<pb::CreateProjectResponse, Error> {
         let new = NewProject {
-            owner_id: UserId(convert::uuid(&request.owner_id, "owner_id")?),
-            name: ProjectName::parse(request.name)?,
+            owner_id: parse::or(request.owner_id, "owner_id", actor.id)?,
+            created_by: actor.id,
+            name: parse::field(request.name, "name")?,
         };
-        let project = service::create(&self.pool, self.guard.as_ref(), new).await?;
+        let project = service::create(&self.pool, &self.hooks, actor, new).await?;
         Ok(pb::CreateProjectResponse {
-            project: Some(to_pb(project)),
+            project: Some(project.to_proto()),
         })
     }
 
+    /// Handles `ListProjects`. The owner is the caller if the request names no owner.
     async fn list(
         &self,
+        actor: Actor,
         request: pb::ListProjectsRequest,
     ) -> Result<pb::ListProjectsResponse, Error> {
-        let after = match request.page_token.as_str() {
-            "" => None,
-            token => Some(ProjectId(convert::uuid(token, "page_token")?)),
-        };
         let query = ListProjects {
-            owner_id: UserId(convert::uuid(&request.owner_id, "owner_id")?),
-            after,
-            limit: page_size(request.page_size)?,
+            owner_id: parse::or(request.owner_id, "owner_id", actor.id)?,
+            page: parse::optional(request.page, "page")?,
         };
         let page = service::list(&self.pool, query).await?;
         Ok(pb::ListProjectsResponse {
-            projects: page.projects.into_iter().map(to_pb).collect(),
-            next_page_token: page
-                .next_after
-                .map(|id| id.0.to_string())
-                .unwrap_or_default(),
+            projects: page.items.into_iter().map(ToProto::to_proto).collect(),
+            page: Some(page.next_after.to_proto()),
         })
     }
 
+    /// Handles `DeleteProject`.
     async fn delete(
         &self,
+        actor: Actor,
         request: pb::DeleteProjectRequest,
     ) -> Result<pb::DeleteProjectResponse, Error> {
-        let id = ProjectId(convert::uuid(&request.project_id, "project_id")?);
-        service::delete(&self.pool, self.guard.as_ref(), id).await?;
+        let id = parse::required(request.project_id, "project_id")?;
+        service::delete(&self.pool, &self.hooks, actor, id).await?;
         Ok(pb::DeleteProjectResponse {})
     }
 }
 
-fn page_size(requested: i32) -> Result<usize, Error> {
-    match usize::try_from(requested) {
-        Ok(0) => Ok(DEFAULT_PAGE_SIZE),
-        Ok(size) => Ok(size.min(MAX_PAGE_SIZE)),
-        Err(_) => Err(Error::InvalidArgument {
-            field: "page_size",
-            reason: "must not be negative",
-        }),
-    }
-}
-
-fn to_pb(project: Project) -> pb::Project {
-    pb::Project {
-        id: project.id.0.to_string(),
-        owner_id: project.owner_id.0.to_string(),
-        name: project.name,
-        created_at: Some(convert::timestamp(project.created_at)),
+impl ToProto<pb::Project> for Project {
+    fn to_proto(self) -> pb::Project {
+        pb::Project {
+            id: Some(self.id.to_proto()),
+            owner_id: Some(self.owner_id.to_proto()),
+            created_by: Some(self.created_by.to_proto()),
+            name: self.name,
+            created_at: Some(parse::timestamp(self.created_at)),
+        }
     }
 }
