@@ -2,11 +2,11 @@
 
 use std::sync::{Arc, Mutex};
 
-use scylla_domain::actors::{Actor, ActorId};
 use scylla_domain::authz::{Check, Object, Relationship};
+use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::identity::users::{Email, NewUser, SessionId};
 use scylla_domain::projects::{NewProject, ProjectName, KIND};
-use scylla_domain::users::{Email, NewUser, SessionId};
-use scylla_domain::workspaces::{NewWorkspace, WorkspaceId};
+use scylla_domain::tenancy::workspaces::{NewWorkspace, WorkspaceId};
 use scylla_domain::{Name, ResourceKind};
 use scylla_extension::{
     async_trait, AccessError, AfterDelete, BeforeCreate, CreateContext, DeleteContext, Edition,
@@ -16,7 +16,8 @@ use sqlx::PgPool;
 use tonic::metadata::MetadataMap;
 
 use super::service;
-use crate::features::{accounts, workspaces};
+use crate::features::identity::accounts;
+use crate::features::tenancy::workspaces;
 use crate::Error;
 
 /// The log of the `Record` hooks: hook name, kind, actor and workspace of each call.
@@ -180,7 +181,7 @@ fn hooks(edition: EditionBuilder) -> Arc<Hooks> {
 }
 
 /// A refusal also removes what the hook wrote before it.
-#[sqlx::test(migrator = "crate::db::MIGRATOR")]
+#[sqlx::test(migrator = "crate::infra::db::MIGRATOR")]
 async fn create_rolls_back_the_hook_writes_on_a_refusal(pool: PgPool) {
     // given
     let author = actor(&pool).await;
@@ -196,7 +197,7 @@ async fn create_rolls_back_the_hook_writes_on_a_refusal(pool: PgPool) {
 }
 
 /// The hooks get the kind, the actor and the workspace, on create and on delete.
-#[sqlx::test(migrator = "crate::db::MIGRATOR")]
+#[sqlx::test(migrator = "crate::infra::db::MIGRATOR")]
 async fn hooks_get_the_kind_the_actor_and_the_workspace(pool: PgPool) {
     // given
     let author = actor(&pool).await;
@@ -225,7 +226,7 @@ async fn hooks_get_the_kind_the_actor_and_the_workspace(pool: PgPool) {
 }
 
 /// The hooks run in registration order, and the first refusal stops the next ones.
-#[sqlx::test(migrator = "crate::db::MIGRATOR")]
+#[sqlx::test(migrator = "crate::infra::db::MIGRATOR")]
 async fn hooks_run_in_order_and_stop_at_the_first_refusal(pool: PgPool) {
     // given
     let author = actor(&pool).await;
@@ -248,7 +249,7 @@ async fn hooks_run_in_order_and_stop_at_the_first_refusal(pool: PgPool) {
 }
 
 /// A hook of another kind does not run for a project.
-#[sqlx::test(migrator = "crate::db::MIGRATOR")]
+#[sqlx::test(migrator = "crate::infra::db::MIGRATOR")]
 async fn hooks_of_another_kind_do_not_run(pool: PgPool) {
     // given
     let author = actor(&pool).await;

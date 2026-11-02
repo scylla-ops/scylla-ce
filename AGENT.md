@@ -14,7 +14,11 @@ Load the skill of the task from `.claude/skills/`:
 
 ## Structure
 
-- A feature is one folder `scylla-core/src/features/<feature>/` with only the files that it needs:
+- Each crate groups its code by subject: `identity` (accounts, sessions, providers, tokens, actors, agents), `tenancy` (workspaces and their owners, invitations, roles), `projects`, and `platform` (capabilities). A new feature goes in the folder of its subject.
+- `scylla-domain/src`: `kernel/` (ids and their format, names, pages, kinds, errors: the crate root gives each type), `authz/`, a folder for each subject (`identity/`, `tenancy/`), and `projects.rs`.
+- `scylla-core/src`: `lib.rs`, `app.rs`, `config.rs` and `error.rs` at the root, then `access/` (the gate), `api/` (the server, its layers, the proto conversions), `cli/`, `infra/` (database, mails, secrets, TLS) and `features/`.
+- Never add a file at the root of a crate: put it in the folder of its role or of its subject. When a folder fills with files of different roles or subjects, add a level.
+- A feature is one folder `scylla-core/src/features/<subject>/<feature>/` (`features/projects/` for a subject with one feature) with only the files that it needs:
 
   | File | Contents |
   |---|---|
@@ -25,7 +29,7 @@ Load the skill of the task from `.claude/skills/`:
   | `store.rs` | the SQL, free functions on `&mut Tx<'_>`, no tonic |
   | `tests.rs` | unit tests of what the API cannot show |
 
-- The pure types of a feature go in `scylla-domain/src/<feature>.rs`. No `model.rs`.
+- The pure types of a feature go in `scylla-domain/src/<subject>/<feature>.rs` (`projects.rs` for a subject with one feature). No `model.rs`.
 - The call order is `grpc -> service -> hooks -> store`. A `grpc.rs` never calls a store.
 - Import the module, not the function: `store::insert(...)`.
 - Each crate has one error type. The routes return `scylla_core::Error`.
@@ -34,7 +38,7 @@ Load the skill of the task from `.claude/skills/`:
 
 ## Ids, workspaces and access
 
-- Each id is `Id<T>` (`ActorId`, `WorkspaceId`, `ProjectId`). The format is only in `scylla-domain/src/codec.rs`. Never use `Uuid` outside `to_db()` and `from_db()` in a store.
+- Each id is `Id<T>` (`ActorId`, `WorkspaceId`, `ProjectId`). The format is only in `scylla-domain/src/kernel/codec.rs`. Never use `Uuid` outside `to_db()` and `from_db()` in a store.
 - A workspace is the container of the resources. Each resource has `workspace_id` (its container) and `created_by` (its author). Only a workspace has owners: the rows of `workspace_owners`, one user or more. Never add an `owner_id` to a resource or to a workspace. An actor has no owner. The actor kinds are open: a feature defines its own `KIND`.
 - The containers are in Postgres, and SpiceDB holds only roles. A creation or a delete is one Postgres transaction with no SpiceDB write. Never copy a container or another fact of the tables into SpiceDB. A role is its own write.
 - The rights of a request: a route on the caller itself passes, and an owner of the workspace passes, with no SpiceDB call. Else a role must give the route permission on the object or on its workspace (one bulk SpiceDB call).
@@ -53,7 +57,7 @@ Load the skill of the task from `.claude/skills/`:
 ## Accounts and sessions
 
 - A user is an actor of kind `user` with a row in `users`. Make one with `accounts::create_user` (or `insert_user` in a transaction): it adds the email, the password hash and the personal workspace. Never insert an actor of kind `user` alone.
-- A password goes through `features/accounts/password.rs` (Argon2id on a blocking thread). A random token comes from `secret::token()`, and the database keeps `secret::hash(token)` only. A secret that the server must read back (a client secret) is encrypted with `Sealer`.
+- A password goes through `features/identity/accounts/password.rs` (Argon2id on a blocking thread). A random token comes from `secret::token()`, and the database keeps `secret::hash(token)` only. A secret that the server must read back (a client secret) is encrypted with `Sealer`.
 - An account route never tells if an email exists: a known and an unknown email get the same answer. A refusal of an account rule is `Rejection` with a stable code (`EMAIL_IN_USE`, `INVITATION_REQUIRED`).
 - Each sign-in of a person opens a session (`sessions::open`) and signs its tokens with `gate.issue(&actor, Some(session))`. A reset or a change of a password closes sessions with `sessions::revoke_all`.
 - An identity of a provider is never linked to an account by its email. A link needs the session of the user (`/auth/<slug>/start?link=true`).
@@ -73,11 +77,11 @@ This project overrides the global "no comments" rule.
 
 ## Tests
 
-- First, black-box gRPC tests: one binary per app (`tests/api/main.rs`), one module per feature.
+- First, black-box gRPC tests: one binary per app (`tests/api/main.rs`), one folder per subject (`identity/`, `tenancy/`, `platform/`) and one file per feature.
 - A unit test only for what the API cannot show (rollback, hook order) and for pure functions.
 - Name: `<rpc>_<expected behavior>`. A `///` line tells the rule under test.
 - Body: `// given`, `// when`, `// then` blocks.
-- One helper per core RPC in `scylla-testkit` (`rpc.rs`, `accounts.rs`), sent as an actor with `authed`. `app.user()` makes a user with its personal workspace, and `app.workspace_of(user)` returns it. `app.grant_role(actor, Role::on("project", id, "viewer"), to)` gives a role through `AccessService`. `app.visible_projects(actor, workspace)` gives the names in the list of an actor. `app.grant(&[...])` writes relationships with no route, and `app.can(actor, check)` checks a permission.
+- One helper per core RPC in the `scylla-testkit` file of its subject (`identity.rs`, `tenancy.rs`, `projects.rs`, `platform.rs`), sent as an actor with `authed`. `rpc.rs` has the request helpers. `app.user()` makes a user with its personal workspace, and `app.workspace_of(user)` returns it. `app.grant_role(actor, Role::on("project", id, "viewer"), to)` gives a role through `AccessService`. `app.visible_projects(actor, workspace)` gives the names in the list of an actor. `app.grant(&[...])` writes relationships with no route, and `app.can(actor, check)` checks a permission.
 - The test server sends its mails to `app.mails`: `app.mails.token(email, "verify-email")` reads the token of the last link. The API tests have a fake identity provider (`idp.rs`, OIDC and GitHub) and a browser that keeps cookies (`browser.rs`).
 - Each test makes its own data. `sqlx::test` gives each test a new database, and `TestApp` gives each test a new SpiceDB store.
 
@@ -90,7 +94,7 @@ This project overrides the global "no comments" rule.
 
 ## SQL
 
-- Never change a migration that ran on a database. Write a new one.
+- No upgrade code: a migration has only `CREATE` statements, one file for each feature. To change a table, change the `CREATE TABLE` of its feature, then run `just db-reset` (the dev data is lost). Never write a data move, a `DROP` or an `ALTER TABLE` for an old schema.
 - An id column is `uuid`. A reference to an actor is `REFERENCES actors (id)`, with an index.
 - After a SQL change, run `just prepare` and keep `.sqlx/` in the change.
 
@@ -102,7 +106,7 @@ This project overrides the global "no comments" rule.
 
 ## Commands
 
-- `just run`, `just test`, `just lint`, `just prepare`, `just schema`, `just user <email> <name>` (password on stdin), `just token <actor id>`.
+- `just run`, `just test`, `just lint`, `just prepare`, `just schema`, `just db-reset`, `just user <email> <name>` (password on stdin), `just token <actor id>`.
 - Run cargo with `--workspace` or `-p scylla-ce`. On another crate, Cargo builds tokio and sqlx again.
 
 ## Pitfalls

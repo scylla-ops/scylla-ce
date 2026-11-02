@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use scylla_domain::actors::Actor;
 use scylla_domain::authz::{Model, Permission, Relation, Resource, Schema};
+use scylla_domain::identity::actors::Actor;
 use scylla_domain::ResourceKind;
 use sqlx::migrate::Migrator;
 use sqlx::PgPool;

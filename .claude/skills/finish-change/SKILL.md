@@ -8,7 +8,7 @@ description: The checklist that ends each change in the Scylla public repository
 Do the steps in order. If a step fails, repair the cause and start again.
 
 1. `cargo fmt --all`.
-2. If SQL or a migration changed: `just prepare`, and keep `.sqlx/` in the change.
+2. If a migration changed: `just db-reset`. If SQL or a migration changed: `just prepare`, and keep `.sqlx/` in the change.
 3. Docs: `README.md` if the crates, commands or tests changed. `DECISIONS.md` if a decision is new or changed. `AGENT.md` and the skills if a rule changed. ASD-STE100, no em dashes.
 4. `just lint`: fmt, clippy with the doc lints, `buf lint`, `scripts/check-structure.sh`. Do not change the script to pass: tell the user which rule stops the change.
 5. Read the diff: call order, one transaction per service call, no commit in a hook, short comments, no reason in the code.

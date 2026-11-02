@@ -2,12 +2,12 @@
 
 use time::OffsetDateTime;
 
-use crate::actors::{Actor, ActorId};
 use crate::authz::Resource;
-use crate::name::Name;
-use crate::page::{Page, PageRequest};
-use crate::workspaces::{Workspace, WorkspaceId};
+use crate::identity::actors::{Actor, ActorId};
+use crate::tenancy::workspaces::{Workspace, WorkspaceId};
+use crate::Name;
 use crate::{Id, ResourceKind};
+use crate::{Page, PageRequest};
 
 /// The kind of a project, for the hooks: the name of its definition.
 pub const KIND: ResourceKind = ResourceKind::new(Project::NAME);

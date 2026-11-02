@@ -4,9 +4,9 @@ use std::any::Any;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use scylla_domain::actors::Actor;
 use scylla_domain::authz::{Check, Object, Permission, Relationship, Resource};
-use scylla_domain::users::SessionId;
+use scylla_domain::identity::actors::Actor;
+use scylla_domain::identity::users::SessionId;
 use scylla_domain::Id;
 use time::OffsetDateTime;
 use tonic::metadata::MetadataMap;

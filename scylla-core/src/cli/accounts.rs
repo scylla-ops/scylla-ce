@@ -4,14 +4,16 @@
 use std::io::BufRead;
 
 use clap::Subcommand;
-use scylla_domain::users::{NewUser, ProviderId};
+use scylla_domain::identity::users::{NewUser, ProviderId};
 use scylla_domain::Name;
 
-use crate::features::accounts;
-use crate::features::providers::{self, GitHubSettings, OidcSettings, ProviderRow};
-use crate::secret::Sealer;
-use crate::server::sealer;
-use crate::{db, parse, Config, Error};
+use crate::api::parse;
+use crate::api::sealer;
+use crate::features::identity::accounts;
+use crate::features::identity::providers::{self, GitHubSettings, OidcSettings, ProviderRow};
+use crate::infra::db;
+use crate::infra::secret::Sealer;
+use crate::{Config, Error};
 
 /// The commands on the users.
 #[derive(Subcommand, Clone, Debug)]

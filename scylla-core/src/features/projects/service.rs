@@ -1,12 +1,12 @@
 //! The logic of the projects: one transaction for each call, with the hooks.
 
-use scylla_domain::actors::Actor;
 use scylla_domain::authz::Object;
-use scylla_domain::page::Page;
+use scylla_domain::identity::actors::Actor;
 use scylla_domain::projects::{
     ListProjects, NewProject, Project, ProjectId, ProjectPage, Visible, KIND,
 };
-use scylla_domain::workspaces::WorkspaceId;
+use scylla_domain::tenancy::workspaces::WorkspaceId;
+use scylla_domain::Page;
 use scylla_extension::{CreateContext, DeleteContext, Gate, Hooks, WorkspaceFuture};
 use sqlx::PgPool;
 

@@ -1,12 +1,15 @@
 //! The test kit: the real server of an edition, with a real gate, a mailbox, and helpers for the
-//! core RPCs.
+//! core RPCs, grouped by subject.
 
-mod accounts;
 mod app;
+mod identity;
 mod mail;
+mod platform;
+mod projects;
 mod rpc;
-mod workspaces;
+mod tenancy;
 
 pub use app::{test_access, TestApp};
 pub use mail::Mailbox;
-pub use rpc::{id, text, with_token, Role};
+pub use rpc::{id, text, with_token};
+pub use tenancy::Role;

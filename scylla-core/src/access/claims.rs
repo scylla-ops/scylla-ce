@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use biscuit_auth::builder::Term;
 use biscuit_auth::{AuthorizerBuilder, Biscuit};
-use scylla_domain::actors::{Actor, ActorId, ActorKind};
-use scylla_domain::users::SessionId;
+use scylla_domain::identity::actors::{Actor, ActorId, ActorKind};
+use scylla_domain::identity::users::SessionId;
 use scylla_extension::AccessError;
 use time::OffsetDateTime;
 

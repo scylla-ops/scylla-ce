@@ -1,23 +1,13 @@
-//! The pure types of the core features: ids, actors, the permission model, validated values,
-//! entities and pages.
+//! The pure types of the core features: the kernel (ids, names, pages, errors), the permission
+//! model, and the entities of each subject.
 
 extern crate self as scylla_domain;
 
-pub mod actors;
-pub mod agents;
 pub mod authz;
-mod codec;
-mod error;
-mod id;
-mod name;
-pub mod page;
+pub mod identity;
+mod kernel;
 pub mod projects;
-mod resource;
-pub mod users;
-pub mod workspaces;
+pub mod tenancy;
 
-pub use error::DomainError;
-pub use id::Id;
-pub use name::Name;
-pub use resource::ResourceKind;
+pub use kernel::{DomainError, Id, Name, Page, PageRequest, PageSize, ResourceKind};
 pub use scylla_macros::authz;

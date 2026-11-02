@@ -1,9 +1,9 @@
 //! The rights of an actor on an object: the owners of the workspace from Postgres, then the
 //! roles from SpiceDB.
 
-use scylla_domain::actors::{Actor, ActorId};
 use scylla_domain::authz::{Check, Object, Resource, Schema};
-use scylla_domain::workspaces::{Workspace, WorkspaceId};
+use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
 use scylla_extension::AccessError;
 use sqlx::PgPool;
 

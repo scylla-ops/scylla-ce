@@ -3,7 +3,7 @@
 use std::fmt;
 
 use super::Resource;
-use crate::workspaces::WorkspaceId;
+use crate::tenancy::workspaces::WorkspaceId;
 use crate::Id;
 
 /// An object of the permission model, for example `project:<id>`. Only a typed id makes one.

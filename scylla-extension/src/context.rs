@@ -1,7 +1,7 @@
 //! What the core tells a hook about the write. Use `new()`: the structs are non-exhaustive.
 
-use scylla_domain::actors::Actor;
-use scylla_domain::workspaces::WorkspaceId;
+use scylla_domain::identity::actors::Actor;
+use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::ResourceKind;
 
 /// A creation that a `BeforeCreate` hook can refuse.

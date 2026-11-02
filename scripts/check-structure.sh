@@ -40,9 +40,9 @@ checks() {
   find scylla-*/src/features -name model.rs \
     | report "a feature folder has a model.rs (pure types go in the domain crate)"
 
-  grep -n 'store::' scylla-*/src/features/*/grpc.rs | report "a grpc.rs calls a store"
+  find scylla-*/src/features -name grpc.rs -exec grep -Hn 'store::' {} + | report "a grpc.rs calls a store"
 
-  grep -nE 'tonic|scylla_proto' scylla-*/src/features/*/store.rs \
+  find scylla-*/src/features -name store.rs -exec grep -HnE 'tonic|scylla_proto' {} + \
     | report "a store.rs knows tonic or the proto types"
 
   grep -rnE 'pub(\(crate\))? use scylla_domain' scylla-core/src \

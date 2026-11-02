@@ -1,9 +1,9 @@
 //! The SQL of the `projects` table. Each function runs in the transaction of the caller.
 
-use scylla_domain::actors::ActorId;
-use scylla_domain::page::PageRequest;
+use scylla_domain::identity::actors::ActorId;
 use scylla_domain::projects::{NewProject, Project, ProjectId, Visible};
-use scylla_domain::workspaces::WorkspaceId;
+use scylla_domain::tenancy::workspaces::WorkspaceId;
+use scylla_domain::PageRequest;
 use scylla_extension::Tx;
 
 use crate::Error;

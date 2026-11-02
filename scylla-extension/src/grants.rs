@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use scylla_domain::actors::{Actor, ActorId};
 use scylla_domain::authz::{Check, Permission, Relation, Relationship, Resource};
-use scylla_domain::workspaces::WorkspaceId;
+use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Id;
 use sqlx::PgPool;
 

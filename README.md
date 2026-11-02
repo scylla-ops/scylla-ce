@@ -131,21 +131,21 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Tests | Where |
 |---|---|
 | Workspaces, projects and their permissions, tokens, agents, gRPC-Web, CORS, TLS, health | `scylla-ce/tests/api/` |
-| Permission model: roles in a workspace and on one project, an extension, a new definition | `scylla-ce/tests/api/authz.rs` |
-| Ownership: a role in a workspace goes down, an agent with a role, no SpiceDB for an owner | `scylla-ce/tests/api/ownership.rs` |
-| Owners of a workspace: add, remove, list, only an owner changes them, the last owner stays, two removals at the same time | `scylla-ce/tests/api/owners.rs` |
-| Shares: grant and revoke, each role, only the admins give roles, the visible list | `scylla-ce/tests/api/grants.rs` |
-| Accounts: sign-up and its link, the modes, the same answer for each refusal, the lock, the reset, the change of a password | `scylla-ce/tests/api/accounts.rs` |
-| Sessions: rotation and reuse, sign-out, list and revoke, a disabled user, the cookie and its origin | `scylla-ce/tests/api/sessions.rs` |
-| Identity providers: browser sign-in with OIDC and GitHub, return address, no automatic link, same browser, invitations; `ExchangeIdToken` | `scylla-ce/tests/api/sign_in.rs`, `oidc.rs` |
-| Invitations: the role of the link, admins only, the email of the invitation, sign-up with a link | `scylla-ce/tests/api/invitations.rs` |
-| Route rule: no check, a group check, the own check, an error | `scylla-ce/tests/api/routes.rs` |
+| Permission model: roles in a workspace and on one project, an extension, a new definition | `scylla-ce/tests/api/tenancy/authz.rs` |
+| Ownership: a role in a workspace goes down, an agent with a role, no SpiceDB for an owner | `scylla-ce/tests/api/tenancy/ownership.rs` |
+| Owners of a workspace: add, remove, list, only an owner changes them, the last owner stays, two removals at the same time | `scylla-ce/tests/api/tenancy/owners.rs` |
+| Shares: grant and revoke, each role, only the admins give roles, the visible list | `scylla-ce/tests/api/tenancy/grants.rs` |
+| Accounts: sign-up and its link, the modes, the same answer for each refusal, the lock, the reset, the change of a password | `scylla-ce/tests/api/identity/accounts.rs` |
+| Sessions: rotation and reuse, sign-out, list and revoke, a disabled user, the cookie and its origin | `scylla-ce/tests/api/identity/sessions.rs` |
+| Identity providers: browser sign-in with OIDC and GitHub, return address, no automatic link, same browser, invitations; `ExchangeIdToken` | `scylla-ce/tests/api/identity/sign_in.rs`, `oidc.rs` |
+| Invitations: the role of the link, admins only, the email of the invitation, sign-up with a link | `scylla-ce/tests/api/tenancy/invitations.rs` |
+| Route rule: no check, a group check, the own check, an error | `scylla-ce/tests/api/platform/routes.rs` |
 | Route permission names, records of the gate | `scylla-extension/src/operation.rs` |
 | Schema of the parts, typed values | `scylla-domain/src/authz/tests.rs` |
 | `authz!`: schema text, checks of the names, errors | `scylla-macros/src/tests.rs` |
 | Hook rollback, order and kind filter | `scylla-core/src/features/projects/tests.rs` |
-| Config and command line | `scylla-core/src/config.rs`, `scylla-core/src/cli.rs` |
-| Random tokens, PKCE, the encryption of the secrets, cookies | `scylla-core/src/secret.rs`, `scylla-core/src/features/sessions/cookie.rs` |
+| Config and command line | `scylla-core/src/config.rs`, `scylla-core/src/cli/commands.rs` |
+| Random tokens, PKCE, the encryption of the secrets, cookies | `scylla-core/src/infra/secret.rs`, `scylla-core/src/features/identity/sessions/cookie.rs` |
 
 ## Releases for the Enterprise edition
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use scylla_domain::projects::{
     ListProjects, NewProject, Project, ProjectCaller, ProjectHolder, ProjectId, Visible,
 };
-use scylla_domain::workspaces::WorkspaceId;
+use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Gate, Hooks};
 use scylla_proto::projects::v1 as pb;
 use scylla_proto::projects::v1::project_service_server::{ProjectService, ProjectServiceServer};
@@ -13,7 +13,7 @@ use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
 use super::service;
-use crate::parse::{self, ToProto};
+use crate::api::parse::{self, ToProto};
 use crate::Error;
 
 /// Makes the service.

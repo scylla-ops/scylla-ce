@@ -1,6 +1,6 @@
 //! The tests of `ProjectService`: data, validation and permissions.
 
-use scylla_domain::workspaces::Workspace;
+use scylla_domain::tenancy::workspaces::Workspace;
 use scylla_proto::projects::v1::CreateProjectRequest;
 use scylla_testkit::{id, text};
 use sqlx::PgPool;

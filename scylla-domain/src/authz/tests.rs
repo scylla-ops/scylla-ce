@@ -1,10 +1,10 @@
 //! Unit tests of the permission model: the schema of the parts, and the typed values.
 
-use crate::actors::{Actor, ActorId};
-use crate::agents::AgentHolder;
 use crate::authz::{Model, Schema, SchemaError};
+use crate::identity::actors::{Actor, ActorId};
+use crate::identity::agents::AgentHolder;
 use crate::projects::{Project, ProjectCaller, ProjectHolder, ProjectId};
-use crate::workspaces::{Workspace, WorkspaceCaller, WorkspaceId};
+use crate::tenancy::workspaces::{Workspace, WorkspaceCaller, WorkspaceId};
 
 crate::authz! {
     /// An auditor of the projects, as an edition adds it.

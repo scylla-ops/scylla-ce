@@ -1,8 +1,8 @@
 //! The SQL of the gate: the token revocations and the owners of the workspaces.
 
-use scylla_domain::actors::ActorId;
-use scylla_domain::users::SessionId;
-use scylla_domain::workspaces::WorkspaceId;
+use scylla_domain::identity::actors::ActorId;
+use scylla_domain::identity::users::SessionId;
+use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Tx};
 
 /// Returns `true` if a token cannot pass: one of its revocation ids is revoked, its session is

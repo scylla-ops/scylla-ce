@@ -5,13 +5,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use scylla_core::access::{Access, AccessConfig, SpiceDb, TokenKeys};
-use scylla_core::features::{accounts, actors};
-use scylla_core::secret::Sealer;
-use scylla_core::server::{self, ServeOptions};
-use scylla_domain::actors::{ActorId, ActorKind};
+use scylla_core::api::{self, ServeOptions};
+use scylla_core::features::identity::{accounts, actors};
+use scylla_core::infra::secret::Sealer;
 use scylla_domain::authz::{Check, Relationship, Schema};
-use scylla_domain::users::{Email, NewUser, Password};
-use scylla_domain::workspaces::WorkspaceId;
+use scylla_domain::identity::actors::{ActorId, ActorKind};
+use scylla_domain::identity::users::{Email, NewUser, Password};
+use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Name;
 use scylla_extension::{AccessError, Edition, Gate, Operation};
 use scylla_proto::projects::v1::project_service_client::ProjectServiceClient;
@@ -83,8 +83,8 @@ impl TestApp {
         access: Access,
     ) -> Self {
         // Apply the migrations to the test database.
-        scylla_core::crypto::install();
-        scylla_core::db::migrate(&pool, edition.migrators())
+        scylla_core::infra::tls::install();
+        scylla_core::infra::db::migrate(&pool, edition.migrators())
             .await
             .expect("migrations apply");
 
@@ -102,7 +102,7 @@ impl TestApp {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("local addr");
         options.accounts.api_url = format!("http://{addr}");
-        tokio::spawn(server::serve(
+        tokio::spawn(api::serve(
             listener,
             pool.clone(),
             edition,

@@ -6,9 +6,9 @@ use std::time::Duration;
 
 use biscuit_auth::builder::Term;
 use biscuit_auth::{AuthorizerBuilder, Biscuit};
-use scylla_domain::actors::Actor;
 use scylla_domain::authz::{Check, Object, Relationship, Schema};
-use scylla_domain::users::SessionId;
+use scylla_domain::identity::actors::Actor;
+use scylla_domain::identity::users::SessionId;
 use scylla_extension::{async_trait, AccessError, Gate, IssuedToken, Operation, Principal};
 use spicedb_grpc_tonic::v1::relationship_update::Operation as Update;
 use sqlx::PgPool;

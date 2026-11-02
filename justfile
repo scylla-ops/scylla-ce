@@ -6,6 +6,10 @@ set dotenv-load
 db-up:
     docker compose up -d --wait db spicedb spicedb-test mailpit
 
+# Drops the dev database and creates it again from the migrations. Its data is lost.
+db-reset: db-up && schema
+    docker compose exec -T db psql -U scylla -d postgres -c "DROP DATABASE IF EXISTS scylla WITH (FORCE)"
+
 # Applies the core migrations with sqlx-cli, for the query! macros.
 migrate: db-up
     cargo sqlx database create
