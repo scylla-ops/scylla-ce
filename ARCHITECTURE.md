@@ -52,6 +52,14 @@ them that depth is load-bearing: `sqlx::migrate!("../../migrations")`
   `just db-prepare` and commit the result.
 - **The tests need Postgres.** The `#[sqlx::test]` tests in `scylla-db` use a
   live database. Run `just db-up`, then `just test`.
+- **The migrations are LF only.** `sqlx::migrate!` embeds the bytes of each
+  file, and the migrations table keeps their checksum. A CRLF copy has a
+  different checksum, thus the server does not start on a database that has
+  the LF version. `.gitattributes` gives LF on each checkout, also with
+  `core.autocrlf=true`. A checkout from before this file keeps its CRLF files:
+  with no local changes, run `git rm -r -q --cached .`, then
+  `git reset -q --hard`. `crates/scylla-db/tests/migrations.rs` and the
+  `planner` stage of the `Dockerfile` fail on a migration with a CR.
 - **Protos are linted and breaking-checked.** `just proto-lint`,
   `just proto-fmt`, `just proto-breaking`.
 - **The protos are a git submodule.** `crates/scylla-proto/proto` is
