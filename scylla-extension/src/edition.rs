@@ -2,12 +2,14 @@
 
 use std::sync::Arc;
 
-use scylla_domain::authz::{Model, Schema};
+use scylla_domain::actors::Actor;
+use scylla_domain::authz::{Model, Permission, Relation, Resource, Schema};
 use scylla_domain::ResourceKind;
 use sqlx::migrate::Migrator;
 use sqlx::PgPool;
 use tonic::service::RoutesBuilder;
 
+use crate::grants::{FindWorkspace, Grants};
 use crate::{AfterDelete, BeforeCreate, Gate, Hooks};
 
 /// A function that adds the gRPC services of one plugin.
@@ -23,6 +25,8 @@ pub struct Edition {
     migrators: Vec<&'static Migrator>,
     /// The permission model: the definitions of the plugins, with their extensions.
     authz: Schema,
+    /// The roles that `AccessService` can give.
+    grants: Arc<Grants>,
     /// The hooks of each event and kind.
     hooks: Arc<Hooks>,
     /// The functions that add the gRPC services.
@@ -38,9 +42,11 @@ impl Edition {
                 capabilities: Vec::new(),
                 migrators: Vec::new(),
                 authz: Schema::default(),
+                grants: Arc::default(),
                 hooks: Arc::new(Hooks::default()),
                 services: Vec::new(),
             },
+            grants: Grants::default(),
             hooks: Hooks::default(),
         }
     }
@@ -63,6 +69,11 @@ impl Edition {
     /// Returns the SpiceDB schema of the permission model.
     pub fn authz_schema(&self) -> String {
         self.authz.to_string()
+    }
+
+    /// Returns the roles that `AccessService` and the invitations can give.
+    pub fn grants(&self) -> Arc<Grants> {
+        Arc::clone(&self.grants)
     }
 
     /// Returns the permission model, for the gate: it tells which definitions have a permission.
@@ -114,6 +125,11 @@ impl ServiceContext<'_> {
         self.edition.hooks()
     }
 
+    /// Returns the roles that `AccessService` can give.
+    pub fn grants(&self) -> Arc<Grants> {
+        Arc::clone(&self.edition.grants)
+    }
+
     /// Returns the name of the edition.
     pub fn edition_name(&self) -> &'static str {
         self.edition.name()
@@ -135,6 +151,8 @@ pub trait Plugin {
 pub struct EditionBuilder {
     /// The edition under construction.
     edition: Edition,
+    /// The roles that `AccessService` can give, mutable until `build`.
+    grants: Grants,
     /// The hooks, mutable until `build`.
     hooks: Hooks,
 }
@@ -162,6 +180,36 @@ impl EditionBuilder {
     pub fn authz<M: Model>(mut self) -> Self {
         if let Err(error) = self.edition.authz.add(M::part()) {
             panic!("permission model: {error}");
+        }
+        self
+    }
+
+    /// Lets `AccessService` give roles on the objects of `R`. `grant` and `revoke` are the route
+    /// permissions of `R`. `workspace` finds the workspace of an object; a workspace needs none.
+    ///
+    /// # Panics
+    ///
+    /// If `R` has its roles already. Each start of the edition finds it.
+    pub fn grants<R: Resource>(
+        mut self,
+        grant: Permission<R>,
+        revoke: Permission<R>,
+        workspace: Option<FindWorkspace<R>>,
+    ) -> Self {
+        if !self.grants.add_kind(grant, revoke, workspace) {
+            panic!("grants: `{}` has its roles already", R::NAME);
+        }
+        self
+    }
+
+    /// Lets `AccessService` give a role: `.role(Project::VIEWER)`.
+    ///
+    /// # Panics
+    ///
+    /// If the kind of the role has no `grants` before, or has the role already.
+    pub fn role<R: Resource>(mut self, role: Relation<R, Actor>) -> Self {
+        if !self.grants.add_role(role) {
+            panic!("grants: `{}#{}` cannot be added", R::NAME, role.name());
         }
         self
     }
@@ -194,6 +242,7 @@ impl EditionBuilder {
 
     /// Makes the edition.
     pub fn build(mut self) -> Edition {
+        self.edition.grants = Arc::new(self.grants);
         self.edition.hooks = Arc::new(self.hooks);
         self.edition
     }

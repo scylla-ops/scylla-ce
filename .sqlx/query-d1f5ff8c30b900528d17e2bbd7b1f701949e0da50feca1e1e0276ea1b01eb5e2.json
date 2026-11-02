@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM external_identities i USING identity_providers p\n         WHERE p.id = i.provider_id AND i.user_id = $1 AND p.slug = $2 AND i.subject = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d1f5ff8c30b900528d17e2bbd7b1f701949e0da50feca1e1e0276ea1b01eb5e2"
+}

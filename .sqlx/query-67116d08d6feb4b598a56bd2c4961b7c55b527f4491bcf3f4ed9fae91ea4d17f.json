@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT e.user_id, u.status, p.hash AS \"hash?\", p.locked_until\n           FROM user_emails e\n           JOIN users u ON u.id = e.user_id\n           LEFT JOIN passwords p ON p.user_id = e.user_id\n           WHERE e.email = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "user_emails",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "hash?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "passwords",
+            "name": "hash"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "locked_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "passwords",
+            "name": "locked_until"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "67116d08d6feb4b598a56bd2c4961b7c55b527f4491bcf3f4ed9fae91ea4d17f"
+}

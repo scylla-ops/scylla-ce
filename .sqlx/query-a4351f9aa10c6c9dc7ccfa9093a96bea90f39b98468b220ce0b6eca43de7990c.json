@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, methods, user_agent, created_at, last_used_at FROM sessions\n         WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()\n         ORDER BY id DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "methods",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "methods"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "user_agent",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "user_agent"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "last_used_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "last_used_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "a4351f9aa10c6c9dc7ccfa9093a96bea90f39b98468b220ce0b6eca43de7990c"
+}

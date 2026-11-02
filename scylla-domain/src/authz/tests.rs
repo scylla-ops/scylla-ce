@@ -1,52 +1,83 @@
 //! Unit tests of the permission model: the schema of the parts, and the typed values.
 
 use crate::actors::{Actor, ActorId};
-use crate::agents::AgentOwner;
+use crate::agents::AgentHolder;
 use crate::authz::{Model, Schema, SchemaError};
-use crate::projects::{Project, ProjectId, ProjectOwner};
+use crate::projects::{Project, ProjectCaller, ProjectHolder, ProjectId};
+use crate::workspaces::{Workspace, WorkspaceCaller, WorkspaceId};
 
 crate::authz! {
     /// An auditor of the projects, as an edition adds it.
     extend Project as ProjectAudit {
         /// An actor that audits the project.
         relation auditor: Actor;
-        /// Read the audit log: the auditors and their delegates, and the project admins.
-        permission audit = auditor + auditor->act_for + delete;
+        /// Read the audit log: the auditors and the project admins.
+        permission audit = auditor + delete;
     }
 }
 
-/// The schema of the core, in the order of the core plugins. It holds only grants: the owners
-/// are in Postgres.
+/// The schema of the core, in the order of the core plugins. It holds only roles: the owners
+/// of the workspaces are in Postgres.
 const CORE: &str = "\
 definition actor {
-    relation delegate: actor
-    permission act_for = delegate
-    permission register_agent = act_for
-    permission create_project = act_for
-    permission list_projects = act_for
-    permission delete_project = act_for
+    permission create_workspace = nil
+    permission list_workspaces = nil
+    permission accept_invitation = nil
+    permission list_projects = nil
+}
+
+definition workspace {
+    relation admin: actor
+    relation member: actor
+    relation viewer: actor
+    permission manage = admin
+    permission work = manage + member
+    permission read = work + viewer
+    permission get_workspace = read
+    permission list_workspaces = read
+    permission add_owner = nil
+    permission remove_owner = nil
+    permission list_owners = read
+    permission grant = admin
+    permission revoke = admin
+    permission create_invitation = manage
+    permission register_agent = manage
+    permission create_project = work
+    permission list_projects = read
+    permission get_project = read
+    permission delete_project = manage
 }
 
 definition project {
     relation admin: actor
     relation editor: actor
     relation viewer: actor
-    permission delete = admin + admin->act_for
-    permission edit = delete + editor + editor->act_for
-    permission view = edit + viewer + viewer->act_for
+    permission delete = admin
+    permission edit = delete + editor
+    permission view = edit + viewer
+    permission get_project = view
+    permission list_projects = view
     permission delete_project = delete
+    permission grant = admin
+    permission revoke = admin
 }
 ";
 
 /// Returns the schema of the core, in the order of the core plugins.
 fn core() -> Schema {
     let mut schema = Schema::default();
-    schema.add(Actor::part()).expect("actor fits");
-    schema.add(AgentOwner::part()).expect("agent routes fit");
-    schema.add(Project::part()).expect("project fits");
-    schema
-        .add(ProjectOwner::part())
-        .expect("project routes fit");
+    let parts = [
+        Actor::part(),
+        Workspace::part(),
+        WorkspaceCaller::part(),
+        AgentHolder::part(),
+        Project::part(),
+        ProjectHolder::part(),
+        ProjectCaller::part(),
+    ];
+    for part in parts {
+        schema.add(part).expect("core part fits");
+    }
     schema
 }
 
@@ -76,8 +107,8 @@ fn an_extension_adds_to_its_definition() {
     let text = schema.to_string();
     assert!(text.contains("    relation viewer: actor\n    relation auditor: actor\n"));
     assert!(text.contains(
-        "    permission delete_project = delete\n    \
-         permission audit = auditor + auditor->act_for + delete\n}"
+        "    permission revoke = admin\n    \
+         permission audit = auditor + delete\n}"
     ));
 }
 
@@ -90,10 +121,13 @@ fn the_schema_knows_where_a_permission_is() {
 
     // when
     let on_both = (
-        schema.has("actor", "delete_project"),
+        schema.has("workspace", "delete_project"),
         schema.has("project", "delete_project"),
     );
-    let on_project = (schema.has("actor", "audit"), schema.has("project", "audit"));
+    let on_project = (
+        schema.has("workspace", "audit"),
+        schema.has("project", "audit"),
+    );
     let a_relation = schema.has("project", "viewer");
 
     // then
@@ -131,20 +165,21 @@ fn a_part_that_does_not_fit_is_refused() {
 fn the_typed_values_name_their_objects() {
     // given
     let project = ProjectId::generate();
+    let workspace = WorkspaceId::generate();
     let actor = ActorId::generate();
 
     // when
-    let delete = Project::DELETE_PROJECT.on(project).owned_by(actor);
+    let delete = Project::DELETE_PROJECT.on(project).within(workspace);
     let viewer = Project::VIEWER.of(project, actor);
     let audit = ProjectAudit::AUDIT.on(project).at_least_as_fresh("zed");
 
     // then
     let expected = format!("delete_project on project:{project}");
     assert_eq!(delete.to_string(), expected);
-    assert_eq!(delete.owner(), Some(actor));
+    assert_eq!(delete.workspace(), Some(workspace));
     let expected = format!("project:{project}#viewer@actor:{actor}");
     assert_eq!(viewer.to_string(), expected);
     assert_eq!(audit.to_string(), format!("audit on project:{project}"));
-    assert_eq!(audit.owner(), None);
+    assert_eq!(audit.workspace(), None);
     assert_eq!(audit.freshness(), Some("zed"));
 }

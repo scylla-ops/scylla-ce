@@ -2,7 +2,8 @@
 
 use std::sync::Arc;
 
-use scylla_domain::agents::AgentOwner;
+use scylla_domain::agents::AgentHolder;
+use scylla_domain::workspaces::WorkspaceId;
 use scylla_extension::Gate;
 use scylla_proto::agents::v1 as pb;
 use scylla_proto::agents::v1::agent_service_server::{AgentService, AgentServiceServer};
@@ -10,7 +11,7 @@ use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
 use super::service;
-use crate::parse::ToProto;
+use crate::parse::{self, ToProto};
 use crate::Error;
 
 /// Makes the service.
@@ -37,21 +38,24 @@ impl AgentService for AgentsGrpc {
 }
 
 impl AgentsGrpc {
-    /// Handles `RegisterAgent`: the caller registers an agent that it can act for.
+    /// Handles `RegisterAgent`: an admin of a workspace registers an agent in it.
     async fn register(
         &self,
         request: Request<pb::RegisterAgentRequest>,
     ) -> Result<pb::RegisterAgentResponse, Error> {
-        // Authenticate the caller, and check the route permission on the caller.
+        // Authenticate the caller, then read the request.
         let caller = self.gate.caller(&request).await?;
+        let request = request.into_inner();
+        let workspace_id: WorkspaceId = parse::required(request.workspace_id, "workspace_id")?;
+
+        // Check the route permission on the workspace.
         self.gate
-            .authorize(&caller, AgentOwner::REGISTER_AGENT.on(caller.actor.id))
+            .authorize(&caller, AgentHolder::REGISTER_AGENT.on(workspace_id))
             .await?;
 
-        // Register the agent for the caller.
-        let public_key = request.into_inner().public_key;
+        // Register the agent in the workspace.
         let (agent_id, key_id) =
-            service::register(&self.pool, caller.actor.id, &public_key).await?;
+            service::register(&self.pool, workspace_id, &request.public_key).await?;
         Ok(pb::RegisterAgentResponse {
             agent_id: Some(agent_id.to_proto()),
             key_id: Some(key_id.to_proto()),

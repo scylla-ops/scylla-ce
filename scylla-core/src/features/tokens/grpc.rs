@@ -1,34 +1,28 @@
 //! The gRPC handler of `TokenService`. Its RPCs need no token: they give one.
 
-use std::sync::Arc;
-
-use scylla_extension::{AccessError, Gate, IssuedToken};
+use scylla_domain::actors::Actor;
+use scylla_domain::users::KIND;
+use scylla_extension::AccessError;
 use scylla_proto::auth::v1 as pb;
 use scylla_proto::auth::v1::token_service_server::{TokenService, TokenServiceServer};
-use sqlx::PgPool;
+use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Request, Response, Status};
 
+use crate::features::accounts::{deliver, to_proto, user_agent, AccountContext};
 use crate::features::agents;
-use crate::features::users::{self, OidcVerifier};
-use crate::{parse, Error};
+use crate::features::providers::Providers;
+use crate::features::sessions::{self, cookie};
+use crate::Error;
 
-/// Makes the service. Without a verifier, `ExchangeIdToken` is refused.
-pub(crate) fn server(
-    pool: PgPool,
-    gate: Arc<dyn Gate>,
-    oidc: Option<Arc<OidcVerifier>>,
-) -> TokenServiceServer<TokensGrpc> {
-    TokenServiceServer::new(TokensGrpc { pool, gate, oidc })
+/// Makes the service.
+pub(crate) fn server(providers: Providers) -> TokenServiceServer<TokensGrpc> {
+    TokenServiceServer::new(TokensGrpc { providers })
 }
 
 /// The handler.
 pub(crate) struct TokensGrpc {
-    /// The database pool.
-    pool: PgPool,
-    /// The access gate, which signs the tokens.
-    gate: Arc<dyn Gate>,
-    /// The check of the ID tokens, if an issuer is set.
-    oidc: Option<Arc<OidcVerifier>>,
+    /// The identity providers, with what the account routes share.
+    providers: Providers,
 }
 
 #[tonic::async_trait]
@@ -38,9 +32,13 @@ impl TokenService for TokensGrpc {
         request: Request<pb::ExchangeAgentAssertionRequest>,
     ) -> Result<Response<pb::ExchangeAgentAssertionResponse>, Status> {
         let request = request.into_inner();
-        let token = self.agent_token(&request).await?;
+        let ctx = self.ctx();
+        let agent =
+            agents::verify_assertion(&ctx.pool, &request.assertion, &request.signature).await?;
+        let token = ctx.gate.issue(&agent, None).map_err(Error::from)?;
+        tracing::info!(actor = %agent.id, kind = agent.kind.as_str(), "token issued");
         Ok(Response::new(pb::ExchangeAgentAssertionResponse {
-            token: Some(token),
+            token: Some(to_proto(token)),
         }))
     }
 
@@ -48,42 +46,105 @@ impl TokenService for TokensGrpc {
         &self,
         request: Request<pb::ExchangeIdTokenRequest>,
     ) -> Result<Response<pb::ExchangeIdTokenResponse>, Status> {
-        let token = self.user_token(&request.into_inner().id_token).await?;
+        let agent = user_agent(request.metadata());
+        let id_token = request.into_inner().id_token;
+        let signed_in = self
+            .providers
+            .sign_in_with_id_token(&id_token, agent.as_deref());
+        let (user, opened) = signed_in.await?;
+        let token = self
+            .ctx()
+            .gate
+            .issue(&user, Some(opened.session))
+            .map_err(Error::from)?;
+        tracing::info!(actor = %user.id, kind = user.kind.as_str(), "token issued");
         Ok(Response::new(pb::ExchangeIdTokenResponse {
-            token: Some(token),
+            token: Some(to_proto(token)),
+            refresh_token: opened.refresh,
         }))
+    }
+
+    async fn refresh(
+        &self,
+        request: Request<pb::RefreshRequest>,
+    ) -> Result<Response<pb::RefreshResponse>, Status> {
+        // Read the refresh token, then rotate it.
+        let ctx = self.ctx();
+        let (refresh, from_cookie) = refresh_token(ctx, request.metadata(), request.get_ref())?;
+        let (user, opened) = sessions::refresh(&ctx.pool, &refresh).await?;
+
+        // Sign a token in the session, and give the new refresh token back the same way.
+        let actor = Actor {
+            id: user,
+            kind: KIND,
+        };
+        let token = ctx
+            .gate
+            .issue(&actor, Some(opened.session))
+            .map_err(Error::from)?;
+        let (refresh_token, set_cookie) = deliver(ctx, opened, from_cookie);
+        let mut response = Response::new(pb::RefreshResponse {
+            token: Some(to_proto(token)),
+            refresh_token,
+        });
+        if let Some(value) = set_cookie {
+            response.metadata_mut().insert("set-cookie", value);
+        }
+        Ok(response)
+    }
+
+    async fn sign_out(
+        &self,
+        request: Request<pb::SignOutRequest>,
+    ) -> Result<Response<pb::SignOutResponse>, Status> {
+        let ctx = self.ctx();
+        let request_body = pb::RefreshRequest {
+            refresh_token: request.get_ref().refresh_token.clone(),
+        };
+        let (refresh, from_cookie) = refresh_token(ctx, request.metadata(), &request_body)?;
+        sessions::close(&ctx.pool, &refresh).await?;
+        let mut response = Response::new(pb::SignOutResponse {});
+        let clear = cookie::clear(cookie::SESSION, ctx.settings.secure_cookies());
+        if let (true, Ok(value)) = (from_cookie, MetadataValue::try_from(clear)) {
+            response.metadata_mut().insert("set-cookie", value);
+        }
+        Ok(response)
     }
 }
 
 impl TokensGrpc {
-    /// Checks the assertion of an agent and signs a token for it.
-    async fn agent_token(
-        &self,
-        request: &pb::ExchangeAgentAssertionRequest,
-    ) -> Result<pb::IssuedToken, Error> {
-        let agent =
-            agents::verify_assertion(&self.pool, &request.assertion, &request.signature).await?;
-        let token = self.gate.issue(&agent)?;
-        tracing::info!(actor = %agent.id, kind = agent.kind.as_str(), "token issued");
-        Ok(to_proto(token))
-    }
-
-    /// Checks the ID token of a person and signs a token for the user.
-    async fn user_token(&self, id_token: &str) -> Result<pb::IssuedToken, Error> {
-        let verifier = self.oidc.as_ref().ok_or_else(|| {
-            AccessError::Unauthenticated("no identity provider is set".to_owned())
-        })?;
-        let user = users::sign_in(&self.pool, verifier, id_token).await?;
-        let token = self.gate.issue(&user)?;
-        tracing::info!(actor = %user.id, kind = user.kind.as_str(), "token issued");
-        Ok(to_proto(token))
+    /// Returns what the account routes share.
+    fn ctx(&self) -> &AccountContext {
+        &self.providers.ctx
     }
 }
 
-/// Makes the proto of a token.
-fn to_proto(token: IssuedToken) -> pb::IssuedToken {
-    pb::IssuedToken {
-        value: token.value,
-        expires_at: Some(parse::timestamp(token.expires_at)),
+/// Reads the refresh token of a request: in its body, or in the session cookie of a browser.
+/// A cookie needs an allowed web origin, so another site cannot use it. Returns the token, and
+/// `true` if it came from the cookie.
+fn refresh_token(
+    ctx: &AccountContext,
+    metadata: &MetadataMap,
+    request: &pb::RefreshRequest,
+) -> Result<(String, bool), Error> {
+    if !request.refresh_token.is_empty() {
+        return Ok((request.refresh_token.clone(), false));
     }
+    let origin = metadata.get("origin").and_then(|value| value.to_str().ok());
+    if !origin.is_some_and(|origin| {
+        ctx.settings
+            .web_origins
+            .iter()
+            .any(|allowed| allowed == origin)
+    }) {
+        let reason = "a cookie refresh needs an allowed web origin".to_owned();
+        return Err(AccessError::Denied(reason).into());
+    }
+    let headers = metadata
+        .get_all("cookie")
+        .iter()
+        .filter_map(|value| value.to_str().ok());
+    let refresh = cookie::read(headers, cookie::SESSION)
+        .ok_or_else(|| AccessError::Unauthenticated("no session cookie".to_owned()))?;
+    Ok((refresh, true))
 }

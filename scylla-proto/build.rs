@@ -5,6 +5,9 @@ use std::path::PathBuf;
 
 /// The proto files, relative to the `proto` folder.
 const PROTOS: &[&str] = &[
+    "scylla/access/v1/access_service.proto",
+    "scylla/accounts/v1/account_service.proto",
+    "scylla/accounts/v1/profile_service.proto",
     "scylla/agents/v1/agent_service.proto",
     "scylla/auth/v1/assertion.proto",
     "scylla/auth/v1/token_service.proto",
@@ -13,6 +16,9 @@ const PROTOS: &[&str] = &[
     "scylla/common/v1/page.proto",
     "scylla/projects/v1/project.proto",
     "scylla/projects/v1/project_service.proto",
+    "scylla/workspaces/v1/invitation_service.proto",
+    "scylla/workspaces/v1/workspace.proto",
+    "scylla/workspaces/v1/workspace_service.proto",
 ];
 
 /// Compiles the protos, then prints the include folder for the dependent build scripts.

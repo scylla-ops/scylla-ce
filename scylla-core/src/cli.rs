@@ -1,10 +1,13 @@
-//! The command line of a binary: `serve` (the default), `migrate`, and the admin commands.
+//! The command line of a binary: `serve` (the default), `migrate`, and the commands of the
+//! operator.
+
+mod accounts;
 
 use std::fmt;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use scylla_domain::actors::{Actor, ActorId, ActorKind};
+use scylla_domain::actors::{Actor, ActorId};
 use scylla_domain::Id;
 use scylla_extension::Edition;
 use tracing::Level;
@@ -15,6 +18,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use crate::access::{Access, TokenKeys};
 use crate::features::actors;
 use crate::{db, server, Config, Error};
+pub use accounts::{ProviderCommand, SecretCommand, UserCommand};
 
 /// The command line of a binary with only the core settings.
 #[derive(Parser)]
@@ -37,23 +41,18 @@ pub enum Command {
     Serve,
     /// Applies the migrations and writes the SpiceDB schema, then stops.
     Migrate,
-    /// Manages the actors.
+    /// Manages the users.
     #[command(subcommand)]
-    Actor(ActorCommand),
+    User(UserCommand),
+    /// Manages the identity providers of the sign-in.
+    #[command(subcommand)]
+    Provider(ProviderCommand),
     /// Manages the tokens.
     #[command(subcommand)]
     Token(TokenCommand),
-}
-
-/// The commands on the actors.
-#[derive(Subcommand, Clone, Debug)]
-pub enum ActorCommand {
-    /// Creates an actor and prints its id.
-    Create {
-        /// The kind of the actor, in snake case.
-        #[arg(long)]
-        kind: String,
-    },
+    /// Manages the key of the client secrets of the identity providers.
+    #[command(subcommand)]
+    Secret(SecretCommand),
 }
 
 /// The commands on the tokens.
@@ -92,7 +91,12 @@ where
     match command {
         Command::Serve => server::run(core, edition).await,
         Command::Migrate => migrate(core, &edition).await,
-        Command::Actor(command) => actor(core, command).await,
+        Command::User(command) => accounts::user(core, command).await,
+        Command::Provider(command) => accounts::provider(core, command).await,
+        Command::Secret(command) => {
+            accounts::secret(command);
+            Ok(())
+        }
         Command::Token(command) => token(core, command, &edition).await,
     }
 }
@@ -114,19 +118,6 @@ async fn migrate(config: &Config, edition: &Edition) -> Result<(), Error> {
     Ok(())
 }
 
-/// Runs an actor command.
-async fn actor(config: &Config, command: ActorCommand) -> Result<(), Error> {
-    let pool = db::connect(config).await?;
-    match command {
-        ActorCommand::Create { kind } => {
-            let actor = actors::create(&pool, ActorKind::from_name(kind)).await?;
-            println!("{}", actor.id);
-        }
-    }
-    pool.close().await;
-    Ok(())
-}
-
 /// Runs a token command.
 async fn token(config: &Config, command: TokenCommand, edition: &Edition) -> Result<(), Error> {
     // Make a key pair. It needs no database and no key.
@@ -145,7 +136,7 @@ async fn token(config: &Config, command: TokenCommand, edition: &Edition) -> Res
         TokenCommand::Create { actor, ttl } => {
             let actor = actors::find(&pool, actor).await?;
             let ttl = ttl.map_or(config.token_ttl, Duration::from_secs);
-            let token = access.issue_for(&actor, ttl)?;
+            let token = access.issue_for(&actor, ttl, None)?;
             println!("{}", token.value);
         }
         TokenCommand::Revoke { token } => {

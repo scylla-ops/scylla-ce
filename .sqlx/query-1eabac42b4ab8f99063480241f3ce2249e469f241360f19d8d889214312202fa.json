@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO sign_in_flows (state_hash, provider_id, browser_hash, pkce_verifier, nonce,\n                                    link_user_id, return_to, expires_at)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, now() + interval '10 minutes')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Uuid",
+        "Bytea",
+        "Text",
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1eabac42b4ab8f99063480241f3ce2249e469f241360f19d8d889214312202fa"
+}

@@ -1,7 +1,7 @@
 //! The tests of `ProjectService`: data, validation and permissions.
 
-use scylla_domain::actors::Actor;
-use scylla_proto::projects::v1::{CreateProjectRequest, ListProjectsRequest};
+use scylla_domain::workspaces::Workspace;
+use scylla_proto::projects::v1::CreateProjectRequest;
 use scylla_testkit::{id, text};
 use sqlx::PgPool;
 use tonic::{Code, Request};
@@ -9,14 +9,14 @@ use tonic::{Code, Request};
 use crate::{app, assert_code, assert_invalid_field, UNKNOWN_ID};
 
 /// Makes a creation request.
-fn create(owner: Option<String>, name: &str) -> CreateProjectRequest {
+fn create(workspace: Option<String>, name: &str) -> CreateProjectRequest {
     CreateProjectRequest {
-        owner_id: owner.map(id),
+        workspace_id: workspace.map(id),
         name: name.to_owned(),
     }
 }
 
-/// A created project comes back trimmed, owned and created by the caller.
+/// A created project comes back trimmed, in its workspace, and created by the caller.
 #[sqlx::test(migrations = false)]
 async fn create_project_returns_the_project(pool: PgPool) {
     // given
@@ -28,7 +28,8 @@ async fn create_project_returns_the_project(pool: PgPool) {
 
     // then
     assert_eq!(project.name, "alpha");
-    assert_eq!(text(&project.owner_id), user.to_string());
+    let workspace = app.workspace_of(user).await;
+    assert_eq!(text(&project.workspace_id), workspace.to_string());
     assert_eq!(text(&project.created_by), user.to_string());
 }
 
@@ -49,48 +50,46 @@ async fn create_project_needs_a_token(pool: PgPool) {
     assert_code(result, Code::Unauthenticated);
 }
 
-/// An actor cannot create a project for an owner that it cannot act for.
+/// An actor with no role in a workspace, or a viewer, cannot create a project in it.
 #[sqlx::test(migrations = false)]
-async fn create_project_needs_to_act_for_the_owner(pool: PgPool) {
+async fn create_project_needs_a_role_in_the_workspace(pool: PgPool) {
     // given
     let app = app(pool).await;
-    let author = app.user().await;
     let owner = app.user().await;
-    let request = create(Some(owner.to_string()), "alpha");
+    let stranger = app.user().await;
+    let viewer = app.user().await;
+    let workspace = app.workspace_of(owner).await;
+    app.grant(&[Workspace::VIEWER.of(workspace, viewer)]).await;
 
     // when
-    let result = app
-        .projects
-        .clone()
-        .create_project(app.authed(author, request).await)
-        .await;
+    let by_stranger = app.create_project_in(stranger, workspace, "alpha").await;
+    let by_viewer = app.create_project_in(viewer, workspace, "alpha").await;
 
     // then
-    assert_code(result, Code::PermissionDenied);
+    assert_code(by_stranger, Code::PermissionDenied);
+    assert_code(by_viewer, Code::PermissionDenied);
+    assert_eq!(app.project_count(workspace).await, 0);
 }
 
-/// A delegate creates for its owner: the owner owns, and the delegate is the author.
+/// A member creates in the workspace of another user, and stays the author.
 #[sqlx::test(migrations = false)]
-async fn create_project_by_a_delegate_keeps_the_author(pool: PgPool) {
+async fn create_project_by_a_member_keeps_the_author(pool: PgPool) {
     // given
     let app = app(pool).await;
-    let author = app.user().await;
     let owner = app.user().await;
-    app.grant(&[Actor::DELEGATE.of(owner, author)]).await;
-    let request = create(Some(owner.to_string()), "alpha");
+    let member = app.user().await;
+    let workspace = app.workspace_of(owner).await;
+    app.grant(&[Workspace::MEMBER.of(workspace, member)]).await;
 
     // when
-    let response = app
-        .projects
-        .clone()
-        .create_project(app.authed(author, request).await)
+    let project = app
+        .create_project_in(member, workspace, "alpha")
         .await
         .unwrap();
 
     // then
-    let project = response.into_inner().project.unwrap();
-    assert_eq!(text(&project.owner_id), owner.to_string());
-    assert_eq!(text(&project.created_by), author.to_string());
+    assert_eq!(text(&project.workspace_id), workspace.to_string());
+    assert_eq!(text(&project.created_by), member.to_string());
 }
 
 /// A name of `MAX_LEN` characters passes, one more fails, and an empty name fails.
@@ -111,23 +110,36 @@ async fn create_project_checks_the_name(pool: PgPool) {
     assert_invalid_field(&empty.unwrap_err(), "name");
 }
 
-/// An owner must be an id.
+/// The workspace is required and must be an id. An unknown workspace gives the answer of a
+/// refusal.
 #[sqlx::test(migrations = false)]
-async fn create_project_checks_the_owner_id(pool: PgPool) {
+async fn create_project_checks_the_workspace_id(pool: PgPool) {
     // given
     let app = app(pool).await;
     let user = app.user().await;
-    let request = create(Some("nope".to_owned()), "alpha");
+    let mut client = app.projects.clone();
 
     // when
-    let result = app
-        .projects
-        .clone()
-        .create_project(app.authed(user, request).await)
+    let missing = client
+        .create_project(app.authed(user, create(None, "alpha")).await)
+        .await;
+    let not_an_id = client
+        .create_project(
+            app.authed(user, create(Some("nope".to_owned()), "alpha"))
+                .await,
+        )
+        .await;
+    let unknown = client
+        .create_project(
+            app.authed(user, create(Some(UNKNOWN_ID.to_owned()), "alpha"))
+                .await,
+        )
         .await;
 
     // then
-    assert_invalid_field(&result.unwrap_err(), "owner_id");
+    assert_invalid_field(&missing.unwrap_err(), "workspace_id");
+    assert_invalid_field(&not_an_id.unwrap_err(), "workspace_id");
+    assert_code(unknown, Code::PermissionDenied);
 }
 
 /// The pages give each project one time, oldest first, and the last page has no token.
@@ -159,27 +171,62 @@ async fn list_projects_returns_pages_in_creation_order(pool: PgPool) {
     assert_eq!(listed, created);
 }
 
-/// An actor cannot list the projects of another actor.
+/// The list shows only the projects that the caller can see. `workspace_id` filters the list and
+/// causes no refusal.
 #[sqlx::test(migrations = false)]
-async fn list_projects_needs_to_act_for_the_owner(pool: PgPool) {
+async fn list_projects_shows_only_visible_projects(pool: PgPool) {
     // given
     let app = app(pool).await;
     let alice = app.user().await;
     let bob = app.user().await;
-    let request = ListProjectsRequest {
-        owner_id: Some(id(bob.to_string())),
-        page: None,
-    };
+    app.create_project(alice, "alice").await.unwrap();
+    app.create_project(bob, "bob").await.unwrap();
 
     // when
-    let result = app
-        .projects
-        .clone()
-        .list_projects(app.authed(alice, request).await)
-        .await;
+    let all = app.visible_projects(alice, None).await.unwrap();
+    let of_bob = app
+        .visible_projects(alice, Some(app.workspace_of(bob).await))
+        .await
+        .unwrap();
 
     // then
-    assert_code(result, Code::PermissionDenied);
+    assert_eq!(all, vec!["alice"]);
+    assert!(of_bob.is_empty(), "{of_bob:?}");
+}
+
+/// The owner gets its project.
+#[sqlx::test(migrations = false)]
+async fn get_project_returns_the_project(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let user = app.user().await;
+    let created = app.create_project(user, "alpha").await.unwrap();
+
+    // when
+    let project = app.get_project(user, text(&created.id)).await.unwrap();
+
+    // then
+    assert_eq!(project, created);
+}
+
+/// Another actor cannot get a project, and an unknown project gives the same answer.
+#[sqlx::test(migrations = false)]
+async fn get_project_needs_the_permission(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let stranger = app.user().await;
+    let project = app.create_project(owner, "alpha").await.unwrap();
+
+    // when
+    let by_stranger = app.get_project(stranger, text(&project.id)).await;
+    let unknown = app.get_project(owner, UNKNOWN_ID).await;
+    let not_an_id = app.get_project(owner, "nope").await;
+
+    // then
+    assert_code(by_stranger, Code::PermissionDenied);
+    assert_code(unknown, Code::PermissionDenied);
+    assert_invalid_field(&not_an_id.unwrap_err(), "project_id");
 }
 
 /// A negative page size and a token that the server did not make are refused.
@@ -210,7 +257,7 @@ async fn delete_project_removes_the_project(pool: PgPool) {
     app.delete_project(user, text(&project.id)).await.unwrap();
 
     // then
-    assert_eq!(app.project_count(user).await, 0);
+    assert_eq!(app.project_count(app.workspace_of(user).await).await, 0);
 }
 
 /// Another actor cannot delete a project, and an unknown project gives the same answer.
@@ -231,5 +278,5 @@ async fn delete_project_needs_the_permission(pool: PgPool) {
     assert_code(by_stranger, Code::PermissionDenied);
     assert_code(unknown, Code::PermissionDenied);
     assert_invalid_field(&not_an_id.unwrap_err(), "project_id");
-    assert_eq!(app.project_count(owner).await, 1);
+    assert_eq!(app.project_count(app.workspace_of(owner).await).await, 1);
 }

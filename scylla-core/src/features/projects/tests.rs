@@ -2,10 +2,12 @@
 
 use std::sync::{Arc, Mutex};
 
-use scylla_domain::actors::{Actor, ActorId, ActorKind};
+use scylla_domain::actors::{Actor, ActorId};
 use scylla_domain::authz::{Check, Object, Relationship};
 use scylla_domain::projects::{NewProject, ProjectName, KIND};
-use scylla_domain::ResourceKind;
+use scylla_domain::users::{Email, NewUser, SessionId};
+use scylla_domain::workspaces::{NewWorkspace, WorkspaceId};
+use scylla_domain::{Name, ResourceKind};
 use scylla_extension::{
     async_trait, AccessError, AfterDelete, BeforeCreate, CreateContext, DeleteContext, Edition,
     EditionBuilder, Gate, HookError, Hooks, IssuedToken, Operation, Principal, Rejection, Tx,
@@ -14,11 +16,11 @@ use sqlx::PgPool;
 use tonic::metadata::MetadataMap;
 
 use super::service;
-use crate::features::actors;
+use crate::features::{accounts, workspaces};
 use crate::Error;
 
-/// The log of the `Record` hooks: hook name, kind, actor and owner of each call.
-type Log = Arc<Mutex<Vec<(&'static str, ResourceKind, ActorId, ActorId)>>>;
+/// The log of the `Record` hooks: hook name, kind, actor and workspace of each call.
+type Log = Arc<Mutex<Vec<(&'static str, ResourceKind, ActorId, WorkspaceId)>>>;
 
 /// A gate that allows each check and keeps no relationship: these tests check only the hooks.
 struct NoGate;
@@ -39,7 +41,11 @@ impl Gate for NoGate {
         Ok(())
     }
 
-    fn issue(&self, _actor: &Actor) -> Result<IssuedToken, AccessError> {
+    fn issue(
+        &self,
+        _actor: &Actor,
+        _session: Option<SessionId>,
+    ) -> Result<IssuedToken, AccessError> {
         Err(AccessError::Unavailable("no gate in unit tests".to_owned()))
     }
 
@@ -53,6 +59,15 @@ impl Gate for NoGate {
 
     async fn delete_object(&self, _object: &Object) -> Result<(), AccessError> {
         Ok(())
+    }
+
+    async fn lookup(
+        &self,
+        _principal: &Principal,
+        _definition: &'static str,
+        _permission: &'static str,
+    ) -> Result<Vec<String>, AccessError> {
+        Ok(Vec::new())
     }
 }
 
@@ -88,9 +103,9 @@ impl Record {
         &self,
         kind: ResourceKind,
         actor: &Actor,
-        owner_id: ActorId,
+        workspace_id: WorkspaceId,
     ) -> Result<(), HookError> {
-        let call = (self.name, kind, actor.id, owner_id);
+        let call = (self.name, kind, actor.id, workspace_id);
         self.log.lock().unwrap().push(call);
         if self.reject {
             return Err(Rejection::new("TEST_REJECTED", "rejected by the test hook").into());
@@ -102,14 +117,14 @@ impl Record {
 #[async_trait]
 impl BeforeCreate for Record {
     async fn before_create(&self, _tx: &mut Tx<'_>, ctx: &CreateContext) -> Result<(), HookError> {
-        self.record(ctx.kind, &ctx.actor, ctx.owner_id)
+        self.record(ctx.kind, &ctx.actor, ctx.workspace_id)
     }
 }
 
 #[async_trait]
 impl AfterDelete for Record {
     async fn after_delete(&self, _tx: &mut Tx<'_>, ctx: &DeleteContext) -> Result<(), HookError> {
-        self.record(ctx.kind, &ctx.actor, ctx.owner_id)
+        self.record(ctx.kind, &ctx.actor, ctx.workspace_id)
     }
 }
 
@@ -122,15 +137,30 @@ fn record(name: &'static str, log: &Log, reject: bool) -> Arc<Record> {
     })
 }
 
-/// Creates an actor.
+/// Creates a user with its personal workspace.
 async fn actor(pool: &PgPool) -> Actor {
-    actors::create(pool, ActorKind::new("test")).await.unwrap()
+    let new = NewUser {
+        email: Email::parse(format!("{}@test.example", ActorId::generate())).unwrap(),
+        email_verified: true,
+        display_name: Name::parse("Test".to_owned()).unwrap(),
+        password: None,
+    };
+    accounts::create_user(pool, new).await.unwrap()
 }
 
-/// Makes the input of a creation by `author` for `owner_id`.
-fn new_project(author: &Actor, owner_id: ActorId) -> NewProject {
+/// Creates a workspace that `owner` owns.
+async fn workspace(pool: &PgPool, owner: &Actor) -> WorkspaceId {
+    let new = NewWorkspace {
+        creator: owner.id,
+        name: Name::parse("main".to_owned()).unwrap(),
+    };
+    workspaces::create(pool, new).await.unwrap().id
+}
+
+/// Makes the input of a creation by `author` in `workspace_id`.
+fn new_project(author: &Actor, workspace_id: WorkspaceId) -> NewProject {
     NewProject {
-        owner_id,
+        workspace_id,
         created_by: author.id,
         name: ProjectName::parse("alpha".to_owned()).unwrap(),
     }
@@ -157,7 +187,7 @@ async fn create_rolls_back_the_hook_writes_on_a_refusal(pool: PgPool) {
     let hooks = hooks(Edition::builder("test").before_create(KIND, Arc::new(WriteThenReject)));
 
     // when
-    let new = new_project(&author, author.id);
+    let new = new_project(&author, workspace(&pool, &author).await);
     let result = service::create(&pool, &hooks, author, new).await;
 
     // then
@@ -165,12 +195,13 @@ async fn create_rolls_back_the_hook_writes_on_a_refusal(pool: PgPool) {
     assert_eq!(actor_count(&pool).await, 1);
 }
 
-/// The hooks get the kind, the actor and the owner, on create and on delete.
+/// The hooks get the kind, the actor and the workspace, on create and on delete.
 #[sqlx::test(migrator = "crate::db::MIGRATOR")]
-async fn hooks_get_the_kind_the_actor_and_the_owner(pool: PgPool) {
+async fn hooks_get_the_kind_the_actor_and_the_workspace(pool: PgPool) {
     // given
     let author = actor(&pool).await;
     let owner = actor(&pool).await;
+    let main = workspace(&pool, &owner).await;
     let log = Log::default();
     let hook = record("hook", &log, false);
     let hooks = hooks(
@@ -180,7 +211,7 @@ async fn hooks_get_the_kind_the_actor_and_the_owner(pool: PgPool) {
     );
 
     // when
-    let new = new_project(&author, owner.id);
+    let new = new_project(&author, main);
     let project = service::create(&pool, &hooks, author.clone(), new)
         .await
         .unwrap();
@@ -189,7 +220,7 @@ async fn hooks_get_the_kind_the_actor_and_the_owner(pool: PgPool) {
         .unwrap();
 
     // then
-    let call = ("hook", KIND, author.id, owner.id);
+    let call = ("hook", KIND, author.id, main);
     assert_eq!(*log.lock().unwrap(), vec![call, call]);
 }
 
@@ -207,7 +238,7 @@ async fn hooks_run_in_order_and_stop_at_the_first_refusal(pool: PgPool) {
     );
 
     // when
-    let new = new_project(&author, author.id);
+    let new = new_project(&author, workspace(&pool, &author).await);
     let result = service::create(&pool, &hooks, author, new).await;
 
     // then
@@ -226,7 +257,7 @@ async fn hooks_of_another_kind_do_not_run(pool: PgPool) {
     let hooks = hooks(Edition::builder("test").before_create(other, record("other", &log, true)));
 
     // when
-    let new = new_project(&author, author.id);
+    let new = new_project(&author, workspace(&pool, &author).await);
     let result = service::create(&pool, &hooks, author, new).await;
 
     // then

@@ -1,9 +1,10 @@
-//! The tests of the permission model: the roles on an owner and on one project, and the parts
-//! that an edition adds.
+//! The tests of the permission model: the roles in a workspace and on one project, and the
+//! parts that an edition adds.
 
 use scylla_domain::actors::{Actor, ActorId};
 use scylla_domain::authz;
 use scylla_domain::projects::{Project, ProjectId};
+use scylla_domain::workspaces::{Workspace, WorkspaceId};
 use scylla_domain::Id;
 use scylla_testkit::{text, TestApp};
 use sqlx::PgPool;
@@ -15,8 +16,8 @@ authz! {
     extend Project as ProjectAudit {
         /// An actor that audits the project.
         relation auditor: Actor;
-        /// Read the audit log: the auditors and their delegates, and the project admins.
-        permission audit = auditor + auditor->act_for + delete;
+        /// Read the audit log: the auditors and the project admins.
+        permission audit = auditor + delete;
     }
 }
 
@@ -24,53 +25,56 @@ authz! {
 struct Widget;
 
 authz! {
-    /// The grants on one widget.
+    /// The roles on one widget.
     definition widget for Widget {
         /// An actor that can use the widget.
         relation operator: Actor;
-        /// Use the widget: its operators and their delegates.
-        permission operate = operator + operator->act_for;
+        /// Use the widget: its operators.
+        permission operate = operator;
     }
 }
 
-/// Creates a project for an owner and returns its id.
-async fn project_of(app: &TestApp, owner: ActorId) -> ProjectId {
+/// Creates a project in the personal workspace of an owner, and returns the two ids.
+async fn project_of(app: &TestApp, owner: ActorId) -> (ProjectId, WorkspaceId) {
     let project = app.create_project(owner, "alpha").await.unwrap();
-    ProjectId::parse(text(&project.id)).unwrap()
+    let id = ProjectId::parse(text(&project.id)).unwrap();
+    (id, WorkspaceId::parse(text(&project.workspace_id)).unwrap())
 }
 
-/// The owner, its delegates and a project admin can delete a project. A viewer can only read
-/// it, and another actor can do nothing.
+/// The owner of the workspace, a workspace admin and a project admin delete a project. A
+/// workspace member and a project viewer only read it, and another actor can do nothing.
 #[sqlx::test(migrations = false)]
 async fn the_roles_give_their_permissions(pool: PgPool) {
     // given
     let app = app(pool).await;
     let owner = app.user().await;
-    let delegate = app.user().await;
-    let admin = app.user().await;
-    let viewer = app.user().await;
-    let stranger = app.user().await;
-    let project = project_of(&app, owner).await;
-    let grants = [
-        Actor::DELEGATE.of(owner, delegate),
+    let (workspace_admin, member) = (app.user().await, app.user().await);
+    let (admin, viewer, stranger) = (app.user().await, app.user().await, app.user().await);
+    let (project, workspace) = project_of(&app, owner).await;
+    let roles = [
+        Workspace::ADMIN.of(workspace, workspace_admin),
+        Workspace::MEMBER.of(workspace, member),
         Project::ADMIN.of(project, admin),
         Project::VIEWER.of(project, viewer),
     ];
-    app.grant(&grants).await;
-    let delete = || Project::DELETE_PROJECT.on(project).owned_by(owner);
-    let view = || Project::VIEW.on(project).owned_by(owner);
+    app.grant(&roles).await;
+    let delete = || Project::DELETE_PROJECT.on(project).within(workspace);
+    let read = || Project::GET_PROJECT.on(project).within(workspace);
 
     // when
     let owner_deletes = app.can(owner, delete()).await;
-    let delegate_deletes = app.can(delegate, delete()).await;
+    let workspace_admin_deletes = app.can(workspace_admin, delete()).await;
     let admin_deletes = app.can(admin, delete()).await;
+    let member_deletes = app.can(member, delete()).await;
     let viewer_deletes = app.can(viewer, delete()).await;
-    let viewer_reads = app.can(viewer, view()).await;
-    let stranger_reads = app.can(stranger, view()).await;
+    let member_reads = app.can(member, read()).await;
+    let viewer_reads = app.can(viewer, read()).await;
+    let stranger_reads = app.can(stranger, read()).await;
 
     // then
-    assert!(owner_deletes && delegate_deletes && admin_deletes && viewer_reads);
-    assert!(!viewer_deletes && !stranger_reads);
+    assert!(owner_deletes && workspace_admin_deletes && admin_deletes);
+    assert!(member_reads && viewer_reads);
+    assert!(!member_deletes && !viewer_deletes && !stranger_reads);
 }
 
 /// An edition adds a relation and a permission to the core definition of the projects.
@@ -82,11 +86,11 @@ async fn an_edition_adds_a_permission_to_a_core_definition(pool: PgPool) {
     let owner = app.user().await;
     let auditor = app.user().await;
     let stranger = app.user().await;
-    let project = project_of(&app, owner).await;
+    let (project, workspace) = project_of(&app, owner).await;
     app.grant(&[ProjectAudit::AUDITOR.of(project, auditor)])
         .await;
-    let audit = || ProjectAudit::AUDIT.on(project).owned_by(owner);
-    let delete = Project::DELETE_PROJECT.on(project).owned_by(owner);
+    let audit = || ProjectAudit::AUDIT.on(project).within(workspace);
+    let delete = Project::DELETE_PROJECT.on(project).within(workspace);
 
     // when
     let auditor_audits = app.can(auditor, audit()).await;
@@ -99,8 +103,8 @@ async fn an_edition_adds_a_permission_to_a_core_definition(pool: PgPool) {
     assert!(!auditor_deletes && !stranger_audits);
 }
 
-/// An edition adds a definition: the owner of a widget passes, and an operator passes on its
-/// widget only.
+/// An edition adds a definition: the owner of the workspace of a widget passes, and an operator
+/// passes on its widget only.
 #[sqlx::test(migrations = false)]
 async fn an_edition_adds_a_definition(pool: PgPool) {
     // given
@@ -109,10 +113,11 @@ async fn an_edition_adds_a_definition(pool: PgPool) {
     let owner = app.user().await;
     let operator = app.user().await;
     let stranger = app.user().await;
+    let workspace = app.workspace_of(owner).await;
     let widget = Id::<Widget>::generate();
     let other = Id::<Widget>::generate();
     app.grant(&[Widget::OPERATOR.of(widget, operator)]).await;
-    let operate = |id: Id<Widget>| Widget::OPERATE.on(id).owned_by(owner);
+    let operate = |id: Id<Widget>| Widget::OPERATE.on(id).within(workspace);
 
     // when
     let owner_operates = app.can(owner, operate(widget)).await;

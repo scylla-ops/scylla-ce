@@ -1,113 +1,101 @@
-//! The tests of ownership: an owner needs no grant and no SpiceDB, and a grant on an owner goes
-//! down to what it owns.
+//! The tests of ownership: the owner of a workspace needs no role and no SpiceDB, and a role in
+//! a workspace goes down to its projects.
 
-use scylla_domain::actors::Actor;
-use scylla_proto::projects::v1::{CreateProjectRequest, DeleteProjectRequest, Project};
+use scylla_domain::workspaces::{Workspace, WorkspaceId};
+use scylla_proto::projects::v1::CreateProjectRequest;
 use scylla_testkit::{id, text, with_token, TestApp};
 use sqlx::PgPool;
-use tonic::{Code, Status};
+use tonic::Code;
 
-use crate::agents::agent_of;
+use crate::agents::agent_in;
 use crate::{app, assert_code};
 
-/// Calls `CreateProject` with a token, for the actor of the token.
-async fn create_as(app: &TestApp, token: &str) -> Project {
-    let request = CreateProjectRequest {
-        owner_id: None,
-        name: "alpha".to_owned(),
-    };
-    let response = app
-        .projects
-        .clone()
-        .create_project(with_token(token, request))
-        .await
-        .unwrap();
-    response.into_inner().project.unwrap()
+/// Makes a creation request in a workspace.
+fn create_in(workspace: WorkspaceId) -> CreateProjectRequest {
+    CreateProjectRequest {
+        workspace_id: Some(id(workspace.to_string())),
+        name: "by agent".to_owned(),
+    }
 }
 
-/// Calls `DeleteProject` with a token.
-async fn delete_as(app: &TestApp, token: &str, project: &Project) -> Result<(), Status> {
-    let request = DeleteProjectRequest {
-        project_id: Some(id(text(&project.id))),
-    };
-    app.projects
-        .clone()
-        .delete_project(with_token(token, request))
-        .await?;
-    Ok(())
-}
-
-/// A user deletes a project of its agent, but the agent cannot delete a project of its user.
+/// A role in a workspace goes down to each project in it, also to a project created later.
 #[sqlx::test(migrations = false)]
-async fn an_owner_acts_on_what_its_agents_own(pool: PgPool) {
+async fn a_role_in_a_workspace_goes_down_to_its_projects(pool: PgPool) {
     // given
     let app = app(pool).await;
-    let user = app.user().await;
-    let (agent, agent_token) = agent_of(&app, user).await;
-    let agent_project = create_as(&app, &agent_token).await;
-    let user_project = app.create_project(user, "own").await.unwrap();
+    let owner = app.user().await;
+    let member = app.user().await;
+    let workspace = app.workspace_of(owner).await;
+    let before = app.create_project(owner, "before").await.unwrap();
+    app.grant(&[Workspace::MEMBER.of(workspace, member)]).await;
+    let after = app.create_project(owner, "after").await.unwrap();
 
     // when
-    let by_agent = delete_as(&app, &agent_token, &user_project).await;
-    let by_user = app.delete_project(user, text(&agent_project.id)).await;
+    let read_before = app.get_project(member, text(&before.id)).await;
+    let read_after = app.get_project(member, text(&after.id)).await;
+    let listed = app.visible_projects(member, None).await.unwrap();
 
     // then
-    assert_eq!(text(&agent_project.owner_id), agent.to_string());
-    assert_code(by_agent, Code::PermissionDenied);
-    assert!(by_user.is_ok(), "{by_user:?}");
+    assert!(read_before.is_ok(), "{read_before:?}");
+    assert!(read_after.is_ok(), "{read_after:?}");
+    assert_eq!(listed, ["before", "after"]);
 }
 
-/// A delegate of a user deletes a project of the agent of the user: a grant on an owner goes
-/// down to what the owner owns.
+/// An agent acts with the role that an admin gives it, and only in its workspace.
 #[sqlx::test(migrations = false)]
-async fn a_grant_on_an_owner_goes_down(pool: PgPool) {
+async fn an_agent_acts_with_its_role(pool: PgPool) {
     // given
     let app = app(pool).await;
-    let user = app.user().await;
-    let delegate = app.user().await;
-    let stranger = app.user().await;
-    let (_, agent_token) = agent_of(&app, user).await;
-    let project = create_as(&app, &agent_token).await;
-    app.grant(&[Actor::DELEGATE.of(user, delegate)]).await;
+    let owner = app.user().await;
+    let other = app.user().await;
+    let workspace = app.workspace_of(owner).await;
+    let elsewhere = app.workspace_of(other).await;
+    let (agent, token) = agent_in(&app, owner, workspace).await;
+    let mut client = app.projects.clone();
 
     // when
-    let by_stranger = app.delete_project(stranger, text(&project.id)).await;
-    let by_delegate = app.delete_project(delegate, text(&project.id)).await;
+    let without_role = client
+        .create_project(with_token(&token, create_in(workspace)))
+        .await;
+    app.grant(&[Workspace::MEMBER.of(workspace, agent)]).await;
+    let with_role = client
+        .create_project(with_token(&token, create_in(workspace)))
+        .await;
+    let in_other = client
+        .create_project(with_token(&token, create_in(elsewhere)))
+        .await;
 
     // then
-    assert_code(by_stranger, Code::PermissionDenied);
-    assert!(by_delegate.is_ok(), "{by_delegate:?}");
+    assert_code(without_role, Code::PermissionDenied);
+    assert!(with_role.is_ok(), "{with_role:?}");
+    assert_code(in_other, Code::PermissionDenied);
 }
 
-/// An owner creates, lists and deletes its projects with no SpiceDB. Only a grant needs it.
+/// The owner of a workspace creates, lists, reads and deletes its projects with no SpiceDB. A
+/// member needs SpiceDB.
 #[sqlx::test(migrations = false)]
 async fn an_owner_needs_no_spicedb(pool: PgPool) {
     // given
     let app = TestApp::spawn_without_spicedb(pool, scylla_ce::edition()).await;
     let owner = app.user().await;
-    let delegate = app.user().await;
-    let for_owner = CreateProjectRequest {
-        owner_id: Some(id(owner.to_string())),
-        name: "beta".to_owned(),
-    };
+    let member = app.user().await;
+    let workspace = app.workspace_of(owner).await;
 
     // when
     let created = app.create_project(owner, "alpha").await;
-    let listed = app.list_projects(owner, 10, "").await;
+    let listed = app.visible_projects(owner, None).await;
     let project_id = created
         .as_ref()
         .map(|project| text(&project.id).to_owned())
         .unwrap_or_default();
+    let read = app.get_project(owner, &project_id).await;
     let deleted = app.delete_project(owner, &project_id).await;
-    let by_delegate = app
-        .projects
-        .clone()
-        .create_project(app.authed(delegate, for_owner).await)
-        .await;
+    let by_member = app.create_project_in(member, workspace, "beta").await;
 
     // then
     assert!(created.is_ok(), "{created:?}");
-    assert!(listed.is_ok(), "{listed:?}");
+    assert_eq!(listed.unwrap(), ["alpha"]);
+    assert!(read.is_ok(), "{read:?}");
     assert!(deleted.is_ok(), "{deleted:?}");
-    assert_code(by_delegate, Code::Unavailable);
+    assert_code(by_member, Code::Unavailable);
 }

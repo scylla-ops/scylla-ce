@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.user_id, u.status, s.refresh_hash,\n                  (s.revoked_at IS NOT NULL OR s.expires_at <= now()) AS \"closed!\"\n           FROM sessions s JOIN users u ON u.id = s.user_id\n           WHERE s.id = $1\n           FOR UPDATE OF s",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "refresh_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "refresh_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "closed!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "dd4e163b9d78f11a2f127246a1d1b3a7d5b6b6f3a5823956d8ea0308daadc807"
+}

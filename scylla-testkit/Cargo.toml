@@ -13,6 +13,7 @@ scylla-core.workspace = true
 scylla-domain.workspace = true
 scylla-extension.workspace = true
 scylla-proto.workspace = true
+serde_json.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 tonic.workspace = true

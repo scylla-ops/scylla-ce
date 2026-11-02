@@ -9,12 +9,15 @@ pub mod authz;
 mod codec;
 mod error;
 mod id;
+mod name;
 pub mod page;
 pub mod projects;
 mod resource;
 pub mod users;
+pub mod workspaces;
 
 pub use error::DomainError;
 pub use id::Id;
+pub use name::Name;
 pub use resource::ResourceKind;
 pub use scylla_macros::authz;

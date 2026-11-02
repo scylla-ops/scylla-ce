@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE user_emails SET verified_at = coalesce(verified_at, now())\n         WHERE email = $1 AND user_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e93d4903ab0d310fb0df408bd3b38c05c5421ca63dc25d39bb37b7a38ad23760"
+}

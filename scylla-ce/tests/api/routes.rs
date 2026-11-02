@@ -21,8 +21,10 @@ use crate::assert_code;
 authz! {
     /// The route of the test service, on the caller.
     extend Actor as TestRoutes {
+        /// The group of the test routes.
+        permission everything = nil;
         /// The route `GetCapabilities` of the test service.
-        permission get_capabilities = act_for;
+        permission get_capabilities = everything;
     }
 }
 
@@ -57,7 +59,7 @@ impl CapabilityService for TestRoute {
         let me = caller.actor.id;
         let check = match self.mode {
             Mode::Nothing => None,
-            Mode::Group => Some(Actor::ACT_FOR.on(me)),
+            Mode::Group => Some(TestRoutes::EVERYTHING.on(me)),
             Mode::Own => Some(TestRoutes::GET_CAPABILITIES.on(me)),
             Mode::Fail => return Err(Status::invalid_argument("refused by the test route")),
         };

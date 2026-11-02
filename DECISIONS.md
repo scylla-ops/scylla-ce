@@ -22,14 +22,14 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 4. Actors
 
-- **Decision:** one table `actors (id, kind, owner_id, created_at)`. `ActorKind` is open. The core defines the kinds of its features (`user`, `agent`), and an edition adds its own. An actor can have an owner actor: the user of an agent, later the organization of a team. A feature that needs details for a kind adds its own table with `id REFERENCES actors (id)`.
-- **Why:** a person, a bot or a later kind can act and own resources, and each reference keeps a real foreign key. The owner of an actor makes a tree of ownership (see 29).
-- **Not kept:** one table for each kind with no common identity (no common foreign key); a pair `(kind, id)` with no foreign key (no integrity).
+- **Decision:** one table `actors (id, kind, created_at)`. `ActorKind` is open. The core defines the kinds of its features (`user`, `agent`), and an edition adds its own. A feature that needs details for a kind adds its own table with `id REFERENCES actors (id)`: `users`, `agents`. An actor has no owner and no role on another actor: it acts only for itself.
+- **Why:** a person, a bot or a later kind can act, and each reference keeps a real foreign key. The rights come from the workspaces (see 32), not from a tree of actors.
+- **Not kept:** one table for each kind with no common identity (no common foreign key); a pair `(kind, id)` with no foreign key (no integrity); an owner of an actor and the role `delegate` (a second way to give rights, next to the roles in a workspace).
 
-## 5. Owner and author
+## 5. Workspace and author
 
-- **Decision:** a resource has `owner_id` (who owns it) and `created_by` (who did it). A request that names no owner creates for the caller.
-- **Why:** an actor can act for another actor. Limits count by owner, an audit reads the author.
+- **Decision:** a resource has one container, its workspace (`workspace_id`), and an author (`created_by`). A creation names its workspace. Only a workspace has owners: the rows of `workspace_owners`, one user or more (see 38).
+- **Why:** a resource belongs to its workspace, not to a person: it stays when its author leaves. Limits count by workspace, an audit reads the author.
 
 ## 6. Zero trust
 
@@ -45,9 +45,9 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 8. How each actor gets a token
 
-- **Decision:** `TokenService` has two exchanges. An agent signs a short assertion (agent id, key id, audience `scylla`, expiry of at most 2 minutes, nonce) with its Ed25519 private key: `ExchangeAgentAssertion`. A person gives an OIDC ID token: `ExchangeIdToken`, with issuer, audience, expiry and a JWKS signature checked (no HMAC). The first sign-in creates the user. The CLI `token create` signs a token for a first admin.
-- **Why:** an agent keeps its private key, and the server keeps only the public key: nothing secret is stored. The nonce table stops a replay. The persons use the identity provider of the company, with its SSO and MFA.
-- **Not kept:** a shared secret for agents; a password store in Scylla.
+- **Decision:** an agent signs a short assertion (agent id, key id, audience `scylla`, expiry of at most 2 minutes, nonce) with its Ed25519 private key: `ExchangeAgentAssertion`. A person signs in with a password (`AccountService.SignIn`), with an identity provider in a browser (`/auth/<slug>/start`, see 35), or with the OIDC ID token of a native client (`ExchangeIdToken`, issuer, audience, expiry and a JWKS signature checked, no HMAC). Each sign-in of a person opens a session (see 34). The CLI `token create` signs a token for a first admin.
+- **Why:** an agent keeps its private key, and the server keeps only the public key. The nonce table stops a replay. A person can use the identity provider of the company, or an account of Scylla (see 33).
+- **Not kept:** a shared secret for agents.
 
 ## 9. Opaque ids
 
@@ -104,20 +104,20 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 19. SpiceDB permissions
 
-- **Decision:** SpiceDB holds the grants, in Postgres (its own database). The subject is always `actor`, so the actor kinds stay open. `actor#act_for = delegate`: the delegates of an actor act for it. A project has the roles `admin`, `editor` and `viewer` (`role + role->act_for`), with the groups `delete`, `edit` and `view`, and each route has its own permission (see 28). Each plugin registers the model of its types (`EditionBuilder::authz`, see 25), and `migrate` writes the full schema.
-- **Why:** roles, sharing and delegation are relations, not code. An edition adds its definitions with no change to the core. The owners are not in SpiceDB (see 29).
+- **Decision:** SpiceDB holds the roles, in Postgres (its own database). The subject is always `actor`, so the actor kinds stay open. A workspace has the roles `admin`, `member` and `viewer`, with the groups `manage`, `work` and `read`. A project has the roles `admin`, `editor` and `viewer`, with the groups `delete`, `edit` and `view`. Each route has its own permission (see 28). Each plugin registers the model of its types (`EditionBuilder::authz`, see 25), and `migrate` writes the full schema.
+- **Why:** roles and sharing are relations, not code. An edition adds its definitions with no change to the core. The owners of the workspaces are not in SpiceDB (see 29).
 - **Not kept:** permission checks in SQL in each feature.
 
 ## 20. Consistency between Postgres and SpiceDB
 
-- **Decision:** no write goes to the two stores. A creation or a delete changes Postgres only. A grant changes SpiceDB only. After a delete, the server removes the grants on the object, and logs a failure. Each check that reaches SpiceDB is fully consistent.
+- **Decision:** no write goes to the two stores. A creation or a delete changes Postgres only. A grant changes SpiceDB only. After a delete, the server removes the roles on the object, and logs a failure. An accepted invitation writes its role first, then marks the invitation: a retry writes the same role again with no harm. Each check that reaches SpiceDB is fully consistent.
 - **Why:** a commit can fail in more than one way, and its result can even be unknown. With one store for each write, no undo is necessary. A grant on a deleted object reaches nothing, because each route reads the object from Postgres first, and ids are never used again. SpiceDB can answer from a cache up to 5 seconds old: a check just after a grant would give a false refusal, so correctness comes first. A ZedToken can make a check faster later (`Check::at_least_as_fresh`).
 - **Not kept:** the owner written to SpiceDB before the commit, and deleted again after a failed commit (an unknown commit result leaves an owner with no right); a transactional outbox (a worker, a refusal just after a create, and one write for each resource).
 
 ## 21. An unknown resource gives `PERMISSION_DENIED`
 
-- **Decision:** a delete of an unknown project gives the same answer as a delete without the permission. The route reads the owner first: no owner gives the refusal, with the same message.
-- **Why:** a caller does not learn which ids exist.
+- **Decision:** a route on an unknown object gives the same answer as a route without the permission. `GetWorkspace`, `GetProject`, `DeleteProject`, `Grant` and `Revoke` read the object from Postgres first: no row gives `AccessError::denied(&check)`, the refusal of the gate, with the same message. A route on an unknown workspace fails its check, because no owner and no role exist. The account routes give the same answer for a known and an unknown email (see 33).
+- **Why:** a caller does not learn which ids or emails exist.
 
 ## 22. gRPC-Web
 
@@ -155,12 +155,66 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 28. One permission for each route
 
-- **Decision:** each route that verifies a token checks its own permission: the RPC name in snake case, on the object of the route. `CreateProject` checks `create_project` on the owner. `DeleteProject` checks `delete_project` on the project and on its owners. A route permission uses a group: `act_for`, `delete`, `edit`, `view`. A feature adds the permissions of its routes on an owner with `extend Actor as <Feature>Owner`, and on the object only when one object can be shared. The gate refuses a check of a permission that is not the route permission. After the route, the server refuses a success when the route verified a token and passed no check of its route permission: it answers `PERMISSION_DENIED` and logs an error.
+- **Decision:** each route that verifies a token checks its own permission: the RPC name in snake case, on the object of the route. `CreateProject` checks `create_project` on the workspace. `DeleteProject` checks `delete_project` on the project and on its workspace. A route of the caller itself checks its permission on the caller: `ListProjects`, `ListWorkspaces`, `CreateWorkspace`, `AcceptInvitation` and the routes of `ProfileService`. A route permission uses a group: `manage`, `work`, `read` in a workspace, `delete`, `edit`, `view` on a project, `nil` on the caller. A feature adds the permissions of its routes on the workspace with `extend Workspace as <Feature>Holder`, on the caller with `extend Actor as <Feature>Caller`, and on the object only when one object can be shared. The gate refuses a check of a permission that is not the route permission. After the route, the server refuses a success when the route verified a token and passed no check of its route permission: it answers `PERMISSION_DENIED` and logs an error.
 - **Why:** a role can give one route and not the others: a quota reader reads quotas and creates nothing. Groups keep the common case short, and a new role changes the schema, not the code. A route that forgets its check, or that checks a group, fails in the tests of its success.
 - **Not kept:** checks of groups in the routes (a new role gives all the routes of the group, or a change of code); a list of route permissions in a table (a second source next to the schema); a stop before the route runs when a check is missing (the server does not know the object of the route before the route reads the request). A route that must also check the permission of another route needs a new decision.
 
-## 29. Ownership in Postgres, grants in SpiceDB
+## 29. The owners of a workspace in Postgres, the roles in SpiceDB
 
-- **Decision:** Postgres holds who owns what: `owner_id` of a resource, and `actors.owner_id` (the user of an agent). SpiceDB holds only the rights that a person gives on purpose: delegates, roles on an owner, roles on one object. The gate finds the rights of a request in this order: the caller is the owner of the object, or an actor above the owner, with no SpiceDB call; else one `CheckBulkPermissions` call asks for the route permission on the object and on each actor of the owner chain. A grant on an actor goes down to all that it owns. A check of an object that is not an actor names the owner: `Project::DELETE_PROJECT.on(id).owned_by(owner)`.
-- **Why:** a creation or a delete is one Postgres transaction, with no write to SpiceDB and no undo. Most requests are by the owner and need no SpiceDB call. SpiceDB stores only the grants, not one relationship for each actor and resource. The owner is business data: lists, quotas under concurrency, foreign keys and hooks read it in SQL. A grant on one object stays possible, for precise sharing.
-- **Not kept:** the owner in SpiceDB only (a SpiceDB write at each creation, no sorted lists, no quota lock, no foreign key); the owner in the two stores (two copies that must agree after each commit); the model of Kubernetes, with roles only on an owner (no sharing of one object).
+- **Decision:** Postgres holds the containers and their owners: `workspace_owners`, and the `workspace_id` of each resource. SpiceDB holds only the roles that a person gives on purpose: in a workspace, or on one object. The gate finds the rights of a request in this order: the caller is the object itself (a route on the caller), or an owner of the workspace, with no SpiceDB call; else one `CheckBulkPermissions` call asks for the route permission on the object and on its workspace. A role in a workspace goes down to all that is in it. A check of an object in a workspace names it: `Project::DELETE_PROJECT.on(id).within(workspace)`.
+- **Why:** a creation or a delete is one Postgres transaction, with no write to SpiceDB and no undo. The owners of a workspace never lose access, even with SpiceDB down. SpiceDB stores only the roles, not one relationship for each resource. The workspace is business data: lists, quotas under concurrency, foreign keys and hooks read it in SQL. A role on one object stays possible, for precise sharing.
+- **Not kept:** the container in SpiceDB (a SpiceDB write at each creation, no sorted lists, no quota lock, no foreign key); an owner on each resource (see 32).
+
+## 30. Roles given with `AccessService`
+
+- **Decision:** `AccessService` gives a role with `Grant` and takes it back with `Revoke`. A request names an object (`kind` and `id`), a role and an actor. The edition has a registry of the roles that a person can give: a plugin registers a kind with `.grants(Project::GRANT, Project::REVOKE, Some(service::find_workspace))`, then each role with `.role(Project::VIEWER)`. An edition adds a role to a core kind, for example `.role(QuotaHolder::QUOTA_READER)`. The route permissions are `grant` and `revoke` on the object, with its workspace from Postgres. They are `admin`: only the owners of the workspace and the direct admins give or take back roles. `Grant` needs an actor that exists. A `Revoke` of a role that the actor does not have is not an error. An unknown kind, a bad id and a name that is not a registered role are request errors.
+- **Why:** one service for all kinds, and only the roles of the registry: a permission, or a relation that a plugin did not register, cannot be written. The plugin that owns a kind tells how to find its workspace, so the check is the same as on the other routes.
+- **Not kept:** a `Grant` RPC in each service (the same code in each feature); a grant written as text (the typed `Relation` gives the kind and the name).
+
+## 31. A list shows what the caller can see
+
+- **Decision:** `ListProjects` returns the projects of the workspaces that the caller owns, of the workspaces where it has a role that lists them, and each project shared with it. `ListWorkspaces` returns the workspaces that the caller owns and the workspaces where it has a role. Postgres gives the owned workspaces. SpiceDB reverse lookups (`LookupResources`, fully consistent) give the others. `workspace_id` is a filter: it causes no refusal. If a lookup fails, the list shows the owned ones only, and the server logs a warning.
+- **Why:** a project shared with an actor must be in its list, or the share is of no use. The owner path stays in Postgres, so an owner lists its projects with no SpiceDB. With a share of one project, a caller can see some projects of a workspace and not the others: the filter returns the visible ones.
+- **Not kept:** an error when SpiceDB does not answer (the owner path does not need SpiceDB). A caller with very many roles makes one long lookup: a cursor on the lookup is a later change.
+
+## 32. Workspaces
+
+- **Decision:** a workspace is the top-level container: `workspaces (id, name, created_at)`. Each project and each agent is in one workspace. Its owners are users, in their own table (see 38). A new user gets a personal workspace, and becomes its owner, in the transaction of its creation. A user creates more workspaces with `CreateWorkspace`, and becomes their first owner. A person joins a workspace by an invitation (see 37) or a role from `Grant`.
+- **Why:** a resource belongs to its team, not to a person. The owners keep a root that never loses access. Quotas, lists and later the SSO of a company have one natural scope. The name follows Slack and Linear.
+- **Not kept:** an owner on each resource (the owner leaves, the resource stays); folders between the workspace and the projects (a later layer: the gate chain can grow); the name "organization".
+
+## 38. The owners of a workspace are a relation
+
+- **Decision:** `workspace_owners (workspace_id, user_id, created_at)` holds the owners, with the primary key `(workspace_id, user_id)`. A workspace has one owner or more. `WorkspaceService` changes them with `AddOwner` and `RemoveOwner`, and reads them with `ListOwners`. Only an owner changes the owners: `add_owner` and `remove_owner` are `nil` in the schema, so no role gives them. `ListOwners` needs `read`. An owner can take out another owner or itself. `RemoveOwner` locks the row of the workspace, deletes, counts, and refuses with `LAST_OWNER` when no owner stays. A second `AddOwner` of the same user changes nothing, and so does a `RemoveOwner` of a user that is not an owner. Only a user can be an owner: an agent or an unknown id gives `NOT_FOUND`. The migration `workspace_owners` copied each `owner_id` to a row, then removed the column.
+- **Why:** an owner is a relation between a person and a workspace, not an attribute of the workspace. A column gives a workspace to one person only, and a team must not depend on one person. The owners stay in Postgres for the reasons of 29: a creation is one transaction, and the owners keep access with SpiceDB down. The last-owner rule holds under concurrent removals for the reason of the Enterprise project limit: each removal takes the lock of the workspace first, and in READ COMMITTED the count after the lock sees each removal that a previous holder committed. An addition does not take the lock: it can only cause a refusal, never a workspace with no owner. Without the lock, `two_owners_cannot_take_each_other_out` failed on 3 runs of 3.
+- **Not kept:** `workspaces.owner_id` (one person only); an `owner` relation in SpiceDB (a SpiceDB write at each creation, see 29); `owner` as a role of `AccessService` (two stores behind one API); a group or an agent as an owner (a later change: a table of its own, or a principal type).
+
+## 33. Accounts in Scylla
+
+- **Decision:** Scylla keeps its own users: `users` (profile and status `pending`, `active` or `disabled`), `user_emails`, `passwords` (Argon2id, off the async threads), and `external_identities` (provider and subject). One user has many ways to sign in. `SignUp` follows `SCYLLA_SIGN_UP_MODE`: `open`, `invite_only` (the default) or `closed`. The CLI `user create` makes a first admin. A sign-up sends a one-time link that verifies the email, and an invitation link verifies it too. A password has 15 to 128 characters and no other rule (NIST SP 800-63B for a single factor). A wrong password and an unknown email get the same answer. A known email at sign-up gets the same answer, and its owner gets a mail. 5 failures lock the account for a time that grows to one hour. A reset link works one hour and closes each session. The database keeps only the hashes of the one-time tokens.
+- **Why:** a self-hosted install needs accounts with no other service, and a company can still use its identity provider (see 35). The rules come from OWASP and NIST: no enumeration, slow hashes, short links, and a lock that does not tell which accounts exist.
+- **Not kept:** an identity provider as the only way (one more heavy service for each install); a headless identity service next to Scylla (one more service and database). Not in this change: MFA, passkeys, magic links, personal tokens, a check against breached passwords, and a limit for each IP address.
+
+## 34. Sessions
+
+- **Decision:** each sign-in of a person opens a session: `sessions (id, user_id, refresh_hash, methods, expires_at, revoked_at)`, for `SCYLLA_SESSION_TTL_DAYS` (30). The refresh token is `<session id>.<secret>`, and the database keeps the hash of the secret. `Refresh` gives a new token and a new secret, and the old secret stops. An old secret that comes again closes the session. Each access token of a person names its session (`session(id)` in the first block). The gate refuses a token of a closed or expired session, or of a disabled user, in the query of the revocations. A browser keeps the refresh token in an HttpOnly cookie `scylla_session` (`SameSite=Lax`, `Secure` with HTTPS), and a refresh with the cookie needs an `Origin` of `SCYLLA_CORS_ORIGINS`. `SignOut`, `RevokeSession`, and a reset or a change of the password close sessions at once.
+- **Why:** a short access token keeps the offline check of Biscuit (see 7), and the session gives a way to stop a person at once. The rotation and the reuse check find a stolen refresh token. A cookie keeps the refresh token away from the scripts of the page.
+- **Not kept:** long-lived access tokens (no stop before their end); a refresh token in the storage of the browser (the scripts of the page can read it). Two tabs that refresh at the same time can close the session: a grace time for the old secret is a later change.
+
+## 35. Sign-in with an identity provider
+
+- **Decision:** the identity providers are rows of `identity_providers`, with a kind and its settings in JSON: `oidc` (any OpenID Connect provider) and `github` (OAuth 2 and the API, for GitHub and GitHub Enterprise Server). The CLI adds and changes them (`provider add-oidc`, `provider add-github`), and their client secrets are encrypted with `SCYLLA_SECRET_KEY` (XChaCha20-Poly1305). A browser opens `/auth/<slug>/start`: the server stores the sign-in for 10 minutes with a state, a PKCE verifier and a nonce, sets the cookie `scylla_flow`, and sends the browser to the provider. `/auth/<slug>/callback` takes the sign-in of the state one time, needs the cookie of the same browser, exchanges the code, checks the ID token and its nonce, opens a session in the session cookie, and goes back to the web app. A return address must be in the web app. These HTTP routes are next to the gRPC routes, outside the gRPC-Web layer, which refuses other HTTP/1.1 requests. A native client gives an ID token to `ExchangeIdToken`, and its issuer names the provider. A new identity makes a user only if the provider allows sign-up, the sign-up mode allows it (an open invitation for the email in `invite_only`), and the provider gives a verified email that no account has.
+- **Why:** an operator adds a provider with no new release, and a kind is code in one place. The state, the PKCE verifier, the nonce and the browser cookie stop a forged callback, a stolen code, and a sign-in in the browser of another person. The server keeps the client secret, which the browser must never see.
+- **Not kept:** the provider in the settings of the server (one provider only, and a restart for each change); a trait of the extension crate for the kinds (it comes with the first EE kind, SAML).
+
+## 36. No automatic link by email
+
+- **Decision:** an identity of a provider is never linked to an account because the emails match. A new identity with the email of an account is refused (`EMAIL_IN_USE`). The person signs in to the account first, then opens `/auth/<slug>/start?link=true` with its session cookie, and the callback needs the session of the same user. An identity of another user is refused (`IDENTITY_IN_USE`). `UnlinkIdentity` cannot remove the last way to sign in.
+- **Why:** a provider can give an email that the person does not own. A link on the email alone gives the account to the person who controls that provider.
+- **Not kept:** an automatic link for a verified email (a provider can verify badly); an automatic link for a domain that a workspace owns (a later EE feature, with the proof of the domain).
+
+## 37. Invitations and mails
+
+- **Decision:** an admin of a workspace invites an email with a role (`CreateInvitation`). The link goes to that email only, and works 7 days. A user with this verified email accepts it (`AcceptInvitation`), or signs up with it in the mode `invite_only`. The mails go through the `Mailer` trait of the extension crate: SMTP (`SCYLLA_SMTP_URL`, lettre with rustls), or with no SMTP, a log of the recipient and the subject, never of the link. The dev compose has Mailpit (SMTP 51025, web 58025). A failed mail goes to the log, and the request does not fail.
+- **Why:** a link to an email proves that email, so the invited person needs no other check. An edition or a test can give its own mailer.
+- **Not kept:** the link in the answer of `CreateInvitation` (the admin could use it); a mail queue (a later change, if mails fail often).

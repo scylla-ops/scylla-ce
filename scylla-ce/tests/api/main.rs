@@ -1,16 +1,25 @@
 //! The gRPC API tests of the Community edition: one binary, one module per feature.
 
+mod accounts;
 mod agents;
 mod authz;
+mod browser;
 mod capabilities;
+mod grants;
 mod grpc_web;
 mod health;
+mod idp;
+mod invitations;
 mod oidc;
+mod owners;
 mod ownership;
 mod projects;
 mod routes;
+mod sessions;
+mod sign_in;
 mod tls;
 mod tokens;
+mod workspaces;
 
 use scylla_testkit::TestApp;
 use sqlx::PgPool;

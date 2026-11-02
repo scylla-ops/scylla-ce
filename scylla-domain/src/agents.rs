@@ -1,6 +1,7 @@
-//! The agents: the processes that run the steps of a pipeline for a user.
+//! The agents: the processes of a workspace that run the steps of a pipeline.
 
-use crate::actors::{Actor, ActorKind};
+use crate::actors::ActorKind;
+use crate::workspaces::Workspace;
 use crate::Id;
 
 /// The actor kind of an agent.
@@ -13,9 +14,9 @@ pub enum AgentKey {}
 pub type AgentKeyId = Id<AgentKey>;
 
 crate::authz! {
-    /// The routes of the agents that act on their owner.
-    extend Actor as AgentOwner {
-        /// The route `RegisterAgent`, for this owner.
-        permission register_agent = act_for;
+    /// The routes of the agents on their workspace.
+    extend Workspace as AgentHolder {
+        /// The route `RegisterAgent`, in this workspace: its admins.
+        permission register_agent = manage;
     }
 }

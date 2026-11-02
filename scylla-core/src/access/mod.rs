@@ -1,5 +1,6 @@
 //! Zero-trust access: short-lived Biscuit tokens, revocation, ownership, and SpiceDB grants.
 
+mod claims;
 mod gate;
 mod keys;
 mod operation;

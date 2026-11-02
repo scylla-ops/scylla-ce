@@ -48,6 +48,9 @@ pub enum Error {
     /// A database error: `INTERNAL`.
     #[error(transparent)]
     Database(#[from] sqlx::Error),
+    /// Another failure of the server: `INTERNAL`. The reason goes to the log only.
+    #[error("{0}")]
+    Internal(String),
     /// A migration failed.
     #[error(transparent)]
     Migrate(#[from] sqlx::migrate::MigrateError),

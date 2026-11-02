@@ -1,30 +1,27 @@
-//! `TestApp`: the real server on a free port, with a real gate, and one helper per core RPC.
+//! `TestApp`: the real server on a free port, with a real gate, its actors and its tokens.
 
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
 use scylla_core::access::{Access, AccessConfig, SpiceDb, TokenKeys};
-use scylla_core::features::actors;
+use scylla_core::features::{accounts, actors};
+use scylla_core::secret::Sealer;
 use scylla_core::server::{self, ServeOptions};
 use scylla_domain::actors::{ActorId, ActorKind};
 use scylla_domain::authz::{Check, Relationship, Schema};
+use scylla_domain::users::{Email, NewUser, Password};
+use scylla_domain::workspaces::WorkspaceId;
+use scylla_domain::Name;
 use scylla_extension::{AccessError, Edition, Gate, Operation};
-use scylla_proto::capabilities::v1::capability_service_client::CapabilityServiceClient;
-use scylla_proto::capabilities::v1::{GetCapabilitiesRequest, GetCapabilitiesResponse};
-use scylla_proto::common::v1 as common;
 use scylla_proto::projects::v1::project_service_client::ProjectServiceClient;
-use scylla_proto::projects::v1::{
-    CreateProjectRequest, DeleteProjectRequest, ListProjectsRequest, ListProjectsResponse, Project,
-};
 use sqlx::PgPool;
 use tokio::net::TcpListener;
-use tonic::metadata::MetadataValue;
 use tonic::transport::{Channel, Endpoint};
-use tonic::{Request, Status};
-use tonic_health::pb::health_check_response::ServingStatus;
-use tonic_health::pb::health_client::HealthClient;
-use tonic_health::pb::HealthCheckRequest;
+use tonic::Request;
+
+use crate::mail::Mailbox;
+use crate::rpc::with_token;
 
 /// The SpiceDB of the tests (`spicedb serve-testing`), unless `SCYLLA_TEST_SPICEDB_ENDPOINT`
 /// names another. It gives an empty store to each key.
@@ -48,6 +45,10 @@ pub struct TestApp {
     pub addr: std::net::SocketAddr,
     /// The client of `ProjectService`, for requests that no helper makes.
     pub projects: ProjectServiceClient<Channel>,
+    /// The mails that the server sent.
+    pub mails: Arc<Mailbox>,
+    /// The key of the client secrets of the server.
+    pub sealer: Arc<Sealer>,
 }
 
 impl TestApp {
@@ -73,18 +74,34 @@ impl TestApp {
         Self::start(pool, edition, ServeOptions::default(), access).await
     }
 
-    /// Applies the migrations of the edition, then starts its server with this gate.
-    async fn start(pool: PgPool, edition: Edition, options: ServeOptions, access: Access) -> Self {
+    /// Applies the migrations of the edition, then starts its server with this gate, a mailbox and
+    /// a new key of the client secrets.
+    async fn start(
+        pool: PgPool,
+        edition: Edition,
+        mut options: ServeOptions,
+        access: Access,
+    ) -> Self {
         // Apply the migrations to the test database.
         scylla_core::crypto::install();
         scylla_core::db::migrate(&pool, edition.migrators())
             .await
             .expect("migrations apply");
 
+        // Give the server a mailbox and a key of the client secrets.
+        let mails = Arc::new(Mailbox::default());
+        options.mailer = mails.clone();
+        let sealer = options
+            .sealer
+            .clone()
+            .unwrap_or_else(|| Arc::new(Sealer::generate().0));
+        options.sealer = Some(Arc::clone(&sealer));
+
         // Start the server on a free port, and connect to it.
         let access = Arc::new(access);
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("local addr");
+        options.accounts.api_url = format!("http://{addr}");
         tokio::spawn(server::serve(
             listener,
             pool.clone(),
@@ -104,6 +121,8 @@ impl TestApp {
             addr,
             projects: ProjectServiceClient::new(channel.clone()),
             channel,
+            mails,
+            sealer,
         }
     }
 
@@ -115,15 +134,44 @@ impl TestApp {
             .id
     }
 
-    /// Creates a user and returns its id.
+    /// Creates an active user with a new email and its personal workspace, and returns its id.
     pub async fn user(&self) -> ActorId {
-        self.actor_of(scylla_domain::users::KIND).await
+        let email = format!("{}@test.example", ActorId::generate());
+        self.user_with(&email, None).await
+    }
+
+    /// Creates an active user with a verified email, a password if one is given, and its
+    /// personal workspace, and returns its id.
+    pub async fn user_with(&self, email: &str, password: Option<&str>) -> ActorId {
+        let new = NewUser {
+            email: Email::parse(email.to_owned()).expect("email"),
+            email_verified: true,
+            display_name: Name::parse("Test User".to_owned()).expect("name"),
+            password: password.map(|text| Password::parse(text.to_owned()).expect("password")),
+        };
+        accounts::create_user(&self.pool, new)
+            .await
+            .expect("create user")
+            .id
+    }
+
+    /// Returns the first workspace that an actor owns: the personal workspace of a user.
+    pub async fn workspace_of(&self, owner: ActorId) -> WorkspaceId {
+        let id = sqlx::query_scalar!(
+            "SELECT workspace_id FROM workspace_owners WHERE user_id = $1
+             ORDER BY workspace_id LIMIT 1",
+            owner.to_db(),
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("a workspace of the owner");
+        WorkspaceId::from_db(id)
     }
 
     /// Signs a token for an actor.
     pub async fn token(&self, actor: ActorId) -> String {
         let actor = actors::find(&self.pool, actor).await.expect("actor");
-        self.gate().issue(&actor).expect("token").value
+        self.gate().issue(&actor, None).expect("token").value
     }
 
     /// Makes a request sent by an actor, with a fresh token.
@@ -164,75 +212,26 @@ impl TestApp {
         }
     }
 
-    /// Calls `CreateProject` as `actor`, for the actor itself.
-    pub async fn create_project(&self, actor: ActorId, name: &str) -> Result<Project, Status> {
-        let request = CreateProjectRequest {
-            owner_id: None,
-            name: name.to_owned(),
-        };
-        let request = self.authed(actor, request).await;
-        let response = self.projects.clone().create_project(request).await?;
-        Ok(response.into_inner().project.expect("project in response"))
-    }
-
-    /// Calls `ListProjects` as `actor`, for the projects of the actor.
-    pub async fn list_projects(
-        &self,
-        actor: ActorId,
-        size: i32,
-        token: &str,
-    ) -> Result<ListProjectsResponse, Status> {
-        let request = ListProjectsRequest {
-            owner_id: None,
-            page: Some(common::PageRequest {
-                size,
-                token: token.to_owned(),
-            }),
-        };
-        let request = self.authed(actor, request).await;
-        Ok(self
-            .projects
-            .clone()
-            .list_projects(request)
-            .await?
-            .into_inner())
-    }
-
-    /// Calls `DeleteProject` as `actor`. The id is text, so a test can send a bad id.
-    pub async fn delete_project(&self, actor: ActorId, project_id: &str) -> Result<(), Status> {
-        let request = DeleteProjectRequest {
-            project_id: Some(id(project_id)),
-        };
-        let request = self.authed(actor, request).await;
-        self.projects.clone().delete_project(request).await?;
-        Ok(())
-    }
-
-    /// Calls `GetCapabilities`, with no token.
-    pub async fn get_capabilities(&self) -> Result<GetCapabilitiesResponse, Status> {
-        let mut client = CapabilityServiceClient::new(self.channel.clone());
-        let response = client.get_capabilities(GetCapabilitiesRequest {}).await?;
-        Ok(response.into_inner())
-    }
-
-    /// Calls the standard health check for the whole server.
-    pub async fn health_check(&self) -> Result<ServingStatus, Status> {
-        let mut client = HealthClient::new(self.channel.clone());
-        let request = HealthCheckRequest {
-            service: String::new(),
-        };
-        Ok(client.check(request).await?.into_inner().status())
-    }
-
-    /// Counts the projects of an owner in the database.
-    pub async fn project_count(&self, owner: ActorId) -> i64 {
+    /// Counts the projects of a workspace in the database.
+    pub async fn project_count(&self, workspace: WorkspaceId) -> i64 {
         sqlx::query_scalar!(
-            r#"SELECT count(*) AS "count!" FROM projects WHERE owner_id = $1"#,
-            owner.to_db(),
+            r#"SELECT count(*) AS "count!" FROM projects WHERE workspace_id = $1"#,
+            workspace.to_db(),
         )
         .fetch_one(&self.pool)
         .await
         .expect("count projects")
+    }
+
+    /// Counts the owners of a workspace.
+    pub async fn owner_count(&self, workspace: WorkspaceId) -> i64 {
+        sqlx::query_scalar!(
+            r#"SELECT count(*) AS "count!" FROM workspace_owners WHERE workspace_id = $1"#,
+            workspace.to_db(),
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("count owners")
     }
 
     /// Returns the gate as the trait that the features use.
@@ -259,24 +258,4 @@ fn access_at(pool: PgPool, schema: Schema, endpoint: &str) -> Access {
         schema,
     };
     Access::new(pool, config)
-}
-
-/// Makes a request with a token in `authorization: Bearer`.
-pub fn with_token<M>(token: &str, message: M) -> Request<M> {
-    let mut request = Request::new(message);
-    let value = MetadataValue::try_from(format!("Bearer {token}")).expect("ascii token");
-    request.metadata_mut().insert("authorization", value);
-    request
-}
-
-/// Makes an id message from text.
-pub fn id(value: impl Into<String>) -> common::Id {
-    common::Id {
-        value: value.into(),
-    }
-}
-
-/// Returns the text of an id of a response.
-pub fn text(id: &Option<common::Id>) -> &str {
-    &id.as_ref().expect("id in response").value
 }

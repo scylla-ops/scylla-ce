@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT hash FROM passwords WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "passwords",
+            "name": "hash"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b83fb43325c8f2681aac89e3b6b3c7181930c6aaa6a575e6c1a19aa64e660349"
+}

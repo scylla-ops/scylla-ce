@@ -1,0 +1,81 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.id, p.workspace_id, p.created_by, p.name, p.created_at FROM projects p\n         WHERE (p.workspace_id IN (SELECT o.workspace_id FROM workspace_owners o WHERE o.user_id = $1)\n                OR p.workspace_id = ANY($2)\n                OR p.id = ANY($3))\n           AND ($4::uuid IS NULL OR p.workspace_id = $4)\n           AND ($5::uuid IS NULL OR p.id > $5)\n         ORDER BY p.id\n         LIMIT $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "UuidArray",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6862786f4947b80f669028f5b3746f79c59fb7042f729e9994086e5ab997cbff"
+}

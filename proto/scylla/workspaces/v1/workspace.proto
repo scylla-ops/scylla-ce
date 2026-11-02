@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package scylla.workspaces.v1;
+
+import "google/protobuf/timestamp.proto";
+import "scylla/common/v1/id.proto";
+
+// A workspace: the top-level container of the projects and the agents. ListOwners gives its
+// owners.
+message Workspace {
+  // The id of the workspace.
+  scylla.common.v1.Id id = 1;
+  // The display name, 1 to 100 characters, trimmed.
+  string name = 2;
+  // The creation time. The server sets it.
+  google.protobuf.Timestamp created_at = 3;
+}
+
+// An owner of a workspace: a user with each right in it, with no role. A workspace has one
+// owner or more.
+message WorkspaceOwner {
+  // The user.
+  scylla.common.v1.Id user_id = 1;
+  // The display name of the user.
+  string display_name = 2;
+  // When the user became an owner.
+  google.protobuf.Timestamp since = 3;
+}

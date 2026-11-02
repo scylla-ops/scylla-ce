@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package scylla.access.v1;
+
+import "scylla/common/v1/id.proto";
+
+// Gives and takes back the roles of actors on objects. The owners of the workspace of an
+// object need no role. Each RPC needs an authenticated actor, else UNAUTHENTICATED.
+service AccessService {
+  // Gives a role on an object to an actor. The caller needs the permission grant on the
+  // object. An unknown object gives PERMISSION_DENIED, as a refusal does.
+  rpc Grant(GrantRequest) returns (GrantResponse);
+  // Takes back a role on an object from an actor. The caller needs the permission revoke on
+  // the object.
+  rpc Revoke(RevokeRequest) returns (RevokeResponse);
+}
+
+// An object of the permission model.
+message ObjectRef {
+  // The kind of the object: the name of its definition, for example project or actor.
+  string kind = 1;
+  // The id of the object.
+  scylla.common.v1.Id id = 2;
+}
+
+// The input of Grant.
+message GrantRequest {
+  // The object of the role. Required.
+  ObjectRef object = 1;
+  // The role: a relation of the definition, for example viewer on a project or delegate on
+  // an actor.
+  string role = 2;
+  // The actor that gets the role. Required. The actor must exist.
+  scylla.common.v1.Id actor_id = 3;
+}
+
+// The output of Grant. It is empty, so a later field does not change the RPC.
+message GrantResponse {}
+
+// The input of Revoke.
+message RevokeRequest {
+  // The object of the role. Required.
+  ObjectRef object = 1;
+  // The role to take back.
+  string role = 2;
+  // The actor that loses the role. Required.
+  scylla.common.v1.Id actor_id = 3;
+}
+
+// The output of Revoke. It is empty, so a later field does not change the RPC.
+message RevokeResponse {}

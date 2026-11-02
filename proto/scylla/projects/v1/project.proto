@@ -5,12 +5,12 @@ package scylla.projects.v1;
 import "google/protobuf/timestamp.proto";
 import "scylla/common/v1/id.proto";
 
-// A project. It belongs to one actor.
+// A project. It is in one workspace.
 message Project {
   // The id of the project.
   scylla.common.v1.Id id = 1;
-  // The actor that owns the project.
-  scylla.common.v1.Id owner_id = 2;
+  // The workspace of the project.
+  scylla.common.v1.Id workspace_id = 2;
   // The actor that created the project.
   scylla.common.v1.Id created_by = 3;
   // The display name, 1 to 100 characters, trimmed.

@@ -4,10 +4,11 @@ package scylla.agents.v1;
 
 import "scylla/common/v1/id.proto";
 
-// Registers the agents of a user.
+// Registers the agents of a workspace.
 service AgentService {
-  // Creates an agent with the public key of a key pair that the agent made. The private key never
-  // leaves the agent. The caller can act for the new agent.
+  // Creates an agent in a workspace with the public key of a key pair that the agent made. The
+  // private key never leaves the agent. The new agent has no role: an admin of the workspace
+  // gives it one with AccessService.Grant.
   rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse);
 }
 
@@ -15,6 +16,8 @@ service AgentService {
 message RegisterAgentRequest {
   // The Ed25519 public key of the agent, 32 bytes.
   bytes public_key = 1;
+  // The workspace of the new agent. Required.
+  scylla.common.v1.Id workspace_id = 2;
 }
 
 // The output of RegisterAgent.

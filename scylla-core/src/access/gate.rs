@@ -6,14 +6,16 @@ use std::time::Duration;
 
 use biscuit_auth::builder::Term;
 use biscuit_auth::{AuthorizerBuilder, Biscuit};
-use scylla_domain::actors::{Actor, ActorId, ActorKind};
+use scylla_domain::actors::Actor;
 use scylla_domain::authz::{Check, Object, Relationship, Schema};
+use scylla_domain::users::SessionId;
 use scylla_extension::{async_trait, AccessError, Gate, IssuedToken, Operation, Principal};
 use spicedb_grpc_tonic::v1::relationship_update::Operation as Update;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use tonic::metadata::MetadataMap;
 
+use super::claims::{claims, sign, unauthenticated, Claims};
 use super::rights::Rights;
 use super::{store, SpiceDb, TokenKeys};
 use crate::{Config, Error};
@@ -113,55 +115,32 @@ impl Access {
         Ok(ids.iter().take(1).map(hex::encode).collect())
     }
 
-    /// Makes a token for an actor, valid for `ttl`.
-    pub fn issue_for(&self, actor: &Actor, ttl: Duration) -> Result<IssuedToken, AccessError> {
-        // Set the expiry, in whole seconds.
+    /// Makes a token for an actor, valid for `ttl`, in the session of a user that signed in.
+    pub fn issue_for(
+        &self,
+        actor: &Actor,
+        ttl: Duration,
+        session: Option<SessionId>,
+    ) -> Result<IssuedToken, AccessError> {
+        // Set the expiry, in whole seconds, then sign the claims.
         let now = OffsetDateTime::now_utc()
             .replace_nanosecond(0)
             .unwrap_or(OffsetDateTime::now_utc());
         let expires_at = now + ttl;
-
-        // Sign the first block: the actor, the expiry, and a check of the expiry.
-        let params = HashMap::from([
-            ("id".to_owned(), Term::Str(actor.id.to_string())),
-            ("kind".to_owned(), Term::Str(actor.kind.as_str().to_owned())),
-            (
-                "exp".to_owned(),
-                Term::Date(expires_at.unix_timestamp() as u64),
-            ),
-            (
-                "until".to_owned(),
-                Term::Integer(expires_at.unix_timestamp()),
-            ),
-        ]);
-        let token = Biscuit::builder()
-            .code_with_params(
-                "actor({id}, {kind}); expires({until}); check if time($t), $t <= {exp};",
-                params,
-                HashMap::new(),
-            )
-            .and_then(|builder| {
-                builder
-                    .root_key_id(self.keys.key_id())
-                    .build(self.keys.signer())
-            })
-            .and_then(|token| token.to_base64())
-            .map_err(|error| AccessError::Unavailable(format!("token signing failed: {error}")))?;
-        Ok(IssuedToken {
-            value: token,
-            expires_at,
-        })
+        let value = sign(&self.keys, actor, expires_at, session)?;
+        Ok(IssuedToken { value, expires_at })
     }
 
-    /// Returns `true` if a revocation id of the token is revoked.
-    async fn is_revoked(&self, token: &Biscuit) -> Result<bool, AccessError> {
+    /// Returns `true` if a token cannot pass: a revocation id of it is revoked, its session is
+    /// revoked or expired, or its user is disabled.
+    async fn is_refused(&self, token: &Biscuit, claims: &Claims) -> Result<bool, AccessError> {
         let ids = token.revocation_identifiers();
         let mut tx = self.pool.begin().await.map_err(store::failed)?;
-        let revoked = store::is_revoked(&mut tx, &ids)
+        let refused = store::is_refused(&mut tx, &ids, claims.actor.id, claims.session)
             .await
             .map_err(store::failed)?;
         tx.commit().await.map_err(store::failed)?;
-        Ok(revoked)
+        Ok(refused)
     }
 }
 
@@ -181,18 +160,24 @@ impl Gate for Access {
         let token =
             Biscuit::from_base64(text, &self.keys).map_err(|_| unauthenticated("invalid token"))?;
 
-        // Refuse an expired or revoked token.
-        let (actor, expires) = claims(&token)?;
-        if expires <= OffsetDateTime::now_utc().unix_timestamp() {
+        // Refuse an expired token, and a token that a revocation or a sign-out stopped.
+        let claims = claims(&token)?;
+        if claims.expires <= OffsetDateTime::now_utc().unix_timestamp() {
             return Err(unauthenticated("expired token"));
         }
-        if self.is_revoked(&token).await? {
+        if self.is_refused(&token, &claims).await? {
             return Err(unauthenticated("revoked token"));
         }
 
         // Record the token on the operation, for the route rule.
         operation.set_authenticated();
-        Ok(Principal::new(actor, operation.clone(), Arc::new(token)))
+        let token = Arc::new(token);
+        Ok(Principal::new(
+            claims.actor,
+            operation.clone(),
+            token,
+            claims.session,
+        ))
     }
 
     async fn authorize(&self, principal: &Principal, check: Check) -> Result<(), AccessError> {
@@ -243,12 +228,12 @@ impl Gate for Access {
             operation.set_authorized();
             Ok(())
         } else {
-            Err(AccessError::Denied(format!("{check} is denied")))
+            Err(AccessError::denied(&check))
         }
     }
 
-    fn issue(&self, actor: &Actor) -> Result<IssuedToken, AccessError> {
-        self.issue_for(actor, self.token_ttl)
+    fn issue(&self, actor: &Actor, session: Option<SessionId>) -> Result<IssuedToken, AccessError> {
+        self.issue_for(actor, self.token_ttl, session)
     }
 
     async fn write(&self, relationships: &[Relationship]) -> Result<String, AccessError> {
@@ -263,38 +248,14 @@ impl Gate for Access {
     async fn delete_object(&self, object: &Object) -> Result<(), AccessError> {
         self.spicedb.delete_object(object).await
     }
-}
 
-/// Reads the actor and the expiry from the first block of a token. Later blocks cannot add them.
-fn claims(token: &Biscuit) -> Result<(Actor, i64), AccessError> {
-    // Query the facts of the first block.
-    let mut authorizer = AuthorizerBuilder::new()
-        .build(token)
-        .map_err(|_| unauthenticated("invalid token"))?;
-    let actors: Vec<(String, String)> = authorizer
-        .query("data($id, $kind) <- actor($id, $kind)")
-        .map_err(|_| unauthenticated("invalid token"))?;
-    let expiries: Vec<(i64,)> = authorizer
-        .query("data($exp) <- expires($exp)")
-        .unwrap_or_default();
-
-    // Keep exactly one actor and one expiry.
-    let [(id, kind)] = actors.as_slice() else {
-        return Err(unauthenticated("the token must name one actor"));
-    };
-    let id = ActorId::parse(id).map_err(|_| unauthenticated("invalid actor in the token"))?;
-    let expires = expiries
-        .first()
-        .map(|(exp,)| *exp)
-        .ok_or_else(|| unauthenticated("the token has no expiry"))?;
-    let actor = Actor {
-        id,
-        kind: ActorKind::from_name(kind.clone()),
-    };
-    Ok((actor, expires))
-}
-
-/// Makes an `Unauthenticated` error.
-fn unauthenticated(reason: &str) -> AccessError {
-    AccessError::Unauthenticated(reason.to_owned())
+    async fn lookup(
+        &self,
+        principal: &Principal,
+        definition: &'static str,
+        permission: &'static str,
+    ) -> Result<Vec<String>, AccessError> {
+        let subject = Object::of(principal.actor.id);
+        self.spicedb.lookup(&subject, definition, permission).await
+    }
 }

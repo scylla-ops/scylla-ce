@@ -1,13 +1,10 @@
 set dotenv-load
 
-# Starts Postgres (127.0.0.1:55432), SpiceDB (127.0.0.1:55051) and the SpiceDB of the tests
-# (127.0.0.1:55052, an empty store for each key).
+# Starts Postgres (127.0.0.1:55432), SpiceDB (127.0.0.1:55051), the SpiceDB of the tests
+# (127.0.0.1:55052, an empty store for each key) and Mailpit (SMTP 127.0.0.1:51025, web
+# http://127.0.0.1:58025).
 db-up:
-    docker compose up -d --wait db spicedb spicedb-test
-
-# Starts the dev identity provider (Keycloak on 127.0.0.1:58080, user alice, password alice).
-keycloak:
-    docker compose --profile oidc up -d keycloak
+    docker compose up -d --wait db spicedb spicedb-test mailpit
 
 # Applies the core migrations with sqlx-cli, for the query! macros.
 migrate: db-up
@@ -37,9 +34,9 @@ lint:
     buf lint
     scripts/check-structure.sh
 
-# Creates an actor of a kind and prints its id.
-actor kind="dev":
-    @cargo run -q -p scylla-ce -- actor create --kind {{kind}}
+# Creates an active user with its personal workspace and prints its id. The password comes from stdin.
+user email name:
+    @cargo run -q -p scylla-ce -- user create --email {{email}} --name "{{name}}" --password-stdin
 
 # Signs a short-lived token for an actor, for a first admin or a test.
 token actor:

@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use scylla_domain::actors::Actor;
-use scylla_domain::authz::{Check, Object, Relationship};
+use scylla_domain::authz::{Check, Object, Permission, Relationship, Resource};
+use scylla_domain::users::SessionId;
+use scylla_domain::Id;
 use time::OffsetDateTime;
 use tonic::metadata::MetadataMap;
 use tonic::Request;
@@ -21,16 +23,29 @@ pub struct Principal {
     operation: Operation,
     /// The verified token, opaque for the plugins.
     token: Arc<dyn Any + Send + Sync>,
+    /// The session of the token, for a user that signed in.
+    session: Option<SessionId>,
 }
 
 impl Principal {
     /// Makes a principal. Only a gate makes one.
-    pub fn new(actor: Actor, operation: Operation, token: Arc<dyn Any + Send + Sync>) -> Self {
+    pub fn new(
+        actor: Actor,
+        operation: Operation,
+        token: Arc<dyn Any + Send + Sync>,
+        session: Option<SessionId>,
+    ) -> Self {
         Self {
             actor,
             operation,
             token,
+            session,
         }
+    }
+
+    /// Returns the session of the token, if the actor signed in as a user.
+    pub fn session(&self) -> Option<SessionId> {
+        self.session
     }
 
     /// Returns the operation of the request.
@@ -67,6 +82,14 @@ pub enum AccessError {
     Unavailable(String),
 }
 
+impl AccessError {
+    /// Makes the refusal of a check. A route gives the same refusal for an object that does not
+    /// exist, so no caller learns which ids exist.
+    pub fn denied(check: &Check) -> Self {
+        Self::Denied(format!("{check} is denied"))
+    }
+}
+
 /// The gate of each request: tokens and permissions. Each route checks its own permission: the
 /// server refuses the success of a route that verified a token but passed no such check.
 #[async_trait]
@@ -83,8 +106,9 @@ pub trait Gate: Send + Sync + 'static {
     /// the object, and the actor has the permission. Records the passed check on the operation.
     async fn authorize(&self, principal: &Principal, check: Check) -> Result<(), AccessError>;
 
-    /// Makes a short-lived token for an actor.
-    fn issue(&self, actor: &Actor) -> Result<IssuedToken, AccessError>;
+    /// Makes a short-lived token for an actor, in a session for a user that signed in. A token
+    /// of a revoked session stops at once.
+    fn issue(&self, actor: &Actor, session: Option<SessionId>) -> Result<IssuedToken, AccessError>;
 
     /// Writes relationships, and returns a token of the permission system for later checks.
     async fn write(&self, relationships: &[Relationship]) -> Result<String, AccessError>;
@@ -94,6 +118,16 @@ pub trait Gate: Send + Sync + 'static {
 
     /// Deletes all relationships of an object.
     async fn delete_object(&self, object: &Object) -> Result<(), AccessError>;
+
+    /// Returns the ids of the objects of a definition on which the actor of the principal has a
+    /// role that gives a permission. The workspaces that the actor owns are not in the answer:
+    /// the route adds them from Postgres.
+    async fn lookup(
+        &self,
+        principal: &Principal,
+        definition: &'static str,
+        permission: &'static str,
+    ) -> Result<Vec<String>, AccessError>;
 }
 
 impl dyn Gate {
@@ -104,5 +138,16 @@ impl dyn Gate {
             .get::<Operation>()
             .ok_or_else(|| AccessError::Denied("the request has no operation".to_owned()))?;
         self.authenticate(request.metadata(), operation).await
+    }
+
+    /// Returns the objects of `R` on which the caller has a grant of the permission, from a
+    /// reverse lookup in SpiceDB: `gate.granted(&caller, Project::LIST_PROJECTS)`.
+    pub async fn granted<R: Resource>(
+        &self,
+        principal: &Principal,
+        permission: Permission<R>,
+    ) -> Result<Vec<Id<R>>, AccessError> {
+        let ids = self.lookup(principal, R::NAME, permission.name()).await?;
+        Ok(ids.iter().filter_map(|id| Id::parse(id).ok()).collect())
     }
 }

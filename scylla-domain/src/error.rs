@@ -9,6 +9,15 @@ pub enum DomainError {
     /// The text is empty after trim.
     #[error("must not be empty")]
     Empty,
+    /// The text is too short.
+    #[error("must be at least {min} characters")]
+    TooShort {
+        /// The minimum number of characters.
+        min: usize,
+    },
+    /// The text is not an email address.
+    #[error("must be an email address")]
+    NotAnEmail,
     /// The text is too long after trim.
     #[error("must be at most {max} characters")]
     TooLong {

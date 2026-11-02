@@ -8,8 +8,15 @@ import "google/protobuf/timestamp.proto";
 service TokenService {
   // Exchanges an assertion that an agent signed with its private key for a token.
   rpc ExchangeAgentAssertion(ExchangeAgentAssertionRequest) returns (ExchangeAgentAssertionResponse);
-  // Exchanges an OIDC ID token of a person for a token. The first exchange creates the user.
+  // Exchanges an OIDC ID token of a person for a token and a session. The issuer of the ID
+  // token must be an identity provider of the server. The first exchange can create the user,
+  // as the provider and the sign-up mode allow.
   rpc ExchangeIdToken(ExchangeIdTokenRequest) returns (ExchangeIdTokenResponse);
+  // Exchanges the refresh token of a session for a new token and a new refresh token. The old
+  // refresh token stops. A refresh token that is used two times closes its session.
+  rpc Refresh(RefreshRequest) returns (RefreshResponse);
+  // Closes the session of a refresh token. Its tokens stop at once.
+  rpc SignOut(SignOutRequest) returns (SignOutResponse);
 }
 
 // The input of ExchangeAgentAssertion.
@@ -36,7 +43,32 @@ message ExchangeIdTokenRequest {
 message ExchangeIdTokenResponse {
   // The token.
   IssuedToken token = 1;
+  // The refresh token of the new session.
+  string refresh_token = 2;
 }
+
+// The input of Refresh.
+message RefreshRequest {
+  // The refresh token. Empty means the token of the session cookie of a browser.
+  string refresh_token = 1;
+}
+
+// The output of Refresh.
+message RefreshResponse {
+  // The new access token.
+  IssuedToken token = 1;
+  // The new refresh token. Empty when the cookie holds it.
+  string refresh_token = 2;
+}
+
+// The input of SignOut.
+message SignOutRequest {
+  // The refresh token. Empty means the token of the session cookie of a browser.
+  string refresh_token = 1;
+}
+
+// The output of SignOut.
+message SignOutResponse {}
 
 // A Biscuit token. The holder can attenuate it before it gives it to another process.
 message IssuedToken {

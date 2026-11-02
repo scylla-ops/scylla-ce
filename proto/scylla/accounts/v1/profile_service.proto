@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package scylla.accounts.v1;
+
+import "google/protobuf/timestamp.proto";
+import "scylla/common/v1/id.proto";
+
+// The account of the caller: its profile, its password, its identities and its sessions.
+// Each RPC needs the token of a user, else UNAUTHENTICATED.
+service ProfileService {
+  // Returns the user of the caller.
+  rpc GetMe(GetMeRequest) returns (GetMeResponse);
+  // Changes the password. It needs the current password if the user has one, and closes the
+  // other sessions.
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+  // Lists the identities of the user at the identity providers.
+  rpc ListIdentities(ListIdentitiesRequest) returns (ListIdentitiesResponse);
+  // Removes an identity. The last way to sign in cannot be removed: FAILED_PRECONDITION.
+  rpc UnlinkIdentity(UnlinkIdentityRequest) returns (UnlinkIdentityResponse);
+  // Lists the open sessions of the user, newest first.
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  // Closes one session of the user. Its tokens stop at once.
+  rpc RevokeSession(RevokeSessionRequest) returns (RevokeSessionResponse);
+}
+
+// A user.
+message User {
+  // The id of the user.
+  scylla.common.v1.Id id = 1;
+  // The display name.
+  string display_name = 2;
+  // The primary email.
+  string email = 3;
+  // The state: pending, active or disabled.
+  string status = 4;
+  // The creation time.
+  google.protobuf.Timestamp created_at = 5;
+}
+
+// The input of GetMe.
+message GetMeRequest {}
+
+// The output of GetMe.
+message GetMeResponse {
+  // The user of the caller.
+  User user = 1;
+}
+
+// The input of ChangePassword.
+message ChangePasswordRequest {
+  // The current password. Required if the user has a password.
+  string current_password = 1;
+  // The new password, 15 to 128 characters.
+  string new_password = 2;
+}
+
+// The output of ChangePassword.
+message ChangePasswordResponse {}
+
+// The input of ListIdentities.
+message ListIdentitiesRequest {}
+
+// The output of ListIdentities.
+message ListIdentitiesResponse {
+  // The identities of the user.
+  repeated Identity identities = 1;
+  // True if the user can also sign in with a password.
+  bool has_password = 2;
+}
+
+// An identity of a user at an identity provider.
+message Identity {
+  // The slug of the provider.
+  string provider = 1;
+  // The id of the person at the provider.
+  string subject = 2;
+  // The email that the provider gave, if any.
+  string email = 3;
+  // The time of the link.
+  google.protobuf.Timestamp linked_at = 4;
+}
+
+// The input of UnlinkIdentity.
+message UnlinkIdentityRequest {
+  // The slug of the provider.
+  string provider = 1;
+  // The id of the person at the provider.
+  string subject = 2;
+}
+
+// The output of UnlinkIdentity.
+message UnlinkIdentityResponse {}
+
+// The input of ListSessions.
+message ListSessionsRequest {}
+
+// The output of ListSessions.
+message ListSessionsResponse {
+  // The open sessions, newest first.
+  repeated Session sessions = 1;
+}
+
+// A session: one sign-in on one device.
+message Session {
+  // The id of the session.
+  scylla.common.v1.Id id = 1;
+  // How the user signed in: password, or the slug of a provider.
+  repeated string methods = 2;
+  // The user agent of the sign-in, if the client sent one.
+  string user_agent = 3;
+  // The time of the sign-in.
+  google.protobuf.Timestamp created_at = 4;
+  // The time of the last refresh.
+  google.protobuf.Timestamp last_used_at = 5;
+  // True for the session of the token of the request.
+  bool current = 6;
+}
+
+// The input of RevokeSession.
+message RevokeSessionRequest {
+  // The session to close. Required.
+  scylla.common.v1.Id session_id = 1;
+}
+
+// The output of RevokeSession.
+message RevokeSessionResponse {}

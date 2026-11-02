@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO external_identities (provider_id, subject, user_id, email)\n         VALUES ($1, $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d03765bc646abafd1d7f65d0742a91bb1cd2424fd0cfe304cc221ce34f0e82cb"
+}

@@ -44,3 +44,30 @@ pub mod auth {
         tonic::include_proto!("scylla.auth.v1");
     }
 }
+
+/// The access API: the grants of roles.
+pub mod access {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.access.v1");
+    }
+}
+
+/// The workspaces API.
+pub mod workspaces {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.workspaces.v1");
+    }
+}
+
+/// The accounts API: sign-up, sign-in with a password, and the profile of the caller.
+pub mod accounts {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.accounts.v1");
+    }
+}

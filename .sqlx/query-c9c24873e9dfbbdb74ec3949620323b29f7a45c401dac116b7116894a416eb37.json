@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, slug, kind, display_name, settings AS \"settings: Json<serde_json::Value>\",\n                  client_secret, allow_sign_up, enabled\n           FROM identity_providers WHERE enabled OR NOT $1 ORDER BY slug",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "identity_providers",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "slug",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "identity_providers",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "identity_providers",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "identity_providers",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "settings: Json<serde_json::Value>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "identity_providers",
+            "name": "settings"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "client_secret",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "identity_providers",
+            "name": "client_secret"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "allow_sign_up",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "identity_providers",
+            "name": "allow_sign_up"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "identity_providers",
+            "name": "enabled"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "c9c24873e9dfbbdb74ec3949620323b29f7a45c401dac116b7116894a416eb37"
+}

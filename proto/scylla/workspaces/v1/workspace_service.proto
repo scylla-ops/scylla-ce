@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package scylla.workspaces.v1;
+
+import "scylla/common/v1/id.proto";
+import "scylla/common/v1/page.proto";
+import "scylla/workspaces/v1/workspace.proto";
+
+// Creates, reads and lists workspaces, and changes their owners. Each RPC needs an
+// authenticated actor, else UNAUTHENTICATED. An unknown workspace gives PERMISSION_DENIED, as a
+// refusal does.
+service WorkspaceService {
+  // Creates a workspace. The caller becomes its first owner. Only a user can own a workspace,
+  // else PERMISSION_DENIED.
+  rpc CreateWorkspace(CreateWorkspaceRequest) returns (CreateWorkspaceResponse);
+  // Reads one workspace.
+  rpc GetWorkspace(GetWorkspaceRequest) returns (GetWorkspaceResponse);
+  // Lists the workspaces that the caller can read, oldest first: the workspaces that it owns,
+  // and the workspaces where it has a role.
+  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse);
+  // Makes a user an owner of a workspace. Only an owner can do it, else PERMISSION_DENIED: no
+  // role gives this right. An unknown user gives NOT_FOUND. An owner stays an owner.
+  rpc AddOwner(AddOwnerRequest) returns (AddOwnerResponse);
+  // Takes an owner out of a workspace, for example the caller itself. Only an owner can do it,
+  // else PERMISSION_DENIED. The last owner stays: FAILED_PRECONDITION with the reason
+  // LAST_OWNER. A user that is not an owner changes nothing.
+  rpc RemoveOwner(RemoveOwnerRequest) returns (RemoveOwnerResponse);
+  // Lists the owners of a workspace, in user id order. A reader of the workspace can do it.
+  rpc ListOwners(ListOwnersRequest) returns (ListOwnersResponse);
+}
+
+// The input of CreateWorkspace.
+message CreateWorkspaceRequest {
+  // The display name, 1 to 100 characters after trim.
+  string name = 1;
+}
+
+// The output of CreateWorkspace.
+message CreateWorkspaceResponse {
+  // The created workspace.
+  Workspace workspace = 1;
+}
+
+// The input of GetWorkspace.
+message GetWorkspaceRequest {
+  // The workspace to read. Required.
+  scylla.common.v1.Id workspace_id = 1;
+}
+
+// The output of GetWorkspace.
+message GetWorkspaceResponse {
+  // The workspace.
+  Workspace workspace = 1;
+}
+
+// The input of ListWorkspaces.
+message ListWorkspacesRequest {
+  // The page to return.
+  scylla.common.v1.PageRequest page = 1;
+}
+
+// The output of ListWorkspaces.
+message ListWorkspacesResponse {
+  // The workspaces of the page, oldest first.
+  repeated Workspace workspaces = 1;
+  // How to get the next page.
+  scylla.common.v1.PageResponse page = 2;
+}
+
+// The input of AddOwner.
+message AddOwnerRequest {
+  // The workspace. Required.
+  scylla.common.v1.Id workspace_id = 1;
+  // The user to make an owner. Required.
+  scylla.common.v1.Id user_id = 2;
+}
+
+// The output of AddOwner.
+message AddOwnerResponse {}
+
+// The input of RemoveOwner.
+message RemoveOwnerRequest {
+  // The workspace. Required.
+  scylla.common.v1.Id workspace_id = 1;
+  // The owner to take out. Required.
+  scylla.common.v1.Id user_id = 2;
+}
+
+// The output of RemoveOwner.
+message RemoveOwnerResponse {}
+
+// The input of ListOwners.
+message ListOwnersRequest {
+  // The workspace. Required.
+  scylla.common.v1.Id workspace_id = 1;
+  // The page to return.
+  scylla.common.v1.PageRequest page = 2;
+}
+
+// The output of ListOwners.
+message ListOwnersResponse {
+  // The owners of the page, in user id order.
+  repeated WorkspaceOwner owners = 1;
+  // How to get the next page.
+  scylla.common.v1.PageResponse page = 2;
+}

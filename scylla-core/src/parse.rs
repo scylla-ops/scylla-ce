@@ -5,6 +5,7 @@ use std::fmt;
 use prost_types::Timestamp;
 use scylla_domain::page::{PageRequest, PageSize};
 use scylla_domain::projects::ProjectName;
+use scylla_domain::users::{Email, Password};
 use scylla_domain::{DomainError, Id};
 use scylla_proto::common::v1 as pb;
 use time::OffsetDateTime;
@@ -115,6 +116,18 @@ impl<T: ?Sized> ToProto<pb::Id> for Id<T> {
 }
 
 impl FromProto<String> for ProjectName {
+    fn from_proto(value: String) -> Result<Self, Invalid> {
+        Ok(Self::parse(value)?)
+    }
+}
+
+impl FromProto<String> for Email {
+    fn from_proto(value: String) -> Result<Self, Invalid> {
+        Ok(Self::parse(value)?)
+    }
+}
+
+impl FromProto<String> for Password {
     fn from_proto(value: String) -> Result<Self, Invalid> {
         Ok(Self::parse(value)?)
     }

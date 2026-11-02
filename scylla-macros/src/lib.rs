@@ -13,12 +13,12 @@ use proc_macro::TokenStream;
 ///
 /// ```text
 /// authz! {
-///     /// The grants on one project.
+///     /// The roles on one project.
 ///     definition project for Project {
 ///         /// An actor that can do everything on this project.
 ///         relation admin: Actor;
-///         /// Delete the project: its admins and their delegates.
-///         permission delete = admin + admin->act_for;
+///         /// The group of the routes that delete the project: its admins.
+///         permission delete = admin;
 ///     }
 /// }
 ///
@@ -28,7 +28,7 @@ use proc_macro::TokenStream;
 ///         /// An actor that audits the project.
 ///         relation auditor: Actor;
 ///         /// Read the audit log.
-///         permission audit = auditor + auditor->act_for + delete;
+///         permission audit = auditor + delete;
 ///     }
 /// }
 /// ```

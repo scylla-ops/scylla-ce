@@ -63,13 +63,39 @@ pub struct Config {
     #[arg(long, env = "SCYLLA_SPICEDB_KEY", hide_env_values = true)]
     pub spicedb_key: Option<String>,
 
-    /// The OIDC issuer of the users. Without it, `ExchangeIdToken` is refused.
-    #[arg(long, env = "SCYLLA_OIDC_ISSUER", requires = "oidc_audience")]
-    pub oidc_issuer: Option<String>,
+    /// The public URL of this server, for the redirect URIs of the identity providers.
+    #[arg(long, env = "SCYLLA_API_URL", default_value = "http://127.0.0.1:3000")]
+    pub api_url: String,
 
-    /// The OIDC audience: the client id of Scylla at the issuer.
-    #[arg(long, env = "SCYLLA_OIDC_AUDIENCE", requires = "oidc_issuer")]
-    pub oidc_audience: Option<String>,
+    /// The public URL of the web app, for the links in the mails and after a sign-in.
+    #[arg(long, env = "SCYLLA_APP_URL", default_value = "http://127.0.0.1:3000")]
+    pub app_url: String,
+
+    /// Who can create an account.
+    #[arg(long, env = "SCYLLA_SIGN_UP_MODE", value_enum, default_value_t = SignUpMode::InviteOnly)]
+    pub sign_up_mode: SignUpMode,
+
+    /// The lifetime of a session, in days.
+    #[arg(long, env = "SCYLLA_SESSION_TTL_DAYS", default_value = "30", value_parser = days)]
+    pub session_ttl: Duration,
+
+    /// The SMTP server of the mails: `smtp://host:port`, or `smtps://user:password@host` for
+    /// TLS. Without it, the server sends no mail and logs each one with no link.
+    #[arg(long, env = "SCYLLA_SMTP_URL", hide_env_values = true)]
+    pub smtp_url: Option<String>,
+
+    /// The sender of the mails.
+    #[arg(
+        long,
+        env = "SCYLLA_MAIL_FROM",
+        default_value = "Scylla <no-reply@localhost>"
+    )]
+    pub mail_from: String,
+
+    /// The key in hex that encrypts the client secrets of the identity providers. Make one with
+    /// `secret keygen`.
+    #[arg(long, env = "SCYLLA_SECRET_KEY", hide_env_values = true)]
+    pub secret_key: Option<String>,
 
     /// The web origins that can call the API with gRPC-Web, separated by commas.
     #[arg(long, env = "SCYLLA_CORS_ORIGINS", value_delimiter = ',')]
@@ -108,8 +134,13 @@ impl fmt::Debug for Config {
             .field("token_ttl", &self.token_ttl)
             .field("spicedb_endpoint", &self.spicedb_endpoint)
             .field("spicedb_key", &self.spicedb_key.as_ref().map(|_| "***"))
-            .field("oidc_issuer", &self.oidc_issuer)
-            .field("oidc_audience", &self.oidc_audience)
+            .field("api_url", &self.api_url)
+            .field("app_url", &self.app_url)
+            .field("sign_up_mode", &self.sign_up_mode)
+            .field("session_ttl", &self.session_ttl)
+            .field("smtp_url", &self.smtp_url.as_deref().map(redact))
+            .field("mail_from", &self.mail_from)
+            .field("secret_key", &self.secret_key.as_ref().map(|_| "***"))
             .field("cors_origins", &self.cors_origins)
             .field("tls_cert", &self.tls_cert)
             .field("tls_key", &self.tls_key)
@@ -128,6 +159,36 @@ impl Config {
             reason: "is required".to_owned(),
         })
     }
+}
+
+/// Who can create an account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+#[value(rename_all = "snake_case")]
+pub enum SignUpMode {
+    /// Each person can sign up.
+    Open,
+    /// Only a person with an invitation can sign up.
+    InviteOnly,
+    /// No person can sign up: the operator creates the users with `user create`.
+    Closed,
+}
+
+impl SignUpMode {
+    /// Returns the name of the mode.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::InviteOnly => "invite_only",
+            Self::Closed => "closed",
+        }
+    }
+}
+
+/// Reads a duration in days.
+fn days(text: &str) -> Result<Duration, String> {
+    text.parse::<u64>()
+        .map(|days| Duration::from_secs(days * 24 * 60 * 60))
+        .map_err(|_| format!("{text:?} is not a number of days"))
 }
 
 /// Reads a duration in seconds.

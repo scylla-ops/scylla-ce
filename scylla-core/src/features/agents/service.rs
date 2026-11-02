@@ -4,6 +4,7 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use prost::Message;
 use scylla_domain::actors::{Actor, ActorId};
 use scylla_domain::agents::{AgentKeyId, KIND};
+use scylla_domain::workspaces::WorkspaceId;
 use scylla_extension::AccessError;
 use scylla_proto::auth::v1::AgentAssertion;
 use sqlx::PgPool;
@@ -23,11 +24,11 @@ const MAX_LIFETIME: Duration = Duration::minutes(2);
 /// The shortest nonce.
 const MIN_NONCE_LEN: usize = 16;
 
-/// Registers an agent for an actor, with the public key of the agent. The actor owns the agent,
-/// so it has each right on the agent and on what the agent owns.
+/// Registers an agent in a workspace, with the public key of the agent. The agent has no role:
+/// an admin of the workspace gives it one.
 pub async fn register(
     pool: &PgPool,
-    owner: ActorId,
+    workspace_id: WorkspaceId,
     public_key: &[u8],
 ) -> Result<(ActorId, AgentKeyId), Error> {
     // Refuse a key that is not an Ed25519 public key.
@@ -37,10 +38,10 @@ pub async fn register(
     VerifyingKey::from_bytes(&bytes)
         .map_err(|_| Error::invalid("public_key", "must be an Ed25519 public key"))?;
 
-    // Store the agent as an actor of its owner, with its public key.
+    // Store the agent as an actor of the workspace, with its public key.
     let mut tx = pool.begin().await?;
-    let agent = actors::insert(&mut tx, KIND, Some(owner)).await?;
-    store::insert_agent(&mut tx, agent.id).await?;
+    let agent = actors::insert(&mut tx, KIND).await?;
+    store::insert_agent(&mut tx, agent.id, workspace_id).await?;
     let key_id = AgentKeyId::generate();
     store::insert_key(&mut tx, key_id, agent.id, public_key).await?;
     tx.commit().await?;

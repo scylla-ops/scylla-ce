@@ -6,12 +6,16 @@ import "scylla/common/v1/id.proto";
 import "scylla/common/v1/page.proto";
 import "scylla/projects/v1/project.proto";
 
-// Creates, lists and deletes projects. Each RPC needs an authenticated actor, else UNAUTHENTICATED.
+// Creates, reads, lists and deletes projects. Each RPC needs an authenticated actor, else
+// UNAUTHENTICATED.
 service ProjectService {
   // Creates a project. An edition can refuse it with FAILED_PRECONDITION and a
   // google.rpc.ErrorInfo detail.
   rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse);
-  // Lists the projects of one owner, oldest first.
+  // Reads one project. An unknown project gives PERMISSION_DENIED, as a refusal does.
+  rpc GetProject(GetProjectRequest) returns (GetProjectResponse);
+  // Lists the projects that the caller can see, oldest first: the projects of the workspaces
+  // that it owns or where it has a role, and the projects shared with it.
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
   // Deletes a project.
   rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
@@ -19,8 +23,8 @@ service ProjectService {
 
 // The input of CreateProject.
 message CreateProjectRequest {
-  // The actor that will own the project. Not set means the caller. The actor must exist.
-  scylla.common.v1.Id owner_id = 1;
+  // The workspace of the new project. Required.
+  scylla.common.v1.Id workspace_id = 1;
   // The display name, 1 to 100 characters after trim.
   string name = 2;
 }
@@ -31,10 +35,23 @@ message CreateProjectResponse {
   Project project = 1;
 }
 
+// The input of GetProject.
+message GetProjectRequest {
+  // The project to read. Required.
+  scylla.common.v1.Id project_id = 1;
+}
+
+// The output of GetProject.
+message GetProjectResponse {
+  // The project.
+  Project project = 1;
+}
+
 // The input of ListProjects.
 message ListProjectsRequest {
-  // The owner of the projects. Not set means the caller.
-  scylla.common.v1.Id owner_id = 1;
+  // Only the projects of this workspace that the caller can see. Not set means all the
+  // projects that the caller can see.
+  scylla.common.v1.Id workspace_id = 1;
   // The page to return.
   scylla.common.v1.PageRequest page = 2;
 }

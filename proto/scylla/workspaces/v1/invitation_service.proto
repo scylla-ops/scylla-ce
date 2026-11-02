@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package scylla.workspaces.v1;
+
+import "google/protobuf/timestamp.proto";
+import "scylla/common/v1/id.proto";
+
+// Invites a person into a workspace by email. Each RPC needs an authenticated actor, else
+// UNAUTHENTICATED.
+service InvitationService {
+  // Sends a link that gives a role in a workspace. The caller needs the permission
+  // create_invitation on the workspace: its admins. An unknown workspace gives
+  // PERMISSION_DENIED, as a refusal does.
+  rpc CreateInvitation(CreateInvitationRequest) returns (CreateInvitationResponse);
+  // Accepts an invitation with the token of the link. The caller must be a user with the
+  // verified email of the invitation.
+  rpc AcceptInvitation(AcceptInvitationRequest) returns (AcceptInvitationResponse);
+}
+
+// An invitation.
+message Invitation {
+  // The id of the invitation.
+  scylla.common.v1.Id id = 1;
+  // The workspace.
+  scylla.common.v1.Id workspace_id = 2;
+  // The email of the invited person.
+  string email = 3;
+  // The role in the workspace: admin, member or viewer.
+  string role = 4;
+  // The end of the validity of the link.
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+// The input of CreateInvitation.
+message CreateInvitationRequest {
+  // The workspace. Required.
+  scylla.common.v1.Id workspace_id = 1;
+  // The email of the person to invite.
+  string email = 2;
+  // The role to give: admin, member or viewer.
+  string role = 3;
+}
+
+// The output of CreateInvitation.
+message CreateInvitationResponse {
+  // The invitation. The link goes only to the email.
+  Invitation invitation = 1;
+}
+
+// The input of AcceptInvitation.
+message AcceptInvitationRequest {
+  // The token of the link in the mail.
+  string token = 1;
+}
+
+// The output of AcceptInvitation.
+message AcceptInvitationResponse {
+  // The workspace that the caller joined.
+  scylla.common.v1.Id workspace_id = 1;
+}

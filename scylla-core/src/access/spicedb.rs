@@ -9,9 +9,9 @@ use spicedb_grpc_tonic::v1::relationship_update::Operation;
 use spicedb_grpc_tonic::v1::schema_service_client::SchemaServiceClient;
 use spicedb_grpc_tonic::v1::{
     check_permission_response::Permissionship, CheckBulkPermissionsRequest,
-    CheckBulkPermissionsRequestItem, Consistency, DeleteRelationshipsRequest, ObjectReference,
-    Relationship, RelationshipFilter, RelationshipUpdate, SubjectReference,
-    WriteRelationshipsRequest, WriteSchemaRequest, ZedToken,
+    CheckBulkPermissionsRequestItem, Consistency, DeleteRelationshipsRequest, LookupPermissionship,
+    LookupResourcesRequest, ObjectReference, Relationship, RelationshipFilter, RelationshipUpdate,
+    SubjectReference, WriteRelationshipsRequest, WriteSchemaRequest, ZedToken,
 };
 use tonic::metadata::{Ascii, MetadataValue};
 use tonic::service::interceptor::InterceptedService;
@@ -137,6 +137,41 @@ impl SpiceDb {
             ));
         }
         Ok(false)
+    }
+
+    /// Returns the ids of the objects of a definition on which `subject` has `permission`.
+    pub(super) async fn lookup(
+        &self,
+        subject: &Object,
+        definition: &str,
+        permission: &str,
+    ) -> Result<Vec<String>, AccessError> {
+        // Ask for all the objects, with all the writes seen.
+        let request = LookupResourcesRequest {
+            consistency: Some(Consistency {
+                requirement: Some(Requirement::FullyConsistent(true)),
+            }),
+            resource_object_type: definition.to_owned(),
+            permission: permission.to_owned(),
+            subject: Some(subject_reference(subject)),
+            ..Default::default()
+        };
+        let mut answers = self
+            .permissions
+            .clone()
+            .lookup_resources(request)
+            .await
+            .map_err(unavailable)?
+            .into_inner();
+
+        // Keep the objects with a sure permission. A conditional one needs context that we never send.
+        let mut ids = Vec::new();
+        while let Some(answer) = answers.message().await.map_err(unavailable)? {
+            if answer.permissionship == LookupPermissionship::HasPermission as i32 {
+                ids.push(answer.resource_object_id);
+            }
+        }
+        Ok(ids)
     }
 
     /// Applies one operation to relationships, and returns the token of the write.

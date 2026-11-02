@@ -2,6 +2,7 @@
 
 use scylla_domain::actors::ActorId;
 use scylla_domain::agents::AgentKeyId;
+use scylla_domain::workspaces::WorkspaceId;
 use scylla_extension::Tx;
 use time::OffsetDateTime;
 
@@ -15,11 +16,19 @@ pub(super) struct AgentKeyRow {
     pub(super) revoked: bool,
 }
 
-/// Marks an actor as an agent, so it can have keys.
-pub(super) async fn insert_agent(tx: &mut Tx<'_>, agent_id: ActorId) -> Result<(), sqlx::Error> {
-    sqlx::query!("INSERT INTO agents (id) VALUES ($1)", agent_id.to_db())
-        .execute(&mut **tx)
-        .await?;
+/// Marks an actor as an agent of a workspace, so it can have keys.
+pub(super) async fn insert_agent(
+    tx: &mut Tx<'_>,
+    agent_id: ActorId,
+    workspace_id: WorkspaceId,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "INSERT INTO agents (id, workspace_id) VALUES ($1, $2)",
+        agent_id.to_db(),
+        workspace_id.to_db(),
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE passwords SET failed_attempts = 0, locked_until = NULL WHERE user_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "713915e62f91ce2b74b463969d6d87730432bd436cc4bc4efa959b51c3ef2e3f"
+}

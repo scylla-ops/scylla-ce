@@ -1,6 +1,7 @@
 //! What the core tells a hook about the write. Use `new()`: the structs are non-exhaustive.
 
-use scylla_domain::actors::{Actor, ActorId};
+use scylla_domain::actors::Actor;
+use scylla_domain::workspaces::WorkspaceId;
 use scylla_domain::ResourceKind;
 
 /// A creation that a `BeforeCreate` hook can refuse.
@@ -11,17 +12,17 @@ pub struct CreateContext {
     pub kind: ResourceKind,
     /// The actor that creates the resource.
     pub actor: Actor,
-    /// The actor that will own the resource.
-    pub owner_id: ActorId,
+    /// The workspace of the new resource.
+    pub workspace_id: WorkspaceId,
 }
 
 impl CreateContext {
     /// Makes the context of a creation.
-    pub fn new(kind: ResourceKind, actor: Actor, owner_id: ActorId) -> Self {
+    pub fn new(kind: ResourceKind, actor: Actor, workspace_id: WorkspaceId) -> Self {
         Self {
             kind,
             actor,
-            owner_id,
+            workspace_id,
         }
     }
 }
@@ -34,17 +35,17 @@ pub struct DeleteContext {
     pub kind: ResourceKind,
     /// The actor that deletes the resource.
     pub actor: Actor,
-    /// The actor that owned the resource.
-    pub owner_id: ActorId,
+    /// The workspace of the deleted resource.
+    pub workspace_id: WorkspaceId,
 }
 
 impl DeleteContext {
     /// Makes the context of a deletion.
-    pub fn new(kind: ResourceKind, actor: Actor, owner_id: ActorId) -> Self {
+    pub fn new(kind: ResourceKind, actor: Actor, workspace_id: WorkspaceId) -> Self {
         Self {
             kind,
             actor,
-            owner_id,
+            workspace_id,
         }
     }
 }

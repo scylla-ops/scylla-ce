@@ -3,7 +3,7 @@
 use std::fmt;
 
 use super::Resource;
-use crate::actors::ActorId;
+use crate::workspaces::WorkspaceId;
 use crate::Id;
 
 /// An object of the permission model, for example `project:<id>`. Only a typed id makes one.
@@ -91,8 +91,8 @@ pub struct Check {
     object: Object,
     /// The name of the permission.
     permission: &'static str,
-    /// The owner of an object that is not an actor, from Postgres.
-    owner: Option<ActorId>,
+    /// The workspace of an object that is in a workspace, from Postgres.
+    workspace: Option<WorkspaceId>,
     /// A token of a write that the answer must see.
     fresh: Option<String>,
 }
@@ -103,22 +103,22 @@ impl Check {
         Self {
             object,
             permission,
-            owner: None,
+            workspace: None,
             fresh: None,
         }
     }
 
-    /// Names the owner of the object. The owner, the actors above it, and the grants on them
-    /// pass the check: `Project::DELETE_PROJECT.on(id).owned_by(owner)`.
+    /// Names the workspace of the object. The owners of the workspace, and a role on the
+    /// workspace, pass the check: `Project::DELETE_PROJECT.on(id).within(workspace)`.
     #[must_use]
-    pub fn owned_by(mut self, owner: ActorId) -> Self {
-        self.owner = Some(owner);
+    pub fn within(mut self, workspace: WorkspaceId) -> Self {
+        self.workspace = Some(workspace);
         self
     }
 
-    /// Returns the owner of the object, if the check names one.
-    pub fn owner(&self) -> Option<ActorId> {
-        self.owner
+    /// Returns the workspace of the object, if the check names one.
+    pub fn workspace(&self) -> Option<WorkspaceId> {
+        self.workspace
     }
 
     /// Returns the object.

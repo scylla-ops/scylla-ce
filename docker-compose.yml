@@ -57,14 +57,8 @@ services:
       timeout: 2s
       retries: 30
 
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.8.1
-    profiles: ["oidc"]
-    command: ["start-dev", "--import-realm"]
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+  mailpit:
+    image: axllent/mailpit:v1.33.0
     ports:
-      - "127.0.0.1:58080:8080"
-    volumes:
-      - ./docker/keycloak-realm.json:/opt/keycloak/data/import/scylla.json:ro
+      - "127.0.0.1:51025:1025"
+      - "127.0.0.1:58025:8025"
