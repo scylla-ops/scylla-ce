@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE chain (id, owner_id, depth) AS (\n               SELECT id, owner_id, 1 FROM actors WHERE id = $1\n               UNION ALL\n               SELECT a.id, a.owner_id, c.depth + 1\n               FROM actors a JOIN chain c ON a.id = c.owner_id\n               WHERE c.depth < $2\n           )\n           SELECT id AS \"id!\" FROM chain ORDER BY depth",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f975b84822106ee38130d891228784c3b2fcfddf6b7ec32f2e91c24d2473d593"
+}

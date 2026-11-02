@@ -73,7 +73,7 @@ impl TokensGrpc {
         let verifier = self.oidc.as_ref().ok_or_else(|| {
             AccessError::Unauthenticated("no identity provider is set".to_owned())
         })?;
-        let user = users::sign_in(&self.pool, self.gate.as_ref(), verifier, id_token).await?;
+        let user = users::sign_in(&self.pool, verifier, id_token).await?;
         let token = self.gate.issue(&user)?;
         tracing::info!(actor = %user.id, kind = user.kind.as_str(), "token issued");
         Ok(to_proto(token))

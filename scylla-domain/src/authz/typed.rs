@@ -55,7 +55,7 @@ impl<R: Resource> fmt::Debug for Permission<R> {
     }
 }
 
-/// A relation of the resource `R` to subjects of the resource `S`, for example `Project::OWNER`.
+/// A relation of the resource `R` to subjects of the resource `S`, for example `Project::VIEWER`.
 pub struct Relation<R, S> {
     /// The name in the schema.
     name: &'static str,
@@ -78,7 +78,7 @@ impl<R: Resource, S: Resource> Relation<R, S> {
         self.name
     }
 
-    /// Returns the relationship `object#relation@subject`: `Project::OWNER.of(project, owner)`.
+    /// Returns the relationship `object#relation@subject`: `Project::VIEWER.of(project, actor)`.
     pub fn of(self, object: Id<R>, subject: Id<S>) -> Relationship {
         Relationship::new(Object::of(object), self.name, Object::of(subject))
     }

@@ -33,31 +33,33 @@ scylla-testkit (tests only) ──▶ scylla-core
 | A person signs in | OIDC ID token of the identity provider, then `TokenService.ExchangeIdToken`. The first sign-in creates the user. |
 | An agent signs in | `AgentService.RegisterAgent` (by its user, with the agent public key), then each time an assertion signed with the agent private key: `TokenService.ExchangeAgentAssertion`. |
 | Each request | `authorization: Bearer <biscuit>`. 10 minutes by default. A holder can attenuate it offline before it gives it to a step. The operation of a request is its gRPC method. |
-| Each route | SpiceDB checks the permission of the route: the RPC name in snake case, on the object of the route. `CreateProject` checks `create_project` on the owner, `DeleteProject` checks `delete_project` on the project. |
+| Each route | The permission of the route: the RPC name in snake case. The owner of the object, or an actor above it, passes with no SpiceDB call. Else one SpiceDB call looks for a grant on the object or on its owners. |
+
+Postgres holds who owns what (`owner_id`, and `actors.owner_id` for the user of an agent). SpiceDB holds only the grants that a person gives: delegates, roles on an owner, roles on one object. A creation writes nothing to SpiceDB.
 
 The permission model is Rust code. `authz!` declares a SpiceDB definition next to its type, and the compiler checks each name and each id. A route permission uses a group (`act_for`, `delete`, `edit`, `view`), and a role gives a group:
 
 ```rust
 authz! {
-    /// The permission model of the projects.
+    /// The grants on one project.
     definition project for Project {
-        /// The actor that owns the project.
-        relation owner: Actor;
+        /// An actor that can do everything on this project.
+        relation admin: Actor;
         /// The group of the routes that delete the project.
-        permission delete = owner->act_for;
-        /// The route `DeleteProject`.
+        permission delete = admin + admin->act_for;
+        /// The route `DeleteProject`, on one project.
         permission delete_project = delete;
     }
 
-    /// The routes of the projects that act on their owner.
+    /// The routes of the projects on their owner.
     extend Actor as ProjectOwner {
-        /// The route `CreateProject`, for this owner.
-        permission create_project = act_for;
+        /// The route `DeleteProject`, on each project of this owner.
+        permission delete_project = act_for;
     }
 }
 
-gate.authorize(&caller, Project::DELETE_PROJECT.on(project_id)).await?;
-access::commit(tx, gate, &[Project::OWNER.of(project.id, owner_id)]).await?;
+gate.authorize(&caller, Project::DELETE_PROJECT.on(project_id).owned_by(owner)).await?;
+app.grant(&[Project::ADMIN.of(project_id, carol)]).await;
 ```
 
 A route that checks a group, or no permission, gets `PERMISSION_DENIED`. An edition adds a definition the same way, or adds to a core definition with `authz! { extend Project as ProjectAudit { ... } }`.
@@ -129,7 +131,8 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Tests | Where |
 |---|---|
 | Projects and their permissions, tokens, agents, OIDC, gRPC-Web, CORS, TLS, health | `scylla-ce/tests/api/` |
-| Permission model: core roles, an extension, a new definition | `scylla-ce/tests/api/authz.rs` |
+| Permission model: roles on an owner and on one project, an extension, a new definition | `scylla-ce/tests/api/authz.rs` |
+| Ownership: an owner acts on what its agents own, a grant goes down, no SpiceDB for an owner | `scylla-ce/tests/api/ownership.rs` |
 | Route rule: no check, a group check, the own check, an error | `scylla-ce/tests/api/routes.rs` |
 | Route permission names, records of the gate | `scylla-extension/src/operation.rs` |
 | Schema of the parts, typed values | `scylla-domain/src/authz/tests.rs` |

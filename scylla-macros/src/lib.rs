@@ -13,12 +13,12 @@ use proc_macro::TokenStream;
 ///
 /// ```text
 /// authz! {
-///     /// The permission model of the projects.
+///     /// The grants on one project.
 ///     definition project for Project {
-///         /// The actor that owns the project.
-///         relation owner: Actor;
-///         /// Delete the project.
-///         permission delete = owner->act_for;
+///         /// An actor that can do everything on this project.
+///         relation admin: Actor;
+///         /// Delete the project: its admins and their delegates.
+///         permission delete = admin + admin->act_for;
 ///     }
 /// }
 ///
@@ -28,13 +28,13 @@ use proc_macro::TokenStream;
 ///         /// An actor that audits the project.
 ///         relation auditor: Actor;
 ///         /// Read the audit log.
-///         permission audit = auditor->act_for + delete;
+///         permission audit = auditor + auditor->act_for + delete;
 ///     }
 /// }
 /// ```
 ///
 /// - `definition <name> for <Type>` implements `Resource` and `Model` for `Type`, and adds one
-///   constant to `Type` for each relation and permission: `Project::OWNER`, `Project::DELETE`.
+///   constant to `Type` for each relation and permission: `Project::ADMIN`, `Project::DELETE`.
 /// - `extend <Type> as <Holder>` makes the unit struct `Holder`, with `Model` and the
 ///   constants of the new names: `ProjectAudit::AUDITOR`. The definition of `Type` keeps them.
 /// - A relation has one subject type, a Rust type with `Resource`.

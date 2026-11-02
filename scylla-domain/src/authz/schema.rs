@@ -93,6 +93,15 @@ pub struct Schema {
 }
 
 impl Schema {
+    /// Returns `true` if the definition has this permission.
+    pub fn has(&self, definition: &str, permission: &str) -> bool {
+        self.definitions
+            .iter()
+            .filter(|part| part.definition == definition)
+            .flat_map(|part| &part.permissions)
+            .any(|(name, _)| *name == permission)
+    }
+
     /// Adds a part. A definition comes one time, before its extensions, and a name comes one
     /// time in its definition. A part that does not fit changes nothing.
     pub fn add(&mut self, part: Part) -> Result<(), SchemaError> {

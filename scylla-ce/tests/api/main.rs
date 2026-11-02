@@ -6,6 +6,7 @@ mod capabilities;
 mod grpc_web;
 mod health;
 mod oidc;
+mod ownership;
 mod projects;
 mod routes;
 mod tls;

@@ -1,15 +1,17 @@
 //! The SpiceDB client: permission checks, relationship writes and the schema.
 
-use scylla_domain::authz::{self, Check, Object};
+use scylla_domain::authz::{self, Object};
 use scylla_extension::AccessError;
+use spicedb_grpc_tonic::v1::check_bulk_permissions_pair::Response as Answer;
 use spicedb_grpc_tonic::v1::consistency::Requirement;
 use spicedb_grpc_tonic::v1::permissions_service_client::PermissionsServiceClient;
 use spicedb_grpc_tonic::v1::relationship_update::Operation;
 use spicedb_grpc_tonic::v1::schema_service_client::SchemaServiceClient;
 use spicedb_grpc_tonic::v1::{
-    check_permission_response::Permissionship, CheckPermissionRequest, Consistency,
-    DeleteRelationshipsRequest, ObjectReference, Relationship, RelationshipFilter,
-    RelationshipUpdate, SubjectReference, WriteRelationshipsRequest, WriteSchemaRequest, ZedToken,
+    check_permission_response::Permissionship, CheckBulkPermissionsRequest,
+    CheckBulkPermissionsRequestItem, Consistency, DeleteRelationshipsRequest, ObjectReference,
+    Relationship, RelationshipFilter, RelationshipUpdate, SubjectReference,
+    WriteRelationshipsRequest, WriteSchemaRequest, ZedToken,
 };
 use tonic::metadata::{Ascii, MetadataValue};
 use tonic::service::interceptor::InterceptedService;
@@ -73,33 +75,68 @@ impl SpiceDb {
         Ok(())
     }
 
-    /// Returns `true` if `subject` passes the check.
-    pub(super) async fn check(&self, subject: &Object, check: &Check) -> Result<bool, AccessError> {
+    /// Returns `true` if `subject` has `permission` on one of the objects. One call asks for all.
+    pub(super) async fn check_any(
+        &self,
+        subject: &Object,
+        objects: &[Object],
+        permission: &str,
+        fresh: Option<&str>,
+    ) -> Result<bool, AccessError> {
         // See at least the write of the check token, or else all the writes.
-        let requirement = match check.freshness() {
+        let requirement = match fresh {
             Some(token) if !token.is_empty() => Requirement::AtLeastAsFresh(ZedToken {
                 token: token.to_owned(),
             }),
             _ => Requirement::FullyConsistent(true),
         };
 
-        // Ask for the permission of the subject on the object.
-        let request = CheckPermissionRequest {
+        // Ask for the permission on each object in one call.
+        let items = objects
+            .iter()
+            .map(|object| CheckBulkPermissionsRequestItem {
+                resource: Some(reference(object)),
+                permission: permission.to_owned(),
+                subject: Some(subject_reference(subject)),
+                context: None,
+            })
+            .collect();
+        let request = CheckBulkPermissionsRequest {
             consistency: Some(Consistency {
                 requirement: Some(requirement),
             }),
-            resource: Some(reference(check.object())),
-            permission: check.permission().to_owned(),
-            subject: Some(subject_reference(subject)),
-            ..Default::default()
+            items,
+            with_tracing: false,
         };
         let response = self
             .permissions
             .clone()
-            .check_permission(request)
+            .check_bulk_permissions(request)
             .await
             .map_err(unavailable)?;
-        Ok(response.into_inner().permissionship == Permissionship::HasPermission as i32)
+
+        // Pass on one yes. With no yes, an error on one object fails closed.
+        let mut failed = false;
+        for pair in response.into_inner().pairs {
+            match pair.response {
+                Some(Answer::Item(item))
+                    if item.permissionship == Permissionship::HasPermission as i32 =>
+                {
+                    return Ok(true);
+                }
+                Some(Answer::Error(status)) => {
+                    tracing::error!(message = status.message, "a SpiceDB check failed");
+                    failed = true;
+                }
+                _ => {}
+            }
+        }
+        if failed {
+            return Err(AccessError::Unavailable(
+                "permission system unavailable".to_owned(),
+            ));
+        }
+        Ok(false)
     }
 
     /// Applies one operation to relationships, and returns the token of the write.

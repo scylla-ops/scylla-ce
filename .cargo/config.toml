@@ -11,3 +11,8 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 # To use lld instead: `brew install lld`, then uncomment.
 # [target.aarch64-apple-darwin]
 # rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+# sqlx::test shares 20 database connections between the tests that run at the same time.
+# Eight test threads keep the tests under this limit.
+[env]
+RUST_TEST_THREADS = "8"

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use scylla_domain::projects::{ListProjects, NewProject, Project, ProjectId, ProjectOwner};
-use scylla_extension::{Gate, Hooks};
+use scylla_extension::{AccessError, Gate, Hooks};
 use scylla_proto::projects::v1 as pb;
 use scylla_proto::projects::v1::project_service_server::{ProjectService, ProjectServiceServer};
 use sqlx::PgPool;
@@ -77,8 +77,7 @@ impl ProjectsGrpc {
             .await?;
 
         // Create the project.
-        let gate = self.gate.as_ref();
-        let project = service::create(&self.pool, &self.hooks, gate, caller.actor, new).await?;
+        let project = service::create(&self.pool, &self.hooks, caller.actor, new).await?;
         Ok(pb::CreateProjectResponse {
             project: Some(project.to_proto()),
         })
@@ -116,11 +115,18 @@ impl ProjectsGrpc {
         &self,
         request: Request<pb::DeleteProjectRequest>,
     ) -> Result<pb::DeleteProjectResponse, Error> {
+        // Authenticate the caller, then read the request.
         let caller = self.gate.caller(&request).await?;
         let id: ProjectId = parse::required(request.into_inner().project_id, "project_id")?;
-        self.gate
-            .authorize(&caller, Project::DELETE_PROJECT.on(id))
-            .await?;
+
+        // Check the route permission. An unknown project gets the answer of a refusal.
+        let check = Project::DELETE_PROJECT.on(id);
+        let Some(owner) = service::owner(&self.pool, id).await? else {
+            return Err(AccessError::Denied(format!("{check} is denied")).into());
+        };
+        self.gate.authorize(&caller, check.owned_by(owner)).await?;
+
+        // Delete the project.
         let gate = self.gate.as_ref();
         service::delete(&self.pool, &self.hooks, gate, caller.actor, id).await?;
         Ok(pb::DeleteProjectResponse {})

@@ -124,9 +124,7 @@ fn record(name: &'static str, log: &Log, reject: bool) -> Arc<Record> {
 
 /// Creates an actor.
 async fn actor(pool: &PgPool) -> Actor {
-    actors::create(pool, &NoGate, ActorKind::new("test"))
-        .await
-        .unwrap()
+    actors::create(pool, ActorKind::new("test")).await.unwrap()
 }
 
 /// Makes the input of a creation by `author` for `owner_id`.
@@ -160,7 +158,7 @@ async fn create_rolls_back_the_hook_writes_on_a_refusal(pool: PgPool) {
 
     // when
     let new = new_project(&author, author.id);
-    let result = service::create(&pool, &hooks, &NoGate, author, new).await;
+    let result = service::create(&pool, &hooks, author, new).await;
 
     // then
     assert!(matches!(result, Err(Error::Rejected(_))));
@@ -183,7 +181,7 @@ async fn hooks_get_the_kind_the_actor_and_the_owner(pool: PgPool) {
 
     // when
     let new = new_project(&author, owner.id);
-    let project = service::create(&pool, &hooks, &NoGate, author.clone(), new)
+    let project = service::create(&pool, &hooks, author.clone(), new)
         .await
         .unwrap();
     service::delete(&pool, &hooks, &NoGate, author.clone(), project.id)
@@ -210,7 +208,7 @@ async fn hooks_run_in_order_and_stop_at_the_first_refusal(pool: PgPool) {
 
     // when
     let new = new_project(&author, author.id);
-    let result = service::create(&pool, &hooks, &NoGate, author, new).await;
+    let result = service::create(&pool, &hooks, author, new).await;
 
     // then
     assert!(matches!(result, Err(Error::Rejected(_))));
@@ -229,7 +227,7 @@ async fn hooks_of_another_kind_do_not_run(pool: PgPool) {
 
     // when
     let new = new_project(&author, author.id);
-    let result = service::create(&pool, &hooks, &NoGate, author, new).await;
+    let result = service::create(&pool, &hooks, author, new).await;
 
     // then
     assert!(result.is_ok());

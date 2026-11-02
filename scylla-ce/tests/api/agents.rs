@@ -84,6 +84,15 @@ fn nonce() -> String {
     ActorId::generate().to_string()
 }
 
+/// Registers an agent for a user, and returns the id of the agent and a token of the agent.
+pub(super) async fn agent_of(app: &TestApp, user: ActorId) -> (ActorId, String) {
+    let agent = register(app, user).await;
+    let token = exchange(app, assertion(&agent, 60, &nonce()))
+        .await
+        .unwrap();
+    (ActorId::parse(&agent.id).unwrap(), token)
+}
+
 /// An agent signs an assertion and gets a token that acts as the agent.
 #[sqlx::test(migrations = false)]
 async fn exchange_agent_assertion_gives_a_token(pool: PgPool) {

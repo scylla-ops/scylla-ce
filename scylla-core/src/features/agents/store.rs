@@ -15,19 +15,11 @@ pub(super) struct AgentKeyRow {
     pub(super) revoked: bool,
 }
 
-/// Inserts an agent that an actor registered.
-pub(super) async fn insert_agent(
-    tx: &mut Tx<'_>,
-    agent_id: ActorId,
-    registered_by: ActorId,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "INSERT INTO agents (id, registered_by) VALUES ($1, $2)",
-        agent_id.to_db(),
-        registered_by.to_db(),
-    )
-    .execute(&mut **tx)
-    .await?;
+/// Marks an actor as an agent, so it can have keys.
+pub(super) async fn insert_agent(tx: &mut Tx<'_>, agent_id: ActorId) -> Result<(), sqlx::Error> {
+    sqlx::query!("INSERT INTO agents (id) VALUES ($1)", agent_id.to_db())
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 

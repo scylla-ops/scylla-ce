@@ -3,6 +3,7 @@
 use std::fmt;
 
 use super::Resource;
+use crate::actors::ActorId;
 use crate::Id;
 
 /// An object of the permission model, for example `project:<id>`. Only a typed id makes one.
@@ -90,6 +91,8 @@ pub struct Check {
     object: Object,
     /// The name of the permission.
     permission: &'static str,
+    /// The owner of an object that is not an actor, from Postgres.
+    owner: Option<ActorId>,
     /// A token of a write that the answer must see.
     fresh: Option<String>,
 }
@@ -100,8 +103,22 @@ impl Check {
         Self {
             object,
             permission,
+            owner: None,
             fresh: None,
         }
+    }
+
+    /// Names the owner of the object. The owner, the actors above it, and the grants on them
+    /// pass the check: `Project::DELETE_PROJECT.on(id).owned_by(owner)`.
+    #[must_use]
+    pub fn owned_by(mut self, owner: ActorId) -> Self {
+        self.owner = Some(owner);
+        self
+    }
+
+    /// Returns the owner of the object, if the check names one.
+    pub fn owner(&self) -> Option<ActorId> {
+        self.owner
     }
 
     /// Returns the object.

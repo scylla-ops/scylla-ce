@@ -55,31 +55,34 @@ pub struct Project {
 }
 
 crate::authz! {
-    /// The permission model of the projects. `delete`, `edit` and `view` are groups, and each
-    /// route has its own permission.
+    /// The grants on one project. The owner is in Postgres, not here. `delete`, `edit` and
+    /// `view` are groups, and each route has its own permission.
     definition project for Project {
-        /// The actor that owns the project.
-        relation owner: Actor;
-        /// An actor that can change the project.
+        /// An actor that can do everything on this project.
+        relation admin: Actor;
+        /// An actor that can change this project.
         relation editor: Actor;
-        /// An actor that can read the project.
+        /// An actor that can read this project.
         relation viewer: Actor;
-        /// The group of the routes that delete the project: the actors that act for its owner.
-        permission delete = owner->act_for;
+        /// The group of the routes that delete the project: its admins and their delegates.
+        permission delete = admin + admin->act_for;
         /// The group of the routes that change the project.
-        permission edit = delete + editor->act_for;
+        permission edit = delete + editor + editor->act_for;
         /// The group of the routes that read the project.
-        permission view = edit + viewer->act_for;
-        /// The route `DeleteProject`.
+        permission view = edit + viewer + viewer->act_for;
+        /// The route `DeleteProject`, on one project.
         permission delete_project = delete;
     }
 
-    /// The routes of the projects that act on their owner.
+    /// The routes of the projects on their owner. A grant here gives the route on each project
+    /// of the owner.
     extend Actor as ProjectOwner {
         /// The route `CreateProject`, for this owner.
         permission create_project = act_for;
         /// The route `ListProjects`, for this owner.
         permission list_projects = act_for;
+        /// The route `DeleteProject`, on each project of this owner.
+        permission delete_project = act_for;
     }
 }
 

@@ -1,6 +1,6 @@
-//! The logic of the projects: one transaction for each call, with the hooks and the relationships.
+//! The logic of the projects: one transaction for each call, with the hooks.
 
-use scylla_domain::actors::Actor;
+use scylla_domain::actors::{Actor, ActorId};
 use scylla_domain::authz::Object;
 use scylla_domain::page::Page;
 use scylla_domain::projects::{ListProjects, NewProject, Project, ProjectId, ProjectPage, KIND};
@@ -8,13 +8,12 @@ use scylla_extension::{CreateContext, DeleteContext, Gate, Hooks};
 use sqlx::PgPool;
 
 use super::store;
-use crate::{access, Error};
+use crate::Error;
 
-/// Creates a project if each `BeforeCreate` hook accepts it, and writes its owner relationship.
+/// Creates a project if each `BeforeCreate` hook accepts it. Its owner is in its row only.
 pub(super) async fn create(
     pool: &PgPool,
     hooks: &Hooks,
-    gate: &dyn Gate,
     actor: Actor,
     new: NewProject,
 ) -> Result<Project, Error> {
@@ -23,8 +22,16 @@ pub(super) async fn create(
         .before_create(&mut tx, &CreateContext::new(KIND, actor, new.owner_id))
         .await?;
     let project = store::insert(&mut tx, &new).await?;
-    access::commit(tx, gate, &[Project::OWNER.of(project.id, project.owner_id)]).await?;
+    tx.commit().await?;
     Ok(project)
+}
+
+/// Returns the owner of a project, or `None` if no project has this id.
+pub(super) async fn owner(pool: &PgPool, id: ProjectId) -> Result<Option<ActorId>, Error> {
+    let mut tx = pool.begin().await?;
+    let owner = store::owner(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(owner)
 }
 
 /// Returns one page of the projects of an owner, oldest first.
@@ -37,7 +44,7 @@ pub(super) async fn list(pool: &PgPool, query: ListProjects) -> Result<ProjectPa
     }))
 }
 
-/// Deletes a project, runs the `AfterDelete` hooks, then removes its relationships.
+/// Deletes a project, runs the `AfterDelete` hooks, then removes the grants on it.
 pub(super) async fn delete(
     pool: &PgPool,
     hooks: &Hooks,
@@ -55,9 +62,9 @@ pub(super) async fn delete(
         .await?;
     tx.commit().await?;
 
-    // Remove the relationships after the commit. A failure only goes to the log.
+    // Remove the grants after the commit. A grant that stays reaches no project.
     if let Err(error) = gate.delete_object(&Object::of(id)).await {
-        tracing::error!(%error, project = %id, "relationships stay after a delete");
+        tracing::error!(%error, project = %id, "grants stay after a delete");
     }
     Ok(())
 }

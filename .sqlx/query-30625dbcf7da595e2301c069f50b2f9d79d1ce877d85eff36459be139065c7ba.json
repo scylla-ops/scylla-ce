@@ -1,15 +1,16 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO agents (id, registered_by) VALUES ($1, $2)",
+  "query": "INSERT INTO actors (id, kind, owner_id) VALUES ($1, $2, $3)",
   "describe": {
     "columns": [],
     "parameters": {
       "Left": [
         "Uuid",
+        "Text",
         "Uuid"
       ]
     },
     "nullable": []
   },
-  "hash": "229d7e622c68156421d2fd4b88fb9d273cd34dc23963856017d84f39c5e0eaf1"
+  "hash": "30625dbcf7da595e2301c069f50b2f9d79d1ce877d85eff36459be139065c7ba"
 }

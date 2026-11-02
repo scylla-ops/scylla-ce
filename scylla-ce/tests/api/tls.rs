@@ -23,8 +23,8 @@ async fn health_check_works_over_tls(pool: PgPool) {
         tls: Some(Identity::from_pem(&cert_pem, &key_pem)),
         ..ServeOptions::default()
     };
-    let access = Arc::new(test_access(pool.clone()));
     let edition = scylla_ce::edition();
+    let access = Arc::new(test_access(pool.clone(), edition.authz_model().clone()));
     tokio::spawn(server::serve(
         listener,
         pool,

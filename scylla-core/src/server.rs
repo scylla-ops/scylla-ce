@@ -83,7 +83,8 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
     // Connect, refuse a database with a missing migration, and make the gate.
     let pool = db::connect(config).await?;
     db::check_migrated(&pool, edition.migrators()).await?;
-    let access = Arc::new(Access::from_config(config, pool.clone())?);
+    let schema = edition.authz_model().clone();
+    let access = Arc::new(Access::from_config(config, pool.clone(), schema)?);
 
     // Bind the address and serve until the stop signal.
     let listener = TcpListener::bind(config.bind_addr).await?;

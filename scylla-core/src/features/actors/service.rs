@@ -1,17 +1,16 @@
 //! The logic of the actors.
 
 use scylla_domain::actors::{Actor, ActorId, ActorKind};
-use scylla_extension::Gate;
 use sqlx::PgPool;
 
 use super::store;
-use crate::{access, Error};
+use crate::Error;
 
-/// Creates an actor of a kind, with its identity relationship.
-pub async fn create(pool: &PgPool, gate: &dyn Gate, kind: ActorKind) -> Result<Actor, Error> {
+/// Creates an actor of a kind, with no owner.
+pub async fn create(pool: &PgPool, kind: ActorKind) -> Result<Actor, Error> {
     let mut tx = pool.begin().await?;
-    let actor = store::insert(&mut tx, kind).await?;
-    access::commit(tx, gate, &[Actor::IDENTITY.of(actor.id, actor.id)]).await?;
+    let actor = store::insert(&mut tx, kind, None).await?;
+    tx.commit().await?;
     Ok(actor)
 }
 

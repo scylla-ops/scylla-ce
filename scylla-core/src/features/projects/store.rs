@@ -81,3 +81,11 @@ pub(super) async fn delete(tx: &mut Tx<'_>, id: ProjectId) -> Result<Option<Acto
     .await?;
     Ok(owner_id.map(ActorId::from_db))
 }
+
+/// Returns the owner of a project, or `None` if no project has this id.
+pub(super) async fn owner(tx: &mut Tx<'_>, id: ProjectId) -> Result<Option<ActorId>, Error> {
+    let owner_id = sqlx::query_scalar!("SELECT owner_id FROM projects WHERE id = $1", id.to_db())
+        .fetch_optional(&mut **tx)
+        .await?;
+    Ok(owner_id.map(ActorId::from_db))
+}

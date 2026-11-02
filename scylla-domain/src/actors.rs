@@ -38,14 +38,13 @@ pub struct Actor {
 }
 
 crate::authz! {
-    /// The permission model of the actors, for each kind. The features add the permissions of
-    /// their routes on an owner with `extend Actor`.
+    /// The grants on the actors, for each kind. The actor itself and its owners need no grant:
+    /// the gate reads them from Postgres. The features add the permissions of their routes on an
+    /// owner with `extend Actor`.
     definition actor for Actor {
-        /// The actor itself.
-        relation identity: Actor;
-        /// An actor that can act for this actor.
+        /// An actor that can act for this actor and for what it owns.
         relation delegate: Actor;
-        /// The group of the routes that act for this actor: the actor itself and its delegates.
-        permission act_for = identity + delegate;
+        /// The group of the routes that act for this actor: its delegates.
+        permission act_for = delegate;
     }
 }

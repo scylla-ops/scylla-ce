@@ -65,6 +65,11 @@ impl Edition {
         self.authz.to_string()
     }
 
+    /// Returns the permission model, for the gate: it tells which definitions have a permission.
+    pub fn authz_model(&self) -> &Schema {
+        &self.authz
+    }
+
     /// Returns the hooks.
     pub fn hooks(&self) -> Arc<Hooks> {
         Arc::clone(&self.hooks)

@@ -1,4 +1,5 @@
-//! The tests of the permission model: the core roles, and the parts that an edition adds.
+//! The tests of the permission model: the roles on an owner and on one project, and the parts
+//! that an edition adds.
 
 use scylla_domain::actors::{Actor, ActorId};
 use scylla_domain::authz;
@@ -14,8 +15,8 @@ authz! {
     extend Project as ProjectAudit {
         /// An actor that audits the project.
         relation auditor: Actor;
-        /// Read the audit log: the auditors, and the actors that can delete the project.
-        permission audit = auditor->act_for + delete;
+        /// Read the audit log: the auditors and their delegates, and the project admins.
+        permission audit = auditor + auditor->act_for + delete;
     }
 }
 
@@ -23,12 +24,12 @@ authz! {
 struct Widget;
 
 authz! {
-    /// The permission model of the widgets.
+    /// The grants on one widget.
     definition widget for Widget {
-        /// The project of the widget.
-        relation project: Project;
-        /// Use the widget: the actors that can change its project.
-        permission operate = project->edit;
+        /// An actor that can use the widget.
+        relation operator: Actor;
+        /// Use the widget: its operators and their delegates.
+        permission operate = operator + operator->act_for;
     }
 }
 
@@ -38,33 +39,38 @@ async fn project_of(app: &TestApp, owner: ActorId) -> ProjectId {
     ProjectId::parse(text(&project.id)).unwrap()
 }
 
-/// The owner and its delegates can delete a project, a viewer can only read it, and another
-/// actor can do nothing.
+/// The owner, its delegates and a project admin can delete a project. A viewer can only read
+/// it, and another actor can do nothing.
 #[sqlx::test(migrations = false)]
-async fn the_core_roles_give_their_permissions(pool: PgPool) {
+async fn the_roles_give_their_permissions(pool: PgPool) {
     // given
     let app = app(pool).await;
     let owner = app.user().await;
     let delegate = app.user().await;
+    let admin = app.user().await;
     let viewer = app.user().await;
     let stranger = app.user().await;
     let project = project_of(&app, owner).await;
     let grants = [
         Actor::DELEGATE.of(owner, delegate),
+        Project::ADMIN.of(project, admin),
         Project::VIEWER.of(project, viewer),
     ];
     app.grant(&grants).await;
+    let delete = || Project::DELETE_PROJECT.on(project).owned_by(owner);
+    let view = || Project::VIEW.on(project).owned_by(owner);
 
     // when
-    let owner_deletes = app.can(owner, Project::DELETE.on(project)).await;
-    let delegate_deletes = app.can(delegate, Project::DELETE.on(project)).await;
-    let viewer_reads = app.can(viewer, Project::VIEW.on(project)).await;
-    let viewer_edits = app.can(viewer, Project::EDIT.on(project)).await;
-    let stranger_reads = app.can(stranger, Project::VIEW.on(project)).await;
+    let owner_deletes = app.can(owner, delete()).await;
+    let delegate_deletes = app.can(delegate, delete()).await;
+    let admin_deletes = app.can(admin, delete()).await;
+    let viewer_deletes = app.can(viewer, delete()).await;
+    let viewer_reads = app.can(viewer, view()).await;
+    let stranger_reads = app.can(stranger, view()).await;
 
     // then
-    assert!(owner_deletes && delegate_deletes && viewer_reads);
-    assert!(!viewer_edits && !stranger_reads);
+    assert!(owner_deletes && delegate_deletes && admin_deletes && viewer_reads);
+    assert!(!viewer_deletes && !stranger_reads);
 }
 
 /// An edition adds a relation and a permission to the core definition of the projects.
@@ -79,37 +85,44 @@ async fn an_edition_adds_a_permission_to_a_core_definition(pool: PgPool) {
     let project = project_of(&app, owner).await;
     app.grant(&[ProjectAudit::AUDITOR.of(project, auditor)])
         .await;
+    let audit = || ProjectAudit::AUDIT.on(project).owned_by(owner);
+    let delete = Project::DELETE_PROJECT.on(project).owned_by(owner);
 
     // when
-    let auditor_audits = app.can(auditor, ProjectAudit::AUDIT.on(project)).await;
-    let owner_audits = app.can(owner, ProjectAudit::AUDIT.on(project)).await;
-    let auditor_deletes = app.can(auditor, Project::DELETE.on(project)).await;
-    let stranger_audits = app.can(stranger, ProjectAudit::AUDIT.on(project)).await;
+    let auditor_audits = app.can(auditor, audit()).await;
+    let owner_audits = app.can(owner, audit()).await;
+    let auditor_deletes = app.can(auditor, delete).await;
+    let stranger_audits = app.can(stranger, audit()).await;
 
     // then
     assert!(auditor_audits && owner_audits);
     assert!(!auditor_deletes && !stranger_audits);
 }
 
-/// An edition adds a definition, with an arrow to a core definition.
+/// An edition adds a definition: the owner of a widget passes, and an operator passes on its
+/// widget only.
 #[sqlx::test(migrations = false)]
 async fn an_edition_adds_a_definition(pool: PgPool) {
     // given
     let edition = scylla_core::edition("test").authz::<Widget>().build();
     let app = TestApp::spawn(pool, edition).await;
     let owner = app.user().await;
+    let operator = app.user().await;
     let stranger = app.user().await;
-    let project = project_of(&app, owner).await;
     let widget = Id::<Widget>::generate();
-    app.grant(&[Widget::PROJECT.of(widget, project)]).await;
+    let other = Id::<Widget>::generate();
+    app.grant(&[Widget::OPERATOR.of(widget, operator)]).await;
+    let operate = |id: Id<Widget>| Widget::OPERATE.on(id).owned_by(owner);
 
     // when
-    let owner_operates = app.can(owner, Widget::OPERATE.on(widget)).await;
-    let stranger_operates = app.can(stranger, Widget::OPERATE.on(widget)).await;
+    let owner_operates = app.can(owner, operate(widget)).await;
+    let operator_operates = app.can(operator, operate(widget)).await;
+    let operator_on_other = app.can(operator, operate(other)).await;
+    let stranger_operates = app.can(stranger, operate(widget)).await;
 
     // then
-    assert!(owner_operates);
-    assert!(!stranger_operates);
+    assert!(owner_operates && operator_operates);
+    assert!(!operator_on_other && !stranger_operates);
 }
 
 /// An edition with a part that does not fit stops at start.

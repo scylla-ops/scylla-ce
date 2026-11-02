@@ -5,13 +5,18 @@ use scylla_extension::Tx;
 
 use crate::Error;
 
-/// Inserts an actor of a kind and returns it.
-pub(crate) async fn insert(tx: &mut Tx<'_>, kind: ActorKind) -> Result<Actor, Error> {
+/// Inserts an actor of a kind, with the actor that owns it if there is one, and returns it.
+pub(crate) async fn insert(
+    tx: &mut Tx<'_>,
+    kind: ActorKind,
+    owner: Option<ActorId>,
+) -> Result<Actor, Error> {
     let id = ActorId::generate();
     sqlx::query!(
-        "INSERT INTO actors (id, kind) VALUES ($1, $2)",
+        "INSERT INTO actors (id, kind, owner_id) VALUES ($1, $2, $3)",
         id.to_db(),
         kind.as_str(),
+        owner.map(ActorId::to_db),
     )
     .execute(&mut **tx)
     .await?;

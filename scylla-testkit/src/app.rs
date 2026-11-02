@@ -8,7 +8,7 @@ use scylla_core::access::{Access, AccessConfig, SpiceDb, TokenKeys};
 use scylla_core::features::actors;
 use scylla_core::server::{self, ServeOptions};
 use scylla_domain::actors::{ActorId, ActorKind};
-use scylla_domain::authz::{Check, Relationship};
+use scylla_domain::authz::{Check, Relationship, Schema};
 use scylla_extension::{AccessError, Edition, Gate, Operation};
 use scylla_proto::capabilities::v1::capability_service_client::CapabilityServiceClient;
 use scylla_proto::capabilities::v1::{GetCapabilitiesRequest, GetCapabilitiesResponse};
@@ -29,6 +29,9 @@ use tonic_health::pb::HealthCheckRequest;
 /// The SpiceDB of the tests (`spicedb serve-testing`), unless `SCYLLA_TEST_SPICEDB_ENDPOINT`
 /// names another. It gives an empty store to each key.
 const SPICEDB_ENDPOINT: &str = "http://127.0.0.1:55052";
+
+/// An endpoint where no SpiceDB answers: the system refuses a connection to port 0 at once.
+const NO_SPICEDB: &str = "http://127.0.0.1:0";
 
 /// The service of the routes that `TestApp::can` makes for its checks.
 const TEST_SERVICE: &str = "/scylla.test.v1.TestService";
@@ -53,23 +56,33 @@ impl TestApp {
         Self::spawn_with(pool, edition, ServeOptions::default()).await
     }
 
-    /// Applies the migrations and the schema of the edition, then starts its server.
+    /// Writes the schema of the edition to a new SpiceDB store, then starts its server.
     pub async fn spawn_with(pool: PgPool, edition: Edition, options: ServeOptions) -> Self {
+        let access = test_access(pool.clone(), edition.authz_model().clone());
+        access
+            .spicedb()
+            .write_schema(edition.authz_schema())
+            .await
+            .expect("schema applies");
+        Self::start(pool, edition, options, access).await
+    }
+
+    /// Starts an edition with a SpiceDB that never answers: each SpiceDB call fails.
+    pub async fn spawn_without_spicedb(pool: PgPool, edition: Edition) -> Self {
+        let access = access_at(pool.clone(), edition.authz_model().clone(), NO_SPICEDB);
+        Self::start(pool, edition, ServeOptions::default(), access).await
+    }
+
+    /// Applies the migrations of the edition, then starts its server with this gate.
+    async fn start(pool: PgPool, edition: Edition, options: ServeOptions, access: Access) -> Self {
         // Apply the migrations to the test database.
         scylla_core::crypto::install();
         scylla_core::db::migrate(&pool, edition.migrators())
             .await
             .expect("migrations apply");
 
-        // Write the schema to a new SpiceDB store.
-        let access = Arc::new(test_access(pool.clone()));
-        access
-            .spicedb()
-            .write_schema(edition.authz_schema())
-            .await
-            .expect("schema applies");
-
         // Start the server on a free port, and connect to it.
+        let access = Arc::new(access);
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("local addr");
         tokio::spawn(server::serve(
@@ -94,9 +107,9 @@ impl TestApp {
         }
     }
 
-    /// Creates an actor of a kind, with its identity relationship, and returns its id.
+    /// Creates an actor of a kind, with no owner, and returns its id.
     pub async fn actor_of(&self, kind: ActorKind) -> ActorId {
-        actors::create(&self.pool, self.gate(), kind)
+        actors::create(&self.pool, kind)
             .await
             .expect("create actor")
             .id
@@ -230,14 +243,20 @@ impl TestApp {
 
 /// Makes the gate of a test: a new signing key, and a new key of the SpiceDB of the tests, so
 /// each test starts with an empty SpiceDB store and runs in parallel with the others.
-pub fn test_access(pool: PgPool) -> Access {
+pub fn test_access(pool: PgPool, schema: Schema) -> Access {
     let endpoint =
         env::var("SCYLLA_TEST_SPICEDB_ENDPOINT").unwrap_or_else(|_| SPICEDB_ENDPOINT.into());
+    access_at(pool, schema, &endpoint)
+}
+
+/// Makes a gate with a new signing key and a new key of the SpiceDB at `endpoint`.
+fn access_at(pool: PgPool, schema: Schema, endpoint: &str) -> Access {
     let key = format!("test-{}", uuid::Uuid::now_v7());
     let config = AccessConfig {
         keys: TokenKeys::generate(1),
         token_ttl: Duration::from_secs(600),
-        spicedb: SpiceDb::new(&endpoint, &key).expect("SpiceDB client"),
+        spicedb: SpiceDb::new(endpoint, &key).expect("SpiceDB client"),
+        schema,
     };
     Access::new(pool, config)
 }

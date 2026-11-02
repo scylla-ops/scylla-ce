@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use biscuit_auth::{BlockBuilder, UnverifiedBiscuit};
 use scylla_core::features::actors;
+use scylla_domain::authz::Schema;
 use scylla_proto::projects::v1::{CreateProjectRequest, ListProjectsRequest};
 use scylla_testkit::{test_access, with_token};
 use sqlx::PgPool;
@@ -26,7 +27,7 @@ async fn a_bad_token_is_refused(pool: PgPool) {
     let app = app(pool.clone()).await;
     let user = app.user().await;
     let actor = actors::find(&app.pool, user).await.unwrap();
-    let foreign = test_access(pool)
+    let foreign = test_access(pool, Schema::default())
         .issue_for(&actor, Duration::from_secs(600))
         .unwrap();
     let expired = app.access.issue_for(&actor, Duration::ZERO).unwrap();

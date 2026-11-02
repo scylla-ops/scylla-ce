@@ -51,7 +51,7 @@ impl AgentsGrpc {
         // Register the agent for the caller.
         let public_key = request.into_inner().public_key;
         let (agent_id, key_id) =
-            service::register(&self.pool, self.gate.as_ref(), caller.actor.id, &public_key).await?;
+            service::register(&self.pool, caller.actor.id, &public_key).await?;
         Ok(pb::RegisterAgentResponse {
             agent_id: Some(agent_id.to_proto()),
             key_id: Some(key_id.to_proto()),

@@ -4,7 +4,7 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use prost::Message;
 use scylla_domain::actors::{Actor, ActorId};
 use scylla_domain::agents::{AgentKeyId, KIND};
-use scylla_extension::{AccessError, Gate};
+use scylla_extension::AccessError;
 use scylla_proto::auth::v1::AgentAssertion;
 use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
@@ -12,7 +12,7 @@ use time::{Duration, OffsetDateTime};
 use super::store;
 use crate::features::actors;
 use crate::parse;
-use crate::{access, Error};
+use crate::Error;
 
 /// The audience that each assertion must name.
 pub const AUDIENCE: &str = "scylla";
@@ -23,10 +23,10 @@ const MAX_LIFETIME: Duration = Duration::minutes(2);
 /// The shortest nonce.
 const MIN_NONCE_LEN: usize = 16;
 
-/// Registers an agent for an actor, with the public key of the agent.
+/// Registers an agent for an actor, with the public key of the agent. The actor owns the agent,
+/// so it has each right on the agent and on what the agent owns.
 pub async fn register(
     pool: &PgPool,
-    gate: &dyn Gate,
     owner: ActorId,
     public_key: &[u8],
 ) -> Result<(ActorId, AgentKeyId), Error> {
@@ -37,19 +37,13 @@ pub async fn register(
     VerifyingKey::from_bytes(&bytes)
         .map_err(|_| Error::invalid("public_key", "must be an Ed25519 public key"))?;
 
-    // Store the agent as an actor, with its owner and its public key.
+    // Store the agent as an actor of its owner, with its public key.
     let mut tx = pool.begin().await?;
-    let agent = actors::insert(&mut tx, KIND).await?;
-    store::insert_agent(&mut tx, agent.id, owner).await?;
+    let agent = actors::insert(&mut tx, KIND, Some(owner)).await?;
+    store::insert_agent(&mut tx, agent.id).await?;
     let key_id = AgentKeyId::generate();
     store::insert_key(&mut tx, key_id, agent.id, public_key).await?;
-
-    // Make the owner a delegate of the agent, then commit.
-    let grants = [
-        Actor::IDENTITY.of(agent.id, agent.id),
-        Actor::DELEGATE.of(agent.id, owner),
-    ];
-    access::commit(tx, gate, &grants).await?;
+    tx.commit().await?;
     Ok((agent.id, key_id))
 }
 

@@ -1,4 +1,4 @@
-//! The actors feature: the `actors` table, and the identity relationship of each actor.
+//! The actors feature: the `actors` table, with the owner of each actor.
 
 mod service;
 mod store;

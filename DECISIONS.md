@@ -22,8 +22,8 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 4. Actors
 
-- **Decision:** one table `actors (id, kind, created_at)`. `ActorKind` is open. The core defines the kinds of its features (`user`, `agent`), and an edition adds its own. Each actor has an `identity` relation in SpiceDB. A feature that needs details for a kind adds its own table with `id REFERENCES actors (id)`.
-- **Why:** a person, a bot or a later kind can act and own resources, and each reference keeps a real foreign key.
+- **Decision:** one table `actors (id, kind, owner_id, created_at)`. `ActorKind` is open. The core defines the kinds of its features (`user`, `agent`), and an edition adds its own. An actor can have an owner actor: the user of an agent, later the organization of a team. A feature that needs details for a kind adds its own table with `id REFERENCES actors (id)`.
+- **Why:** a person, a bot or a later kind can act and own resources, and each reference keeps a real foreign key. The owner of an actor makes a tree of ownership (see 29).
 - **Not kept:** one table for each kind with no common identity (no common foreign key); a pair `(kind, id)` with no foreign key (no integrity).
 
 ## 5. Owner and author
@@ -104,19 +104,19 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 19. SpiceDB permissions
 
-- **Decision:** SpiceDB holds the permissions, in Postgres (its own database). The subject is always `actor`, so the actor kinds stay open. `actor#act_for = identity + delegate`: an actor acts for itself and for the actors that delegate to it. A project gives the groups `delete`, `edit` and `view` through `owner->act_for`, and each route has its own permission (see 28). Each plugin registers the model of its types (`EditionBuilder::authz`, see 25), and `migrate` writes the full schema.
-- **Why:** roles, sharing and delegation are relations, not code. An edition adds its definitions with no change to the core. A registered agent is a delegate of its user, so the user acts for the agent, not the reverse.
+- **Decision:** SpiceDB holds the grants, in Postgres (its own database). The subject is always `actor`, so the actor kinds stay open. `actor#act_for = delegate`: the delegates of an actor act for it. A project has the roles `admin`, `editor` and `viewer` (`role + role->act_for`), with the groups `delete`, `edit` and `view`, and each route has its own permission (see 28). Each plugin registers the model of its types (`EditionBuilder::authz`, see 25), and `migrate` writes the full schema.
+- **Why:** roles, sharing and delegation are relations, not code. An edition adds its definitions with no change to the core. The owners are not in SpiceDB (see 29).
 - **Not kept:** permission checks in SQL in each feature.
 
 ## 20. Consistency between Postgres and SpiceDB
 
-- **Decision:** a write ends with `access::commit(tx, gate, &grants)`. It sends the relationships to SpiceDB, then commits. A SpiceDB error rolls back the transaction, and a failed commit deletes the relationships again. A delete removes the relationships after the commit, and logs a failure. Each check is fully consistent.
-- **Why:** no worker to run, and no relation can give a right to a row that was not written. SpiceDB can answer from a cache up to 5 seconds old: a check just after a write would give a false refusal, so correctness comes first. A ZedToken can make a check faster later (`Check::at_least_as_fresh`).
-- **Not kept:** a transactional outbox (a worker, and a refusal just after a create).
+- **Decision:** no write goes to the two stores. A creation or a delete changes Postgres only. A grant changes SpiceDB only. After a delete, the server removes the grants on the object, and logs a failure. Each check that reaches SpiceDB is fully consistent.
+- **Why:** a commit can fail in more than one way, and its result can even be unknown. With one store for each write, no undo is necessary. A grant on a deleted object reaches nothing, because each route reads the object from Postgres first, and ids are never used again. SpiceDB can answer from a cache up to 5 seconds old: a check just after a grant would give a false refusal, so correctness comes first. A ZedToken can make a check faster later (`Check::at_least_as_fresh`).
+- **Not kept:** the owner written to SpiceDB before the commit, and deleted again after a failed commit (an unknown commit result leaves an owner with no right); a transactional outbox (a worker, a refusal just after a create, and one write for each resource).
 
 ## 21. An unknown resource gives `PERMISSION_DENIED`
 
-- **Decision:** a delete of an unknown project gives the same answer as a delete without the permission.
+- **Decision:** a delete of an unknown project gives the same answer as a delete without the permission. The route reads the owner first: no owner gives the refusal, with the same message.
 - **Why:** a caller does not learn which ids exist.
 
 ## 22. gRPC-Web
@@ -137,7 +137,7 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 25. A typed permission model
 
-- **Decision:** the procedural macro `authz!` declares each SpiceDB definition next to its Rust type, in the SpiceDB schema language. It implements `Resource` and `Model` for the type, and makes one constant for each name: `Project::DELETE` is a `Permission<Project>`, `Project::OWNER` is a `Relation<Project, Actor>`. `Permission::on(id)` and `Relation::of(object, subject)` take typed ids, and only they make a `Check` or a `Relationship`. `EditionBuilder::authz::<T>()` adds the part of a type, and the edition writes the schema from the parts. `authz! { extend Project as ProjectAudit { ... } }` adds relations and permissions to a definition of another plugin.
+- **Decision:** the procedural macro `authz!` declares each SpiceDB definition next to its Rust type, in the SpiceDB schema language. It implements `Resource` and `Model` for the type, and makes one constant for each name: `Project::DELETE` is a `Permission<Project>`, `Project::VIEWER` is a `Relation<Project, Actor>`. `Permission::on(id)` and `Relation::of(object, subject)` take typed ids, and only they make a `Check` or a `Relationship`. `EditionBuilder::authz::<T>()` adds the part of a type, and the edition writes the schema from the parts. `authz! { extend Project as ProjectAudit { ... } }` adds relations and permissions to a definition of another plugin.
 - **Why:** one source for the schema and the code. The compiler stops a wrong name, a wrong id type, and a wrong name in a permission expression (an arrow is checked on the subject type). SpiceDB checks the full schema each time a test writes it. An edition adds objects, relations and permissions with no change to the core.
 - **Not kept:** schema text and names as text (no check before run time); a `macro_rules!` macro (no constants in upper case, no check of the expressions); a typed SpiceDB client from another crate (it replaces the official client, and no crate is a standard); an extension that changes an existing permission (an extension only adds, so the core rules stay true).
 
@@ -149,12 +149,18 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 27. One SpiceDB store for each test
 
-- **Decision:** the tests use `spicedb serve-testing` (`spicedb-test`, port 55052). Each `TestApp` uses a new key, and serve-testing gives an empty store in memory to each key.
-- **Why:** the tests run in parallel with different schemas (an edition extends a definition) and with no shared relationships, as `sqlx::test` gives a new database to each test. The dev SpiceDB keeps only dev data.
+- **Decision:** the tests use `spicedb serve-testing` (`spicedb-test`, port 55052). Each `TestApp` uses a new key, and serve-testing gives an empty store in memory to each key. `.cargo/config.toml` runs the tests on 8 threads.
+- **Why:** the tests run in parallel with different schemas (an edition extends a definition) and with no shared relationships, as `sqlx::test` gives a new database to each test. The dev SpiceDB keeps only dev data. `sqlx::test` shares 20 database connections between the tests that run at the same time. With 16 threads, a test waited 30 seconds for a connection.
 - **Not kept:** the dev SpiceDB for the tests: the schema write of one test changes the schema of all the tests, and the relationships stay after the tests.
 
 ## 28. One permission for each route
 
-- **Decision:** each route that verifies a token checks its own permission: the RPC name in snake case, on the object of the route. `CreateProject` checks `actor#create_project` on the owner, `DeleteProject` checks `project#delete_project`. A route permission uses a group: `act_for`, `delete`, `edit`, `view`. A feature adds the permissions of its routes on an owner with `extend Actor as <Feature>Owner`. The gate refuses a check of a permission that is not the route permission. After the route, the server refuses a success when the route verified a token and passed no check of its route permission: it answers `PERMISSION_DENIED` and logs an error.
+- **Decision:** each route that verifies a token checks its own permission: the RPC name in snake case, on the object of the route. `CreateProject` checks `create_project` on the owner. `DeleteProject` checks `delete_project` on the project and on its owners. A route permission uses a group: `act_for`, `delete`, `edit`, `view`. A feature adds the permissions of its routes on an owner with `extend Actor as <Feature>Owner`, and on the object only when one object can be shared. The gate refuses a check of a permission that is not the route permission. After the route, the server refuses a success when the route verified a token and passed no check of its route permission: it answers `PERMISSION_DENIED` and logs an error.
 - **Why:** a role can give one route and not the others: a quota reader reads quotas and creates nothing. Groups keep the common case short, and a new role changes the schema, not the code. A route that forgets its check, or that checks a group, fails in the tests of its success.
 - **Not kept:** checks of groups in the routes (a new role gives all the routes of the group, or a change of code); a list of route permissions in a table (a second source next to the schema); a stop before the route runs when a check is missing (the server does not know the object of the route before the route reads the request). A route that must also check the permission of another route needs a new decision.
+
+## 29. Ownership in Postgres, grants in SpiceDB
+
+- **Decision:** Postgres holds who owns what: `owner_id` of a resource, and `actors.owner_id` (the user of an agent). SpiceDB holds only the rights that a person gives on purpose: delegates, roles on an owner, roles on one object. The gate finds the rights of a request in this order: the caller is the owner of the object, or an actor above the owner, with no SpiceDB call; else one `CheckBulkPermissions` call asks for the route permission on the object and on each actor of the owner chain. A grant on an actor goes down to all that it owns. A check of an object that is not an actor names the owner: `Project::DELETE_PROJECT.on(id).owned_by(owner)`.
+- **Why:** a creation or a delete is one Postgres transaction, with no write to SpiceDB and no undo. Most requests are by the owner and need no SpiceDB call. SpiceDB stores only the grants, not one relationship for each actor and resource. The owner is business data: lists, quotas under concurrency, foreign keys and hooks read it in SQL. A grant on one object stays possible, for precise sharing.
+- **Not kept:** the owner in SpiceDB only (a SpiceDB write at each creation, no sorted lists, no quota lock, no foreign key); the owner in the two stores (two copies that must agree after each commit); the model of Kubernetes, with roles only on an owner (no sharing of one object).

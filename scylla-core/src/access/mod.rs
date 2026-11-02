@@ -1,13 +1,12 @@
-//! Zero-trust access: short-lived Biscuit tokens, revocation, and SpiceDB permissions.
+//! Zero-trust access: short-lived Biscuit tokens, revocation, ownership, and SpiceDB grants.
 
-mod commit;
 mod gate;
 mod keys;
 mod operation;
+mod rights;
 mod spicedb;
 mod store;
 
-pub use commit::commit;
 pub use gate::{Access, AccessConfig};
 pub use keys::TokenKeys;
 pub use operation::OperationLayer;

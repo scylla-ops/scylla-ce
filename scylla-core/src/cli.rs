@@ -1,13 +1,12 @@
 //! The command line of a binary: `serve` (the default), `migrate`, and the admin commands.
 
 use std::fmt;
-use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use scylla_domain::actors::{Actor, ActorId, ActorKind};
 use scylla_domain::Id;
-use scylla_extension::{Edition, Gate};
+use scylla_extension::Edition;
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::layer::SubscriberExt;
@@ -94,7 +93,7 @@ where
         Command::Serve => server::run(core, edition).await,
         Command::Migrate => migrate(core, &edition).await,
         Command::Actor(command) => actor(core, command).await,
-        Command::Token(command) => token(core, command).await,
+        Command::Token(command) => token(core, command, &edition).await,
     }
 }
 
@@ -105,7 +104,7 @@ async fn migrate(config: &Config, edition: &Edition) -> Result<(), Error> {
     db::migrate(&pool, edition.migrators()).await?;
 
     // Write the SpiceDB schema of the edition.
-    let access = Access::from_config(config, pool.clone())?;
+    let access = Access::from_config(config, pool.clone(), edition.authz_model().clone())?;
     access
         .spicedb()
         .write_schema(edition.authz_schema())
@@ -118,11 +117,9 @@ async fn migrate(config: &Config, edition: &Edition) -> Result<(), Error> {
 /// Runs an actor command.
 async fn actor(config: &Config, command: ActorCommand) -> Result<(), Error> {
     let pool = db::connect(config).await?;
-    let access = Arc::new(Access::from_config(config, pool.clone())?);
     match command {
         ActorCommand::Create { kind } => {
-            let gate: &dyn Gate = access.as_ref();
-            let actor = actors::create(&pool, gate, ActorKind::from_name(kind)).await?;
+            let actor = actors::create(&pool, ActorKind::from_name(kind)).await?;
             println!("{}", actor.id);
         }
     }
@@ -131,7 +128,7 @@ async fn actor(config: &Config, command: ActorCommand) -> Result<(), Error> {
 }
 
 /// Runs a token command.
-async fn token(config: &Config, command: TokenCommand) -> Result<(), Error> {
+async fn token(config: &Config, command: TokenCommand, edition: &Edition) -> Result<(), Error> {
     // Make a key pair. It needs no database and no key.
     if let TokenCommand::Keygen = command {
         let keys = TokenKeys::generate(config.token_key_id);
@@ -142,7 +139,7 @@ async fn token(config: &Config, command: TokenCommand) -> Result<(), Error> {
 
     // Sign or revoke a token with the gate of the settings.
     let pool = db::connect(config).await?;
-    let access = Access::from_config(config, pool.clone())?;
+    let access = Access::from_config(config, pool.clone(), edition.authz_model().clone())?;
     match command {
         TokenCommand::Keygen => {}
         TokenCommand::Create { actor, ttl } => {

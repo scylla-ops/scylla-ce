@@ -1,4 +1,4 @@
-//! The gate: verifies the Biscuit of each request, checks its revocation, then asks SpiceDB.
+//! The gate: verifies the Biscuit of each request and its revocation, then finds the rights.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -7,13 +7,14 @@ use std::time::Duration;
 use biscuit_auth::builder::Term;
 use biscuit_auth::{AuthorizerBuilder, Biscuit};
 use scylla_domain::actors::{Actor, ActorId, ActorKind};
-use scylla_domain::authz::{Check, Object, Relationship};
+use scylla_domain::authz::{Check, Object, Relationship, Schema};
 use scylla_extension::{async_trait, AccessError, Gate, IssuedToken, Operation, Principal};
 use spicedb_grpc_tonic::v1::relationship_update::Operation as Update;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use tonic::metadata::MetadataMap;
 
+use super::rights::Rights;
 use super::{store, SpiceDb, TokenKeys};
 use crate::{Config, Error};
 
@@ -28,6 +29,8 @@ pub struct AccessConfig {
     pub token_ttl: Duration,
     /// The SpiceDB client.
     pub spicedb: SpiceDb,
+    /// The permission model of the edition.
+    pub schema: Schema,
 }
 
 /// The gate of the server.
@@ -40,21 +43,30 @@ pub struct Access {
     token_ttl: Duration,
     /// The SpiceDB client.
     spicedb: SpiceDb,
+    /// The owner chains and the grants.
+    rights: Rights,
 }
 
 impl Access {
     /// Makes the gate.
     pub fn new(pool: PgPool, config: AccessConfig) -> Self {
+        let rights = Rights {
+            pool: pool.clone(),
+            spicedb: config.spicedb.clone(),
+            schema: config.schema,
+        };
         Self {
             pool,
             keys: config.keys,
             token_ttl: config.token_ttl,
             spicedb: config.spicedb,
+            rights,
         }
     }
 
-    /// Makes the gate from the settings. The token key and the SpiceDB key are required.
-    pub fn from_config(config: &Config, pool: PgPool) -> Result<Self, Error> {
+    /// Makes the gate from the settings and the permission model. The token key and the
+    /// SpiceDB key are required.
+    pub fn from_config(config: &Config, pool: PgPool, schema: Schema) -> Result<Self, Error> {
         // Read the keys that sign and verify the tokens.
         let private = Config::secret(&config.token_private_key, "SCYLLA_TOKEN_PRIVATE_KEY")?;
         let keys = TokenKeys::new(private, config.token_key_id, &config.token_public_keys)
@@ -74,6 +86,7 @@ impl Access {
             keys,
             token_ttl: config.token_ttl,
             spicedb,
+            schema,
         };
         Ok(Self::new(pool, config))
     }
@@ -143,9 +156,11 @@ impl Access {
     /// Returns `true` if a revocation id of the token is revoked.
     async fn is_revoked(&self, token: &Biscuit) -> Result<bool, AccessError> {
         let ids = token.revocation_identifiers();
-        let mut tx = self.pool.begin().await.map_err(database)?;
-        let revoked = store::is_revoked(&mut tx, &ids).await.map_err(database)?;
-        tx.commit().await.map_err(database)?;
+        let mut tx = self.pool.begin().await.map_err(store::failed)?;
+        let revoked = store::is_revoked(&mut tx, &ids)
+            .await
+            .map_err(store::failed)?;
+        tx.commit().await.map_err(store::failed)?;
         Ok(revoked)
     }
 }
@@ -223,9 +238,8 @@ impl Gate for Access {
                 AccessError::Denied("the token does not allow this operation".to_owned())
             })?;
 
-        // Ask SpiceDB, and record a passed check for the route rule.
-        let subject = Object::of(principal.actor.id);
-        if self.spicedb.check(&subject, &check).await? {
+        // Pass an owner or a grant, and record a passed check for the route rule.
+        if self.rights.allow(principal.actor.id, &check).await? {
             operation.set_authorized();
             Ok(())
         } else {
@@ -283,10 +297,4 @@ fn claims(token: &Biscuit) -> Result<(Actor, i64), AccessError> {
 /// Makes an `Unauthenticated` error.
 fn unauthenticated(reason: &str) -> AccessError {
     AccessError::Unauthenticated(reason.to_owned())
-}
-
-/// Logs a database failure of the gate.
-fn database(error: sqlx::Error) -> AccessError {
-    tracing::error!(%error, "revocation check failed");
-    AccessError::Unavailable("token check unavailable".to_owned())
 }

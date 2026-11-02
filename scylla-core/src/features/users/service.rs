@@ -2,17 +2,15 @@
 
 use scylla_domain::actors::Actor;
 use scylla_domain::users::KIND;
-use scylla_extension::Gate;
 use sqlx::PgPool;
 
 use super::{store, OidcVerifier};
 use crate::features::actors;
-use crate::{access, Error};
+use crate::Error;
 
 /// Returns the user of a valid ID token, and creates it at its first sign-in.
 pub(crate) async fn sign_in(
     pool: &PgPool,
-    gate: &dyn Gate,
     verifier: &OidcVerifier,
     id_token: &str,
 ) -> Result<Actor, Error> {
@@ -24,9 +22,9 @@ pub(crate) async fn sign_in(
         return Ok(Actor { id, kind: KIND });
     }
 
-    // At the first sign-in, create the user with its identity relationship.
-    let actor = actors::insert(&mut tx, KIND).await?;
+    // At the first sign-in, create the user, with no owner.
+    let actor = actors::insert(&mut tx, KIND, None).await?;
     store::insert(&mut tx, actor.id, &identity.issuer, &identity.subject).await?;
-    access::commit(tx, gate, &[Actor::IDENTITY.of(actor.id, actor.id)]).await?;
+    tx.commit().await?;
     Ok(actor)
 }
