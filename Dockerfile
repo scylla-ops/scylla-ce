@@ -46,6 +46,8 @@ WORKDIR /app
 # === Planner: extract dependency recipe from Cargo.toml/Cargo.lock ===
 FROM chef AS planner
 COPY . .
+RUN crlf=$(find migrations crates binaries -type f -path '*migrations/*' -exec grep -l "$(printf '\r')" {} +); \
+    if [ -n "$crlf" ]; then printf 'CRLF in migrations, see ARCHITECTURE.md:\n%s\n' "$crlf" >&2; exit 1; fi
 RUN cargo chef prepare --recipe-path recipe.json
 
 # === Deps: cook the dependencies the builders will reuse ===
