@@ -10,7 +10,7 @@ pub(crate) struct Projects;
 impl Plugin for Projects {
     fn install(self, edition: EditionBuilder) -> EditionBuilder {
         edition.service(|routes, ctx| {
-            routes.add_service(grpc::server(ctx.pool(), ctx.hooks(), ctx.authenticators()));
+            routes.add_service(grpc::server(ctx.pool(), ctx.hooks(), ctx.gate()));
         })
     }
 }

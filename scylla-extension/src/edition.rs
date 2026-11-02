@@ -7,12 +7,12 @@ use sqlx::migrate::Migrator;
 use sqlx::PgPool;
 use tonic::service::RoutesBuilder;
 
-use crate::{AfterDelete, Authenticator, Authenticators, BeforeCreate, Hooks};
+use crate::{AfterDelete, BeforeCreate, Gate, Hooks};
 
 /// A function that adds the gRPC services of one plugin.
 type AddServices = Box<dyn Fn(&mut RoutesBuilder, &ServiceContext<'_>) + Send + Sync>;
 
-/// What a binary runs: its name, capabilities, migrations, authenticators, hooks and services.
+/// What a binary runs: its name, capabilities, migrations, permission schema, hooks and services.
 pub struct Edition {
     /// The name that `GetCapabilities` reports.
     name: &'static str,
@@ -20,8 +20,8 @@ pub struct Edition {
     capabilities: Vec<&'static str>,
     /// The migrators, in the order to apply them.
     migrators: Vec<&'static Migrator>,
-    /// The authenticators, in the order to try them.
-    authenticators: Vec<Arc<dyn Authenticator>>,
+    /// The pieces of the SpiceDB schema, in registration order.
+    authz_schemas: Vec<&'static str>,
     /// The hooks of each event and kind.
     hooks: Arc<Hooks>,
     /// The functions that add the gRPC services.
@@ -36,7 +36,7 @@ impl Edition {
                 name,
                 capabilities: Vec::new(),
                 migrators: Vec::new(),
-                authenticators: Vec::new(),
+                authz_schemas: Vec::new(),
                 hooks: Arc::new(Hooks::default()),
                 services: Vec::new(),
             },
@@ -59,9 +59,9 @@ impl Edition {
         &self.migrators
     }
 
-    /// Returns the authenticators of the plugins.
-    pub fn authenticators(&self) -> &[Arc<dyn Authenticator>] {
-        &self.authenticators
+    /// Returns the full SpiceDB schema: the pieces of the plugins, in registration order.
+    pub fn authz_schema(&self) -> String {
+        self.authz_schemas.join("\n")
     }
 
     /// Returns the hooks.
@@ -69,16 +69,11 @@ impl Edition {
         Arc::clone(&self.hooks)
     }
 
-    /// Adds the gRPC services of each plugin, with the pool and the authenticators.
-    pub fn add_services(
-        &self,
-        routes: &mut RoutesBuilder,
-        pool: &PgPool,
-        authenticators: &Arc<Authenticators>,
-    ) {
+    /// Adds the gRPC services of each plugin, with the pool and the gate.
+    pub fn add_services(&self, routes: &mut RoutesBuilder, pool: &PgPool, gate: &Arc<dyn Gate>) {
         let ctx = ServiceContext {
             pool,
-            authenticators,
+            gate,
             edition: self,
         };
         for add in &self.services {
@@ -91,8 +86,8 @@ impl Edition {
 pub struct ServiceContext<'a> {
     /// The database pool.
     pool: &'a PgPool,
-    /// The authenticators of the server.
-    authenticators: &'a Arc<Authenticators>,
+    /// The access gate of the server.
+    gate: &'a Arc<dyn Gate>,
     /// The edition that runs.
     edition: &'a Edition,
 }
@@ -103,9 +98,9 @@ impl ServiceContext<'_> {
         self.pool.clone()
     }
 
-    /// Returns the authenticators of the server.
-    pub fn authenticators(&self) -> Arc<Authenticators> {
-        Arc::clone(self.authenticators)
+    /// Returns the access gate of the server.
+    pub fn gate(&self) -> Arc<dyn Gate> {
+        Arc::clone(self.gate)
     }
 
     /// Returns the hooks of the edition.
@@ -151,9 +146,9 @@ impl EditionBuilder {
         self
     }
 
-    /// Adds an authenticator, after the existing ones.
-    pub fn authenticator(mut self, authenticator: Arc<dyn Authenticator>) -> Self {
-        self.edition.authenticators.push(authenticator);
+    /// Adds a piece of the SpiceDB schema. `migrate` writes all pieces together.
+    pub fn authz_schema(mut self, schema: &'static str) -> Self {
+        self.edition.authz_schemas.push(schema);
         self
     }
 

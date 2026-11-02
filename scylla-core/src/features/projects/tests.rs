@@ -6,10 +6,12 @@ use scylla_domain::actors::{Actor, ActorId, ActorKind};
 use scylla_domain::projects::{NewProject, ProjectName, KIND};
 use scylla_domain::ResourceKind;
 use scylla_extension::{
-    async_trait, AfterDelete, BeforeCreate, CreateContext, DeleteContext, Edition, EditionBuilder,
-    HookError, Hooks, Rejection, Tx,
+    async_trait, AccessError, AfterDelete, BeforeCreate, Check, CreateContext, DeleteContext,
+    Edition, EditionBuilder, Gate, HookError, Hooks, IssuedToken, Object, Principal, Rejection,
+    Relation, Tx,
 };
 use sqlx::PgPool;
+use tonic::metadata::MetadataMap;
 
 use super::service;
 use crate::features::actors;
@@ -17,6 +19,42 @@ use crate::Error;
 
 /// The log of the `Record` hooks: hook name, kind, actor and owner of each call.
 type Log = Arc<Mutex<Vec<(&'static str, ResourceKind, ActorId, ActorId)>>>;
+
+/// A gate that allows each check and keeps no relation: these tests check only the hooks.
+struct NoGate;
+
+#[async_trait]
+impl Gate for NoGate {
+    async fn authenticate(&self, _metadata: &MetadataMap) -> Result<Principal, AccessError> {
+        Err(AccessError::Unauthenticated(
+            "no gate in unit tests".to_owned(),
+        ))
+    }
+
+    async fn authorize(
+        &self,
+        _principal: &Principal,
+        _check: Check<'_>,
+    ) -> Result<(), AccessError> {
+        Ok(())
+    }
+
+    fn issue(&self, _actor: &Actor) -> Result<IssuedToken, AccessError> {
+        Err(AccessError::Unavailable("no gate in unit tests".to_owned()))
+    }
+
+    async fn write(&self, _relations: &[Relation]) -> Result<String, AccessError> {
+        Ok(String::new())
+    }
+
+    async fn delete(&self, _relations: &[Relation]) -> Result<(), AccessError> {
+        Ok(())
+    }
+
+    async fn delete_object(&self, _object: &Object) -> Result<(), AccessError> {
+        Ok(())
+    }
+}
 
 /// A hook that inserts an actor, then refuses.
 struct WriteThenReject;
@@ -86,7 +124,9 @@ fn record(name: &'static str, log: &Log, reject: bool) -> Arc<Record> {
 
 /// Creates an actor.
 async fn actor(pool: &PgPool) -> Actor {
-    actors::create(pool, ActorKind::new("test")).await.unwrap()
+    actors::create(pool, &NoGate, ActorKind::new("test"))
+        .await
+        .unwrap()
 }
 
 /// Makes the input of a creation by `author` for `owner_id`.
@@ -120,7 +160,7 @@ async fn create_rolls_back_the_hook_writes_on_a_refusal(pool: PgPool) {
 
     // when
     let new = new_project(&author, author.id);
-    let result = service::create(&pool, &hooks, author, new).await;
+    let result = service::create(&pool, &hooks, &NoGate, author, new).await;
 
     // then
     assert!(matches!(result, Err(Error::Rejected(_))));
@@ -143,10 +183,10 @@ async fn hooks_get_the_kind_the_actor_and_the_owner(pool: PgPool) {
 
     // when
     let new = new_project(&author, owner.id);
-    let project = service::create(&pool, &hooks, author.clone(), new)
+    let project = service::create(&pool, &hooks, &NoGate, author.clone(), new)
         .await
         .unwrap();
-    service::delete(&pool, &hooks, author.clone(), project.id)
+    service::delete(&pool, &hooks, &NoGate, author.clone(), project.id)
         .await
         .unwrap();
 
@@ -170,7 +210,7 @@ async fn hooks_run_in_order_and_stop_at_the_first_refusal(pool: PgPool) {
 
     // when
     let new = new_project(&author, author.id);
-    let result = service::create(&pool, &hooks, author, new).await;
+    let result = service::create(&pool, &hooks, &NoGate, author, new).await;
 
     // then
     assert!(matches!(result, Err(Error::Rejected(_))));
@@ -189,7 +229,7 @@ async fn hooks_of_another_kind_do_not_run(pool: PgPool) {
 
     // when
     let new = new_project(&author, author.id);
-    let result = service::create(&pool, &hooks, author, new).await;
+    let result = service::create(&pool, &hooks, &NoGate, author, new).await;
 
     // then
     assert!(result.is_ok());

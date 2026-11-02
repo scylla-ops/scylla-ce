@@ -15,10 +15,18 @@ scylla-extension.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+axum.workspace = true
+biscuit-auth.workspace = true
+ed25519-dalek.workspace = true
+jsonwebtoken.workspace = true
+prost.workspace = true
+prost-types.workspace = true
 rcgen.workspace = true
+reqwest.workspace = true
 scylla-domain.workspace = true
 scylla-proto.workspace = true
 scylla-testkit.workspace = true
+serde.workspace = true
 sqlx.workspace = true
 tonic.workspace = true
 tonic-health.workspace = true

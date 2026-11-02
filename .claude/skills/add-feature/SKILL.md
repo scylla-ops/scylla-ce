@@ -14,10 +14,11 @@ Read `AGENT.md` first. The reference feature is `projects`: copy the shape of it
 3. **Migration.** `sqlx migrate add --sequential --simple --source scylla-core/migrations <feature>`. Columns `id uuid PRIMARY KEY`, `owner_id` and `created_by` `uuid NOT NULL REFERENCES actors (id)` with an index each, `created_at timestamptz NOT NULL DEFAULT now()`. Run `just migrate`.
 4. **Store.** `store.rs`: `insert`, `list_by_owner`, `delete`, on `&mut Tx<'_>`, with `to_db()` and `from_db()` for ids. Map the owner foreign key to `Error::NotFound("owner")`.
 5. **Service.** `service.rs`: begin, `hooks.before_create` or `hooks.after_delete` with the context, store, commit.
-6. **gRPC.** `grpc.rs`: authenticate with `Authenticators`, parse with `parse::required`, `parse::or` (owner defaults to the caller), `parse::field`, `parse::optional`. Answer with `ToProto`.
-7. **Plugin.** `plugin.rs`: register the service with `ctx.pool()`, `ctx.hooks()`, `ctx.authenticators()`. Install it in `scylla-core/src/app.rs`.
-8. **Tests.** One helper per RPC in `scylla-testkit` (with `as_actor`). A module `scylla-ce/tests/api/<feature>.rs`: success, each error code, the boundaries of each value, the owner default. A unit test only for what the API cannot show.
-9. **Finish.** `just prepare`, then the `finish-change` skill.
+6. **gRPC.** `grpc.rs`: `gate.authenticate`, then `gate.authorize` with a `Check` (operation `<feature>.<verb>`, `act_for` on the owner, or a permission on the object), parse with `parse::required`, `parse::or` (owner defaults to the caller), `parse::field`, `parse::optional`. Answer with `ToProto`.
+7. **Permissions.** Add the definition of the new object to `CORE_SCHEMA` (`scylla-core/src/access/schema.rs`), with `owner: actor` and permissions through `owner->act_for`. The service writes the owner relation with `gate.write` before the commit, commits with `access::commit`, and calls `gate.delete_object` after a delete.
+8. **Plugin.** `plugin.rs`: register the service with `ctx.pool()`, `ctx.hooks()`, `ctx.gate()`. Install it in `scylla-core/src/app.rs`.
+9. **Tests.** One helper per RPC in `scylla-testkit` (with `app.authed`). A module `scylla-ce/tests/api/<feature>.rs`: success, each error code, the boundaries of each value, the owner default, and a refusal for an actor with no permission. A unit test only for what the API cannot show.
+10. **Finish.** `just prepare`, then the `finish-change` skill.
 
 ## New RPC on a feature
 

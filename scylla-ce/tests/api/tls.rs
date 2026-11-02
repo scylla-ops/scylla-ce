@@ -1,8 +1,9 @@
 //! The test of the server with TLS.
 
-use std::time::Duration;
+use std::sync::Arc;
 
 use scylla_core::server::{self, ServeOptions};
+use scylla_testkit::test_access;
 use sqlx::PgPool;
 use tokio::net::TcpListener;
 use tonic::transport::{Certificate, ClientTlsConfig, Endpoint, Identity};
@@ -19,15 +20,16 @@ async fn health_check_works_over_tls(pool: PgPool) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let options = ServeOptions {
-        request_timeout: Duration::from_secs(30),
-        trust_actor_header: false,
         tls: Some(Identity::from_pem(&cert_pem, &key_pem)),
+        ..ServeOptions::default()
     };
+    let access = Arc::new(test_access(pool.clone()));
     let edition = scylla_ce::edition();
     tokio::spawn(server::serve(
         listener,
         pool,
         edition,
+        access,
         options,
         std::future::pending(),
     ));

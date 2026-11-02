@@ -1,18 +1,33 @@
-//! The logic of the projects: one transaction for each call, with the hooks inside.
+//! The logic of the projects: one transaction for each call, with the hooks and the relations.
 
-use scylla_domain::actors::Actor;
+use scylla_domain::actors::{Actor, ActorId};
 use scylla_domain::page::Page;
 use scylla_domain::projects::{ListProjects, NewProject, Project, ProjectId, ProjectPage, KIND};
-use scylla_extension::{CreateContext, DeleteContext, Hooks};
+use scylla_extension::{CreateContext, DeleteContext, Gate, Hooks, Object, Relation};
 use sqlx::PgPool;
 
 use super::store;
-use crate::Error;
+use crate::{access, Error};
 
-/// Creates a project if each `BeforeCreate` hook accepts it.
+/// Returns the permission object of a project.
+pub(super) fn object(id: ProjectId) -> Object {
+    Object::new("project", id)
+}
+
+/// Returns the relation that makes an actor the owner of a project.
+fn owner(id: ProjectId, owner_id: ActorId) -> Relation {
+    Relation {
+        object: object(id),
+        relation: "owner",
+        subject: Object::new("actor", owner_id),
+    }
+}
+
+/// Creates a project if each `BeforeCreate` hook accepts it, and writes its owner relation.
 pub(super) async fn create(
     pool: &PgPool,
     hooks: &Hooks,
+    gate: &dyn Gate,
     actor: Actor,
     new: NewProject,
 ) -> Result<Project, Error> {
@@ -21,7 +36,9 @@ pub(super) async fn create(
         .before_create(&mut tx, &CreateContext::new(KIND, actor, new.owner_id))
         .await?;
     let project = store::insert(&mut tx, &new).await?;
-    tx.commit().await?;
+    let relations = [owner(project.id, project.owner_id)];
+    gate.write(&relations).await?;
+    access::commit(tx, gate, &relations).await?;
     Ok(project)
 }
 
@@ -35,10 +52,11 @@ pub(super) async fn list(pool: &PgPool, query: ListProjects) -> Result<ProjectPa
     }))
 }
 
-/// Deletes a project, then runs the `AfterDelete` hooks before the commit.
+/// Deletes a project, runs the `AfterDelete` hooks, then removes its relations.
 pub(super) async fn delete(
     pool: &PgPool,
     hooks: &Hooks,
+    gate: &dyn Gate,
     actor: Actor,
     id: ProjectId,
 ) -> Result<(), Error> {
@@ -50,5 +68,8 @@ pub(super) async fn delete(
         .after_delete(&mut tx, &DeleteContext::new(KIND, actor, owner_id))
         .await?;
     tx.commit().await?;
+    if let Err(error) = gate.delete_object(&object(id)).await {
+        tracing::error!(%error, project = %id, "relations stay after a delete");
+    }
     Ok(())
 }

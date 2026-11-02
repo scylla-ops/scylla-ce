@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use scylla_extension::{AuthError, HookError, Rejection};
+use scylla_extension::{AccessError, HookError, Rejection};
 use tonic::{Code, Status};
 use tonic_types::{ErrorDetails, StatusExt};
 
@@ -20,9 +20,17 @@ pub enum Error {
         /// Why the value is not valid.
         reason: String,
     },
-    /// The request has no valid actor: `UNAUTHENTICATED`.
-    #[error("{0}")]
-    Unauthenticated(String),
+    /// The request does not pass the access gate.
+    #[error(transparent)]
+    Access(#[from] AccessError),
+    /// A setting is missing or not valid.
+    #[error("setting {name} {reason}")]
+    Config {
+        /// The name of the setting.
+        name: &'static str,
+        /// Why the value is not valid.
+        reason: String,
+    },
     /// A named resource does not exist: `NOT_FOUND`.
     #[error("{0} not found")]
     NotFound(&'static str),
@@ -70,20 +78,13 @@ impl From<HookError> for Error {
     }
 }
 
-impl From<AuthError> for Error {
-    fn from(error: AuthError) -> Self {
-        match error {
-            AuthError::Database(error) => Self::Database(error),
-            error => Self::Unauthenticated(error.to_string()),
-        }
-    }
-}
-
 impl From<Error> for Status {
     fn from(error: Error) -> Self {
         match error {
             Error::InvalidArgument { field, reason } => invalid_argument(field, reason),
-            Error::Unauthenticated(message) => Status::unauthenticated(message),
+            Error::Access(AccessError::Unauthenticated(reason)) => Status::unauthenticated(reason),
+            Error::Access(AccessError::Denied(reason)) => Status::permission_denied(reason),
+            Error::Access(AccessError::Unavailable(reason)) => Status::unavailable(reason),
             Error::NotFound(_) => Status::not_found(error.to_string()),
             Error::Rejected(rejection) => rejected(rejection),
             error => {

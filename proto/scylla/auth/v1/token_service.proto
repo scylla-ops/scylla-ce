@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package scylla.auth.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Gives short-lived tokens. Each other RPC needs a token in "authorization: Bearer <token>".
+service TokenService {
+  // Exchanges an assertion that an agent signed with its private key for a token.
+  rpc ExchangeAgentAssertion(ExchangeAgentAssertionRequest) returns (ExchangeAgentAssertionResponse);
+  // Exchanges an OIDC ID token of a person for a token. The first exchange creates the user.
+  rpc ExchangeIdToken(ExchangeIdTokenRequest) returns (ExchangeIdTokenResponse);
+}
+
+// The input of ExchangeAgentAssertion.
+message ExchangeAgentAssertionRequest {
+  // The encoded AgentAssertion.
+  bytes assertion = 1;
+  // The Ed25519 signature of the assertion bytes.
+  bytes signature = 2;
+}
+
+// The output of ExchangeAgentAssertion.
+message ExchangeAgentAssertionResponse {
+  // The token.
+  IssuedToken token = 1;
+}
+
+// The input of ExchangeIdToken.
+message ExchangeIdTokenRequest {
+  // The ID token from the identity provider.
+  string id_token = 1;
+}
+
+// The output of ExchangeIdToken.
+message ExchangeIdTokenResponse {
+  // The token.
+  IssuedToken token = 1;
+}
+
+// A Biscuit token. The holder can attenuate it before it gives it to another process.
+message IssuedToken {
+  // The token in base64. Send it as "authorization: Bearer <value>".
+  string value = 1;
+  // The end of the validity of the token.
+  google.protobuf.Timestamp expires_at = 2;
+}

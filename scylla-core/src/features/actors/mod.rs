@@ -1,8 +1,7 @@
-//! The actors feature: the `actors` table, and the dev authenticator.
+//! The actors feature: the `actors` table, and the identity relation of each actor.
 
-mod header;
 mod service;
 mod store;
 
-pub use header::{TrustedHeader, ACTOR_HEADER};
-pub use service::create;
+pub use service::{create, find, identity};
+pub(crate) use store::insert;

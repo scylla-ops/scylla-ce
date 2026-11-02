@@ -1,18 +1,20 @@
 //! The command line of a binary: `serve` (the default), `migrate`, and the admin commands.
 
 use std::fmt;
+use std::sync::Arc;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use scylla_domain::actors::{ActorId, ActorKind};
-use scylla_domain::api_keys::ApiKeyId;
+use scylla_domain::actors::{Actor, ActorId, ActorKind};
 use scylla_domain::Id;
-use scylla_extension::Edition;
+use scylla_extension::{Edition, Gate};
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::features::{actors, api_keys};
+use crate::access::{Access, TokenKeys};
+use crate::features::actors;
 use crate::{db, server, Config, Error};
 
 /// The command line of a binary with only the core settings.
@@ -31,17 +33,17 @@ pub struct Cli {
 /// The commands of a binary.
 #[derive(Subcommand, Clone, Debug, Default)]
 pub enum Command {
-    /// Serves the gRPC API until SIGTERM or Ctrl+C.
+    /// Serves the gRPC and gRPC-Web API until SIGTERM or Ctrl+C.
     #[default]
     Serve,
-    /// Applies the core migrations, then the edition migrations, then stops.
+    /// Applies the migrations and writes the SpiceDB schema, then stops.
     Migrate,
     /// Manages the actors.
     #[command(subcommand)]
     Actor(ActorCommand),
-    /// Manages the API keys.
+    /// Manages the tokens.
     #[command(subcommand)]
-    Key(KeyCommand),
+    Token(TokenCommand),
 }
 
 /// The commands on the actors.
@@ -55,20 +57,24 @@ pub enum ActorCommand {
     },
 }
 
-/// The commands on the API keys.
+/// The commands on the tokens.
 #[derive(Subcommand, Clone, Debug)]
-pub enum KeyCommand {
-    /// Creates an API key for an actor and prints it. The key is shown one time only.
+pub enum TokenCommand {
+    /// Prints a new signing key pair, to store as `SCYLLA_TOKEN_PRIVATE_KEY`.
+    Keygen,
+    /// Signs a token for an actor, for a first admin or an emergency. Prints it once.
     Create {
         /// The id of the actor.
-        #[arg(long, value_parser = id::<scylla_domain::actors::Actor>)]
+        #[arg(long, value_parser = id::<Actor>)]
         actor: ActorId,
+        /// The lifetime, in seconds. The default is the token lifetime of the settings.
+        #[arg(long)]
+        ttl: Option<u64>,
     },
-    /// Revokes an API key.
+    /// Revokes a token and each token made from it.
     Revoke {
-        /// The id of the key.
-        #[arg(value_parser = id::<scylla_domain::api_keys::ApiKey>)]
-        id: ApiKeyId,
+        /// The token.
+        token: String,
     },
 }
 
@@ -77,6 +83,7 @@ pub async fn run<C>(config: &C, command: Command, edition: Edition) -> Result<()
 where
     C: AsRef<Config> + fmt::Debug,
 {
+    crate::crypto::install();
     init_tracing();
     tracing::info!(edition = edition.name(), ?command, ?config, "starting");
     let core = config.as_ref();
@@ -84,25 +91,32 @@ where
         Command::Serve => server::run(core, edition).await,
         Command::Migrate => migrate(core, &edition).await,
         Command::Actor(command) => actor(core, command).await,
-        Command::Key(command) => key(core, command).await,
+        Command::Token(command) => token(core, command).await,
     }
 }
 
-/// Applies the migrations of the edition.
+/// Applies the migrations of the edition, then writes its SpiceDB schema.
 async fn migrate(config: &Config, edition: &Edition) -> Result<(), Error> {
     let pool = db::connect(config).await?;
     db::migrate(&pool, edition.migrators()).await?;
+    let access = Access::from_config(config, pool.clone())?;
+    access
+        .spicedb()
+        .write_schema(edition.authz_schema())
+        .await?;
     pool.close().await;
-    tracing::info!("migrations applied");
+    tracing::info!("migrations and schema applied");
     Ok(())
 }
 
 /// Runs an actor command.
 async fn actor(config: &Config, command: ActorCommand) -> Result<(), Error> {
     let pool = db::connect(config).await?;
+    let access = Arc::new(Access::from_config(config, pool.clone())?);
     match command {
         ActorCommand::Create { kind } => {
-            let actor = actors::create(&pool, ActorKind::from_name(kind)).await?;
+            let gate: &dyn Gate = access.as_ref();
+            let actor = actors::create(&pool, gate, ActorKind::from_name(kind)).await?;
             println!("{}", actor.id);
         }
     }
@@ -110,18 +124,28 @@ async fn actor(config: &Config, command: ActorCommand) -> Result<(), Error> {
     Ok(())
 }
 
-/// Runs a key command.
-async fn key(config: &Config, command: KeyCommand) -> Result<(), Error> {
+/// Runs a token command.
+async fn token(config: &Config, command: TokenCommand) -> Result<(), Error> {
+    if let TokenCommand::Keygen = command {
+        let keys = TokenKeys::generate(config.token_key_id);
+        println!("private: {}", keys.private_hex());
+        println!("public: {}:{}", config.token_key_id, keys.public_hex());
+        return Ok(());
+    }
     let pool = db::connect(config).await?;
+    let access = Access::from_config(config, pool.clone())?;
     match command {
-        KeyCommand::Create { actor } => {
-            let key = api_keys::create(&pool, actor).await?;
-            println!("id: {}", key.id);
-            println!("key: {}", key.secret);
+        TokenCommand::Keygen => {}
+        TokenCommand::Create { actor, ttl } => {
+            let actor = actors::find(&pool, actor).await?;
+            let ttl = ttl.map_or(config.token_ttl, Duration::from_secs);
+            let token = access.issue_for(&actor, ttl)?;
+            println!("{}", token.value);
         }
-        KeyCommand::Revoke { id } => {
-            api_keys::revoke(&pool, id).await?;
-            println!("revoked: {id}");
+        TokenCommand::Revoke { token } => {
+            for id in access.revoke(&token).await? {
+                println!("revoked: {id}");
+            }
         }
     }
     pool.close().await;
@@ -133,7 +157,7 @@ fn id<T: ?Sized + 'static>(text: &str) -> Result<Id<T>, String> {
     Id::parse(text).map_err(|error| error.to_string())
 }
 
-/// Starts the logs with the filter of `RUST_LOG`. The default hides the sqlx statement logs.
+/// Starts the logs on stderr with the filter of `RUST_LOG`. The default hides the sqlx logs.
 fn init_tracing() {
     let filter = std::env::var("RUST_LOG")
         .ok()

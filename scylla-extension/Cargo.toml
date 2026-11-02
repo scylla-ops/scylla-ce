@@ -13,4 +13,5 @@ async-trait.workspace = true
 scylla-domain.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
+time.workspace = true
 tonic.workspace = true

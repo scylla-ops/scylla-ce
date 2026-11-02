@@ -32,12 +32,15 @@ Load the skill of the task from `.claude/skills/`:
 - Keep each file below 300 lines.
 - The code and the build files never refer to the Enterprise repository. Its feature names (`quota`, `plan`, `tenant`, `enterprise`) are not in the code.
 
-## Ids and actors
+## Ids, actors and access
 
 - Each id is `Id<T>` (`ActorId`, `ProjectId`). The format is only in `scylla-domain/src/codec.rs`. Never use `Uuid` outside `to_db()` and `from_db()` in a store.
-- Each resource references `actors (id)`: `owner_id` (who owns it) and `created_by` (who did it). The core defines no actor kind.
-- Each RPC that acts gets the actor from `Authenticators` (API keys, and the dev header if it is on). An `owner_id` that the request does not set is the caller.
-- A secret never goes to the logs or the database in clear.
+- Each resource references `actors (id)`: `owner_id` (who owns it) and `created_by` (who did it). The actor kinds are open: a feature defines its own `KIND`.
+- Zero trust: each RPC that acts calls `gate.authenticate`, then `gate.authorize` with a `Check { operation, object, permission }`. The operation name is `<feature>.<verb>`, for example `projects.create`. Only `TokenService`, health and capabilities are public.
+- An `owner_id` that the request does not set is the caller. The caller must have `act_for` on the owner.
+- A write that gives rights sends its relations with `gate.write` before the commit, then commits with `access::commit`. A delete removes the relations with `gate.delete_object` after the commit.
+- A new kind of object adds a piece of schema with `EditionBuilder::authz_schema`, next to `CORE_SCHEMA`.
+- A secret never goes to the logs or the database in clear. The server stores public keys and hashes only.
 
 ## Comments
 
@@ -79,11 +82,11 @@ This project overrides the global "no comments" rule.
 
 ## Commands
 
-- `just run`, `just test`, `just lint`, `just prepare`, `just actor <kind>`, `just key <actor id>`.
+- `just run`, `just test`, `just lint`, `just prepare`, `just schema`, `just keycloak`, `just actor <kind>`, `just token <actor id>`.
 - Run cargo with `--workspace` or `-p scylla-ce`. On another crate, Cargo builds tokio and sqlx again.
 
 ## Pitfalls
 
-- The database is on port 55432. Port 5432 and the container `scylla-postgres` belong to another project. Do not touch them.
+- The database is on port 55432. SpiceDB is on 55051 and Keycloak on 58080. Port 5432 and the container `scylla-postgres` belong to another project. Do not touch them.
 - Use the latest tools: `cargo install sqlx-cli --locked --features sqlx-toml`, and `npm install -g @bufbuild/buf`. Remove an old version before you install a new one.
 - A clap `Args` struct needs a unique `#[group(id = ...)]`. The test `cli_is_valid` finds a conflict.

@@ -26,9 +26,9 @@ The contract is `scylla-extension`. Each change there is a change to the API for
 
 Add the field and a parameter to `new()`. Change each call in the core. Tell the user.
 
-## Authentication
+## Access
 
-An authenticator is a plugin (`EditionBuilder::authenticator`). It returns `None` when the request has no credential of its kind. The server adds `TrustedHeader` last, only if `SCYLLA_TRUST_ACTOR_HEADER=true`.
+The `Gate` trait is the access contract: `authenticate`, `authorize`, `issue`, `write`, `delete`, `delete_object`. A new way to sign in is a new exchange in `TokenService` that ends with `gate.issue`. A new kind of object is a piece of SpiceDB schema (`EditionBuilder::authz_schema`). Never add a way to skip the token or the permission check.
 
 ## Finish
 

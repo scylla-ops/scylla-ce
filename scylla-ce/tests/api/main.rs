@@ -1,10 +1,13 @@
 //! The gRPC API tests of the Community edition: one binary, one module per feature.
 
-mod api_keys;
+mod agents;
 mod capabilities;
+mod grpc_web;
 mod health;
+mod oidc;
 mod projects;
 mod tls;
+mod tokens;
 
 use scylla_testkit::TestApp;
 use sqlx::PgPool;
@@ -29,4 +32,10 @@ fn assert_invalid_field(status: &Status, field: &str) {
         .map(|violation| violation.field.as_str())
         .collect();
     assert_eq!(fields, vec![field]);
+}
+
+/// Checks the code of a refused call.
+fn assert_code<T: std::fmt::Debug>(result: Result<T, Status>, code: Code) {
+    let status = result.expect_err("the call must fail");
+    assert_eq!(status.code(), code, "{status:?}");
 }

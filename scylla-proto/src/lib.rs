@@ -26,3 +26,21 @@ pub mod projects {
         tonic::include_proto!("scylla.projects.v1");
     }
 }
+
+/// The agents API.
+pub mod agents {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.agents.v1");
+    }
+}
+
+/// The token API.
+pub mod auth {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.auth.v1");
+    }
+}

@@ -5,6 +5,9 @@ use std::path::PathBuf;
 
 /// The proto files, relative to the `proto` folder.
 const PROTOS: &[&str] = &[
+    "scylla/agents/v1/agent_service.proto",
+    "scylla/auth/v1/assertion.proto",
+    "scylla/auth/v1/token_service.proto",
     "scylla/capabilities/v1/capability_service.proto",
     "scylla/common/v1/id.proto",
     "scylla/common/v1/page.proto",

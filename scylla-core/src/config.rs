@@ -35,9 +35,45 @@ pub struct Config {
     #[arg(long, env = "SCYLLA_REQUEST_TIMEOUT_MS", default_value = "15000", value_parser = millis)]
     pub request_timeout: Duration,
 
-    /// Trusts the `x-scylla-actor` header as the actor of a request. Not secure: development only.
-    #[arg(long, env = "SCYLLA_TRUST_ACTOR_HEADER", default_value_t = false, action = clap::ArgAction::Set)]
-    pub trust_actor_header: bool,
+    /// The Ed25519 private key in hex that signs the tokens. Make one with `token keygen`.
+    #[arg(long, env = "SCYLLA_TOKEN_PRIVATE_KEY", hide_env_values = true)]
+    pub token_private_key: Option<String>,
+
+    /// The id of the signing key. Change it at each key rotation.
+    #[arg(long, env = "SCYLLA_TOKEN_KEY_ID", default_value_t = 1)]
+    pub token_key_id: u32,
+
+    /// Older public keys that still verify tokens, as `<id>:<hex>`, separated by commas.
+    #[arg(long, env = "SCYLLA_TOKEN_PUBLIC_KEYS", value_delimiter = ',')]
+    pub token_public_keys: Vec<String>,
+
+    /// The lifetime of a token, in seconds.
+    #[arg(long, env = "SCYLLA_TOKEN_TTL_SECS", default_value = "600", value_parser = seconds)]
+    pub token_ttl: Duration,
+
+    /// The gRPC endpoint of SpiceDB.
+    #[arg(
+        long,
+        env = "SCYLLA_SPICEDB_ENDPOINT",
+        default_value = "http://127.0.0.1:55051"
+    )]
+    pub spicedb_endpoint: String,
+
+    /// The preshared key of SpiceDB.
+    #[arg(long, env = "SCYLLA_SPICEDB_KEY", hide_env_values = true)]
+    pub spicedb_key: Option<String>,
+
+    /// The OIDC issuer of the users. Without it, `ExchangeIdToken` is refused.
+    #[arg(long, env = "SCYLLA_OIDC_ISSUER", requires = "oidc_audience")]
+    pub oidc_issuer: Option<String>,
+
+    /// The OIDC audience: the client id of Scylla at the issuer.
+    #[arg(long, env = "SCYLLA_OIDC_AUDIENCE", requires = "oidc_issuer")]
+    pub oidc_audience: Option<String>,
+
+    /// The web origins that can call the API with gRPC-Web, separated by commas.
+    #[arg(long, env = "SCYLLA_CORS_ORIGINS", value_delimiter = ',')]
+    pub cors_origins: Vec<String>,
 
     /// The PEM certificate chain of the server. With `--tls-key`, the server uses TLS.
     #[arg(long, env = "SCYLLA_TLS_CERT", requires = "tls_key")]
@@ -63,11 +99,42 @@ impl fmt::Debug for Config {
             .field("db_acquire_timeout", &self.db_acquire_timeout)
             .field("db_statement_timeout", &self.db_statement_timeout)
             .field("request_timeout", &self.request_timeout)
-            .field("trust_actor_header", &self.trust_actor_header)
+            .field(
+                "token_private_key",
+                &self.token_private_key.as_ref().map(|_| "***"),
+            )
+            .field("token_key_id", &self.token_key_id)
+            .field("token_public_keys", &self.token_public_keys)
+            .field("token_ttl", &self.token_ttl)
+            .field("spicedb_endpoint", &self.spicedb_endpoint)
+            .field("spicedb_key", &self.spicedb_key.as_ref().map(|_| "***"))
+            .field("oidc_issuer", &self.oidc_issuer)
+            .field("oidc_audience", &self.oidc_audience)
+            .field("cors_origins", &self.cors_origins)
             .field("tls_cert", &self.tls_cert)
             .field("tls_key", &self.tls_key)
             .finish()
     }
+}
+
+impl Config {
+    /// Returns a required secret, or an error that names its setting.
+    pub fn secret<'a>(
+        value: &'a Option<String>,
+        name: &'static str,
+    ) -> Result<&'a str, crate::Error> {
+        value.as_deref().ok_or(crate::Error::Config {
+            name,
+            reason: "is required".to_owned(),
+        })
+    }
+}
+
+/// Reads a duration in seconds.
+fn seconds(text: &str) -> Result<Duration, String> {
+    text.parse()
+        .map(Duration::from_secs)
+        .map_err(|_| format!("{text:?} is not a number of seconds"))
 }
 
 /// Reads a duration in milliseconds.

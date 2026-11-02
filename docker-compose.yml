@@ -10,8 +10,50 @@ services:
       POSTGRES_DB: scylla
     ports:
       - "127.0.0.1:55432:5432"
+    volumes:
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U scylla -d scylla"]
       interval: 1s
       timeout: 2s
       retries: 30
+
+  spicedb-migrate:
+    image: authzed/spicedb:v1.57.0
+    command: ["datastore", "migrate", "head"]
+    environment:
+      SPICEDB_DATASTORE_ENGINE: postgres
+      SPICEDB_DATASTORE_CONN_URI: postgres://scylla:scylla@db:5432/spicedb?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+
+  spicedb:
+    image: authzed/spicedb:v1.57.0
+    command: ["serve"]
+    environment:
+      SPICEDB_GRPC_PRESHARED_KEY: scylla-dev-key
+      SPICEDB_DATASTORE_ENGINE: postgres
+      SPICEDB_DATASTORE_CONN_URI: postgres://scylla:scylla@db:5432/spicedb?sslmode=disable
+    ports:
+      - "127.0.0.1:55051:50051"
+    depends_on:
+      spicedb-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50051"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    profiles: ["oidc"]
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "127.0.0.1:58080:8080"
+    volumes:
+      - ./docker/keycloak-realm.json:/opt/keycloak/data/import/scylla.json:ro
