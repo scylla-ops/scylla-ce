@@ -39,7 +39,7 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 7. Biscuit tokens
 
-- **Decision:** the tokens are Biscuits, signed with an Ed25519 root key (`SCYLLA_TOKEN_PRIVATE_KEY`). The first block holds `actor(id, kind)`, `expires(unix)` and a time check. The default lifetime is 10 minutes. The key id is in each token, and `SCYLLA_TOKEN_PUBLIC_KEYS` keeps older public keys valid after a rotation. `token revoke` revokes a token and each token made from it.
+- **Decision:** the tokens are Biscuits, signed with an Ed25519 root key (`SCYLLA_TOKEN_PRIVATE_KEY`). The first block holds `actor(id, kind)`, `expires(unix)` and a time check. The default lifetime is 10 minutes. Each Datalog run on a token has at most 100 ms, and a query of the claims that fails refuses the token: the default limit of Biscuit (1 ms) failed on a busy machine, and an empty answer would hide the session of a token. The key id is in each token, and `SCYLLA_TOKEN_PUBLIC_KEYS` keeps older public keys valid after a rotation. `token revoke` revokes a token and each token made from it.
 - **Why:** the check is offline (no call to a token server). A holder can attenuate a token offline (`check if operation("scylla.projects.v1.ProjectService/ListProjects")`) before it gives it to a step of a pipeline. Only the first block can name the actor, so a later block cannot change it.
 - **Not kept:** JWT (no offline attenuation); opaque tokens in a table (a database read for each request). Biscuit 6.0.0 needs its `datalog-macro` feature to compile, and that feature brings `proc-macro-error2`, which gives a future-compatibility warning from upstream.
 

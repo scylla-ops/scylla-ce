@@ -2,9 +2,10 @@
 //! the checks of the token on an operation.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use biscuit_auth::builder::Term;
-use biscuit_auth::{AuthorizerBuilder, Biscuit};
+use biscuit_auth::{AuthorizerBuilder, AuthorizerLimits, Biscuit};
 use scylla_domain::authz::Check;
 use scylla_domain::identity::actors::{Actor, ActorId, ActorKind};
 use scylla_domain::identity::users::SessionId;
@@ -12,6 +13,10 @@ use scylla_extension::{AccessError, Operation};
 use time::OffsetDateTime;
 
 use super::TokenKeys;
+
+/// The longest time of one Datalog run on a token. The default of Biscuit (1 ms) fails on a
+/// busy machine.
+const MAX_RUN_TIME: Duration = Duration::from_millis(100);
 
 /// The claims of the first block of a token.
 pub(super) struct Claims {
@@ -64,6 +69,7 @@ pub(super) fn sign(
 pub(super) fn claims(token: &Biscuit) -> Result<Claims, AccessError> {
     // Query the facts of the first block.
     let mut authorizer = AuthorizerBuilder::new()
+        .set_limits(limits())
         .build(token)
         .map_err(|_| unauthenticated("invalid token"))?;
     let actors: Vec<(String, String)> = authorizer
@@ -71,10 +77,10 @@ pub(super) fn claims(token: &Biscuit) -> Result<Claims, AccessError> {
         .map_err(|_| unauthenticated("invalid token"))?;
     let expiries: Vec<(i64,)> = authorizer
         .query("data($exp) <- expires($exp)")
-        .unwrap_or_default();
+        .map_err(|_| unauthenticated("invalid token"))?;
     let sessions: Vec<(String,)> = authorizer
         .query("data($id) <- session($id)")
-        .unwrap_or_default();
+        .map_err(|_| unauthenticated("invalid token"))?;
 
     // Keep exactly one actor and one expiry, and at most one session.
     let [(id, kind)] = actors.as_slice() else {
@@ -101,6 +107,14 @@ pub(super) fn claims(token: &Biscuit) -> Result<Claims, AccessError> {
     })
 }
 
+/// Returns the limits of one Datalog run on a token.
+fn limits() -> AuthorizerLimits {
+    AuthorizerLimits {
+        max_time: MAX_RUN_TIME,
+        ..AuthorizerLimits::default()
+    }
+}
+
 /// Makes the error of a token with a bad session.
 fn invalid() -> AccessError {
     unauthenticated("invalid session in the token")
@@ -125,6 +139,7 @@ pub(super) fn allows(token: &Biscuit, operation: &Operation, check: &Check) -> b
         ),
     ]);
     AuthorizerBuilder::new()
+        .set_limits(limits())
         .time()
         .code_with_params(
             "operation({op}); resource({type}, {object}); allow if actor($id, $kind);",
