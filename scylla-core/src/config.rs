@@ -92,7 +92,8 @@ pub struct Config {
     )]
     pub mail_from: String,
 
-    /// The key in hex that encrypts the client secrets of the identity providers. Make one with
+    /// The key in hex that encrypts the client secrets of the identity providers and the secrets
+    /// of the projects. With no key, a new secret of a project is refused. Make one with
     /// `secret keygen`.
     #[arg(long, env = "SCYLLA_SECRET_KEY", hide_env_values = true)]
     pub secret_key: Option<String>,

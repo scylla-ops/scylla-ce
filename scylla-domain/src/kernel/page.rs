@@ -1,4 +1,5 @@
-//! Keyset pagination: a page starts after the last id of the previous page.
+//! Keyset pagination: a page starts after the last key of the previous page, an id or a unique
+//! name.
 
 use crate::DomainError;
 
@@ -33,10 +34,11 @@ impl Default for PageSize {
     }
 }
 
-/// The page that a client asks for. `C` is the id that sorts the items.
+/// The page that a client asks for. `C` is the key that sorts the items: an id, or a unique
+/// name.
 #[derive(Clone, Copy, Debug)]
 pub struct PageRequest<C> {
-    /// Gives only the items after this id. `None` gives the first page.
+    /// Gives only the items after this key. `None` gives the first page.
     pub after: Option<C>,
     /// The maximum number of items.
     pub size: PageSize,
@@ -51,12 +53,12 @@ impl<C> Default for PageRequest<C> {
     }
 }
 
-/// One page of items, and the id to give to get the next page.
+/// One page of items, and the key to give to get the next page.
 #[derive(Clone, Debug)]
 pub struct Page<T, C> {
-    /// The items, in id order.
+    /// The items, in key order.
     pub items: Vec<T>,
-    /// The id of the last item, if a next page exists.
+    /// The key of the last item, if a next page exists.
     pub next_after: Option<C>,
 }
 

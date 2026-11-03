@@ -42,4 +42,19 @@ pub enum DomainError {
     /// The number is below zero.
     #[error("must not be negative")]
     Negative,
+    /// The text has a line break or another control character.
+    #[error("must be one line, with no control characters")]
+    NotOneLine,
+    /// The text has a control character that is not a line break or a tab.
+    #[error("must have no control characters other than line breaks and tabs")]
+    ControlCharacter,
+    /// The text is not the name of a secret.
+    #[error("must be 1 to 128 letters, digits, dots, dashes or underscores")]
+    NotASecretName,
+    /// The text has too many bytes.
+    #[error("must be at most {max} bytes")]
+    TooLarge {
+        /// The maximum number of bytes.
+        max: usize,
+    },
 }

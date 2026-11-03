@@ -18,6 +18,7 @@ fn create(workspace: WorkspaceId) -> CreateProjectRequest {
     CreateProjectRequest {
         workspace_id: Some(id(workspace.to_string())),
         name: "alpha".to_owned(),
+        description: String::new(),
     }
 }
 

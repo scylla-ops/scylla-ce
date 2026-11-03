@@ -71,7 +71,7 @@ pub struct AccountContext {
     pub mailer: Arc<dyn Mailer>,
     /// The settings.
     pub settings: Arc<AccountSettings>,
-    /// The key of the client secrets, if the settings give one.
+    /// The key of the secrets, if the settings give one.
     pub sealer: Option<Arc<Sealer>>,
     /// The roles that an invitation can give.
     pub grants: Arc<Grants>,

@@ -3,7 +3,7 @@
 use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::projects::{
-    ListProjects, NewProject, Project, ProjectId, ProjectPage, Visible, KIND,
+    ListProjects, NewProject, Project, ProjectChange, ProjectId, ProjectPage, Visible, KIND,
 };
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Page;
@@ -69,7 +69,22 @@ pub(super) async fn list(
     }))
 }
 
-/// Deletes a project, runs the `AfterDelete` hooks, then removes the roles on it.
+/// Changes the name or the description of a project, and returns it. The last change wins.
+pub(super) async fn update(
+    pool: &PgPool,
+    id: ProjectId,
+    change: ProjectChange,
+) -> Result<Project, Error> {
+    let mut tx = pool.begin().await?;
+    let project = store::update(&mut tx, id, &change)
+        .await?
+        .ok_or(Error::NotFound("project"))?;
+    tx.commit().await?;
+    Ok(project)
+}
+
+/// Deletes a project with its secrets, runs the `AfterDelete` hooks, then removes the roles on
+/// it.
 pub(super) async fn delete(
     pool: &PgPool,
     hooks: &Hooks,

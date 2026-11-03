@@ -3,7 +3,7 @@
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use chacha20poly1305::aead::{Aead, Generate, KeyInit};
+use chacha20poly1305::aead::{Aead, Generate, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use sha2::{Digest, Sha256};
 
@@ -30,8 +30,9 @@ pub fn pkce_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
 
-/// Encrypts the secrets that the server must read back, for example the client secret of an
-/// identity provider, with the key of the settings.
+/// Encrypts the secrets that the server must read back, with the key of the settings and
+/// XChaCha20-Poly1305: the client secret of an identity provider, and the value of a secret of a
+/// project, bound to its id.
 pub struct Sealer {
     /// The cipher with the key.
     cipher: XChaCha20Poly1305,
@@ -54,27 +55,53 @@ impl Sealer {
         (Self { cipher }, hex::encode(key))
     }
 
-    /// Encrypts a text. The result starts with its random nonce.
+    /// Encrypts a text with no associated data. The result starts with its random nonce.
     pub fn seal(&self, plain: &str) -> Vec<u8> {
-        let nonce = XNonce::generate();
-        let sealed = self
-            .cipher
-            .encrypt(&nonce, plain.as_bytes())
-            .expect("the encryption of a short text");
-        [nonce.as_slice(), sealed.as_slice()].concat()
+        self.seal_with(plain.as_bytes(), b"")
     }
 
     /// Decrypts a text of `seal`. A wrong key or a changed text gives an error.
     pub fn open(&self, sealed: &[u8]) -> Result<String, String> {
-        let invalid = || "the secret cannot be read with this key".to_owned();
+        let plain = self.open_with(sealed, b"")?;
+        String::from_utf8(plain).map_err(|_| unreadable())
+    }
+
+    /// Encrypts bytes bound to associated data, for example the id of their row. The result
+    /// starts with its random nonce, and opens only with the same associated data.
+    pub fn seal_with(&self, plain: &[u8], associated: &[u8]) -> Vec<u8> {
+        let nonce = XNonce::generate();
+        let payload = Payload {
+            msg: plain,
+            aad: associated,
+        };
+        let sealed = self
+            .cipher
+            .encrypt(&nonce, payload)
+            .expect("the encryption of a short text");
+        [nonce.as_slice(), sealed.as_slice()].concat()
+    }
+
+    /// Decrypts bytes of `seal_with`. A wrong key, other associated data or changed bytes give
+    /// an error.
+    pub fn open_with(&self, sealed: &[u8], associated: &[u8]) -> Result<Vec<u8>, String> {
         if sealed.len() < NONCE_BYTES {
-            return Err(invalid());
+            return Err(unreadable());
         }
         let (nonce, text) = sealed.split_at(NONCE_BYTES);
-        let nonce = XNonce::try_from(nonce).map_err(|_| invalid())?;
-        let plain = self.cipher.decrypt(&nonce, text).map_err(|_| invalid())?;
-        String::from_utf8(plain).map_err(|_| invalid())
+        let nonce = XNonce::try_from(nonce).map_err(|_| unreadable())?;
+        let payload = Payload {
+            msg: text,
+            aad: associated,
+        };
+        self.cipher
+            .decrypt(&nonce, payload)
+            .map_err(|_| unreadable())
     }
+}
+
+/// The error of a secret that does not open.
+fn unreadable() -> String {
+    "the secret cannot be read with this key".to_owned()
 }
 
 #[cfg(test)]
@@ -128,5 +155,23 @@ mod tests {
         // then
         assert_eq!(opened.as_deref(), Ok("client secret"));
         assert!(with_other.is_err() && changed.is_err());
+    }
+
+    /// Bytes sealed with associated data open with the same data only, and not as a text of
+    /// `seal`.
+    #[test]
+    fn sealed_bytes_open_with_their_associated_data_only() {
+        // given
+        let (sealer, _) = Sealer::generate();
+        let sealed = sealer.seal_with(b"value", b"first id");
+
+        // when
+        let opened = sealer.open_with(&sealed, b"first id");
+        let other_data = sealer.open_with(&sealed, b"other id");
+        let no_data = sealer.open(&sealed);
+
+        // then
+        assert_eq!(opened.as_deref(), Ok(&b"value"[..]));
+        assert!(other_data.is_err() && no_data.is_err());
     }
 }

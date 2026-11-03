@@ -4,7 +4,8 @@ use std::fmt;
 
 use prost_types::Timestamp;
 use scylla_domain::identity::users::{Email, Handle, Password};
-use scylla_domain::projects::ProjectName;
+use scylla_domain::projects::secrets::{SecretName, SecretValue};
+use scylla_domain::projects::{ProjectDescription, ProjectName};
 use scylla_domain::tenancy::slugs::Slug;
 use scylla_domain::{DomainError, Id};
 use scylla_domain::{PageRequest, PageSize};
@@ -122,6 +123,24 @@ impl FromProto<String> for ProjectName {
     }
 }
 
+impl FromProto<String> for ProjectDescription {
+    fn from_proto(value: String) -> Result<Self, Invalid> {
+        Ok(Self::parse(value)?)
+    }
+}
+
+impl FromProto<String> for SecretName {
+    fn from_proto(value: String) -> Result<Self, Invalid> {
+        Ok(Self::parse(value)?)
+    }
+}
+
+impl FromProto<String> for SecretValue {
+    fn from_proto(value: String) -> Result<Self, Invalid> {
+        Ok(Self::parse(value)?)
+    }
+}
+
 impl FromProto<String> for Email {
     fn from_proto(value: String) -> Result<Self, Invalid> {
         Ok(Self::parse(value)?)
@@ -164,6 +183,30 @@ impl<T: ?Sized> ToProto<pb::PageResponse> for Option<Id<T>> {
     fn to_proto(self) -> pb::PageResponse {
         pb::PageResponse {
             next_token: self.map(|id| id.to_string()).unwrap_or_default(),
+        }
+    }
+}
+
+impl FromProto<pb::PageRequest> for PageRequest<SecretName> {
+    fn from_proto(value: pb::PageRequest) -> Result<Self, Invalid> {
+        let size = PageSize::parse(value.size).map_err(|error| Invalid::at("size", error))?;
+        let after = match value.token {
+            token if token.is_empty() => None,
+            token => Some(
+                SecretName::parse(token)
+                    .map_err(|_| Invalid::at("token", "is not a token of this list"))?,
+            ),
+        };
+        Ok(Self { after, size })
+    }
+}
+
+impl ToProto<pb::PageResponse> for Option<SecretName> {
+    fn to_proto(self) -> pb::PageResponse {
+        pb::PageResponse {
+            next_token: self
+                .map(|name| name.as_str().to_owned())
+                .unwrap_or_default(),
         }
     }
 }

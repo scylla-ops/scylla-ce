@@ -13,8 +13,10 @@ message Project {
   scylla.common.v1.Id workspace_id = 2;
   // The actor that created the project.
   scylla.common.v1.Id created_by = 3;
-  // The display name, 1 to 100 characters, trimmed.
+  // The display name, 1 to 100 characters, trimmed, on one line.
   string name = 4;
+  // The description, at most 1024 characters, trimmed. Empty when the project has none.
+  string description = 5;
   // The creation time. The server sets it.
-  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp created_at = 6;
 }

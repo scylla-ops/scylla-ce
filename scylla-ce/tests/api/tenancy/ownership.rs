@@ -15,6 +15,7 @@ fn create_in(workspace: WorkspaceId) -> CreateProjectRequest {
     CreateProjectRequest {
         workspace_id: Some(id(workspace.to_string())),
         name: "by agent".to_owned(),
+        description: String::new(),
     }
 }
 

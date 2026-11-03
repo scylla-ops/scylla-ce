@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use scylla_domain::authz::{Check, Object, Relationship};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::{Email, NewUser, SessionId};
-use scylla_domain::projects::{NewProject, ProjectName, KIND};
+use scylla_domain::projects::{NewProject, ProjectDescription, ProjectName, KIND};
 use scylla_domain::tenancy::slugs::Slug;
 use scylla_domain::tenancy::workspaces::{NewSlug, NewWorkspace, WorkspaceId};
 use scylla_domain::{Name, ResourceKind};
@@ -195,6 +195,7 @@ fn new_project(author: &Actor, workspace_id: WorkspaceId) -> NewProject {
         workspace_id,
         created_by: author.id,
         name: ProjectName::parse("alpha".to_owned()).unwrap(),
+        description: ProjectDescription::default(),
     }
 }
 

@@ -1,4 +1,4 @@
-//! The tests of `ProjectService`: data, validation and permissions.
+//! The tests of the life of a project: creation, reads, lists, deletion and their permissions.
 
 use scylla_domain::tenancy::workspaces::Workspace;
 use scylla_proto::projects::v1::CreateProjectRequest;
@@ -13,6 +13,7 @@ fn create(workspace: Option<String>, name: &str) -> CreateProjectRequest {
     CreateProjectRequest {
         workspace_id: workspace.map(id),
         name: name.to_owned(),
+        description: String::new(),
     }
 }
 

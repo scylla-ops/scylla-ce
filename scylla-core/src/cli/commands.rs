@@ -49,7 +49,8 @@ pub enum Command {
     /// Manages the tokens.
     #[command(subcommand)]
     Token(TokenCommand),
-    /// Manages the key of the client secrets of the identity providers.
+    /// Manages the key of the secrets: the client secrets of the identity providers and the
+    /// secrets of the projects.
     #[command(subcommand)]
     Secret(SecretCommand),
 }

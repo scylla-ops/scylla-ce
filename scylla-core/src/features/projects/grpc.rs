@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use scylla_domain::projects::{
-    ListProjects, NewProject, Project, ProjectCaller, ProjectHolder, ProjectId, Visible,
+    ListProjects, NewProject, Project, ProjectCaller, ProjectChange, ProjectHolder, ProjectId,
+    Visible,
 };
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Gate, Hooks};
@@ -58,6 +59,13 @@ impl ProjectService for ProjectsGrpc {
         Ok(Response::new(self.list(request).await?))
     }
 
+    async fn update_project(
+        &self,
+        request: Request<pb::UpdateProjectRequest>,
+    ) -> Result<Response<pb::UpdateProjectResponse>, Status> {
+        Ok(Response::new(self.update(request).await?))
+    }
+
     async fn delete_project(
         &self,
         request: Request<pb::DeleteProjectRequest>,
@@ -79,6 +87,7 @@ impl ProjectsGrpc {
             workspace_id: parse::required(request.workspace_id, "workspace_id")?,
             created_by: caller.actor.id,
             name: parse::field(request.name, "name")?,
+            description: parse::field(request.description, "description")?,
         };
 
         // Check the route permission on the workspace.
@@ -157,6 +166,43 @@ impl ProjectsGrpc {
         })
     }
 
+    /// Handles `UpdateProject`: a new name or a new description. An unknown project gives
+    /// `PERMISSION_DENIED`, so no caller learns which ids exist.
+    async fn update(
+        &self,
+        request: Request<pb::UpdateProjectRequest>,
+    ) -> Result<pb::UpdateProjectResponse, Error> {
+        // Authenticate the caller, then read the request.
+        let caller = self.gate.caller(&request).await?;
+        let request = request.into_inner();
+        let id: ProjectId = parse::required(request.project_id, "project_id")?;
+        let change = ProjectChange {
+            name: request
+                .name
+                .map(|name| parse::field(name, "name"))
+                .transpose()?,
+            description: request
+                .description
+                .map(|description| parse::field(description, "description"))
+                .transpose()?,
+        };
+
+        // Check the route permission. An unknown project gets the answer of a refusal.
+        let check = Project::UPDATE_PROJECT.on(id);
+        let Some(workspace) = service::workspace(&self.pool, id).await? else {
+            return Err(AccessError::denied(&caller, &check).into());
+        };
+        self.gate
+            .authorize(&caller, check.within(workspace))
+            .await?;
+
+        // Change the project.
+        let project = service::update(&self.pool, id, change).await?;
+        Ok(pb::UpdateProjectResponse {
+            project: Some(project.to_proto()),
+        })
+    }
+
     /// Handles `DeleteProject`. An unknown project gives `PERMISSION_DENIED`, so no caller
     /// learns which ids exist.
     async fn delete(
@@ -199,6 +245,7 @@ impl ToProto<pb::Project> for Project {
             workspace_id: Some(self.workspace_id.to_proto()),
             created_by: Some(self.created_by.to_proto()),
             name: self.name,
+            description: self.description,
             created_at: Some(parse::timestamp(self.created_at)),
         }
     }

@@ -19,10 +19,10 @@ scylla-testkit (tests only) ──▶ scylla-core
 | Crate | Contents |
 |---|---|
 | `scylla-macros` | `authz!`: the permission model in the SpiceDB schema language |
-| `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, the platform, actors, users and handles, slugs, instance admins, workspaces, agents, projects, pages |
+| `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, the platform, actors, users and handles, slugs, instance admins, workspaces, agents, projects and their secrets, pages |
 | `scylla-extension` | the contract: `Edition`, `Plugin`, hooks, `Gate` |
 | `scylla-proto` | generated code of `proto/` |
-| `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, agents, tokens, projects, grants, capabilities), mails, the guard against the public dev keys, server, CLI |
+| `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, agents, tokens, projects, secrets, grants, capabilities), mails, the guard against the public dev keys, server, CLI |
 | `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC |
 | `scylla-ce` | the Community edition binary |
 
@@ -37,6 +37,8 @@ scylla-testkit (tests only) ──▶ scylla-core
 | Each route | The permission of the route: the RPC name in snake case. An owner of the workspace, and an instance admin on the platform, pass with no SpiceDB call. Else one SpiceDB call looks for a role on the object or on its workspace. |
 | A share | `AccessService.Grant` and `Revoke`: a role (`admin`, `member`, `viewer` in a workspace, `admin`, `editor`, `viewer` on a project) for one actor. An agent gets roles only in its own workspace. `ListAccess` lists the owners and the roles of an object, and `CheckPermissions` tells a caller its permissions on an object. `InvitationService` invites an email into a workspace, and lists, revokes and sends again the open invitations. |
 | A list | `ListWorkspaces` and `ListProjects` show only what the caller can see (SpiceDB reverse lookups for the roles). `workspace_id` filters the projects. |
+| A change of a project | `ProjectService.UpdateProject`: the name and the description, for the editors of the project and the members of its workspace. |
+| A secret | `SecretService` in a project: create, give a new value, delete, list the names in name order. No RPC returns a value. The server encrypts each value with `SCYLLA_SECRET_KEY` and the id of its secret. The admins of a project and of its workspace change the secrets, and its editors and the members of the workspace list them. |
 | An account | `ProfileService`: the profile and the handle, a change of email with a link to the new email, the password, the identities, the sessions (with their IP address), and the deletion of the account. |
 | The users of the instance | `UserAdminService`, for the instance admins only: list, read, create, change, disable, delete, reset link, sessions, and the instance admin right. The last active instance admin stays. |
 
@@ -82,7 +84,7 @@ Also Docker, Rust 1.94 or later, `just` and `protoc`. `grpcurl` is optional.
 
 ## Run
 
-`.env` holds dev values only: the database URL, the SpiceDB key, a dev signing key, the SMTP of Mailpit and a dev key for the client secrets. These keys are public: `serve` stops at start if one of them, or the public key of the dev signing key, is in use on a server that is not local (an address that is not a loopback address, a trusted proxy, or a URL that is not on a loopback address), and logs a warning on a local server.
+`.env` holds dev values only: the database URL, the SpiceDB key, a dev signing key, the SMTP of Mailpit and a dev key for the secrets. These keys are public: `serve` stops at start if one of them, or the public key of the dev signing key, is in use on a server that is not local (an address that is not a loopback address, a trusted proxy, or a URL that is not on a loopback address), and logs a warning on a local server.
 
 ```sh
 just run                                   # Postgres, SpiceDB, Mailpit, migrations, schema, server on 127.0.0.1:3000
@@ -114,7 +116,7 @@ The dev setup has no identity provider: the tests use a fake one. To try a real 
 
 ## Deploy
 
-1. Store `SCYLLA_TOKEN_PRIVATE_KEY`, `SCYLLA_SPICEDB_KEY` and `SCYLLA_SECRET_KEY` in a secret store. Make the keys with `token keygen` and `secret keygen`. A key of a `.env` file stops the start.
+1. Store `SCYLLA_TOKEN_PRIVATE_KEY`, `SCYLLA_SPICEDB_KEY` and `SCYLLA_SECRET_KEY` in a secret store. Make the keys with `token keygen` and `secret keygen`. A key of a `.env` file stops the start. With no `SCYLLA_SECRET_KEY`, the server starts but refuses the secrets of the projects (`SECRET_KEY_MISSING`).
 2. Run SpiceDB with a Postgres datastore, and set `SCYLLA_SPICEDB_ENDPOINT`.
 3. Set `SCYLLA_API_URL` (the public URL of the server), `SCYLLA_APP_URL` (the web app), `SCYLLA_SMTP_URL` and `SCYLLA_MAIL_FROM`, and choose `SCYLLA_SIGN_UP_MODE`.
 4. Run `scylla-ce migrate` one time, as a job. Add the first instance admin with `user create --admin`, and the identity providers with `provider add-oidc` or `provider add-github`.
@@ -134,6 +136,10 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Tests | Where |
 |---|---|
 | Workspaces, projects and their permissions, tokens, agents, gRPC-Web, CORS, TLS, health | `scylla-ce/tests/api/` |
+| Projects: creation, reads, the list and its pages, deletion | `scylla-ce/tests/api/projects/lifecycle.rs` |
+| Change of a project: the name and the description, their limits (100 and 101, 1024 and 1025), one line for a name, an empty description, each role | `scylla-ce/tests/api/projects/updates.rs` |
+| Secrets: the metadata, no value in an answer, the form of a name and one secret for each name, the size of a value (65536 and 65537 bytes), a new value, a delete, the pages in name order, the delete of a project | `scylla-ce/tests/api/projects/secrets.rs` |
+| Access to the secrets: each role on each route, an unknown project or secret, `CheckPermissions`, a server with no key | `scylla-ce/tests/api/projects/secret_access.rs` |
 | Permission model: roles in a workspace and on one project, an extension, a new definition | `scylla-ce/tests/api/tenancy/authz.rs` |
 | Ownership: a role in a workspace goes down, an agent with a role, no SpiceDB for an owner | `scylla-ce/tests/api/tenancy/ownership.rs` |
 | Owners of a workspace: add, remove, list, only an owner changes them, the last owner stays, two removals at the same time | `scylla-ce/tests/api/tenancy/owners.rs` |
@@ -159,15 +165,18 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Schema of the parts, typed values | `scylla-domain/src/authz/tests.rs` |
 | `authz!`: schema text, checks of the names, errors | `scylla-macros/src/tests.rs` |
 | Hook rollback, order and kind filter | `scylla-core/src/features/projects/tests.rs` |
+| The value of a secret opens only with the id of its secret, and the database has no value in clear | `scylla-core/src/features/projects/secrets/tests.rs` |
 | Config and command line, the guard against the public dev keys | `scylla-core/src/config.rs`, `scylla-core/src/cli/commands.rs`, `scylla-core/src/infra/dev_keys.rs` |
 | The `WARN` line of a refusal | `scylla-extension/src/tests.rs` |
 | Slugs and the tokens of the list of the access | `scylla-domain/src/tenancy/slugs.rs`, `grants.rs` |
-| Random tokens, PKCE, the encryption of the secrets, cookies, the client of a session, the layout of the mails | `scylla-core/src/infra/secret.rs`, `scylla-core/src/features/identity/sessions/cookie.rs` and `client.rs`, `scylla-core/src/features/identity/accounts/letter.rs` |
+| The names and the values of the secrets, a value hidden in `Debug` | `scylla-domain/src/projects/secrets.rs` |
+| Random tokens, PKCE, the encryption of the secrets with and without associated data, cookies, the client of a session, the layout of the mails | `scylla-core/src/infra/secret.rs`, `scylla-core/src/features/identity/sessions/cookie.rs` and `client.rs`, `scylla-core/src/features/identity/accounts/letter.rs` |
 
 ## Releases for the Enterprise edition
 
-The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `platform`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`. The `Gate` trait has `delete_subject`, `subjects`, `roles` and `permissions`, `EditionBuilder::grants` takes `AccessRoutes` and a required search for the workspace, `AccessError::denied` takes the principal and logs the refusal, a `Mail` has an HTML body, and the details of a `Rejection` are texts. The table `workspaces` has a required `slug`.
+The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `platform`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`. The `Gate` trait has `delete_subject`, `subjects`, `roles` and `permissions`, `EditionBuilder::grants` takes `AccessRoutes` and a required search for the workspace, `AccessError::denied` takes the principal and logs the refusal, a `Mail` has an HTML body, and the details of a `Rejection` are texts. The table `workspaces` has a required `slug`. The field `TestApp.sealer` is an `Option`, `NewProject` has a `description`, the table `projects` has a column `description`, a `Name` refuses a control character, and `DomainError` has new variants.
 
 ## Known limits
 
 - The pipelines are not there yet. An agent token can already be attenuated for each step.
+- No route reads the value of a secret yet: the dispatch of a job will use `secrets::service::reveal`.

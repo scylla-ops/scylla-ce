@@ -6,8 +6,8 @@ import "scylla/common/v1/id.proto";
 import "scylla/common/v1/page.proto";
 import "scylla/projects/v1/project.proto";
 
-// Creates, reads, lists and deletes projects. Each RPC needs an authenticated actor, else
-// UNAUTHENTICATED.
+// Creates, reads, changes, lists and deletes projects. Each RPC needs an authenticated actor,
+// else UNAUTHENTICATED.
 service ProjectService {
   // Creates a project. An edition can refuse it with FAILED_PRECONDITION and a
   // google.rpc.ErrorInfo detail.
@@ -17,7 +17,12 @@ service ProjectService {
   // Lists the projects that the caller can see, oldest first: the projects of the workspaces
   // that it owns or where it has a role, and the projects shared with it.
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
-  // Deletes a project.
+  // Changes the name or the description of a project. The caller needs the permission
+  // update_project: the owners, the admins and the members of its workspace, and the admins
+  // and the editors of the project. The last change wins. An unknown project gives
+  // PERMISSION_DENIED, as a refusal does.
+  rpc UpdateProject(UpdateProjectRequest) returns (UpdateProjectResponse);
+  // Deletes a project with its secrets.
   rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
 }
 
@@ -25,8 +30,10 @@ service ProjectService {
 message CreateProjectRequest {
   // The workspace of the new project. Required.
   scylla.common.v1.Id workspace_id = 1;
-  // The display name, 1 to 100 characters after trim.
+  // The display name, 1 to 100 characters after trim, on one line.
   string name = 2;
+  // The description, at most 1024 characters after trim. Empty means no description.
+  string description = 3;
 }
 
 // The output of CreateProject.
@@ -62,6 +69,23 @@ message ListProjectsResponse {
   repeated Project projects = 1;
   // How to get the next page.
   scylla.common.v1.PageResponse page = 2;
+}
+
+// The input of UpdateProject. A field that is not set does not change.
+message UpdateProjectRequest {
+  // The project. Required.
+  scylla.common.v1.Id project_id = 1;
+  // The new display name, 1 to 100 characters after trim, on one line.
+  optional string name = 2;
+  // The new description, at most 1024 characters after trim. An empty text removes the
+  // description.
+  optional string description = 3;
+}
+
+// The output of UpdateProject.
+message UpdateProjectResponse {
+  // The project after the change.
+  Project project = 1;
 }
 
 // The input of DeleteProject.

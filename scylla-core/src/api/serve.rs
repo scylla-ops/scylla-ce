@@ -20,6 +20,7 @@ use crate::features::identity::accounts::{self, AccountContext, AccountSettings}
 use crate::features::identity::admins;
 use crate::features::identity::providers::{self, Providers};
 use crate::features::identity::tokens;
+use crate::features::projects::secrets;
 use crate::features::tenancy::invitations;
 use crate::infra::mail::{LogMailer, SmtpMailer};
 use crate::infra::secret::Sealer;
@@ -39,7 +40,8 @@ pub struct ServeOptions {
     pub accounts: AccountSettings,
     /// The mailer of the account mails.
     pub mailer: Arc<dyn Mailer>,
-    /// The key of the client secrets of the identity providers.
+    /// The key of the secrets that the server reads back: the client secrets of the identity
+    /// providers and the values of the secrets of the projects.
     pub sealer: Option<Arc<Sealer>>,
 }
 
@@ -69,7 +71,7 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
     // Refuse a public dev key on an address that other machines can reach.
     dev_keys::guard(config)?;
 
-    // Read the optional parts: TLS, SMTP and the key of the client secrets.
+    // Read the optional parts: TLS, SMTP and the key of the secrets.
     let tls = match (&config.tls_cert, &config.tls_key) {
         (Some(cert), Some(key)) => Some(Identity::from_pem(fs::read(cert)?, fs::read(key)?)),
         _ => None,
@@ -118,7 +120,7 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
     Ok(())
 }
 
-/// Reads the key of the client secrets, if the settings give one.
+/// Reads the key of the secrets, if the settings give one.
 pub fn sealer(config: &Config) -> Result<Option<Arc<Sealer>>, Error> {
     let Some(key) = &config.secret_key else {
         return Ok(None);
@@ -146,7 +148,7 @@ pub async fn serve(
         gate: Arc::clone(&gate),
         mailer: options.mailer,
         settings: Arc::new(options.accounts),
-        sealer: options.sealer,
+        sealer: options.sealer.clone(),
         grants: edition.grants(),
     };
     let providers = Providers::new(ctx.clone());
@@ -160,6 +162,11 @@ pub async fn serve(
     routes.add_service(accounts::profile_server(ctx.clone()));
     routes.add_service(admins::server(ctx.clone()));
     routes.add_service(invitations::server(ctx));
+    routes.add_service(secrets::server(
+        pool.clone(),
+        Arc::clone(&gate),
+        options.sealer,
+    ));
     edition.add_services(&mut routes, &pool, &gate);
 
     // Put gRPC-Web on the gRPC routes only, then add the browser routes of the sign-in.

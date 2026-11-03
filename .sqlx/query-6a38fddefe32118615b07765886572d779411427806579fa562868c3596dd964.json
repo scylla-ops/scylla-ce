@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO projects (id, workspace_id, created_by, name) VALUES ($1, $2, $3, $4)\n         RETURNING created_at",
+  "query": "INSERT INTO projects (id, workspace_id, created_by, name, description)\n         VALUES ($1, $2, $3, $4, $5)\n         RETURNING created_at",
   "describe": {
     "columns": [
       {
@@ -20,6 +20,7 @@
         "Uuid",
         "Uuid",
         "Uuid",
+        "Text",
         "Text"
       ]
     },
@@ -27,5 +28,5 @@
       false
     ]
   },
-  "hash": "17d07b7c268958a8306cc488ab6ea7a6667f6e7972da5390d8afa750ab65b4f9"
+  "hash": "6a38fddefe32118615b07765886572d779411427806579fa562868c3596dd964"
 }

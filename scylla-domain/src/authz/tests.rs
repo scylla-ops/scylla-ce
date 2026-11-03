@@ -53,7 +53,12 @@ definition workspace {
     permission create_project = work
     permission list_projects = read
     permission get_project = read
+    permission update_project = work
     permission delete_project = manage
+    permission create_secret = manage
+    permission update_secret = manage
+    permission delete_secret = manage
+    permission list_secrets = work
 }
 
 definition project {
@@ -65,7 +70,12 @@ definition project {
     permission view = edit + viewer
     permission get_project = view
     permission list_projects = view
+    permission update_project = edit
     permission delete_project = delete
+    permission create_secret = delete
+    permission update_secret = delete
+    permission delete_secret = delete
+    permission list_secrets = edit
     permission grant = admin
     permission revoke = admin
     permission list_access = view

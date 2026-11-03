@@ -47,8 +47,8 @@ pub struct TestApp {
     pub projects: ProjectServiceClient<Channel>,
     /// The mails that the server sent.
     pub mails: Arc<Mailbox>,
-    /// The key of the client secrets of the server.
-    pub sealer: Arc<Sealer>,
+    /// The key of the secrets of the server, or `None` for a server with no key.
+    pub sealer: Option<Arc<Sealer>>,
 }
 
 impl TestApp {
@@ -59,28 +59,30 @@ impl TestApp {
 
     /// Writes the schema of the edition to a new SpiceDB store, then starts its server.
     pub async fn spawn_with(pool: PgPool, edition: Edition, options: ServeOptions) -> Self {
-        let access = test_access(pool.clone(), edition.authz_model().clone());
-        access
-            .spicedb()
-            .write_schema(edition.authz_schema())
-            .await
-            .expect("schema applies");
-        Self::start(pool, edition, options, access).await
+        let access = schema_access(&pool, &edition).await;
+        Self::start(pool, edition, options, access, true).await
+    }
+
+    /// Starts an edition with no key of the secrets: the server refuses to seal a secret.
+    pub async fn spawn_without_secret_key(pool: PgPool, edition: Edition) -> Self {
+        let access = schema_access(&pool, &edition).await;
+        Self::start(pool, edition, ServeOptions::default(), access, false).await
     }
 
     /// Starts an edition with a SpiceDB that never answers: each SpiceDB call fails.
     pub async fn spawn_without_spicedb(pool: PgPool, edition: Edition) -> Self {
         let access = access_at(pool.clone(), edition.authz_model().clone(), NO_SPICEDB);
-        Self::start(pool, edition, ServeOptions::default(), access).await
+        Self::start(pool, edition, ServeOptions::default(), access, true).await
     }
 
-    /// Applies the migrations of the edition, then starts its server with this gate, a mailbox and
-    /// a new key of the client secrets.
+    /// Applies the migrations of the edition, then starts its server with this gate, a mailbox and,
+    /// if `with_key`, the key of the options or a new key of the secrets.
     async fn start(
         pool: PgPool,
         edition: Edition,
         mut options: ServeOptions,
         access: Access,
+        with_key: bool,
     ) -> Self {
         // Apply the migrations to the test database.
         scylla_core::infra::tls::install();
@@ -88,14 +90,16 @@ impl TestApp {
             .await
             .expect("migrations apply");
 
-        // Give the server a mailbox and a key of the client secrets.
+        // Give the server a mailbox and a key of the secrets.
         let mails = Arc::new(Mailbox::default());
         options.mailer = mails.clone();
-        let sealer = options
-            .sealer
-            .clone()
-            .unwrap_or_else(|| Arc::new(Sealer::generate().0));
-        options.sealer = Some(Arc::clone(&sealer));
+        let sealer = with_key.then(|| {
+            options
+                .sealer
+                .clone()
+                .unwrap_or_else(|| Arc::new(Sealer::generate().0))
+        });
+        options.sealer = sealer.clone();
 
         // Start the server on a free port, and connect to it.
         let access = Arc::new(access);
@@ -259,4 +263,15 @@ fn access_at(pool: PgPool, schema: Schema, endpoint: &str) -> Access {
         schema,
     };
     Access::new(pool, config)
+}
+
+/// Makes the gate of a test and writes the schema of the edition to its new SpiceDB store.
+async fn schema_access(pool: &PgPool, edition: &Edition) -> Access {
+    let access = test_access(pool.clone(), edition.authz_model().clone());
+    access
+        .spicedb()
+        .write_schema(edition.authz_schema())
+        .await
+        .expect("schema applies");
+    access
 }

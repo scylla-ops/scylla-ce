@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT p.id, p.workspace_id, p.created_by, p.name, p.created_at FROM projects p\n         WHERE (p.workspace_id IN (SELECT o.workspace_id FROM workspace_owners o WHERE o.user_id = $1)\n                OR p.workspace_id = ANY($2)\n                OR p.id = ANY($3))\n           AND ($4::uuid IS NULL OR p.workspace_id = $4)\n           AND ($5::uuid IS NULL OR p.id > $5)\n         ORDER BY p.id\n         LIMIT $6",
+  "query": "UPDATE projects SET name = coalesce($2, name), description = coalesce($3, description)\n         WHERE id = $1\n         RETURNING id, workspace_id, created_by, name, description, created_at",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,17 @@
       },
       {
         "ordinal": 4,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -62,11 +73,8 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "UuidArray",
-        "UuidArray",
-        "Uuid",
-        "Uuid",
-        "Int8"
+        "Text",
+        "Text"
       ]
     },
     "nullable": [
@@ -74,8 +82,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "6862786f4947b80f669028f5b3746f79c59fb7042f729e9994086e5ab997cbff"
+  "hash": "68077555d91cf685904dc114c27e2abdb9f3f882bb0d80dcd1b080539e8cfde1"
 }

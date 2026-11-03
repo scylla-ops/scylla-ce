@@ -1,5 +1,5 @@
 //! The commands of the operator on the sign-in: the identity providers, and the key of the
-//! client secrets.
+//! secrets.
 
 use std::io::BufRead;
 
@@ -68,7 +68,7 @@ pub enum ProviderCommand {
     },
 }
 
-/// The commands on the key of the client secrets.
+/// The commands on the key of the secrets.
 #[derive(Subcommand, Clone, Debug)]
 pub enum SecretCommand {
     /// Prints a new key, to store as `SCYLLA_SECRET_KEY`.

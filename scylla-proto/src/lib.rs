@@ -18,7 +18,7 @@ pub mod common {
     }
 }
 
-/// The projects API.
+/// The projects API: the projects and their secrets.
 pub mod projects {
     /// Version 1.
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]

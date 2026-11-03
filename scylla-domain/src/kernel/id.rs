@@ -40,6 +40,12 @@ impl<T: ?Sized> Id<T> {
         Uuid::from_u128(self.bits)
     }
 
+    /// Returns the 128 bits in big-endian order. They do not change with the text form, so they
+    /// can bind a value to its id, for example as the associated data of an encryption.
+    pub fn to_bytes(self) -> [u8; 16] {
+        self.bits.to_be_bytes()
+    }
+
     /// Returns the id of the only object of a type: each bit is zero.
     pub const fn singleton() -> Self {
         Self::from_bits(0)

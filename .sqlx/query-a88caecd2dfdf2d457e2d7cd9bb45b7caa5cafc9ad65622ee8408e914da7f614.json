@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE secrets SET sealed_value = (SELECT sealed_value FROM secrets WHERE id = $1)\n         WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a88caecd2dfdf2d457e2d7cd9bb45b7caa5cafc9ad65622ee8408e914da7f614"
+}

@@ -54,7 +54,7 @@ impl TestApp {
             kind: kind.to_owned(),
             display_name: slug.to_owned(),
             settings,
-            client_secret: secret.map(|secret| self.sealer.seal(secret)),
+            client_secret: secret.map(|secret| self.sealer.as_ref().expect("a key").seal(secret)),
             allow_sign_up,
             enabled: true,
         };
