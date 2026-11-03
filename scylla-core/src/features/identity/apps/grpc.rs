@@ -18,7 +18,7 @@ use crate::features::identity::agents::Registry;
 use crate::Error;
 
 /// Makes the service.
-pub(super) fn server(
+pub(crate) fn server(
     pool: PgPool,
     gate: Arc<dyn Gate>,
     registry: Arc<Registry>,
@@ -31,7 +31,7 @@ pub(super) fn server(
 }
 
 /// The handler.
-pub(super) struct AppsGrpc {
+pub(crate) struct AppsGrpc {
     /// The database pool.
     pub(super) pool: PgPool,
     /// The access gate.

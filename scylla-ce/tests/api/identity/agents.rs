@@ -39,7 +39,10 @@ fn host() -> Host {
 /// Makes a hello message.
 fn hello() -> OpenStreamRequest {
     OpenStreamRequest {
-        message: Some(Up::Hello(Hello { host: Some(host()) })),
+        message: Some(Up::Hello(Hello {
+            host: Some(host()),
+            running_jobs: Vec::new(),
+        })),
     }
 }
 

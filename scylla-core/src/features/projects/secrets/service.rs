@@ -85,7 +85,6 @@ pub(super) async fn place(
 
 /// Opens the value of the secret of a project with this name, for the run of a pipeline. An
 /// unknown name gives `NotFound("secret")`, and a server with no key `SECRET_KEY_MISSING`.
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) async fn reveal(
     pool: &PgPool,
     sealer: Option<&Sealer>,
@@ -107,6 +106,19 @@ pub(crate) async fn reveal(
     let text = String::from_utf8(plain)
         .map_err(|_| Error::Internal(format!("secret {id}: the value is not UTF-8")))?;
     SecretValue::parse(text).map_err(|error| Error::Internal(format!("secret {id}: {error}")))
+}
+
+/// Returns the first name of a list that the project does not have as a secret, or `None` if
+/// the project has each one.
+pub(crate) async fn missing(
+    pool: &PgPool,
+    project: ProjectId,
+    names: &[String],
+) -> Result<Option<String>, Error> {
+    let mut tx = pool.begin().await?;
+    let known = store::known(&mut tx, project, names).await?;
+    tx.commit().await?;
+    Ok(names.iter().find(|name| !known.contains(name)).cloned())
 }
 
 /// Returns the key of the secrets, or `SECRET_KEY_MISSING` if the server has none.

@@ -10,6 +10,9 @@ mod service;
 mod store;
 
 pub use assertion::{verify as verify_assertion, AUDIENCE};
+pub(crate) use grpc::server;
 pub(crate) use plugin::Apps;
-pub(crate) use service::{hello, runner, touch, workspace_of};
+#[cfg(test)]
+pub(crate) use service::create;
+pub(crate) use service::{get, hello, runner, touch, workspace_of};
 pub use service::{join, JOIN_CODE_TTL};

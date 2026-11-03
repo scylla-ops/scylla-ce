@@ -138,6 +138,22 @@ pub(super) async fn sealed(
     Ok(row.map(|row| (SecretId::from_db(row.id), row.sealed_value)))
 }
 
+/// Returns the names of a list that the project has as secrets.
+pub(super) async fn known(
+    tx: &mut Tx<'_>,
+    project: ProjectId,
+    names: &[String],
+) -> Result<Vec<String>, Error> {
+    let found = sqlx::query_scalar!(
+        "SELECT name::text AS \"name!\" FROM secrets WHERE project_id = $1 AND name = ANY($2)",
+        project.to_db(),
+        names,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(found)
+}
+
 /// A row of the `secrets` table, with no value.
 struct Row {
     /// The id.

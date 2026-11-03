@@ -15,6 +15,7 @@ use tracing::Instrument;
 use super::stream::Stream;
 use super::Registry;
 use crate::features::identity::apps;
+use crate::infra::secret::Sealer;
 use crate::Error;
 
 /// The number of messages that wait for a slow agent.
@@ -25,11 +26,13 @@ pub(crate) fn server(
     pool: PgPool,
     gate: Arc<dyn Gate>,
     registry: Arc<Registry>,
+    sealer: Option<Arc<Sealer>>,
 ) -> AgentServiceServer<AgentsGrpc> {
     AgentServiceServer::new(AgentsGrpc {
         pool,
         gate,
         registry,
+        sealer,
     })
 }
 
@@ -41,6 +44,8 @@ pub(crate) struct AgentsGrpc {
     gate: Arc<dyn Gate>,
     /// The open streams of the server.
     registry: Arc<Registry>,
+    /// The key of the secrets, for the dispatch of the jobs.
+    sealer: Option<Arc<Sealer>>,
 }
 
 #[tonic::async_trait]
@@ -76,8 +81,13 @@ impl AgentsGrpc {
             pool: self.pool.clone(),
             gate: Arc::clone(&self.gate),
             registry: Arc::clone(&self.registry),
+            sealer: self.sealer.clone(),
             app,
             principal: caller,
+            workspace: None,
+            capacity: 1,
+            containers: false,
+            runner: false,
         };
         let inbound = request.into_inner();
         tokio::spawn(stream.run(inbound, out).in_current_span());

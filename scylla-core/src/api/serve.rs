@@ -18,10 +18,12 @@ use tonic_web::GrpcWebLayer;
 use super::request_log::RequestLog;
 use crate::access::{Access, OperationLayer};
 use crate::features::identity::accounts::{self, AccountContext, AccountSettings};
-use crate::features::identity::admins;
+use crate::features::identity::agents::{self, Registry};
 use crate::features::identity::providers::{self, Providers};
 use crate::features::identity::tokens;
-use crate::features::projects::secrets;
+use crate::features::identity::{admins, apps};
+use crate::features::projects::jobs::{self, housekeeping};
+use crate::features::projects::{pipelines, secrets};
 use crate::features::tenancy::invitations;
 use crate::infra::mail::{LogMailer, SmtpMailer};
 use crate::infra::secret::Sealer;
@@ -44,6 +46,8 @@ pub struct ServeOptions {
     /// The key of the secrets that the server reads back: the client secrets of the identity
     /// providers and the values of the secrets of the projects.
     pub sealer: Option<Arc<Sealer>>,
+    /// The time that the server keeps the logs of the jobs.
+    pub log_retention: Duration,
 }
 
 impl Default for ServeOptions {
@@ -63,6 +67,7 @@ impl Default for ServeOptions {
             },
             mailer: Arc::new(LogMailer),
             sealer: None,
+            log_retention: Duration::from_secs(30 * 24 * 60 * 60),
         }
     }
 }
@@ -111,6 +116,7 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
         accounts: AccountSettings::from_config(config),
         mailer,
         sealer,
+        log_retention: config.log_retention,
     };
     let stop = super::layers::stop_signal();
     serve(listener, pool.clone(), edition, access, options, stop).await?;
@@ -167,8 +173,28 @@ pub async fn serve(
     routes.add_service(secrets::server(
         pool.clone(),
         Arc::clone(&gate),
+        options.sealer.clone(),
+    ));
+
+    // Add the services of the Apps and of the jobs: they share the open streams of the agents.
+    let registry = Arc::new(Registry::default());
+    let (hooks, share) = (edition.hooks(), || Arc::clone(&registry));
+    routes.add_service(apps::server(pool.clone(), Arc::clone(&gate), share()));
+    routes.add_service(agents::server(
+        pool.clone(),
+        Arc::clone(&gate),
+        share(),
         options.sealer,
     ));
+    let pipelines = pipelines::server(pool.clone(), Arc::clone(&hooks), Arc::clone(&gate), share());
+    routes.add_service(pipelines);
+    routes.add_service(jobs::server(
+        pool.clone(),
+        hooks,
+        Arc::clone(&gate),
+        share(),
+    ));
+    let housekeeping = housekeeping::spawn(pool.clone(), share(), options.log_retention);
     edition.add_services(&mut routes, &pool, &gate);
 
     // Log the calls inside gRPC-Web, then add the browser routes with their own log.
@@ -200,5 +226,6 @@ pub async fn serve(
         .add_routes(Routes::from(router))
         .serve_with_incoming_shutdown(TcpIncoming::from(listener), stop)
         .await?;
+    housekeeping.abort();
     Ok(())
 }

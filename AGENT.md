@@ -14,7 +14,7 @@ Load the skill of the task from `.claude/skills/`:
 
 ## Structure
 
-- Each crate groups its code by subject: `identity` (accounts, instance admins, sessions, providers, tokens, actors, Apps, agents), `tenancy` (workspaces and their owners, invitations, roles), `projects`, and `platform` (the platform object, capabilities). A new feature goes in the folder of its subject.
+- Each crate groups its code by subject: `identity` (accounts, instance admins, sessions, providers, tokens, actors, Apps, agents), `tenancy` (workspaces and their owners, invitations, roles), `projects` (projects, secrets, pipelines, jobs), and `platform` (the platform object, capabilities). A new feature goes in the folder of its subject.
 - `scylla-domain/src`: `kernel/` (ids and their format, names, pages, kinds, errors: the crate root gives each type), `authz/`, a folder for each subject (`identity/`, `tenancy/`), `platform.rs`, and `projects.rs` with `projects/secrets.rs`.
 - `scylla-core/src`: `lib.rs`, `app.rs`, `config.rs` and `error.rs` at the root, then `access/` (the gate), `api/` (the server, its layers, the log of each call, the proto conversions), `cli/`, `infra/` (database, logs, mails, secrets, TLS) and `features/`.
 - Never add a file at the root of a crate: put it in the folder of its role or of its subject. When a folder fills with files of different roles or subjects, add a level.
@@ -72,6 +72,13 @@ Load the skill of the task from `.claude/skills/`:
 - The server never sees a private key. A key of an App comes from `JoinApp` (with a join code) or from `AddAppKey`. A join code is a `secret::token()`, and the database keeps its hash.
 - A delete of an App or a revocation of a key stops the stream of the agent with `Registry::stop`. The registry is in memory: the server is one instance.
 - The stream of an agent checks each new token as its start did: `gate.authenticate` with the operation of the stream, the same actor, then `gate.authorize` of the route permission.
+
+## Pipelines and jobs
+
+- A pipeline or a job is an object of a project: its routes are permissions of `PipelineAccess` on the project and of `PipelineHolder` on the workspace. Check them with `pipelines::access::authorize`: an unknown object and a refusal get the same answer, which names the object.
+- A job keeps a snapshot of its nodes and the state of each node in JSON (`pipelines::json`). Change a job only with `Job::apply` and `Job::end`, in a transaction that locks its row (`jobs::find(tx, id, true)`), then `jobs::save`.
+- A change of a job that an agent holds tells its stream after the commit: `Registry::cancel` for a job to stop, `Registry::wake_all` for a free job. A lost command is safe: each later message of the agent about the job gets a cancel.
+- Times of a job are in whole microseconds (`runs::now`), as the database keeps them.
 
 ## Logs
 

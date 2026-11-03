@@ -98,6 +98,7 @@ fn event(name: &str, line: &Line) -> Parts {
         "mail" => "MAIL",
         "account" | "password" | "email" | "session" => "AUTH",
         "app" | "agent" => "APP",
+        "job" | "pipeline" => "JOB",
         "user" | "admin" => "ADMIN",
         "access" | "role" | "invitation" | "owner" => "ACCESS",
         "workspace" => "WORKSPACE",

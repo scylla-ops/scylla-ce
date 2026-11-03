@@ -34,6 +34,9 @@ pub enum Error {
     /// A named resource does not exist: `NOT_FOUND`.
     #[error("{0} not found")]
     NotFound(&'static str),
+    /// The resource changed since the client read it: `ABORTED`. The client reads it again.
+    #[error("{0}")]
+    Conflict(&'static str),
     /// A hook refuses the request: `FAILED_PRECONDITION` with a `google.rpc.ErrorInfo`.
     #[error("{}", .0.message)]
     Rejected(Rejection),
@@ -89,6 +92,7 @@ impl From<Error> for Status {
             Error::Access(AccessError::Denied(reason)) => Status::permission_denied(reason),
             Error::Access(AccessError::Unavailable(reason)) => Status::unavailable(reason),
             Error::NotFound(_) => Status::not_found(error.to_string()),
+            Error::Conflict(message) => Status::aborted(message),
             Error::Rejected(rejection) => rejected(rejection),
             error => {
                 tracing::error!(event = "request.failed", %error, "request failed");

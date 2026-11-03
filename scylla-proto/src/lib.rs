@@ -27,6 +27,15 @@ pub mod projects {
     }
 }
 
+/// The pipelines API: the pipelines of the projects, their jobs and the logs of the jobs.
+pub mod pipelines {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.pipelines.v1");
+    }
+}
+
 /// The Apps API: the machine identities of a workspace.
 pub mod apps {
     /// Version 1.

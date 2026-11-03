@@ -4,15 +4,21 @@ package scylla.agents.v1;
 
 import "google/protobuf/timestamp.proto";
 import "scylla/apps/v1/app.proto";
+import "scylla/common/v1/id.proto";
+import "scylla/pipelines/v1/job.proto";
+import "scylla/pipelines/v1/pipeline.proto";
 
-// The stream of an agent: an App that runs jobs.
+// The stream of an agent: an App that runs jobs. The server gives the jobs on the stream, and
+// the agent sends their events and their logs back on it.
 service AgentService {
   // Opens the stream of the calling agent, with its token in "authorization: Bearer <token>".
   // The first message must be a Hello, within 30 seconds. Before its token expires, the agent
   // sends a Renew with a new token from TokenService.ExchangeAppAssertion. At the expiry of the
   // last token, the server closes the stream with UNAUTHENTICATED. A second stream of the same
   // agent closes the first with ABORTED, and so do DeleteApp and RevokeAppKey. An App that is not
-  // an agent gets FAILED_PRECONDITION with the reason NOT_A_RUNNER.
+  // an agent gets FAILED_PRECONDITION with the reason NOT_A_RUNNER. An agent with the role
+  // runner in its workspace gets the pending jobs of the workspace, while it runs fewer jobs
+  // than its capacity. An event or a log of a job that the agent must not run gives a Cancel.
   rpc OpenStream(stream OpenStreamRequest) returns (stream OpenStreamResponse);
 }
 
@@ -24,6 +30,10 @@ message OpenStreamRequest {
     Hello hello = 1;
     // A new token for the stream.
     Renew renew = 2;
+    // An event of a job that the agent runs.
+    JobEvent event = 3;
+    // A batch of log lines of a node of a job.
+    LogBatch logs = 4;
   }
 }
 
@@ -32,6 +42,9 @@ message OpenStreamRequest {
 message Hello {
   // The host.
   scylla.apps.v1.Host host = 1;
+  // The jobs that the agent still runs, after a new stream. The server ends its other running
+  // jobs on this agent as orphaned, and gives a Cancel for a listed job that must stop.
+  repeated scylla.common.v1.Id running_jobs = 2;
 }
 
 // A new token of the same agent. The server checks it as at the start of the stream.
@@ -48,6 +61,10 @@ message OpenStreamResponse {
     Welcome welcome = 1;
     // The answer to a Renew.
     Renewed renewed = 2;
+    // A job to run.
+    Dispatch dispatch = 3;
+    // A job to stop at once.
+    Cancel cancel = 4;
   }
 }
 
@@ -61,4 +78,106 @@ message Welcome {
 message Renewed {
   // The expiry of the new token.
   google.protobuf.Timestamp expires_at = 1;
+}
+
+// A job to run: its nodes with the values of their secrets. The agent orders the nodes itself,
+// starts each ready node at once, and stops the job at the first failure.
+message Dispatch {
+  // The job.
+  scylla.common.v1.Id job_id = 1;
+  // The pipeline of the job.
+  scylla.common.v1.Id pipeline_id = 2;
+  // The project of the pipeline.
+  scylla.common.v1.Id project_id = 3;
+  // The nodes.
+  repeated DispatchNode nodes = 4;
+}
+
+// A node of a job to run.
+message DispatchNode {
+  // The id of the node.
+  string id = 1;
+  // The nodes that must complete first.
+  repeated string needs = 2;
+  // What the node runs.
+  oneof step {
+    // A program and its arguments.
+    scylla.pipelines.v1.Exec exec = 3;
+    // A script.
+    scylla.pipelines.v1.Script script = 4;
+  }
+  // The environment, with the values of the secrets.
+  repeated DispatchEnv env = 5;
+  // The longest run of one attempt, in seconds.
+  uint32 timeout_seconds = 6;
+  // The number of new attempts after a failure.
+  uint32 retries = 7;
+  // The work folder, relative to the folder of the job.
+  string working_dir = 8;
+  // The container. Not set runs the node as a child process.
+  scylla.pipelines.v1.Container container = 9;
+}
+
+// An environment variable of a node to run.
+message DispatchEnv {
+  // The name.
+  string name = 1;
+  // The value.
+  string value = 2;
+  // True for the value of a secret: the agent replaces it with *** in the logs.
+  bool masked = 3;
+}
+
+// A job to stop.
+message Cancel {
+  // The job.
+  scylla.common.v1.Id job_id = 1;
+}
+
+// An event of a job.
+message JobEvent {
+  // The job.
+  scylla.common.v1.Id job_id = 1;
+  // What happened.
+  EventKind kind = 2;
+  // The node of a node event.
+  string node_id = 3;
+  // The new attempt of EVENT_KIND_NODE_RETRYING.
+  uint32 attempt = 4;
+  // The exit code of a node that ended, if its process ended.
+  optional int32 exit_code = 5;
+  // The error of EVENT_KIND_NODE_FAILED and EVENT_KIND_JOB_FAILED, at most 4096 characters.
+  string error = 6;
+}
+
+// What happened to a job or to a node.
+enum EventKind {
+  // Not used.
+  EVENT_KIND_UNSPECIFIED = 0;
+  // The agent starts the job.
+  EVENT_KIND_JOB_STARTED = 1;
+  // A node starts its first attempt.
+  EVENT_KIND_NODE_STARTED = 2;
+  // A node starts a new attempt after a failure.
+  EVENT_KIND_NODE_RETRYING = 3;
+  // A node completed.
+  EVENT_KIND_NODE_COMPLETED = 4;
+  // A node failed after its last attempt.
+  EVENT_KIND_NODE_FAILED = 5;
+  // A node does not run, because a node failed.
+  EVENT_KIND_NODE_SKIPPED = 6;
+  // Each node completed or was skipped.
+  EVENT_KIND_JOB_COMPLETED = 7;
+  // The job failed.
+  EVENT_KIND_JOB_FAILED = 8;
+}
+
+// A batch of log lines of one node.
+message LogBatch {
+  // The job.
+  scylla.common.v1.Id job_id = 1;
+  // The node.
+  string node_id = 2;
+  // The lines, in order: 1 to 1000, each at most 64 KiB.
+  repeated scylla.pipelines.v1.LogLine lines = 3;
 }

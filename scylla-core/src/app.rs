@@ -8,6 +8,7 @@ use scylla_extension::{Edition, EditionBuilder};
 
 use crate::features::identity::apps::Apps;
 use crate::features::platform::capabilities::Capabilities;
+use crate::features::projects::pipelines::Pipelines;
 use crate::features::projects::Projects;
 use crate::features::tenancy::grants::Grants;
 use crate::features::tenancy::workspaces::Workspaces;
@@ -25,6 +26,7 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .plugin(Workspaces)
         .plugin(Apps)
         .plugin(Projects)
+        .plugin(Pipelines)
         .plugin(Capabilities)
         .plugin(Grants)
 }

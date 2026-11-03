@@ -1,0 +1,138 @@
+syntax = "proto3";
+
+package scylla.pipelines.v1;
+
+import "scylla/common/v1/id.proto";
+import "scylla/common/v1/page.proto";
+import "scylla/pipelines/v1/job.proto";
+import "scylla/pipelines/v1/pipeline.proto";
+
+// Creates, reads, changes, lists, deletes and runs the pipelines of a project. Each RPC needs an
+// authenticated actor, else UNAUTHENTICATED. An unknown pipeline gives PERMISSION_DENIED, as a
+// refusal does.
+service PipelineService {
+  // Creates a pipeline in a project: the editors of the project, and the members of its
+  // workspace. A bad node gives INVALID_ARGUMENT with the path of the value, for example
+  // nodes[2].env[0].name.
+  rpc CreatePipeline(CreatePipelineRequest) returns (CreatePipelineResponse);
+  // Reads one pipeline.
+  rpc GetPipeline(GetPipelineRequest) returns (GetPipelineResponse);
+  // Changes the name or the nodes of a pipeline. The request carries the version that the
+  // client read: another version gives ABORTED, and the client reads the pipeline again.
+  rpc UpdatePipeline(UpdatePipelineRequest) returns (UpdatePipelineResponse);
+  // Deletes a pipeline with its jobs and their logs. The agents stop its running jobs.
+  rpc DeletePipeline(DeletePipelineRequest) returns (DeletePipelineResponse);
+  // Lists the pipelines of a project, oldest first.
+  rpc ListProjectPipelines(ListProjectPipelinesRequest) returns (ListProjectPipelinesResponse);
+  // Lists the pipelines of each project of a workspace, oldest first: the readers of the
+  // workspace.
+  rpc ListWorkspacePipelines(ListWorkspacePipelinesRequest) returns (ListWorkspacePipelinesResponse);
+  // Starts a job of a pipeline: a pending job with a snapshot of the nodes. A secret that a node
+  // names and that the project does not have gives NOT_FOUND.
+  rpc RunPipeline(RunPipelineRequest) returns (RunPipelineResponse);
+}
+
+// The input of CreatePipeline.
+message CreatePipelineRequest {
+  // The project. Required.
+  scylla.common.v1.Id project_id = 1;
+  // The display name, 1 to 100 characters after trim, on one line.
+  string name = 2;
+  // The nodes: 1 to 256.
+  repeated Node nodes = 3;
+}
+
+// The output of CreatePipeline.
+message CreatePipelineResponse {
+  // The new pipeline.
+  Pipeline pipeline = 1;
+}
+
+// The input of GetPipeline.
+message GetPipelineRequest {
+  // The pipeline. Required.
+  scylla.common.v1.Id pipeline_id = 1;
+}
+
+// The output of GetPipeline.
+message GetPipelineResponse {
+  // The pipeline.
+  Pipeline pipeline = 1;
+}
+
+// The input of UpdatePipeline. A field that is not set does not change.
+message UpdatePipelineRequest {
+  // The pipeline. Required.
+  scylla.common.v1.Id pipeline_id = 1;
+  // The version that the client read. Required.
+  int64 version = 2;
+  // The new display name.
+  optional string name = 3;
+  // The new nodes. They replace all the nodes.
+  NodeList nodes = 4;
+}
+
+// A list of nodes, so a request can tell "no change" from "these nodes".
+message NodeList {
+  // The nodes: 1 to 256.
+  repeated Node nodes = 1;
+}
+
+// The output of UpdatePipeline.
+message UpdatePipelineResponse {
+  // The changed pipeline, with its new version.
+  Pipeline pipeline = 1;
+}
+
+// The input of DeletePipeline.
+message DeletePipelineRequest {
+  // The pipeline. Required.
+  scylla.common.v1.Id pipeline_id = 1;
+}
+
+// The output of DeletePipeline.
+message DeletePipelineResponse {}
+
+// The input of ListProjectPipelines.
+message ListProjectPipelinesRequest {
+  // The project. Required.
+  scylla.common.v1.Id project_id = 1;
+  // The page to return.
+  scylla.common.v1.PageRequest page = 2;
+}
+
+// The output of ListProjectPipelines.
+message ListProjectPipelinesResponse {
+  // The pipelines of the page, oldest first.
+  repeated Pipeline pipelines = 1;
+  // How to get the next page.
+  scylla.common.v1.PageResponse page = 2;
+}
+
+// The input of ListWorkspacePipelines.
+message ListWorkspacePipelinesRequest {
+  // The workspace. Required.
+  scylla.common.v1.Id workspace_id = 1;
+  // The page to return.
+  scylla.common.v1.PageRequest page = 2;
+}
+
+// The output of ListWorkspacePipelines.
+message ListWorkspacePipelinesResponse {
+  // The pipelines of the page, oldest first.
+  repeated Pipeline pipelines = 1;
+  // How to get the next page.
+  scylla.common.v1.PageResponse page = 2;
+}
+
+// The input of RunPipeline.
+message RunPipelineRequest {
+  // The pipeline. Required.
+  scylla.common.v1.Id pipeline_id = 1;
+}
+
+// The output of RunPipeline.
+message RunPipelineResponse {
+  // The new pending job.
+  Job job = 1;
+}

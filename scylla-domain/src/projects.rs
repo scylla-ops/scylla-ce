@@ -1,5 +1,8 @@
-//! The projects: the unit of work in a workspace. Their secrets are in `secrets`.
+//! The projects: the unit of work in a workspace. Their secrets, pipelines and jobs are in
+//! `secrets`, `pipelines` and `jobs`.
 
+pub mod jobs;
+pub mod pipelines;
 pub mod secrets;
 
 use time::OffsetDateTime;

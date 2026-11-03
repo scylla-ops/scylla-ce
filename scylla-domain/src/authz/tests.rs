@@ -4,6 +4,7 @@ use crate::authz::{Model, Schema, SchemaError};
 use crate::identity::actors::{Actor, ActorId};
 use crate::identity::agents::AgentCaller;
 use crate::identity::apps::{App, AppHolder};
+use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
 use crate::projects::{Project, ProjectCaller, ProjectHolder, ProjectId};
 use crate::tenancy::grants::AccessCaller;
 use crate::tenancy::workspaces::{Workspace, WorkspaceCaller, WorkspaceId};
@@ -34,6 +35,7 @@ definition workspace {
     relation admin: actor
     relation member: actor
     relation viewer: actor
+    relation runner: actor
     permission manage = admin
     permission work = manage + member
     permission read = work + viewer
@@ -67,6 +69,21 @@ definition workspace {
     permission update_secret = manage
     permission delete_secret = manage
     permission list_secrets = work
+    permission run_jobs = runner
+    permission create_pipeline = work
+    permission get_pipeline = read
+    permission update_pipeline = work
+    permission delete_pipeline = work
+    permission list_project_pipelines = read
+    permission list_workspace_pipelines = read
+    permission run_pipeline = work
+    permission get_job = read
+    permission cancel_job = work
+    permission delete_job = work
+    permission rerun_job = work
+    permission list_pipeline_jobs = read
+    permission list_workspace_jobs = read
+    permission tail_job_logs = read
 }
 
 definition app {
@@ -95,6 +112,18 @@ definition project {
     permission grant = admin
     permission revoke = admin
     permission list_access = view
+    permission create_pipeline = edit
+    permission get_pipeline = view
+    permission update_pipeline = edit
+    permission delete_pipeline = edit
+    permission list_project_pipelines = view
+    permission run_pipeline = edit
+    permission get_job = view
+    permission cancel_job = edit
+    permission delete_job = edit
+    permission rerun_job = edit
+    permission list_pipeline_jobs = view
+    permission tail_job_logs = view
 }
 ";
 
@@ -111,6 +140,8 @@ fn core() -> Schema {
         Project::part(),
         ProjectHolder::part(),
         ProjectCaller::part(),
+        PipelineAccess::part(),
+        PipelineHolder::part(),
         AccessCaller::part(),
     ];
     for part in parts {
@@ -145,7 +176,7 @@ fn an_extension_adds_to_its_definition() {
     let text = schema.to_string();
     assert!(text.contains("    relation viewer: actor\n    relation auditor: actor\n"));
     assert!(text.contains(
-        "    permission list_access = view\n    \
+        "    permission tail_job_logs = view\n    \
          permission audit = auditor + delete\n}"
     ));
 }

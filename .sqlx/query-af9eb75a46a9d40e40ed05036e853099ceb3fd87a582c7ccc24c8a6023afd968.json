@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, node_id, lines FROM job_logs\n         WHERE job_id = $1 AND ($2::text IS NULL OR node_id = $2) AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "job_logs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "node_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_logs",
+            "name": "node_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "lines",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "job_logs",
+            "name": "lines"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "af9eb75a46a9d40e40ed05036e853099ceb3fd87a582c7ccc24c8a6023afd968"
+}

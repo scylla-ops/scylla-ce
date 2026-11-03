@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM pipelines WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7534d7ce64f5ab5503cd9d15469b6e980b4a7a8b9ab4b9b4b670ecc3de3dd3ed"
+}

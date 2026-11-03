@@ -1,7 +1,7 @@
 //! The validation errors of the domain types.
 
 /// A value that breaks a rule. The message is the reason only: the caller adds the field.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum DomainError {
     /// The text is not an id.
     #[error("must be an id")]
@@ -57,4 +57,42 @@ pub enum DomainError {
         /// The maximum number of bytes.
         max: usize,
     },
+    /// The list has too many items.
+    #[error("must have at most {max} items")]
+    TooMany {
+        /// The maximum number of items.
+        max: usize,
+    },
+    /// The number is out of its range.
+    #[error("must be from {min} to {max}")]
+    OutOfRange {
+        /// The smallest value.
+        min: u64,
+        /// The largest value.
+        max: u64,
+    },
+    /// The text is not the id of a node.
+    #[error("must be 1 to 128 lower case letters, digits, dashes or underscores")]
+    NotANodeId,
+    /// Two items have the same name.
+    #[error("must be unique")]
+    Duplicate,
+    /// A node needs a node that is not in the pipeline, or itself.
+    #[error("must name another node of the pipeline")]
+    UnknownNode,
+    /// The needs of the nodes make a cycle.
+    #[error("must not make a cycle")]
+    Cycle,
+    /// The text is not the name of an environment variable.
+    #[error("must be a letter or an underscore, then letters, digits or underscores")]
+    NotAnEnvName,
+    /// The name starts with a prefix that the server keeps.
+    #[error("must not start with SCYLLA_")]
+    ReservedName,
+    /// The event does not fit the state of the job or of its node.
+    #[error("does not fit the state of the job")]
+    NotAllowed,
+    /// The path is not a relative path inside the work folder.
+    #[error("must be a relative path with no .. part")]
+    NotRelative,
 }
