@@ -101,12 +101,13 @@ async fn get_workspace_denial_logs_one_line_with_its_permission(pool: PgPool) {
     assert_eq!(calls.len(), 1, "{lines:#?}");
     let (line, details) = (&lines[calls[0]], &lines[calls[0] + 1]);
     assert!(line.contains("  DENIED  "), "{line}");
+    let alice = alice.to_string();
     assert!(
-        line.contains(&format!("user {}..", &alice.to_string()[..4])),
+        line.contains(&format!("user ..{}", &alice[alice.len() - 8..])),
         "{line}"
     );
     assert!(line.contains("127.0.0.1"), "{line}");
-    let object = format!("object=workspace:{}..", &workspace[..4]);
+    let object = format!("object=workspace:..{}", &workspace[workspace.len() - 8..]);
     assert!(details.starts_with("    "), "{details}");
     assert!(details.contains("permission=get_workspace"), "{details}");
     assert!(details.contains(&object), "{details}");

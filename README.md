@@ -127,13 +127,13 @@ The server and the commands write their logs to stderr.
 Each call has one line: its result, its route, its duration, its actor and its IP address. A refusal or an error adds a second line with the cause. A business event has its own line with a tag. A CORS preflight has no line.
 
 ```text
-19:04:22.113  AUTH      account.created                       user=01a1..1ec  email=l***@example.com
+19:04:22.113  AUTH      account.created                       user=..3c9e41ec  email=l***@example.com
 19:04:22.114  MAIL      verify-email -> l***@example.com      sent
-19:04:22.114  OK        AccountService.SignUp                 302ms  anonymous       127.0.0.1
-19:04:22.741  UNAUTH    AccountService.SignIn                 285ms  anonymous       127.0.0.1
+19:04:22.114  OK        AccountService.SignUp                 302ms  anonymous         127.0.0.1
+19:04:22.741  UNAUTH    AccountService.SignIn                 285ms  anonymous         127.0.0.1
                         invalid identifier or password
-19:04:24.217  DENIED    WorkspaceService.GetWorkspace          22ms  user 01a1..ba7  127.0.0.1
-                        permission=get_workspace  object=workspace:01a1..ae9
+19:04:24.217  DENIED    WorkspaceService.GetWorkspace          22ms  user ..7d02fba7   127.0.0.1
+                        permission=get_workspace  object=workspace:..b51e2ae9
 ```
 
 A JSON line has `ts`, `level`, `event` (`rpc` or the name of a business event), `rpc`, `code`, `ms`, `actor`, `ip`, `request_id`, and the fields of the event. Each answer gives its request id in the header `x-request-id`. `DECISIONS.md` (59) lists the business events. A log line never has a password, a token, a cookie, the value of a secret, the body or the link of a mail, or a full email.

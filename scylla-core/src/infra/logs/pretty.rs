@@ -15,7 +15,7 @@ const ROUTE: usize = 36;
 /// The width of the duration column.
 const DURATION: usize = 7;
 /// The width of the actor column.
-const ACTOR: usize = 16;
+const ACTOR: usize = 18;
 
 /// A color of the terminal, as its ANSI code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

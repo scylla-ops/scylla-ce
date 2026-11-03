@@ -25,8 +25,9 @@ pub fn mask_identifier(identifier: &str) -> String {
     }
 }
 
-/// Returns the short form of each id in a text, for a person: `workspace:0193..a1f`. The parts
-/// of the text are between `:` and `,`, and a part that is not an id stays.
+/// Returns the short form of each id in a text, for a person: `workspace:..00000a1f`. It keeps
+/// the end of the id, which is random: the start of a UUIDv7 is the time, the same for recent
+/// ids. The parts of the text are between `:` and `,`, and a part that is not an id stays.
 pub(super) fn short(text: &str) -> String {
     let mut shown = String::with_capacity(text.len());
     for piece in text.split_inclusive([':', ',']) {
@@ -34,9 +35,8 @@ pub(super) fn short(text: &str) -> String {
         match Id::<()>::parse(part) {
             Ok(_) => {
                 let chars: Vec<char> = part.chars().collect();
-                shown.extend(&chars[..4]);
                 shown.push_str("..");
-                shown.extend(&chars[chars.len() - 3..]);
+                shown.extend(&chars[chars.len() - 8..]);
                 shown.push_str(&piece[part.len()..]);
             }
             Err(_) => shown.push_str(piece),

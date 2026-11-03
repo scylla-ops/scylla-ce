@@ -84,12 +84,13 @@ fn a_pretty_call_line_is_aligned_with_its_refusal_below() {
     let column = |line: &str, part: &str| line.find(part).unwrap() + part.len();
     assert_eq!(column(&lines[0], "363ms"), column(&lines[1], "4ms"));
     assert_eq!(lines[0].find("anonymous"), lines[1].find("user "));
-    let short = format!("user {}..", &user.to_string()[..4]);
+    let user = user.to_string();
+    let short = format!("user ..{}", &user[user.len() - 8..]);
     assert!(lines[1].contains(&short), "{}", lines[1]);
     assert_eq!(
         lines[2],
         format!(
-            "{}permission=delete_workspace  object=workspace:0193..a1f",
+            "{}permission=delete_workspace  object=workspace:..00000a1f",
             " ".repeat(24)
         )
     );
@@ -269,6 +270,6 @@ fn masks_keep_the_first_character_only() {
     assert_eq!(mask_identifier("bob@example.com"), "b***@example.com");
     assert_eq!(
         super::mask::short("project:x,0193a5e1-0000-7000-8000-000000000a1f"),
-        "project:x,0193..a1f"
+        "project:x,..00000a1f"
     );
 }
