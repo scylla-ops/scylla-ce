@@ -15,6 +15,7 @@ Load the skill of the task from `.claude/skills/`:
 ## Structure
 
 - Each crate groups its code by subject: `identity` (accounts, instance admins, sessions, providers, tokens, actors, Apps, agents), `tenancy` (workspaces and their owners, invitations, roles), `projects` (projects, secrets, pipelines, jobs), and `platform` (the platform object, capabilities). A new feature goes in the folder of its subject.
+- `scylla-agent/src`: `agent/` (the settings, the errors, the loop of the streams), `config/` (the file of the agent), `identity/` (the key pair, the join, the tokens), `stream/` (the host and one session), `jobs/` (the running jobs, the order of the nodes, the attempts, the output). It knows only the protos: never the core.
 - `scylla-domain/src`: `kernel/` (ids and their format, names, pages, kinds, errors: the crate root gives each type), `authz/`, a folder for each subject (`identity/`, `tenancy/`), `platform.rs`, and `projects.rs` with `projects/secrets.rs`.
 - `scylla-core/src`: `lib.rs`, `app.rs`, `config.rs` and `error.rs` at the root, then `access/` (the gate), `api/` (the server, its layers, the log of each call, the proto conversions), `cli/`, `infra/` (database, logs, mails, secrets, TLS) and `features/`.
 - Never add a file at the root of a crate: put it in the folder of its role or of its subject. When a folder fills with files of different roles or subjects, add a level.

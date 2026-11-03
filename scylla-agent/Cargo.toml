@@ -1,0 +1,33 @@
+[package]
+name = "scylla-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace = true
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+nix.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+scylla-proto.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+scylla-ce.workspace = true
+scylla-domain.workspace = true
+scylla-testkit.workspace = true
+sqlx.workspace = true

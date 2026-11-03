@@ -25,6 +25,7 @@ scylla-testkit (tests only) ──▶ scylla-core
 | `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, Apps, agents, tokens, projects, secrets, grants, capabilities), mails, logs, the guard against the public dev keys, server, CLI |
 | `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC, a capture of the log lines |
 | `scylla-ce` | the Community edition binary |
+| `scylla-agent` | the agent binary: `join` and `run`, the stream, the order of the nodes, the processes and the containers, the logs with the secrets masked |
 
 ## Access
 
@@ -118,6 +119,17 @@ The dev setup has no identity provider: the tests use a fake one. To try a real 
 | `token create --actor <id>` | signs a token, for a first admin or an emergency |
 | `token revoke <token>` | revokes a token and each token made from it |
 
+## Run an agent
+
+An admin creates an App with `runner = true` (`AppService.CreateApp`) and gives it the role `runner` of the workspace (`AccessService.Grant`). On the machine of the agent:
+
+```sh
+scylla-agent --config /var/lib/scylla-agent/agent.json join https://scylla.example.com <join code>
+scylla-agent --config /var/lib/scylla-agent/agent.json run --capacity 2 --container-runtime docker
+```
+
+`join` makes the key pair and writes the file (mode 600) with the private key; the key never leaves the machine. `run` keeps the stream open, renews its token one minute before its expiry, and connects again after an end (1 to 60 seconds of wait). It stops for good when the server refuses the agent (a revoked key, a deleted App, an App that runs no job). The settings are also environment values: `SCYLLA_AGENT_CONFIG`, `SCYLLA_AGENT_WORKSPACE_ROOT`, `SCYLLA_AGENT_CAPACITY`, `SCYLLA_AGENT_CONTAINER_RUNTIME`, `SCYLLA_AGENT_KEEP_WORKSPACE`.
+
 ## Logs
 
 The server and the commands write their logs to stderr.
@@ -166,6 +178,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Workspaces, projects and their permissions, tokens, Apps and agents, gRPC-Web, CORS, TLS, health | `scylla-ce/tests/api/` |
 | Pipelines: the nodes and their graph, the path of a bad value, the version of a change, each role, the snapshot of a run, the secrets of a run, the delete | `scylla-ce/tests/api/projects/pipelines.rs` |
 | Jobs: the cancel, the rerun, the delete, the lists newest first, who can call them | `scylla-ce/tests/api/projects/jobs.rs` |
+| Agent: the join, the order of the nodes, a script with a secret masked in the logs, a retry, the skip after a failure, a cancel that stops the process and deletes the work folder | `scylla-agent/tests/agent.rs` |
 | Web app: a file, a route of the web app gives `index.html`, the API on the same address | `scylla-ce/tests/api/platform/web.rs` |
 | Triggers: the schedules, the inputs, a fire now as the runner, the signature of a webhook, a second delivery, a body with no value, a ping, a stopped trigger, the rate limit, the roles, the key of the secrets | `scylla-ce/tests/api/projects/triggers.rs` |
 | Jobs on the agents: the dispatch with the secrets, the events, the logs and their tail, the role and the capacity, the containers, the cancel | `scylla-ce/tests/api/projects/runs.rs` |
@@ -211,10 +224,10 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 
 ## Releases for the Enterprise edition
 
-The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `platform`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`. `scylla_core::Error` has `Conflict` (`ABORTED`), `NewJob` and `Job` have `trigger_id`, `Config` and `ServeOptions` have `web_dir`, `CreateContext` and `DeleteContext` have `subject`, `object` and `role` (with `with_member` and `with_object`), `AccountContext` has `hooks`, the core runs the hooks of the kinds `member` and `invitation`, the `tower-http` dependency has the feature `fs`, the core has the dependencies `croner` and `hmac`, `Config` has `log_retention`, `ServeOptions` has `log_retention`, `DomainError` is `Clone` and has new variants, and the core adds the definitions `app` and the kinds `pipeline` and `job` for the hooks. `Gate::issue` takes a `Binding` (none, a session, or the key of an App), and `Principal::new` takes the binding and the expiry of the token. The `Gate` trait has `delete_subject`, `subjects`, `roles` and `permissions`, `EditionBuilder::grants` takes `AccessRoutes` and a required search for the workspace, `AccessError::denied` takes the principal and logs the event `access.refused`, `Config` has `log_format`, `scylla_core::infra::logs` gives the log layer and the masks, the testkit has `Logs`, a `Mail` has an HTML body, and the details of a `Rejection` are texts. The table `workspaces` has a required `slug`. The field `TestApp.sealer` is an `Option`, `NewProject` has a `description`, the table `projects` has a column `description`, a `Name` refuses a control character, and `DomainError` has new variants.
+The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `platform`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`. `scylla_core::Error` has `Conflict` (`ABORTED`), `NewJob` and `Job` have `trigger_id`, `Config` and `ServeOptions` have `web_dir`, `tokio` has the features `process`, `io-util` and `fs`, `tonic` has `tls-webpki-roots`, the workspace has the dependency `nix`, `CreateContext` and `DeleteContext` have `subject`, `object` and `role` (with `with_member` and `with_object`), `AccountContext` has `hooks`, the core runs the hooks of the kinds `member` and `invitation`, the `tower-http` dependency has the feature `fs`, the core has the dependencies `croner` and `hmac`, `Config` has `log_retention`, `ServeOptions` has `log_retention`, `DomainError` is `Clone` and has new variants, and the core adds the definitions `app` and the kinds `pipeline` and `job` for the hooks. `Gate::issue` takes a `Binding` (none, a session, or the key of an App), and `Principal::new` takes the binding and the expiry of the token. The `Gate` trait has `delete_subject`, `subjects`, `roles` and `permissions`, `EditionBuilder::grants` takes `AccessRoutes` and a required search for the workspace, `AccessError::denied` takes the principal and logs the event `access.refused`, `Config` has `log_format`, `scylla_core::infra::logs` gives the log layer and the masks, the testkit has `Logs`, a `Mail` has an HTML body, and the details of a `Rejection` are texts. The table `workspaces` has a required `slug`. The field `TestApp.sealer` is an `Option`, `NewProject` has a `description`, the table `projects` has a column `description`, a `Name` refuses a control character, and `DomainError` has new variants.
 
 ## Known limits
 
-- The agent binary is not in this repository yet: the stream, the dispatch, the events and the logs are the contract that it implements.
+- The agent runs on Unix only: it stops a step with the signals of its process group.
 - The server is one instance: the open streams of the agents are in memory.
 - No route reads the value of a secret yet: the dispatch of a job will use `secrets::service::reveal`.

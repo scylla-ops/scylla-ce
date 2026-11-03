@@ -8,6 +8,7 @@ members = [
     "scylla-core",
     "scylla-testkit",
     "scylla-ce",
+    "scylla-agent",
 ]
 
 [workspace.package]
@@ -24,6 +25,8 @@ unsafe_code = "forbid"
 missing_docs_in_private_items = "deny"
 
 [workspace.dependencies]
+scylla-agent = { path = "scylla-agent" }
+scylla-ce = { path = "scylla-ce" }
 scylla-core = { path = "scylla-core" }
 scylla-domain = { path = "scylla-domain" }
 scylla-extension = { path = "scylla-extension" }
@@ -47,6 +50,7 @@ hex = "0.4.3"
 hmac = "0.13.0"
 http-body = "1.1.0"
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto", "use_pem"] }
+nix = { version = "0.31.3", features = ["signal", "process"] }
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "rustls", "ring", "webpki-roots"] }
 proc-macro2 = "1.0.107"
 prost = "0.14.4"
@@ -63,9 +67,9 @@ sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "r
 syn = "3.0.9"
 thiserror = "2.0.21"
 time = "0.3.55"
-tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time", "process", "io-util", "fs"] }
 tokio-stream = "0.1.19"
-tonic = { version = "0.14.9", default-features = false, features = ["codegen", "router", "transport", "tls-ring"] }
+tonic = { version = "0.14.9", default-features = false, features = ["codegen", "router", "transport", "tls-ring", "tls-webpki-roots"] }
 tonic-health = { version = "0.14.9", default-features = false }
 tonic-prost = "0.14.9"
 tonic-prost-build = { version = "0.14.9", default-features = false }
