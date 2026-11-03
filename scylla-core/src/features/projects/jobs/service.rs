@@ -129,6 +129,7 @@ pub(crate) async fn rerun(
         workspace_id: old.workspace_id,
         created_by: actor.id,
         rerun_of: Some(old.id),
+        trigger_id: old.trigger_id,
         nodes: old.nodes,
     };
     create(pool, hooks, registry, actor, new).await

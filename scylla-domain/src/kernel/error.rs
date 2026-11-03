@@ -92,6 +92,9 @@ pub enum DomainError {
     /// The event does not fit the state of the job or of its node.
     #[error("does not fit the state of the job")]
     NotAllowed,
+    /// The text is not a JSON pointer.
+    #[error("must be empty or start with /")]
+    NotAPointer,
     /// The path is not a relative path inside the work folder.
     #[error("must be a relative path with no .. part")]
     NotRelative,

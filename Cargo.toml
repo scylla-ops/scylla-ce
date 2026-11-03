@@ -39,10 +39,12 @@ biscuit-auth = { version = "6.0.0", default-features = false, features = ["datal
 chacha20poly1305 = { version = "0.11.0", features = ["getrandom"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
+croner = "4.0.2"
 deunicode = "1.6.2"
 ed25519-dalek = "3.0.0"
 getrandom = "0.4.3"
 hex = "0.4.3"
+hmac = "0.13.0"
 http-body = "1.1.0"
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto", "use_pem"] }
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "rustls", "ring", "webpki-roots"] }

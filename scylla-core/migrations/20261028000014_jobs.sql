@@ -5,6 +5,7 @@ CREATE TABLE jobs (
     workspace_id uuid NOT NULL REFERENCES workspaces (id),
     created_by uuid NOT NULL REFERENCES actors (id),
     rerun_of uuid REFERENCES jobs (id) ON DELETE SET NULL,
+    trigger_id uuid REFERENCES triggers (id) ON DELETE SET NULL,
     status text NOT NULL
         CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled', 'orphaned')),
     nodes jsonb NOT NULL,
@@ -24,6 +25,7 @@ CREATE INDEX jobs_project_id_idx ON jobs (project_id);
 CREATE INDEX jobs_workspace_id_idx ON jobs (workspace_id);
 CREATE INDEX jobs_created_by_idx ON jobs (created_by);
 CREATE INDEX jobs_rerun_of_idx ON jobs (rerun_of);
+CREATE INDEX jobs_trigger_id_idx ON jobs (trigger_id);
 CREATE INDEX jobs_agent_id_idx ON jobs (agent_id) WHERE status IN ('pending', 'running');
 CREATE INDEX jobs_pool_idx ON jobs (workspace_id, id) WHERE status = 'pending' AND agent_id IS NULL;
 

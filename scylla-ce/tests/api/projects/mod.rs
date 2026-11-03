@@ -8,4 +8,5 @@ mod pipelines;
 mod runs;
 mod secret_access;
 mod secrets;
+mod triggers;
 mod updates;

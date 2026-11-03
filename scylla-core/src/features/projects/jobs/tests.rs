@@ -34,7 +34,7 @@ struct Place {
 }
 
 /// Creates a user, a project with a pipeline row, and an agent in the workspace of the user.
-async fn place(pool: &PgPool) -> Place {
+async fn place_of(pool: &PgPool) -> Place {
     let new = NewUser {
         email: Email::parse(format!("{}@test.example", ActorId::generate())).unwrap(),
         email_verified: true,
@@ -90,6 +90,20 @@ async fn place(pool: &PgPool) -> Place {
     }
 }
 
+/// Creates a user, a project and a pipeline row with no node. Returns the user, the workspace,
+/// the project and the pipeline.
+pub(crate) async fn place(
+    pool: &PgPool,
+) -> (
+    Actor,
+    WorkspaceId,
+    scylla_domain::projects::ProjectId,
+    scylla_domain::projects::pipelines::PipelineId,
+) {
+    let place = place_of(pool).await;
+    (place.user, place.workspace, place.project, place.pipeline)
+}
+
 /// Starts a job of one node and gives it to the agent.
 async fn placed_job(pool: &PgPool, place: &Place) -> JobId {
     let node = Node {
@@ -108,6 +122,7 @@ async fn placed_job(pool: &PgPool, place: &Place) -> JobId {
         workspace_id: place.workspace,
         created_by: place.user.id,
         rerun_of: None,
+        trigger_id: None,
         nodes: vec![node],
     };
     let registry = Registry::default();
@@ -133,7 +148,7 @@ async fn state(pool: &PgPool, id: JobId) -> (JobStatus, Option<AppId>) {
 #[sqlx::test(migrator = "crate::infra::db::MIGRATOR")]
 async fn reap_releases_the_jobs_of_a_lost_agent(pool: PgPool) {
     // given
-    let place = place(&pool).await;
+    let place = place_of(&pool).await;
     let running = placed_job(&pool, &place).await;
     runs::apply(&pool, place.agent, running, &JobEvent::JobStarted)
         .await
@@ -161,7 +176,7 @@ async fn reap_releases_the_jobs_of_a_lost_agent(pool: PgPool) {
 #[sqlx::test(migrator = "crate::infra::db::MIGRATOR")]
 async fn reconcile_checks_the_jobs_of_a_new_stream(pool: PgPool) {
     // given
-    let place = place(&pool).await;
+    let place = place_of(&pool).await;
     let kept = placed_job(&pool, &place).await;
     let lost = placed_job(&pool, &place).await;
     runs::apply(&pool, place.agent, lost, &JobEvent::JobStarted)

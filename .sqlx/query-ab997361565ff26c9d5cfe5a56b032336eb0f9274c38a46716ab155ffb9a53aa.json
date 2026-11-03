@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE jobs SET agent_id = $2, version = version + 1\n         WHERE id = (SELECT id FROM jobs\n                     WHERE workspace_id = $1 AND status = 'pending' AND agent_id IS NULL\n                       AND ($3 OR NOT need_container)\n                     ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)\n         RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, status, nodes,\n                   runs, agent_id, error, version, created_at, started_at, finished_at",
+  "query": "SELECT id, pipeline_id, project_id, workspace_id, created_by, name, kind, schedule, inputs,\n                enabled, next_fire_at, last_fired_at, last_status, last_error, created_at,\n                updated_at\n         FROM triggers WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "jobs",
+            "table": "triggers",
             "name": "id"
           }
         }
@@ -20,7 +20,7 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "jobs",
+            "table": "triggers",
             "name": "pipeline_id"
           }
         }
@@ -31,7 +31,7 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "jobs",
+            "table": "triggers",
             "name": "project_id"
           }
         }
@@ -42,7 +42,7 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "jobs",
+            "table": "triggers",
             "name": "workspace_id"
           }
         }
@@ -53,127 +53,136 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "jobs",
+            "table": "triggers",
             "name": "created_by"
           }
         }
       },
       {
         "ordinal": 5,
-        "name": "rerun_of",
-        "type_info": "Uuid",
+        "name": "name",
+        "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "jobs",
-            "name": "rerun_of"
+            "table": "triggers",
+            "name": "name"
           }
         }
       },
       {
         "ordinal": 6,
-        "name": "status",
+        "name": "kind",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "jobs",
-            "name": "status"
+            "table": "triggers",
+            "name": "kind"
           }
         }
       },
       {
         "ordinal": 7,
-        "name": "nodes",
-        "type_info": "Jsonb",
+        "name": "schedule",
+        "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "jobs",
-            "name": "nodes"
+            "table": "triggers",
+            "name": "schedule"
           }
         }
       },
       {
         "ordinal": 8,
-        "name": "runs",
+        "name": "inputs",
         "type_info": "Jsonb",
         "origin": {
           "Table": {
-            "table": "jobs",
-            "name": "runs"
+            "table": "triggers",
+            "name": "inputs"
           }
         }
       },
       {
         "ordinal": 9,
-        "name": "agent_id",
-        "type_info": "Uuid",
+        "name": "enabled",
+        "type_info": "Bool",
         "origin": {
           "Table": {
-            "table": "jobs",
-            "name": "agent_id"
+            "table": "triggers",
+            "name": "enabled"
           }
         }
       },
       {
         "ordinal": 10,
-        "name": "error",
-        "type_info": "Text",
+        "name": "next_fire_at",
+        "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "jobs",
-            "name": "error"
+            "table": "triggers",
+            "name": "next_fire_at"
           }
         }
       },
       {
         "ordinal": 11,
-        "name": "version",
-        "type_info": "Int8",
+        "name": "last_fired_at",
+        "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "jobs",
-            "name": "version"
+            "table": "triggers",
+            "name": "last_fired_at"
           }
         }
       },
       {
         "ordinal": 12,
-        "name": "created_at",
-        "type_info": "Timestamptz",
+        "name": "last_status",
+        "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "jobs",
-            "name": "created_at"
+            "table": "triggers",
+            "name": "last_status"
           }
         }
       },
       {
         "ordinal": 13,
-        "name": "started_at",
-        "type_info": "Timestamptz",
+        "name": "last_error",
+        "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "jobs",
-            "name": "started_at"
+            "table": "triggers",
+            "name": "last_error"
           }
         }
       },
       {
         "ordinal": 14,
-        "name": "finished_at",
+        "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "jobs",
-            "name": "finished_at"
+            "table": "triggers",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "updated_at"
           }
         }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Uuid",
-        "Bool"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -182,17 +191,18 @@
       false,
       false,
       false,
-      true,
       false,
       false,
-      false,
-      true,
       true,
       false,
       false,
       true,
-      true
+      true,
+      true,
+      true,
+      false,
+      false
     ]
   },
-  "hash": "a629160a609afe4b9cb1fb871ea67223beb4ca03f50a5dd79201f3753dd2439c"
+  "hash": "ab997361565ff26c9d5cfe5a56b032336eb0f9274c38a46716ab155ffb9a53aa"
 }

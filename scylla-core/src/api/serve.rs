@@ -23,6 +23,8 @@ use crate::features::identity::providers::{self, Providers};
 use crate::features::identity::tokens;
 use crate::features::identity::{admins, apps};
 use crate::features::projects::jobs::{self, housekeeping};
+use crate::features::projects::triggers::webhook::{self, Webhooks};
+use crate::features::projects::triggers::{self, schedule};
 use crate::features::projects::{pipelines, secrets};
 use crate::features::tenancy::invitations;
 use crate::infra::mail::{LogMailer, SmtpMailer};
@@ -180,21 +182,32 @@ pub async fn serve(
     let registry = Arc::new(Registry::default());
     let (hooks, share) = (edition.hooks(), || Arc::clone(&registry));
     routes.add_service(apps::server(pool.clone(), Arc::clone(&gate), share()));
-    routes.add_service(agents::server(
-        pool.clone(),
-        Arc::clone(&gate),
-        share(),
-        options.sealer,
-    ));
+    let sealer = || options.sealer.clone();
+    let agents = agents::server(pool.clone(), Arc::clone(&gate), share(), sealer());
+    routes.add_service(agents);
     let pipelines = pipelines::server(pool.clone(), Arc::clone(&hooks), Arc::clone(&gate), share());
     routes.add_service(pipelines);
-    routes.add_service(jobs::server(
+    let jobs = jobs::server(pool.clone(), Arc::clone(&hooks), Arc::clone(&gate), share());
+    routes.add_service(jobs);
+    let triggers = triggers::server(
         pool.clone(),
-        hooks,
+        Arc::clone(&hooks),
         Arc::clone(&gate),
         share(),
-    ));
+        sealer(),
+    );
+    routes.add_service(triggers);
+
+    // Start the background tasks: the lost agents, the old logs, and the cron triggers.
     let housekeeping = housekeeping::spawn(pool.clone(), share(), options.log_retention);
+    let schedules = schedule::spawn(pool.clone(), Arc::clone(&hooks), share());
+    let webhooks = Webhooks {
+        pool: pool.clone(),
+        hooks,
+        registry: share(),
+        sealer: sealer(),
+        rates: Arc::default(),
+    };
     edition.add_services(&mut routes, &pool, &gate);
 
     // Log the calls inside gRPC-Web, then add the browser routes with their own log.
@@ -204,7 +217,8 @@ pub async fn serve(
         .layer(OperationLayer)
         .layer(log)
         .layer(GrpcWebLayer::new())
-        .merge(providers::router(providers).layer(log));
+        .merge(providers::router(providers).layer(log))
+        .merge(webhook::router(webhooks).layer(log));
 
     // At the stop signal, report `NOT_SERVING` first.
     let stop = async move {
@@ -227,5 +241,6 @@ pub async fn serve(
         .serve_with_incoming_shutdown(TcpIncoming::from(listener), stop)
         .await?;
     housekeeping.abort();
+    schedules.abort();
     Ok(())
 }

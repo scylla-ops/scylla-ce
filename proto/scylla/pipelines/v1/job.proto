@@ -37,6 +37,8 @@ message Job {
   google.protobuf.Timestamp started_at = 13;
   // The end.
   google.protobuf.Timestamp finished_at = 14;
+  // The trigger that started the job. Not set for a job that a person started.
+  scylla.common.v1.Id trigger_id = 15;
 }
 
 // The state of a job.

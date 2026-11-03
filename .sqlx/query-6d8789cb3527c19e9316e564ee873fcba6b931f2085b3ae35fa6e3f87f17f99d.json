@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO trigger_runners (workspace_id, actor_id) VALUES ($1, $2)\n         ON CONFLICT (workspace_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6d8789cb3527c19e9316e564ee873fcba6b931f2085b3ae35fa6e3f87f17f99d"
+}

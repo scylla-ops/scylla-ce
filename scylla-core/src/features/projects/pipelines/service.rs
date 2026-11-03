@@ -3,8 +3,10 @@
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::projects::jobs::{Job, NewJob};
 use scylla_domain::projects::pipelines::{
-    EnvValue, ListPipelines, NewPipeline, Pipeline, PipelineChange, PipelineId, PipelinePage, KIND,
+    EnvValue, EnvVar, ListPipelines, NewPipeline, Pipeline, PipelineChange, PipelineId,
+    PipelinePage, KIND,
 };
+use scylla_domain::projects::triggers::TriggerId;
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Page;
@@ -138,8 +140,23 @@ pub(crate) async fn run(
     actor: Actor,
     id: PipelineId,
 ) -> Result<Job, Error> {
-    // Read the pipeline, and refuse a missing secret.
     let pipeline = get(pool, id).await?.ok_or(Error::NotFound("pipeline"))?;
+    start(pool, hooks, registry, actor, pipeline, &[], None).await
+}
+
+/// Starts a pending job of a pipeline, with more variables in each node and the trigger of the
+/// job. A variable of a node with the same name wins. A secret that a node names and that the
+/// project does not have gives `NOT_FOUND`.
+pub(crate) async fn start(
+    pool: &PgPool,
+    hooks: &Hooks,
+    registry: &Registry,
+    actor: Actor,
+    pipeline: Pipeline,
+    extra: &[EnvVar],
+    trigger_id: Option<TriggerId>,
+) -> Result<Job, Error> {
+    // Refuse a missing secret.
     let names: Vec<String> = pipeline
         .nodes
         .iter()
@@ -150,18 +167,27 @@ pub(crate) async fn run(
         })
         .collect();
     if let Some(name) = secrets::missing(pool, pipeline.project_id, &names).await? {
-        tracing::info!(pipeline = %id, secret = name, "a pipeline names a missing secret");
+        tracing::info!(pipeline = %pipeline.id, secret = name, "a pipeline names a missing secret");
         return Err(Error::NotFound("secret"));
     }
 
-    // Create the job.
+    // Add the variables that a node does not have, then create the job.
+    let mut nodes = pipeline.nodes;
+    for node in &mut nodes {
+        for var in extra {
+            if !node.env.iter().any(|own| own.name == var.name) {
+                node.env.push(var.clone());
+            }
+        }
+    }
     let new = NewJob {
         pipeline_id: pipeline.id,
         project_id: pipeline.project_id,
         workspace_id: pipeline.workspace_id,
         created_by: actor.id,
         rerun_of: None,
-        nodes: pipeline.nodes,
+        trigger_id,
+        nodes,
     };
     jobs::create(pool, hooks, registry, actor, new).await
 }

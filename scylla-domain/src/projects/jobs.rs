@@ -141,6 +141,8 @@ pub struct Job {
     pub created_by: ActorId,
     /// The job that this job runs again, if it is a rerun.
     pub rerun_of: Option<JobId>,
+    /// The trigger that started the job, if a trigger did.
+    pub trigger_id: Option<crate::projects::triggers::TriggerId>,
     /// The state.
     pub status: JobStatus,
     /// The nodes of the pipeline at the start of the job.
@@ -174,6 +176,8 @@ pub struct NewJob {
     pub created_by: ActorId,
     /// The job that this job runs again.
     pub rerun_of: Option<JobId>,
+    /// The trigger that starts the job.
+    pub trigger_id: Option<crate::projects::triggers::TriggerId>,
     /// The nodes to run.
     pub nodes: Vec<Node>,
 }

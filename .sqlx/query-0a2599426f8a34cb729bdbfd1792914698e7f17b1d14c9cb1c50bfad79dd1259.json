@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE triggers SET name = $2, schedule = $3, inputs = $4, enabled = $5,\n                             next_fire_at = $6, updated_at = now()\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Bool",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0a2599426f8a34cb729bdbfd1792914698e7f17b1d14c9cb1c50bfad79dd1259"
+}

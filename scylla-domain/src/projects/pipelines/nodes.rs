@@ -236,7 +236,7 @@ fn text(value: &str, path: String) -> Result<(), NodeError> {
 }
 
 /// Checks the name of an environment variable.
-fn env_name(name: &str) -> Result<(), DomainError> {
+pub fn env_name(name: &str) -> Result<(), DomainError> {
     let mut chars = name.chars();
     let first = chars.next().ok_or(DomainError::Empty)?;
     let valid = (first.is_ascii_alphabetic() || first == '_')

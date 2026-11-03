@@ -10,6 +10,7 @@ mod platform;
 mod projects;
 mod rpc;
 mod tenancy;
+mod triggers;
 
 pub use app::{test_access, TestApp};
 pub use identity::{new_key, TestKey};
@@ -18,3 +19,4 @@ pub use mail::Mailbox;
 pub use pipelines::exec_node;
 pub use rpc::{id, text, with_token};
 pub use tenancy::Role;
+pub use triggers::{literal_input, pointer_input};

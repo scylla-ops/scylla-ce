@@ -6,7 +6,7 @@ mod nodes;
 mod tests;
 
 pub use graph::Nodes;
-pub use nodes::{EnvValue, EnvVar, Node, NodeError, NodeId, Runtime, Shell, Step};
+pub use nodes::{env_name, EnvValue, EnvVar, Node, NodeError, NodeId, Runtime, Shell, Step};
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId};

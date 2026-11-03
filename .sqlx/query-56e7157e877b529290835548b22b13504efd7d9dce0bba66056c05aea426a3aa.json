@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, status, nodes,\n                    runs, agent_id, error, version, created_at, started_at, finished_at\n             FROM jobs WHERE id = $1 FOR UPDATE",
+  "query": "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,\n                nodes, runs, agent_id, error, version, created_at, started_at, finished_at\n         FROM jobs\n         WHERE ($1::uuid IS NULL OR pipeline_id = $1)\n           AND ($2::uuid IS NULL OR workspace_id = $2)\n           AND ($3::uuid IS NULL OR agent_id = $3)\n           AND ($4::uuid IS NULL OR id < $4)\n         ORDER BY id DESC\n         LIMIT $5",
   "describe": {
     "columns": [
       {
@@ -71,6 +71,17 @@
       },
       {
         "ordinal": 6,
+        "name": "trigger_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "trigger_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
         "name": "status",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "nodes",
         "type_info": "Jsonb",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "runs",
         "type_info": "Jsonb",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "agent_id",
         "type_info": "Uuid",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "error",
         "type_info": "Text",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "started_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "finished_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -171,7 +182,11 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -180,6 +195,7 @@
       false,
       false,
       false,
+      true,
       true,
       false,
       false,
@@ -192,5 +208,5 @@
       true
     ]
   },
-  "hash": "32ac3458bcd032e3538eaaaba26988e2d6684b7d2224602d3ecc2f2e6dc1b671"
+  "hash": "56e7157e877b529290835548b22b13504efd7d9dce0bba66056c05aea426a3aa"
 }

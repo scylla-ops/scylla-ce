@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE triggers SET last_fired_at = now(), last_status = $2, last_error = $3 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2311d0bdcf252579d076146fd63ab7446c5ec6c3a610870a6d78b128f9424852"
+}

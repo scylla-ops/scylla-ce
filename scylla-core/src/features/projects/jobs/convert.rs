@@ -22,6 +22,7 @@ impl ToProto<pb::Job> for Job {
             created_at: Some(parse::timestamp(self.created_at)),
             started_at: self.started_at.map(parse::timestamp),
             finished_at: self.finished_at.map(parse::timestamp),
+            trigger_id: self.trigger_id.map(ToProto::to_proto),
         }
     }
 }

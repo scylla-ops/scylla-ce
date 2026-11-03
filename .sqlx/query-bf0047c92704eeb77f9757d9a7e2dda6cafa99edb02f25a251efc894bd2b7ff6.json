@@ -1,0 +1,210 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, pipeline_id, project_id, workspace_id, created_by, name, kind, schedule, inputs,\n                enabled, next_fire_at, last_fired_at, last_status, last_error, created_at,\n                updated_at\n         FROM triggers WHERE pipeline_id = $1 AND ($2::uuid IS NULL OR id > $2)\n         ORDER BY id LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "pipeline_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "pipeline_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "schedule",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "schedule"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "inputs",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "inputs"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "next_fire_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "next_fire_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "last_fired_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "last_fired_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "last_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "last_status"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "last_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "last_error"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "bf0047c92704eeb77f9757d9a7e2dda6cafa99edb02f25a251efc894bd2b7ff6"
+}

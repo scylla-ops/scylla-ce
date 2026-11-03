@@ -4,6 +4,7 @@ use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::{Job, JobId, JobScope, JobStatus, NewJob, NodeRun};
 use scylla_domain::projects::pipelines::PipelineId;
+use scylla_domain::projects::triggers::TriggerId;
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::PageRequest;
@@ -25,11 +26,11 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewJob) -> Result<Job, Error> 
     });
     let row = sqlx::query_as!(
         Row,
-        "INSERT INTO jobs (id, pipeline_id, project_id, workspace_id, created_by, rerun_of, status,
-                           nodes, runs, need_container)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9)
-         RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, status, nodes,
-                   runs, agent_id, error, version, created_at, started_at, finished_at",
+        "INSERT INTO jobs (id, pipeline_id, project_id, workspace_id, created_by, rerun_of,
+                           trigger_id, status, nodes, runs, need_container)
+         VALUES ($1, $2, $3, $4, $5, $6, $10, 'pending', $7, $8, $9)
+         RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
+                   nodes, runs, agent_id, error, version, created_at, started_at, finished_at",
         JobId::generate().to_db(),
         new.pipeline_id.to_db(),
         new.project_id.to_db(),
@@ -39,6 +40,7 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewJob) -> Result<Job, Error> 
         json::nodes(&new.nodes),
         json::runs(&runs),
         need_container,
+        new.trigger_id.map(TriggerId::to_db),
     )
     .fetch_one(&mut **tx)
     .await?;
@@ -51,8 +53,8 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: JobId, lock: bool) -> Result<Optio
     let row = if lock {
         sqlx::query_as!(
             Row,
-            "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, status, nodes,
-                    runs, agent_id, error, version, created_at, started_at, finished_at
+            "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
+                    nodes, runs, agent_id, error, version, created_at, started_at, finished_at
              FROM jobs WHERE id = $1 FOR UPDATE",
             id.to_db(),
         )
@@ -61,8 +63,8 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: JobId, lock: bool) -> Result<Optio
     } else {
         sqlx::query_as!(
             Row,
-            "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, status, nodes,
-                    runs, agent_id, error, version, created_at, started_at, finished_at
+            "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
+                    nodes, runs, agent_id, error, version, created_at, started_at, finished_at
              FROM jobs WHERE id = $1",
             id.to_db(),
         )
@@ -104,8 +106,8 @@ pub(crate) async fn list(
     };
     let rows = sqlx::query_as!(
         Row,
-        "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, status, nodes,
-                runs, agent_id, error, version, created_at, started_at, finished_at
+        "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
+                nodes, runs, agent_id, error, version, created_at, started_at, finished_at
          FROM jobs
          WHERE ($1::uuid IS NULL OR pipeline_id = $1)
            AND ($2::uuid IS NULL OR workspace_id = $2)
@@ -181,8 +183,8 @@ pub(crate) async fn claim(
                      WHERE workspace_id = $1 AND status = 'pending' AND agent_id IS NULL
                        AND ($3 OR NOT need_container)
                      ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
-         RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, status, nodes,
-                   runs, agent_id, error, version, created_at, started_at, finished_at",
+         RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
+                   nodes, runs, agent_id, error, version, created_at, started_at, finished_at",
         workspace.to_db(),
         agent.to_db(),
         containers,
@@ -211,6 +213,8 @@ struct Row {
     created_by: uuid::Uuid,
     /// The job that this job runs again.
     rerun_of: Option<uuid::Uuid>,
+    /// The trigger of the job.
+    trigger_id: Option<uuid::Uuid>,
     /// The state.
     status: String,
     /// The nodes in JSON.
@@ -241,6 +245,7 @@ impl Row {
             workspace_id: WorkspaceId::from_db(self.workspace_id),
             created_by: ActorId::from_db(self.created_by),
             rerun_of: self.rerun_of.map(JobId::from_db),
+            trigger_id: self.trigger_id.map(TriggerId::from_db),
             status: JobStatus::parse(&self.status).ok_or_else(|| bad_status(&self.status))?,
             nodes: json::read_nodes(self.nodes)?,
             runs: json::read_runs(self.runs)?,

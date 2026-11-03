@@ -5,6 +5,7 @@ use crate::identity::actors::{Actor, ActorId};
 use crate::identity::agents::AgentCaller;
 use crate::identity::apps::{App, AppHolder};
 use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
+use crate::projects::triggers::{TriggerAccess, TriggerHolder};
 use crate::projects::{Project, ProjectCaller, ProjectHolder, ProjectId};
 use crate::tenancy::grants::AccessCaller;
 use crate::tenancy::workspaces::{Workspace, WorkspaceCaller, WorkspaceId};
@@ -84,6 +85,13 @@ definition workspace {
     permission list_pipeline_jobs = read
     permission list_workspace_jobs = read
     permission tail_job_logs = read
+    permission create_trigger = work
+    permission get_trigger = read
+    permission update_trigger = work
+    permission delete_trigger = work
+    permission set_trigger_enabled = work
+    permission fire_trigger_now = work
+    permission list_pipeline_triggers = read
 }
 
 definition app {
@@ -124,6 +132,13 @@ definition project {
     permission rerun_job = edit
     permission list_pipeline_jobs = view
     permission tail_job_logs = view
+    permission create_trigger = edit
+    permission get_trigger = view
+    permission update_trigger = edit
+    permission delete_trigger = edit
+    permission set_trigger_enabled = edit
+    permission fire_trigger_now = edit
+    permission list_pipeline_triggers = view
 }
 ";
 
@@ -142,6 +157,8 @@ fn core() -> Schema {
         ProjectCaller::part(),
         PipelineAccess::part(),
         PipelineHolder::part(),
+        TriggerAccess::part(),
+        TriggerHolder::part(),
         AccessCaller::part(),
     ];
     for part in parts {
@@ -176,7 +193,7 @@ fn an_extension_adds_to_its_definition() {
     let text = schema.to_string();
     assert!(text.contains("    relation viewer: actor\n    relation auditor: actor\n"));
     assert!(text.contains(
-        "    permission tail_job_logs = view\n    \
+        "    permission list_pipeline_triggers = view\n    \
          permission audit = auditor + delete\n}"
     ));
 }

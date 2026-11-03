@@ -10,7 +10,7 @@ mod store;
 mod tail;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub(crate) use grpc::server;
 pub(crate) use service::create;

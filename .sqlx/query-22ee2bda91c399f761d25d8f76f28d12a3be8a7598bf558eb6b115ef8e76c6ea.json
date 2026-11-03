@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO triggers (id, pipeline_id, project_id, workspace_id, created_by, name, kind,\n                                   schedule, inputs, enabled, next_fire_at)\n             SELECT gen_random_uuid(), p.id, p.project_id, p.workspace_id, p.created_by, $2, 'cron',\n                    '* * * * *', '[]', $3, now() - interval '1 minute'\n             FROM pipelines p WHERE p.id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "22ee2bda91c399f761d25d8f76f28d12a3be8a7598bf558eb6b115ef8e76c6ea"
+}

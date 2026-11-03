@@ -31,6 +31,7 @@ fn job() -> Job {
         workspace_id: crate::Id::generate(),
         created_by: ActorId::generate(),
         rerun_of: None,
+        trigger_id: None,
         status: JobStatus::Pending,
         runs: nodes.iter().map(NodeRun::pending).collect(),
         nodes,
