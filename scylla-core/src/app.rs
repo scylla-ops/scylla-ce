@@ -6,7 +6,7 @@ use scylla_domain::identity::users::AccountCaller;
 use scylla_domain::platform::Platform;
 use scylla_extension::{Edition, EditionBuilder};
 
-use crate::features::identity::agents::Agents;
+use crate::features::identity::apps::Apps;
 use crate::features::platform::capabilities::Capabilities;
 use crate::features::projects::Projects;
 use crate::features::tenancy::grants::Grants;
@@ -23,7 +23,7 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .authz::<Platform>()
         .authz::<UserAdminHolder>()
         .plugin(Workspaces)
-        .plugin(Agents)
+        .plugin(Apps)
         .plugin(Projects)
         .plugin(Capabilities)
         .plugin(Grants)

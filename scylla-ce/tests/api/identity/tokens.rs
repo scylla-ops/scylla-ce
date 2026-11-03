@@ -6,6 +6,7 @@ use biscuit_auth::{BlockBuilder, UnverifiedBiscuit};
 use scylla_core::features::identity::actors;
 use scylla_domain::authz::Schema;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
+use scylla_extension::Binding;
 use scylla_proto::projects::v1::{CreateProjectRequest, ListProjectsRequest};
 use scylla_testkit::{id, test_access, with_token};
 use sqlx::PgPool;
@@ -31,9 +32,12 @@ async fn a_bad_token_is_refused(pool: PgPool) {
     let workspace = app.workspace_of(user).await;
     let actor = actors::find(&app.pool, user).await.unwrap();
     let foreign = test_access(pool, Schema::default())
-        .issue_for(&actor, Duration::from_secs(600), None)
+        .issue_for(&actor, Duration::from_secs(600), Binding::None)
         .unwrap();
-    let expired = app.access.issue_for(&actor, Duration::ZERO, None).unwrap();
+    let expired = app
+        .access
+        .issue_for(&actor, Duration::ZERO, Binding::None)
+        .unwrap();
     let mut client = app.projects.clone();
 
     // when

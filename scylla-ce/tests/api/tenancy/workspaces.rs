@@ -7,7 +7,6 @@ use scylla_testkit::{text, with_token};
 use sqlx::PgPool;
 use tonic::Code;
 
-use crate::identity::agents::agent_in;
 use crate::{app, assert_code, assert_invalid_field, UNKNOWN_ID};
 
 /// A created workspace comes back trimmed, and the caller is its only owner.
@@ -32,7 +31,7 @@ async fn create_workspace_needs_a_user(pool: PgPool) {
     // given
     let app = app(pool).await;
     let user = app.user().await;
-    let (_, token) = agent_in(&app, user, app.workspace_of(user).await).await;
+    let (_, token) = app.app_in(user, app.workspace_of(user).await, true).await;
     let request = CreateWorkspaceRequest {
         name: "bots".to_owned(),
         slug: None,

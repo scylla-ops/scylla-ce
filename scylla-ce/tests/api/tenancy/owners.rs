@@ -7,7 +7,6 @@ use sqlx::PgPool;
 use tonic::Code;
 
 use crate::identity::accounts::assert_refused;
-use crate::identity::agents::agent_in;
 use crate::{app, assert_code, assert_invalid_field, UNKNOWN_ID};
 
 /// An owner makes a user an owner: the new owner gets each right with no role, and the list
@@ -101,7 +100,7 @@ async fn add_owner_needs_a_user(pool: PgPool) {
     let app = app(pool).await;
     let owner = app.user().await;
     let workspace = app.workspace_of(owner).await;
-    let (agent, _) = agent_in(&app, owner, workspace).await;
+    let agent = app.app_in(owner, workspace, true).await.0.actor();
     let id = workspace.to_string();
 
     // when

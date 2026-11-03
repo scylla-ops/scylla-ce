@@ -11,6 +11,7 @@ mod rpc;
 mod tenancy;
 
 pub use app::{test_access, TestApp};
+pub use identity::{new_key, TestKey};
 pub use logs::Logs;
 pub use mail::Mailbox;
 pub use rpc::{id, text, with_token};

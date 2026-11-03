@@ -51,6 +51,11 @@ impl<T: ?Sized> Id<T> {
         Self::from_bits(0)
     }
 
+    /// Returns the same bits as the id of another type, for an entity that is also an actor.
+    pub(crate) const fn retype<U: ?Sized>(self) -> Id<U> {
+        Id::from_bits(self.bits)
+    }
+
     /// Makes an id from its bits.
     const fn from_bits(bits: u128) -> Self {
         Self {

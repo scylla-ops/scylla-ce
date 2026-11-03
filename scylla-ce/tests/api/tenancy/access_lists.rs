@@ -9,7 +9,6 @@ use sqlx::PgPool;
 use tonic::Code;
 
 use crate::identity::accounts::PASSWORD;
-use crate::identity::agents::agent_in;
 use crate::{app, assert_code, assert_invalid_field, UNKNOWN_ID};
 
 /// The list of a workspace has its owners first, in user id order, then each role, with the
@@ -27,7 +26,7 @@ async fn list_access_shows_the_owners_and_the_roles(pool: PgPool) {
     let carol_id = text(&carol.id).to_owned();
     let workspace = app.workspace_of(owner).await;
     let id = workspace.to_string();
-    let (agent, _) = agent_in(&app, owner, workspace).await;
+    let agent = app.app_in(owner, workspace, true).await.0.actor();
     app.add_owner(owner, &id, &partner.to_string())
         .await
         .unwrap();
@@ -84,7 +83,7 @@ async fn list_access_shows_the_owners_and_the_roles(pool: PgPool) {
     );
     assert_eq!(
         (robot.actor_kind.as_str(), robot.display_name.as_str()),
-        ("agent", "")
+        ("app", "build machine")
     );
     assert!(page.page.unwrap().next_token.is_empty());
 }

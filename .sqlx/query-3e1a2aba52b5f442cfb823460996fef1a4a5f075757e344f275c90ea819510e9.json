@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE app_join_codes SET used_at = now()\n         WHERE hash = $1 AND used_at IS NULL AND expires_at > now()\n         RETURNING app_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "app_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "app_join_codes",
+            "name": "app_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3e1a2aba52b5f442cfb823460996fef1a4a5f075757e344f275c90ea819510e9"
+}

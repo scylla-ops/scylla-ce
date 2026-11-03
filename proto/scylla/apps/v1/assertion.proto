@@ -1,16 +1,16 @@
 syntax = "proto3";
 
-package scylla.auth.v1;
+package scylla.apps.v1;
 
 import "google/protobuf/timestamp.proto";
 import "scylla/common/v1/id.proto";
 
-// What an agent signs with its private key to get a token. The agent sends the encoded bytes of
-// this message and an Ed25519 signature of these bytes.
-message AgentAssertion {
-  // The agent.
-  scylla.common.v1.Id agent_id = 1;
-  // The key of the agent that signs, from RegisterAgent.
+// What an App signs with its private key to get a token. The App sends the encoded bytes of this
+// message and an Ed25519 signature of these bytes to TokenService.ExchangeAppAssertion.
+message AppAssertion {
+  // The App.
+  scylla.common.v1.Id app_id = 1;
+  // The key of the App that signs, from TokenService.JoinApp or AppService.AddAppKey.
   scylla.common.v1.Id key_id = 2;
   // Must be "scylla".
   string audience = 3;

@@ -9,7 +9,6 @@ use sqlx::PgPool;
 use tonic::Code;
 
 use crate::identity::accounts::assert_refused;
-use crate::identity::agents::agent_in;
 use crate::{app, assert_code, assert_invalid_field, UNKNOWN_ID};
 
 /// Counts the rows of a workspace in `workspaces`, `workspace_owners` and `invitations`.
@@ -76,7 +75,8 @@ async fn delete_workspace_needs_an_empty_workspace(pool: PgPool) {
         .create_project_in(owner, WorkspaceId::parse(projects).unwrap(), "alpha")
         .await
         .unwrap();
-    agent_in(&app, owner, WorkspaceId::parse(agents).unwrap()).await;
+    app.app_in(owner, WorkspaceId::parse(agents).unwrap(), true)
+        .await;
 
     // when
     let full = app.delete_workspace(owner, projects).await;

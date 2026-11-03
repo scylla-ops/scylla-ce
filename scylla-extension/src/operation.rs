@@ -65,7 +65,7 @@ impl Operation {
     }
 }
 
-/// Returns a name in snake case: `RegisterAgent` gives `register_agent`, and `GetHTTPServer`
+/// Returns a name in snake case: `AddAppKey` gives `add_app_key`, and `GetHTTPServer`
 /// gives `get_http_server`.
 fn snake_case(name: &str) -> String {
     let chars: Vec<char> = name.chars().collect();
@@ -102,7 +102,7 @@ mod tests {
         // given
         let paths = [
             "/scylla.projects.v1.ProjectService/CreateProject",
-            "/scylla.agents.v1.AgentService/RegisterAgent",
+            "/scylla.apps.v1.AppService/AddAppKey",
             "/scylla.auth.v1.TokenService/ExchangeIdToken",
             "/scylla.test.v1.TestService/GetHTTPServer2Name",
         ];
@@ -114,7 +114,7 @@ mod tests {
         let permissions = operations.each_ref().map(Operation::permission);
         let expected = [
             "create_project",
-            "register_agent",
+            "add_app_key",
             "exchange_id_token",
             "get_http_server2_name",
         ];

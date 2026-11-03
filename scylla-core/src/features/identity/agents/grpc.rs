@@ -1,64 +1,86 @@
-//! The gRPC handler of `AgentService`.
+//! The gRPC handler of `AgentService`: an agent opens its stream.
 
 use std::sync::Arc;
 
-use scylla_domain::identity::agents::AgentHolder;
-use scylla_domain::tenancy::workspaces::WorkspaceId;
+use scylla_domain::identity::agents::AgentCaller;
 use scylla_extension::Gate;
 use scylla_proto::agents::v1 as pb;
 use scylla_proto::agents::v1::agent_service_server::{AgentService, AgentServiceServer};
 use sqlx::PgPool;
-use tonic::{Request, Response, Status};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+use tonic::{Request, Response, Status, Streaming};
+use tracing::Instrument;
 
-use super::service;
-use crate::api::parse::{self, ToProto};
+use super::stream::Stream;
+use super::Registry;
+use crate::features::identity::apps;
 use crate::Error;
 
+/// The number of messages that wait for a slow agent.
+const OUTBOX_SIZE: usize = 16;
+
 /// Makes the service.
-pub(super) fn server(pool: PgPool, gate: Arc<dyn Gate>) -> AgentServiceServer<AgentsGrpc> {
-    AgentServiceServer::new(AgentsGrpc { pool, gate })
+pub(crate) fn server(
+    pool: PgPool,
+    gate: Arc<dyn Gate>,
+    registry: Arc<Registry>,
+) -> AgentServiceServer<AgentsGrpc> {
+    AgentServiceServer::new(AgentsGrpc {
+        pool,
+        gate,
+        registry,
+    })
 }
 
 /// The handler.
-pub(super) struct AgentsGrpc {
+pub(crate) struct AgentsGrpc {
     /// The database pool.
     pool: PgPool,
     /// The access gate.
     gate: Arc<dyn Gate>,
+    /// The open streams of the server.
+    registry: Arc<Registry>,
 }
 
 #[tonic::async_trait]
 impl AgentService for AgentsGrpc {
-    async fn register_agent(
+    type OpenStreamStream = ReceiverStream<Result<pb::OpenStreamResponse, Status>>;
+
+    async fn open_stream(
         &self,
-        request: Request<pb::RegisterAgentRequest>,
-    ) -> Result<Response<pb::RegisterAgentResponse>, Status> {
-        Ok(Response::new(self.register(request).await?))
+        request: Request<Streaming<pb::OpenStreamRequest>>,
+    ) -> Result<Response<Self::OpenStreamStream>, Status> {
+        Ok(Response::new(self.open(request).await?))
     }
 }
 
 impl AgentsGrpc {
-    /// Handles `RegisterAgent`: an admin of a workspace registers an agent in it.
-    async fn register(
+    /// Handles `OpenStream`: checks the caller, then runs the stream in a task.
+    async fn open(
         &self,
-        request: Request<pb::RegisterAgentRequest>,
-    ) -> Result<pb::RegisterAgentResponse, Error> {
-        // Authenticate the caller, then read the request.
+        request: Request<Streaming<pb::OpenStreamRequest>>,
+    ) -> Result<ReceiverStream<Result<pb::OpenStreamResponse, Status>>, Error> {
+        // Authenticate the caller, and check the route permission on itself.
         let caller = self.gate.caller(&request).await?;
-        let request = request.into_inner();
-        let workspace_id: WorkspaceId = parse::required(request.workspace_id, "workspace_id")?;
-
-        // Check the route permission on the workspace.
         self.gate
-            .authorize(&caller, AgentHolder::REGISTER_AGENT.on(workspace_id))
+            .authorize(&caller, AgentCaller::OPEN_STREAM.on(caller.actor.id))
             .await?;
 
-        // Register the agent in the workspace.
-        let (agent_id, key_id) =
-            service::register(&self.pool, workspace_id, &request.public_key).await?;
-        Ok(pb::RegisterAgentResponse {
-            agent_id: Some(agent_id.to_proto()),
-            key_id: Some(key_id.to_proto()),
-        })
+        // Refuse an actor that is not an agent.
+        let app = apps::runner(&self.pool, &caller.actor).await?;
+
+        // Run the stream in a task, in the span of the call.
+        let (out, messages) = mpsc::channel(OUTBOX_SIZE);
+        let stream = Stream {
+            pool: self.pool.clone(),
+            gate: Arc::clone(&self.gate),
+            registry: Arc::clone(&self.registry),
+            app,
+            principal: caller,
+        };
+        let inbound = request.into_inner();
+        tokio::spawn(stream.run(inbound, out).in_current_span());
+        Ok(ReceiverStream::new(messages))
     }
 }

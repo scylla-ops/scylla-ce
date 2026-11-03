@@ -12,7 +12,7 @@ use crate::features::tenancy::workspaces;
 use crate::Error;
 
 /// Deletes a user. A workspace where the user is the only owner goes with the user if it is
-/// empty: no project, no agent, and no role of another actor. Else the deletion stops with
+/// empty: no project, no App, and no role of another actor. Else the deletion stops with
 /// `LAST_OWNER`, and names these workspaces. The last active instance admin stays.
 pub(crate) async fn delete_user(ctx: &AccountContext, user: ActorId) -> Result<(), Error> {
     // Lock the user, and keep an active instance admin.
@@ -56,7 +56,7 @@ pub(crate) async fn delete_user(ctx: &AccountContext, user: ActorId) -> Result<(
     Ok(())
 }
 
-/// Returns `true` if a workspace has no project, no agent, and no role of an actor other than
+/// Returns `true` if a workspace has no project, no App, and no role of an actor other than
 /// the user.
 async fn is_empty(
     ctx: &AccountContext,

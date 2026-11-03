@@ -39,17 +39,19 @@ pub(super) async fn owners(
         .collect())
 }
 
-/// Returns the kind of each actor, with the display name and the handle of a user. The role of
-/// each entry is empty.
+/// Returns the kind of each actor, with the display name and the handle of a user, or the name
+/// of an App. The role of each entry is empty.
 pub(super) async fn profiles(
     tx: &mut Tx<'_>,
     actors: &[ActorId],
 ) -> Result<Vec<AccessEntry>, Error> {
     let ids: Vec<_> = actors.iter().map(|id| id.to_db()).collect();
     let rows = sqlx::query!(
-        r#"SELECT a.id AS "id!", a.kind AS "kind!", u.display_name AS "display_name?", u.handle
+        r#"SELECT a.id AS "id!", a.kind AS "kind!",
+                  coalesce(u.display_name, p.name) AS "display_name?", u.handle
            FROM actors a
            LEFT JOIN users u ON u.id = a.id
+           LEFT JOIN apps p ON p.id = a.id
            WHERE a.id = ANY($1)"#,
         &ids,
     )

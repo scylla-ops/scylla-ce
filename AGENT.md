@@ -14,7 +14,7 @@ Load the skill of the task from `.claude/skills/`:
 
 ## Structure
 
-- Each crate groups its code by subject: `identity` (accounts, instance admins, sessions, providers, tokens, actors, agents), `tenancy` (workspaces and their owners, invitations, roles), `projects`, and `platform` (the platform object, capabilities). A new feature goes in the folder of its subject.
+- Each crate groups its code by subject: `identity` (accounts, instance admins, sessions, providers, tokens, actors, Apps, agents), `tenancy` (workspaces and their owners, invitations, roles), `projects`, and `platform` (the platform object, capabilities). A new feature goes in the folder of its subject.
 - `scylla-domain/src`: `kernel/` (ids and their format, names, pages, kinds, errors: the crate root gives each type), `authz/`, a folder for each subject (`identity/`, `tenancy/`), `platform.rs`, and `projects.rs` with `projects/secrets.rs`.
 - `scylla-core/src`: `lib.rs`, `app.rs`, `config.rs` and `error.rs` at the root, then `access/` (the gate), `api/` (the server, its layers, the log of each call, the proto conversions), `cli/`, `infra/` (database, logs, mails, secrets, TLS) and `features/`.
 - Never add a file at the root of a crate: put it in the folder of its role or of its subject. When a folder fills with files of different roles or subjects, add a level.
@@ -61,10 +61,17 @@ Load the skill of the task from `.claude/skills/`:
 - Delete a user only with `accounts::delete_user`: it removes the account rows, the empty workspaces of the user alone, its ownerships and its roles, and keeps the actor. Never delete a row of `actors`.
 - A password goes through `features/identity/accounts/password.rs` (Argon2id on a blocking thread). A random token comes from `secret::token()`, and the database keeps `secret::hash(token)` only. A secret that the server must read back is encrypted with `Sealer`: a client secret with `seal`, and the value of a secret of a project with `seal_with` and the bytes of the id of its secret as associated data.
 - An account route never tells if an email exists: a known and an unknown email get the same answer. A route that sends a mail to an address that can be unknown answers first, and a task (`tokio::spawn`) makes the link and sends it, at most one each `one_time::COOLDOWN` for one account. A change of the email of a user stops each of its open links (`one_time::cancel_all`). A refusal of an account rule is `Rejection` with a stable code (`EMAIL_IN_USE`, `HANDLE_IN_USE`, `LAST_ADMIN`).
-- Each sign-in of a person opens a session (`sessions::open`) with its `Client` (`Client::of_grpc` or `Client::of_http`: the user agent and the IP address), and signs its tokens with `gate.issue(&actor, Some(session))`. A reset or a change of a password closes sessions with `sessions::revoke_all`.
+- Each sign-in of a person opens a session (`sessions::open`) with its `Client` (`Client::of_grpc` or `Client::of_http`: the user agent and the IP address), and signs its tokens with `gate.issue(&actor, Binding::Session(session))`. An App gets a token bound to its key: `Binding::Key(key)`. A reset or a change of a password closes sessions with `sessions::revoke_all`.
 - An identity of a provider is never linked to an account by its email. A link needs the session of the user (`/auth/<slug>/start?link=true`).
 - A mail goes through the `Mailer` of `AccountContext` with `mails::send`. Write it with `Letter` (`accounts/letter.rs`): one text body and one escaped HTML body. A link comes from `AccountSettings::link`, with the token in the fragment. A body can hold a one-time link: never log it.
 - A secret never goes to the logs or the database in clear. The server stores public keys and hashes only. No answer holds the value of a secret of a project, and `SecretValue` shows `***` in `Debug`. A route that seals a value gives `SECRET_KEY_MISSING` after its route check when the server has no key.
+
+## Apps and agents
+
+- An App is an actor of kind `app` with a row in `apps`. Make one with `create` of `features/identity/apps/service.rs`, which inserts the actor in the same transaction. `AppId` and `ActorId` have the same bits: convert with `App::actor(id)` and `App::of_actor(id)`, never with `from_db`.
+- The server never sees a private key. A key of an App comes from `JoinApp` (with a join code) or from `AddAppKey`. A join code is a `secret::token()`, and the database keeps its hash.
+- A delete of an App or a revocation of a key stops the stream of the agent with `Registry::stop`. The registry is in memory: the server is one instance.
+- The stream of an agent checks each new token as its start did: `gate.authenticate` with the operation of the stream, the same actor, then `gate.authorize` of the route permission.
 
 ## Logs
 

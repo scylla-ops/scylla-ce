@@ -6,7 +6,9 @@ use std::sync::{Arc, Mutex};
 use scylla_domain::identity::actors::{Actor, ActorId, ActorKind};
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
 
-use crate::{AccessError, Operation, Principal};
+use time::OffsetDateTime;
+
+use crate::{AccessError, Binding, Operation, Principal};
 
 /// A writer that keeps the log lines in memory.
 #[derive(Clone, Default)]
@@ -39,7 +41,13 @@ fn a_refusal_logs_one_warn_line() {
         kind: ActorKind::new("user"),
     };
     let operation = Operation::from_path("/scylla.workspaces.v1.WorkspaceService/GetWorkspace");
-    let principal = Principal::new(actor.clone(), operation, Arc::new(()), None);
+    let principal = Principal::new(
+        actor.clone(),
+        operation,
+        Arc::new(()),
+        Binding::None,
+        OffsetDateTime::now_utc(),
+    );
     let workspace = WorkspaceId::generate();
     let check = Workspace::GET_WORKSPACE.on(workspace);
 

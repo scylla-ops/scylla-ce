@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use scylla_domain::authz::{Check, Object, Permission, Relationship, Resource};
 use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::identity::apps::AppKeyId;
 use scylla_domain::identity::users::SessionId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Id;
@@ -25,8 +26,10 @@ pub struct Principal {
     operation: Operation,
     /// The verified token, opaque for the plugins.
     token: Arc<dyn Any + Send + Sync>,
-    /// The session of the token, for a user that signed in.
-    session: Option<SessionId>,
+    /// What the token is bound to.
+    binding: Binding,
+    /// The end of the validity of the token.
+    expires_at: OffsetDateTime,
 }
 
 impl Principal {
@@ -35,19 +38,29 @@ impl Principal {
         actor: Actor,
         operation: Operation,
         token: Arc<dyn Any + Send + Sync>,
-        session: Option<SessionId>,
+        binding: Binding,
+        expires_at: OffsetDateTime,
     ) -> Self {
         Self {
             actor,
             operation,
             token,
-            session,
+            binding,
+            expires_at,
         }
     }
 
     /// Returns the session of the token, if the actor signed in as a user.
     pub fn session(&self) -> Option<SessionId> {
-        self.session
+        match self.binding {
+            Binding::Session(session) => Some(session),
+            _ => None,
+        }
+    }
+
+    /// Returns the end of the validity of the token.
+    pub fn expires_at(&self) -> OffsetDateTime {
+        self.expires_at
     }
 
     /// Returns the operation of the request.
@@ -59,6 +72,17 @@ impl Principal {
     pub fn token(&self) -> &(dyn Any + Send + Sync) {
         self.token.as_ref()
     }
+}
+
+/// What a token is bound to. The token stops when its session closes or its key is revoked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Binding {
+    /// Nothing: a token of the command line.
+    None,
+    /// The session of a user that signed in.
+    Session(SessionId),
+    /// The key of an App that signed an assertion.
+    Key(AppKeyId),
 }
 
 /// A short-lived token for an actor.
@@ -161,9 +185,9 @@ pub trait Gate: Send + Sync + 'static {
     /// the object, and the actor has the permission. Records the passed check on the operation.
     async fn authorize(&self, principal: &Principal, check: Check) -> Result<(), AccessError>;
 
-    /// Makes a short-lived token for an actor, in a session for a user that signed in. A token
-    /// of a revoked session stops at once.
-    fn issue(&self, actor: &Actor, session: Option<SessionId>) -> Result<IssuedToken, AccessError>;
+    /// Makes a short-lived token for an actor, bound to the session of a user that signed in or
+    /// to the key of an App. A token of a revoked session or key stops at once.
+    fn issue(&self, actor: &Actor, binding: Binding) -> Result<IssuedToken, AccessError>;
 
     /// Writes relationships, and returns a token of the permission system for later checks.
     async fn write(&self, relationships: &[Relationship]) -> Result<String, AccessError>;

@@ -13,7 +13,7 @@ use scylla_domain::identity::actors::{ActorId, ActorKind};
 use scylla_domain::identity::users::{Email, NewUser, Password};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Name;
-use scylla_extension::{AccessError, Edition, Gate, Operation};
+use scylla_extension::{AccessError, Binding, Edition, Gate, Operation};
 use scylla_proto::projects::v1::project_service_client::ProjectServiceClient;
 use sqlx::PgPool;
 use tokio::net::TcpListener;
@@ -176,7 +176,10 @@ impl TestApp {
     /// Signs a token for an actor.
     pub async fn token(&self, actor: ActorId) -> String {
         let actor = actors::find(&self.pool, actor).await.expect("actor");
-        self.gate().issue(&actor, None).expect("token").value
+        self.gate()
+            .issue(&actor, Binding::None)
+            .expect("token")
+            .value
     }
 
     /// Makes a request sent by an actor, with a fresh token.

@@ -2,7 +2,7 @@
 
 The public repository of Scylla. It holds the core and the `scylla-ce` binary. The Enterprise edition is in a separate repository (`../ee` in this POC) and adds its features through plugins.
 
-Users sign up or sign in with an identity provider, and work in workspaces with their projects and agents. The API is gRPC and gRPC-Web on one port. Access is zero trust: a short-lived Biscuit token on each request, and a SpiceDB permission check on each operation.
+Users sign up or sign in with an identity provider, and work in workspaces with their projects and Apps (machine identities, and the agents that run jobs). The API is gRPC and gRPC-Web on one port. Access is zero trust: a short-lived Biscuit token on each request, and a SpiceDB permission check on each operation.
 
 - `AGENT.md`: how to write code here (structure, access, comments, tests, protos, SQL).
 - `DECISIONS.md`: why the code has its shape.
@@ -19,10 +19,10 @@ scylla-testkit (tests only) ──▶ scylla-core
 | Crate | Contents |
 |---|---|
 | `scylla-macros` | `authz!`: the permission model in the SpiceDB schema language |
-| `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, the platform, actors, users and handles, slugs, instance admins, workspaces, agents, projects and their secrets, pages |
+| `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, the platform, actors, users and handles, slugs, instance admins, workspaces, Apps and agents, projects and their secrets, pages |
 | `scylla-extension` | the contract: `Edition`, `Plugin`, hooks, `Gate` |
 | `scylla-proto` | generated code of `proto/` |
-| `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, agents, tokens, projects, secrets, grants, capabilities), mails, logs, the guard against the public dev keys, server, CLI |
+| `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, Apps, agents, tokens, projects, secrets, grants, capabilities), mails, logs, the guard against the public dev keys, server, CLI |
 | `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC, a capture of the log lines |
 | `scylla-ce` | the Community edition binary |
 
@@ -32,17 +32,18 @@ scylla-testkit (tests only) ──▶ scylla-core
 |---|---|
 | A person signs up | `AccountService.SignUp` with an email and a password, then the link of the mail (`VerifyEmail`). The mode `SCYLLA_SIGN_UP_MODE` is `invite_only` by default: the link of an invitation is necessary. The first user is a user of `user create --admin`. |
 | A person signs in | With an email or a handle and a password: `AccountService.SignIn`. In a browser with an identity provider: `/auth/<slug>/start`, then the session cookie. A native client: `TokenService.ExchangeIdToken`. Each sign-in opens a session, and `TokenService.Refresh` gives new tokens. |
-| An agent signs in | `AgentService.RegisterAgent` in a workspace (by an admin, with the agent public key), then each time an assertion signed with the agent private key: `TokenService.ExchangeAgentAssertion`. |
+| An App signs in | An admin creates the App in a workspace (`AppService.CreateApp`) and gets a one-time join code (15 minutes). The machine makes its Ed25519 key pair and sends the code and its public key: `TokenService.JoinApp`. Then each time it signs an assertion with its private key: `TokenService.ExchangeAppAssertion`. The token stops at once when its key is revoked (`RevokeAppKey`) or its App is deleted. |
+| An agent connects | An App created with `runner = true` opens `AgentService.OpenStream`, sends a hello with its host, and sends a new token on the stream before the expiry of the old one. `GetApp` and `ListApps` show if it is connected, its host and its last seen time. |
 | Each request | `authorization: Bearer <biscuit>`. 10 minutes by default. A holder can attenuate it offline before it gives it to a step. The operation of a request is its gRPC method. |
 | Each route | The permission of the route: the RPC name in snake case. An owner of the workspace, and an instance admin on the platform, pass with no SpiceDB call. Else one SpiceDB call looks for a role on the object or on its workspace. |
-| A share | `AccessService.Grant` and `Revoke`: a role (`admin`, `member`, `viewer` in a workspace, `admin`, `editor`, `viewer` on a project) for one actor. An agent gets roles only in its own workspace. `ListAccess` lists the owners and the roles of an object, and `CheckPermissions` tells a caller its permissions on an object. `InvitationService` invites an email into a workspace, and lists, revokes and sends again the open invitations. |
+| A share | `AccessService.Grant` and `Revoke`: a role (`admin`, `member`, `viewer` in a workspace, `admin`, `editor`, `viewer` on a project) for one actor. An App gets roles only in its own workspace. `ListAccess` lists the owners and the roles of an object, and `CheckPermissions` tells a caller its permissions on an object. `InvitationService` invites an email into a workspace, and lists, revokes and sends again the open invitations. |
 | A list | `ListWorkspaces` and `ListProjects` show only what the caller can see (SpiceDB reverse lookups for the roles). `workspace_id` filters the projects. |
 | A change of a project | `ProjectService.UpdateProject`: the name and the description, for the editors of the project and the members of its workspace. |
 | A secret | `SecretService` in a project: create, give a new value, delete, list the names in name order. No RPC returns a value. The server encrypts each value with `SCYLLA_SECRET_KEY` and the id of its secret. The admins of a project and of its workspace change the secrets, and its editors and the members of the workspace list them. |
 | An account | `ProfileService`: the profile and the handle, a change of email with a link to the new email, the password, the identities, the sessions (with their IP address), and the deletion of the account. |
 | The users of the instance | `UserAdminService`, for the instance admins only: list, read, create, change, disable, delete, reset link, sessions, and the instance admin right. The last active instance admin stays. |
 
-A workspace contains the projects and the agents, and has a unique slug for the URLs. Its admins rename it, and its owners delete it when it is empty. One user or more own it: `WorkspaceService.AddOwner`, `RemoveOwner` and `ListOwners` change and read the owners, and the last owner stays. Each user has a personal workspace. Postgres holds the containers and their owners (`workspace_id`, `workspace_owners`). SpiceDB holds only the roles that a person gives. A creation writes nothing to SpiceDB.
+A workspace contains the projects and the Apps, and has a unique slug for the URLs. Its admins rename it, and its owners delete it when it is empty. One user or more own it: `WorkspaceService.AddOwner`, `RemoveOwner` and `ListOwners` change and read the owners, and the last owner stays. Each user has a personal workspace. Postgres holds the containers and their owners (`workspace_id`, `workspace_owners`). SpiceDB holds only the roles that a person gives. A creation writes nothing to SpiceDB.
 
 The permission model is Rust code. `authz!` declares a SpiceDB definition next to its type, and the compiler checks each name and each id. A route permission uses a group, and a role gives a group:
 
@@ -159,15 +160,17 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 
 | Tests | Where |
 |---|---|
-| Workspaces, projects and their permissions, tokens, agents, gRPC-Web, CORS, TLS, health | `scylla-ce/tests/api/` |
+| Workspaces, projects and their permissions, tokens, Apps and agents, gRPC-Web, CORS, TLS, health | `scylla-ce/tests/api/` |
+| Apps: the join code and its one use, the exchange of an assertion, each refused assertion, the keys and their revocation, the delete, who can create, read and change them | `scylla-ce/tests/api/identity/apps.rs` |
+| Streams of the agents: the hello and the host, the presence, only an agent, the renewal of the token, the end at the expiry, a second stream, a revoked key, a deleted App | `scylla-ce/tests/api/identity/agents.rs` |
 | Projects: creation, reads, the list and its pages, deletion | `scylla-ce/tests/api/projects/lifecycle.rs` |
 | Change of a project: the name and the description, their limits (100 and 101, 1024 and 1025), one line for a name, an empty description, each role | `scylla-ce/tests/api/projects/updates.rs` |
 | Secrets: the metadata, no value in an answer, the form of a name and one secret for each name, the size of a value (65536 and 65537 bytes), a new value, a delete, the pages in name order, the delete of a project | `scylla-ce/tests/api/projects/secrets.rs` |
 | Access to the secrets: each role on each route, an unknown project or secret, `CheckPermissions`, a server with no key | `scylla-ce/tests/api/projects/secret_access.rs` |
 | Permission model: roles in a workspace and on one project, an extension, a new definition | `scylla-ce/tests/api/tenancy/authz.rs` |
-| Ownership: a role in a workspace goes down, an agent with a role, no SpiceDB for an owner | `scylla-ce/tests/api/tenancy/ownership.rs` |
+| Ownership: a role in a workspace goes down, an App with a role, no SpiceDB for an owner | `scylla-ce/tests/api/tenancy/ownership.rs` |
 | Owners of a workspace: add, remove, list, only an owner changes them, the last owner stays, two removals at the same time | `scylla-ce/tests/api/tenancy/owners.rs` |
-| Shares: grant and revoke, each role, only the admins give roles, the visible list, an agent only in its workspace | `scylla-ce/tests/api/tenancy/grants.rs` |
+| Shares: grant and revoke, each role, only the admins give roles, the visible list, an App only in its workspace | `scylla-ce/tests/api/tenancy/grants.rs` |
 | Slugs: the form, the reserved names, one workspace for each slug, the slug of a name and its suffix, the slug of a handle, `GetWorkspace` with a slug, `UpdateWorkspace` | `scylla-ce/tests/api/tenancy/slugs.rs` |
 | Deletion of a workspace: owners only, an empty workspace only, its invitations and roles go, a project creation, a new owner or an invitation at the same time | `scylla-ce/tests/api/tenancy/deletion.rs` |
 | Permissions of a caller: owner, admin, member, viewer, another user, instance admin, a project, the platform, unknown names | `scylla-ce/tests/api/tenancy/checks.rs` |
@@ -200,9 +203,9 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 
 ## Releases for the Enterprise edition
 
-The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `platform`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`. The `Gate` trait has `delete_subject`, `subjects`, `roles` and `permissions`, `EditionBuilder::grants` takes `AccessRoutes` and a required search for the workspace, `AccessError::denied` takes the principal and logs the event `access.refused`, `Config` has `log_format`, `scylla_core::infra::logs` gives the log layer and the masks, the testkit has `Logs`, a `Mail` has an HTML body, and the details of a `Rejection` are texts. The table `workspaces` has a required `slug`. The field `TestApp.sealer` is an `Option`, `NewProject` has a `description`, the table `projects` has a column `description`, a `Name` refuses a control character, and `DomainError` has new variants.
+The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `platform`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`. `Gate::issue` takes a `Binding` (none, a session, or the key of an App), and `Principal::new` takes the binding and the expiry of the token. The `Gate` trait has `delete_subject`, `subjects`, `roles` and `permissions`, `EditionBuilder::grants` takes `AccessRoutes` and a required search for the workspace, `AccessError::denied` takes the principal and logs the event `access.refused`, `Config` has `log_format`, `scylla_core::infra::logs` gives the log layer and the masks, the testkit has `Logs`, a `Mail` has an HTML body, and the details of a `Rejection` are texts. The table `workspaces` has a required `slug`. The field `TestApp.sealer` is an `Option`, `NewProject` has a `description`, the table `projects` has a column `description`, a `Name` refuses a control character, and `DomainError` has new variants.
 
 ## Known limits
 
-- The pipelines are not there yet. An agent token can already be attenuated for each step.
+- The pipelines are not there yet. An agent token can already be attenuated for each step. The stream of an agent has no job messages yet, and the role `runner` comes with the jobs.
 - No route reads the value of a secret yet: the dispatch of a job will use `secrets::service::reveal`.

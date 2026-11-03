@@ -7,7 +7,6 @@ use scylla_testkit::{id, text, with_token, TestApp};
 use sqlx::PgPool;
 use tonic::Code;
 
-use crate::identity::agents::agent_in;
 use crate::{app, assert_code};
 
 /// Makes a creation request in a workspace.
@@ -51,7 +50,8 @@ async fn an_agent_acts_with_its_role(pool: PgPool) {
     let other = app.user().await;
     let workspace = app.workspace_of(owner).await;
     let elsewhere = app.workspace_of(other).await;
-    let (agent, token) = agent_in(&app, owner, workspace).await;
+    let (key, token) = app.app_in(owner, workspace, true).await;
+    let agent = key.actor();
     let mut client = app.projects.clone();
 
     // when

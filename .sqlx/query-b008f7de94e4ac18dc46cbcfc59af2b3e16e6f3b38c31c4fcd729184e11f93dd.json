@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT (EXISTS (SELECT 1 FROM projects WHERE workspace_id = $1)\n                   OR EXISTS (SELECT 1 FROM agents WHERE workspace_id = $1)) AS \"found!\"",
+  "query": "SELECT (EXISTS (SELECT 1 FROM projects WHERE workspace_id = $1)\n                   OR EXISTS (SELECT 1 FROM apps WHERE workspace_id = $1)) AS \"found!\"",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "4261cac4b0c63583f720e1b23cf7b3736ee0124abfda767ac3c88f13f51c4f25"
+  "hash": "b008f7de94e4ac18dc46cbcfc59af2b3e16e6f3b38c31c4fcd729184e11f93dd"
 }

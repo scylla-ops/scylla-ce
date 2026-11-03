@@ -93,7 +93,7 @@ impl TestApp {
     }
 
     /// Returns a client of `TokenService`.
-    fn tokens(&self) -> TokenServiceClient<Channel> {
+    pub(crate) fn tokens(&self) -> TokenServiceClient<Channel> {
         TokenServiceClient::new(self.channel.clone())
     }
 }

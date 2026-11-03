@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package scylla.apps.v1;
+
+import "google/protobuf/timestamp.proto";
+import "scylla/common/v1/id.proto";
+
+// An App: the machine identity of a workspace. It proves its identity with an Ed25519 key pair
+// that it made, and gets its rights from roles given with AccessService.Grant. An agent is an App
+// that can run jobs: it keeps a stream open with AgentService.OpenStream.
+message App {
+  // The id of the App. It is also the id of its actor.
+  scylla.common.v1.Id id = 1;
+  // The workspace of the App.
+  scylla.common.v1.Id workspace_id = 2;
+  // The display name.
+  string name = 3;
+  // True if the App is an agent: it can run jobs and open the stream of AgentService.
+  bool runner = 4;
+  // The actor that created the App.
+  scylla.common.v1.Id created_by = 5;
+  // The creation time.
+  google.protobuf.Timestamp created_at = 6;
+  // True while the agent has an open stream on this server.
+  bool connected = 7;
+  // The last time that the agent opened its stream, renewed its token or closed its stream. Not
+  // set before its first stream.
+  google.protobuf.Timestamp last_seen_at = 8;
+  // The host of the agent, from the hello of its last stream. Not set before its first stream.
+  Host host = 9;
+}
+
+// The machine of an agent, as the agent tells it in its hello.
+message Host {
+  // The version of the agent.
+  string version = 1;
+  // The operating system, for example linux.
+  string os = 2;
+  // The CPU architecture, for example x86_64.
+  string arch = 3;
+  // The host name.
+  string hostname = 4;
+  // The number of CPUs.
+  uint32 cpu_count = 5;
+  // The memory in bytes.
+  uint64 memory_bytes = 6;
+  // The largest number of jobs that the agent runs at the same time, at least 1.
+  uint32 capacity = 7;
+  // The container runtime of the agent, for example docker. Empty if the agent has none: a step
+  // in a container never goes to this agent.
+  string container_runtime = 8;
+}
+
+// A public key of an App.
+message AppKey {
+  // The id of the key, to put in each AppAssertion.
+  scylla.common.v1.Id id = 1;
+  // The Ed25519 public key, 32 bytes.
+  bytes public_key = 2;
+  // The time when the key was added.
+  google.protobuf.Timestamp created_at = 3;
+  // The time when the key was revoked. Not set for an active key.
+  google.protobuf.Timestamp revoked_at = 4;
+}

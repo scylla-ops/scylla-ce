@@ -62,6 +62,7 @@ syn = "3.0.9"
 thiserror = "2.0.21"
 time = "0.3.55"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
+tokio-stream = "0.1.19"
 tonic = { version = "0.14.9", default-features = false, features = ["codegen", "router", "transport", "tls-ring"] }
 tonic-health = { version = "0.14.9", default-features = false }
 tonic-prost = "0.14.9"

@@ -6,10 +6,10 @@ use std::time::Duration;
 use biscuit_auth::Biscuit;
 use scylla_domain::authz::{Check, Object, Relationship, Schema};
 use scylla_domain::identity::actors::{Actor, ActorId};
-use scylla_domain::identity::users::{self, SessionId};
+use scylla_domain::identity::{apps, users};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{
-    async_trait, AccessError, Gate, IssuedToken, Operation, Principal, RolePage,
+    async_trait, AccessError, Binding, Gate, IssuedToken, Operation, Principal, RolePage,
 };
 use spicedb_grpc_tonic::v1::relationship_update::Operation as Update;
 use sqlx::PgPool;
@@ -116,29 +116,36 @@ impl Access {
         Ok(ids.iter().take(1).map(hex::encode).collect())
     }
 
-    /// Makes a token for an actor, valid for `ttl`, in the session of a user that signed in.
+    /// Makes a token for an actor, valid for `ttl`, bound to a session or a key.
     pub fn issue_for(
         &self,
         actor: &Actor,
         ttl: Duration,
-        session: Option<SessionId>,
+        binding: Binding,
     ) -> Result<IssuedToken, AccessError> {
         // Set the expiry, in whole seconds, then sign the claims.
         let now = OffsetDateTime::now_utc()
             .replace_nanosecond(0)
             .unwrap_or(OffsetDateTime::now_utc());
         let expires_at = now + ttl;
-        let value = sign(&self.keys, actor, expires_at, session)?;
+        let value = sign(&self.keys, actor, expires_at, binding)?;
         Ok(IssuedToken { value, expires_at })
     }
 
-    /// Returns `true` if a token cannot pass: a revocation id of it is revoked, its session is
-    /// revoked or expired, or its user is disabled or deleted.
+    /// Returns `true` if a token cannot pass: a revocation id of it is revoked, its session or
+    /// its key is revoked, its session is expired, or its user or App is gone or disabled.
     async fn is_refused(&self, token: &Biscuit, claims: &Claims) -> Result<bool, AccessError> {
         let ids = token.revocation_identifiers();
-        let user = claims.actor.kind == users::KIND;
+        let facts = store::TokenFacts {
+            ids: &ids,
+            actor: claims.actor.id,
+            user: claims.actor.kind == users::KIND,
+            app: claims.actor.kind == apps::KIND,
+            session: claims.session(),
+            key: claims.key(),
+        };
         let mut tx = self.pool.begin().await.map_err(store::failed)?;
-        let refused = store::is_refused(&mut tx, &ids, claims.actor.id, user, claims.session)
+        let refused = store::is_refused(&mut tx, &facts)
             .await
             .map_err(store::failed)?;
         tx.commit().await.map_err(store::failed)?;
@@ -177,11 +184,14 @@ impl Gate for Access {
         call.record("actor", tracing::field::display(claims.actor.id));
         call.record("actor_kind", claims.actor.kind.as_str());
         let token = Arc::new(token);
+        let expires_at = OffsetDateTime::from_unix_timestamp(claims.expires)
+            .map_err(|_| unauthenticated("invalid expiry"))?;
         Ok(Principal::new(
             claims.actor,
             operation.clone(),
             token,
-            claims.session,
+            claims.binding,
+            expires_at,
         ))
     }
 
@@ -224,8 +234,8 @@ impl Gate for Access {
         }
     }
 
-    fn issue(&self, actor: &Actor, session: Option<SessionId>) -> Result<IssuedToken, AccessError> {
-        self.issue_for(actor, self.token_ttl, session)
+    fn issue(&self, actor: &Actor, binding: Binding) -> Result<IssuedToken, AccessError> {
+        self.issue_for(actor, self.token_ttl, binding)
     }
 
     async fn write(&self, relationships: &[Relationship]) -> Result<String, AccessError> {

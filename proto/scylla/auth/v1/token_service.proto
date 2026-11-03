@@ -3,11 +3,17 @@ syntax = "proto3";
 package scylla.auth.v1;
 
 import "google/protobuf/timestamp.proto";
+import "scylla/common/v1/id.proto";
 
 // Gives short-lived tokens. Each other RPC needs a token in "authorization: Bearer <token>".
 service TokenService {
-  // Exchanges an assertion that an agent signed with its private key for a token.
-  rpc ExchangeAgentAssertion(ExchangeAgentAssertionRequest) returns (ExchangeAgentAssertionResponse);
+  // Exchanges an assertion that an App signed with its private key for a token. A revoked key,
+  // a deleted App, a replayed nonce or a bad signature gives UNAUTHENTICATED.
+  rpc ExchangeAppAssertion(ExchangeAppAssertionRequest) returns (ExchangeAppAssertionResponse);
+  // Uses a join code of an App: the machine of the App sends the public key of a key pair that it
+  // made. The private key never leaves the machine. A code works one time, before its expiry. An
+  // unknown, used or expired code gives UNAUTHENTICATED.
+  rpc JoinApp(JoinAppRequest) returns (JoinAppResponse);
   // Exchanges an OIDC ID token of a person for a token and a session. The issuer of the ID
   // token must be an identity provider of the server. The first exchange can create the user,
   // as the provider and the sign-up mode allow.
@@ -19,18 +25,34 @@ service TokenService {
   rpc SignOut(SignOutRequest) returns (SignOutResponse);
 }
 
-// The input of ExchangeAgentAssertion.
-message ExchangeAgentAssertionRequest {
-  // The encoded AgentAssertion.
+// The input of ExchangeAppAssertion.
+message ExchangeAppAssertionRequest {
+  // The encoded scylla.apps.v1.AppAssertion.
   bytes assertion = 1;
   // The Ed25519 signature of the assertion bytes.
   bytes signature = 2;
 }
 
-// The output of ExchangeAgentAssertion.
-message ExchangeAgentAssertionResponse {
-  // The token.
+// The output of ExchangeAppAssertion.
+message ExchangeAppAssertionResponse {
+  // The token. It stops at once when its key is revoked or its App is deleted.
   IssuedToken token = 1;
+}
+
+// The input of JoinApp.
+message JoinAppRequest {
+  // The join code from AppService.CreateApp or AppService.CreateJoinCode.
+  string join_code = 1;
+  // The Ed25519 public key of the machine, 32 bytes.
+  bytes public_key = 2;
+}
+
+// The output of JoinApp.
+message JoinAppResponse {
+  // The App.
+  scylla.common.v1.Id app_id = 1;
+  // The new key, to put in each AppAssertion.
+  scylla.common.v1.Id key_id = 2;
 }
 
 // The input of ExchangeIdToken.

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT a.id AS \"id!\", a.kind AS \"kind!\", u.display_name AS \"display_name?\", u.handle\n           FROM actors a\n           LEFT JOIN users u ON u.id = a.id\n           WHERE a.id = ANY($1)",
+  "query": "SELECT a.id AS \"id!\", a.kind AS \"kind!\",\n                  coalesce(u.display_name, p.name) AS \"display_name?\", u.handle\n           FROM actors a\n           LEFT JOIN users u ON u.id = a.id\n           LEFT JOIN apps p ON p.id = a.id\n           WHERE a.id = ANY($1)",
   "describe": {
     "columns": [
       {
@@ -29,12 +29,7 @@
         "ordinal": 2,
         "name": "display_name?",
         "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "users",
-            "name": "display_name"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 3,
@@ -56,9 +51,9 @@
     "nullable": [
       true,
       true,
-      false,
+      null,
       true
     ]
   },
-  "hash": "31ece0194f583bad577b44072ba4c2a50cb1a4d8404694a1aecc2dcd21fbaa91"
+  "hash": "2299c80a966a7a30d8be24a80888f800c551c8383607a51392fcf5c522b9232d"
 }

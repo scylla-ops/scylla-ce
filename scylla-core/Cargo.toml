@@ -37,6 +37,7 @@ sqlx.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 tonic-health.workspace = true
 tonic-types.workspace = true
 tonic-web.workspace = true

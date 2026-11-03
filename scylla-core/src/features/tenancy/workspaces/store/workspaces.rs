@@ -202,11 +202,11 @@ pub(crate) async fn lock(tx: &mut Tx<'_>, id: WorkspaceId) -> Result<bool, Error
     Ok(row.is_some())
 }
 
-/// Returns `true` if a workspace holds a project or an agent.
+/// Returns `true` if a workspace holds a project or an App.
 pub(crate) async fn has_content(tx: &mut Tx<'_>, workspace: WorkspaceId) -> Result<bool, Error> {
     let found = sqlx::query_scalar!(
         r#"SELECT (EXISTS (SELECT 1 FROM projects WHERE workspace_id = $1)
-                   OR EXISTS (SELECT 1 FROM agents WHERE workspace_id = $1)) AS "found!""#,
+                   OR EXISTS (SELECT 1 FROM apps WHERE workspace_id = $1)) AS "found!""#,
         workspace.to_db()
     )
     .fetch_one(&mut **tx)

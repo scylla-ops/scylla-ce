@@ -6,7 +6,6 @@ use sqlx::PgPool;
 use tonic::Code;
 
 use crate::identity::accounts::assert_refused;
-use crate::identity::agents::agent_in;
 use crate::{app, assert_code, assert_invalid_field, UNKNOWN_ID};
 
 /// A viewer gets the project after `Grant`, and no more after `Revoke`.
@@ -213,7 +212,7 @@ async fn grant_keeps_an_agent_in_its_workspace(pool: PgPool) {
     let app = app(pool).await;
     let (owner, other) = (app.user().await, app.user().await);
     let workspace = app.workspace_of(owner).await;
-    let (agent, _) = agent_in(&app, owner, workspace).await;
+    let agent = app.app_in(owner, workspace, true).await.0.actor();
     let project = app.create_project(owner, "alpha").await.unwrap();
     let foreign = app.create_project(other, "beta").await.unwrap();
     let (home, abroad) = (workspace.to_string(), text(&foreign.workspace_id));

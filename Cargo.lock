@@ -2633,6 +2633,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tonic-health",
  "tonic-types",
@@ -2694,6 +2695,10 @@ dependencies = [
 name = "scylla-testkit"
 version = "0.1.0"
 dependencies = [
+ "ed25519-dalek 3.0.0",
+ "getrandom 0.4.3",
+ "prost 0.14.4",
+ "prost-types 0.14.4",
  "scylla-core",
  "scylla-domain",
  "scylla-extension",
@@ -2701,6 +2706,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tonic-health",
  "tracing",

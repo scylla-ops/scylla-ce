@@ -1,22 +1,11 @@
-//! The agents: the processes of a workspace that run the steps of a pipeline.
+//! The agents: the Apps that run jobs, with their stream.
 
-use crate::identity::actors::ActorKind;
-use crate::tenancy::workspaces::Workspace;
-use crate::Id;
-
-/// The actor kind of an agent.
-pub const KIND: ActorKind = ActorKind::new("agent");
-
-/// The marker of an agent key id.
-pub enum AgentKey {}
-
-/// The id of a public key of an agent.
-pub type AgentKeyId = Id<AgentKey>;
+use crate::identity::actors::Actor;
 
 crate::authz! {
-    /// The routes of the agents on their workspace.
-    extend Workspace as AgentHolder {
-        /// The route `RegisterAgent`, in this workspace: its admins.
-        permission register_agent = manage;
+    /// The routes of an agent on itself.
+    extend Actor as AgentCaller {
+        /// The route `OpenStream`: an agent opens its own stream.
+        permission open_stream = nil;
     }
 }

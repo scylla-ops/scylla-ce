@@ -1,16 +1,16 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT agent_id, public_key, revoked_at IS NOT NULL AS \"revoked!\"\n           FROM agent_keys WHERE id = $1",
+  "query": "SELECT app_id, public_key, revoked_at IS NOT NULL AS \"revoked!\"\n           FROM app_keys WHERE id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "agent_id",
+        "name": "app_id",
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "agent_keys",
-            "name": "agent_id"
+            "table": "app_keys",
+            "name": "app_id"
           }
         }
       },
@@ -20,7 +20,7 @@
         "type_info": "Bytea",
         "origin": {
           "Table": {
-            "table": "agent_keys",
+            "table": "app_keys",
             "name": "public_key"
           }
         }
@@ -43,5 +43,5 @@
       null
     ]
   },
-  "hash": "bc524a09542bd1b91727ff5a134b4bd94a392bafd8471dd035199465967101af"
+  "hash": "a77306fda2ce9fb60f4db4f12d303f74f166c25308ee54d68dd8ecff9324d32b"
 }

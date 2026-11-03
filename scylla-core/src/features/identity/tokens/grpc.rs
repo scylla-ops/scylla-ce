@@ -2,14 +2,15 @@
 
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::identity::users::KIND;
-use scylla_extension::AccessError;
+use scylla_extension::{AccessError, Binding};
 use scylla_proto::auth::v1 as pb;
 use scylla_proto::auth::v1::token_service_server::{TokenService, TokenServiceServer};
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Request, Response, Status};
 
+use crate::api::parse::ToProto;
 use crate::features::identity::accounts::{deliver, to_proto, AccountContext};
-use crate::features::identity::agents;
+use crate::features::identity::apps;
 use crate::features::identity::providers::Providers;
 use crate::features::identity::sessions::{self, cookie, Client};
 use crate::Error;
@@ -27,18 +28,34 @@ pub(crate) struct TokensGrpc {
 
 #[tonic::async_trait]
 impl TokenService for TokensGrpc {
-    async fn exchange_agent_assertion(
+    async fn exchange_app_assertion(
         &self,
-        request: Request<pb::ExchangeAgentAssertionRequest>,
-    ) -> Result<Response<pb::ExchangeAgentAssertionResponse>, Status> {
+        request: Request<pb::ExchangeAppAssertionRequest>,
+    ) -> Result<Response<pb::ExchangeAppAssertionResponse>, Status> {
         let request = request.into_inner();
         let ctx = self.ctx();
-        let agent =
-            agents::verify_assertion(&ctx.pool, &request.assertion, &request.signature).await?;
-        let token = ctx.gate.issue(&agent, None).map_err(Error::from)?;
-        tracing::info!(event = "agent.signed_in", agent = %agent.id);
-        Ok(Response::new(pb::ExchangeAgentAssertionResponse {
+        let (app, key) =
+            apps::verify_assertion(&ctx.pool, &request.assertion, &request.signature).await?;
+        let token = ctx
+            .gate
+            .issue(&app, Binding::Key(key))
+            .map_err(Error::from)?;
+        tracing::info!(event = "app.signed_in", app = %app.id, %key);
+        Ok(Response::new(pb::ExchangeAppAssertionResponse {
             token: Some(to_proto(token)),
+        }))
+    }
+
+    async fn join_app(
+        &self,
+        request: Request<pb::JoinAppRequest>,
+    ) -> Result<Response<pb::JoinAppResponse>, Status> {
+        let request = request.into_inner();
+        let (app, key) =
+            apps::join(&self.ctx().pool, &request.join_code, &request.public_key).await?;
+        Ok(Response::new(pb::JoinAppResponse {
+            app_id: Some(app.to_proto()),
+            key_id: Some(key.to_proto()),
         }))
     }
 
@@ -53,7 +70,7 @@ impl TokenService for TokensGrpc {
         let token = self
             .ctx()
             .gate
-            .issue(&user, Some(opened.session))
+            .issue(&user, Binding::Session(opened.session))
             .map_err(Error::from)?;
         Ok(Response::new(pb::ExchangeIdTokenResponse {
             token: Some(to_proto(token)),
@@ -77,7 +94,7 @@ impl TokenService for TokensGrpc {
         };
         let token = ctx
             .gate
-            .issue(&actor, Some(opened.session))
+            .issue(&actor, Binding::Session(opened.session))
             .map_err(Error::from)?;
         let (refresh_token, set_cookie) = deliver(ctx, opened, from_cookie);
         let mut response = Response::new(pb::RefreshResponse {

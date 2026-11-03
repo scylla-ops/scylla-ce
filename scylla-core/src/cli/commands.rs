@@ -6,7 +6,7 @@ use std::time::Duration;
 use clap::{Parser, Subcommand};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::Id;
-use scylla_extension::Edition;
+use scylla_extension::{Binding, Edition};
 
 use super::accounts::{self, ProviderCommand, SecretCommand};
 use super::users::{self, UserCommand};
@@ -132,7 +132,7 @@ async fn token(config: &Config, command: TokenCommand, edition: &Edition) -> Res
         TokenCommand::Create { actor, ttl } => {
             let actor = actors::find(&pool, actor).await?;
             let ttl = ttl.map_or(config.token_ttl, Duration::from_secs);
-            let token = access.issue_for(&actor, ttl, None)?;
+            let token = access.issue_for(&actor, ttl, Binding::None)?;
             println!("{}", token.value);
         }
         TokenCommand::Revoke { token } => {

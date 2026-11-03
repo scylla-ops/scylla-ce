@@ -1,7 +1,7 @@
 //! The gRPC handler of `AccountService`. Its RPCs need no token: they make accounts and
 //! sessions.
 
-use scylla_extension::IssuedToken;
+use scylla_extension::{Binding, IssuedToken};
 use scylla_proto::accounts::v1 as pb;
 use scylla_proto::accounts::v1::account_service_server::{AccountService, AccountServiceServer};
 use scylla_proto::auth::v1::IssuedToken as PbToken;
@@ -66,7 +66,7 @@ impl AccountService for AccountsGrpc {
         let token = self
             .ctx
             .gate
-            .issue(&actor, Some(opened.session))
+            .issue(&actor, Binding::Session(opened.session))
             .map_err(Error::from)?;
         let (refresh_token, set_cookie) = deliver(&self.ctx, opened, request.cookie);
         let mut response = Response::new(pb::SignInResponse {

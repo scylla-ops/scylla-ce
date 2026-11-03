@@ -1,10 +1,9 @@
-//! The agents feature: agents with an Ed25519 key pair, and `AgentService` to register them.
+//! The agents feature: the stream of each App that runs jobs, `AgentService`, and the registry of
+//! the open streams of this server.
 
 mod grpc;
-mod plugin;
-mod service;
-mod store;
+mod registry;
+mod stream;
 
-pub(crate) use plugin::Agents;
-pub(crate) use service::workspace_of;
-pub use service::{register, verify_assertion, AUDIENCE};
+pub(crate) use grpc::server;
+pub(crate) use registry::Registry;

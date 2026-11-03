@@ -16,7 +16,7 @@ pub use async_trait::async_trait;
 pub use context::{CreateContext, DeleteContext};
 pub use edition::{Edition, EditionBuilder, Plugin, ServiceContext};
 pub use error::{HookError, Rejection};
-pub use gate::{AccessError, Gate, IssuedToken, Principal, RoleHolder, RolePage};
+pub use gate::{AccessError, Binding, Gate, IssuedToken, Principal, RoleHolder, RolePage};
 pub use grants::{AccessRoutes, FindWorkspace, Grantable, Grants, WorkspaceFuture};
 pub use hooks::{AfterDelete, BeforeCreate, Hooks};
 pub use mail::{Mail, MailError, Mailer};

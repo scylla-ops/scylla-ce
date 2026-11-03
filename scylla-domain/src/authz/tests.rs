@@ -2,7 +2,8 @@
 
 use crate::authz::{Model, Schema, SchemaError};
 use crate::identity::actors::{Actor, ActorId};
-use crate::identity::agents::AgentHolder;
+use crate::identity::agents::AgentCaller;
+use crate::identity::apps::{App, AppHolder};
 use crate::projects::{Project, ProjectCaller, ProjectHolder, ProjectId};
 use crate::tenancy::grants::AccessCaller;
 use crate::tenancy::workspaces::{Workspace, WorkspaceCaller, WorkspaceId};
@@ -24,6 +25,7 @@ definition actor {
     permission create_workspace = nil
     permission list_workspaces = nil
     permission accept_invitation = nil
+    permission open_stream = nil
     permission list_projects = nil
     permission check_permissions = nil
 }
@@ -49,7 +51,13 @@ definition workspace {
     permission list_invitations = manage
     permission revoke_invitation = manage
     permission resend_invitation = manage
-    permission register_agent = manage
+    permission create_app = manage
+    permission get_app = read
+    permission list_apps = read
+    permission delete_app = manage
+    permission create_join_code = manage
+    permission add_app_key = manage
+    permission revoke_app_key = manage
     permission create_project = work
     permission list_projects = read
     permission get_project = read
@@ -59,6 +67,14 @@ definition workspace {
     permission update_secret = manage
     permission delete_secret = manage
     permission list_secrets = work
+}
+
+definition app {
+    permission get_app = nil
+    permission delete_app = nil
+    permission create_join_code = nil
+    permission add_app_key = nil
+    permission revoke_app_key = nil
 }
 
 definition project {
@@ -89,7 +105,9 @@ fn core() -> Schema {
         Actor::part(),
         Workspace::part(),
         WorkspaceCaller::part(),
-        AgentHolder::part(),
+        App::part(),
+        AppHolder::part(),
+        AgentCaller::part(),
         Project::part(),
         ProjectHolder::part(),
         ProjectCaller::part(),

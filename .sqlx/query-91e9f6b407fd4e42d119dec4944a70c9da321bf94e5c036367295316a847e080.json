@@ -1,0 +1,196 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime\n         FROM apps WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "runner",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "runner"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "last_seen_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "last_seen_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "version",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "os",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "os"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "arch",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "arch"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "hostname",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "hostname"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "cpu_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "cpu_count"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "memory_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "memory_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "capacity",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "capacity"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "container_runtime",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "container_runtime"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "91e9f6b407fd4e42d119dec4944a70c9da321bf94e5c036367295316a847e080"
+}

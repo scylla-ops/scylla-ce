@@ -3,7 +3,7 @@
 
 use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::ActorId;
-use scylla_domain::identity::agents;
+use scylla_domain::identity::apps;
 use scylla_domain::tenancy::grants::{AccessCursor, AccessEntry, AccessPage};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::PageSize;
@@ -11,24 +11,24 @@ use scylla_extension::{Gate, Rejection};
 use sqlx::PgPool;
 
 use super::store;
-use crate::features::identity::{actors, agents as agent_feature};
+use crate::features::identity::{actors, apps as app_feature};
 use crate::Error;
 
 /// Passes an actor that can get a role in a workspace: an actor that exists, and that is not an
-/// agent of another workspace. An unknown actor gives `NotFound("actor")`, and an agent of
-/// another workspace `ACTOR_OUTSIDE_WORKSPACE`.
+/// App of another workspace. An unknown actor gives `NotFound("actor")`, and an App of another
+/// workspace `ACTOR_OUTSIDE_WORKSPACE`.
 pub(super) async fn check_actor(
     pool: &PgPool,
     actor: ActorId,
     workspace: WorkspaceId,
 ) -> Result<(), Error> {
     let actor = actors::find(pool, actor).await?;
-    if actor.kind != agents::KIND
-        || agent_feature::workspace_of(pool, actor.id).await? == Some(workspace)
+    if actor.kind != apps::KIND
+        || app_feature::workspace_of(pool, actor.id).await? == Some(workspace)
     {
         return Ok(());
     }
-    let message = "an agent gets roles only in its own workspace";
+    let message = "an app gets roles only in its own workspace";
     Err(Error::Rejected(Rejection::new(
         "ACTOR_OUTSIDE_WORKSPACE",
         message,

@@ -2,18 +2,33 @@
 //! admins.
 
 use scylla_domain::identity::actors::ActorId;
+use scylla_domain::identity::apps::AppKeyId;
 use scylla_domain::identity::users::SessionId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Tx};
 
+/// The facts of a token that can stop it.
+pub(super) struct TokenFacts<'a> {
+    /// The revocation ids of the token.
+    pub(super) ids: &'a [Vec<u8>],
+    /// The actor of the token.
+    pub(super) actor: ActorId,
+    /// `true` if the actor is a user: it must have a row in `users`.
+    pub(super) user: bool,
+    /// `true` if the actor is an App: it must have a row in `apps`.
+    pub(super) app: bool,
+    /// The session of the token.
+    pub(super) session: Option<SessionId>,
+    /// The App key of the token.
+    pub(super) key: Option<AppKeyId>,
+}
+
 /// Returns `true` if a token cannot pass: one of its revocation ids is revoked, its session is
-/// revoked or expired, or its user is disabled or deleted.
+/// revoked or expired, its user is disabled or deleted, its App is deleted, or its key is
+/// revoked.
 pub(super) async fn is_refused(
     tx: &mut Tx<'_>,
-    ids: &[Vec<u8>],
-    actor: ActorId,
-    user: bool,
-    session: Option<SessionId>,
+    facts: &TokenFacts<'_>,
 ) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar!(
         r#"SELECT (
@@ -23,11 +38,17 @@ pub(super) async fn is_refused(
                OR ($4::uuid IS NOT NULL AND NOT EXISTS (
                    SELECT 1 FROM sessions
                    WHERE id = $4 AND revoked_at IS NULL AND expires_at > now()))
+               OR ($5 AND NOT EXISTS (SELECT 1 FROM apps WHERE id = $2))
+               OR ($6::uuid IS NOT NULL AND NOT EXISTS (
+                   SELECT 1 FROM app_keys
+                   WHERE id = $6 AND app_id = $2 AND revoked_at IS NULL))
            ) AS "refused!""#,
-        ids,
-        actor.to_db(),
-        user,
-        session.map(SessionId::to_db),
+        facts.ids,
+        facts.actor.to_db(),
+        facts.user,
+        facts.session.map(SessionId::to_db),
+        facts.app,
+        facts.key.map(AppKeyId::to_db),
     )
     .fetch_one(&mut **tx)
     .await

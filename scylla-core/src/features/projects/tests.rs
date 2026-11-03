@@ -4,15 +4,15 @@ use std::sync::{Arc, Mutex};
 
 use scylla_domain::authz::{Check, Object, Relationship};
 use scylla_domain::identity::actors::{Actor, ActorId};
-use scylla_domain::identity::users::{Email, NewUser, SessionId};
+use scylla_domain::identity::users::{Email, NewUser};
 use scylla_domain::projects::{NewProject, ProjectDescription, ProjectName, KIND};
 use scylla_domain::tenancy::slugs::Slug;
 use scylla_domain::tenancy::workspaces::{NewSlug, NewWorkspace, WorkspaceId};
 use scylla_domain::{Name, ResourceKind};
 use scylla_extension::{
-    async_trait, AccessError, AfterDelete, BeforeCreate, CreateContext, DeleteContext, Edition,
-    EditionBuilder, Gate, HookError, Hooks, IssuedToken, Operation, Principal, Rejection, RolePage,
-    Tx,
+    async_trait, AccessError, AfterDelete, BeforeCreate, Binding, CreateContext, DeleteContext,
+    Edition, EditionBuilder, Gate, HookError, Hooks, IssuedToken, Operation, Principal, Rejection,
+    RolePage, Tx,
 };
 use sqlx::PgPool;
 use tonic::metadata::MetadataMap;
@@ -44,11 +44,7 @@ impl Gate for NoGate {
         Ok(())
     }
 
-    fn issue(
-        &self,
-        _actor: &Actor,
-        _session: Option<SessionId>,
-    ) -> Result<IssuedToken, AccessError> {
+    fn issue(&self, _actor: &Actor, _binding: Binding) -> Result<IssuedToken, AccessError> {
         Err(AccessError::Unavailable("no gate in unit tests".to_owned()))
     }
 

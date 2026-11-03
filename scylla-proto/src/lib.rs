@@ -27,7 +27,16 @@ pub mod projects {
     }
 }
 
-/// The agents API.
+/// The Apps API: the machine identities of a workspace.
+pub mod apps {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.apps.v1");
+    }
+}
+
+/// The agents API: the stream of an App that runs jobs.
 pub mod agents {
     /// Version 1.
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]

@@ -96,7 +96,8 @@ fn call(line: &Line) -> Parts {
 fn event(name: &str, line: &Line) -> Parts {
     let tag = match name.split('.').next().unwrap_or_default() {
         "mail" => "MAIL",
-        "account" | "password" | "email" | "session" | "agent" => "AUTH",
+        "account" | "password" | "email" | "session" => "AUTH",
+        "app" | "agent" => "APP",
         "user" | "admin" => "ADMIN",
         "access" | "role" | "invitation" | "owner" => "ACCESS",
         "workspace" => "WORKSPACE",
