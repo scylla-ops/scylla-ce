@@ -1,4 +1,4 @@
-//! Unit tests of the contract that the API cannot show: the log line of a refusal.
+//! Unit tests of the contract that the API cannot show: the log event of a refusal.
 
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -23,7 +23,8 @@ impl io::Write for Lines {
     }
 }
 
-/// A refusal logs one WARN line with the actor, the route, the permission and the object.
+/// A refusal logs one WARN event `access.refused` with the actor, the route, the permission and
+/// the object.
 #[test]
 fn a_refusal_logs_one_warn_line() {
     // given
@@ -50,6 +51,7 @@ fn a_refusal_logs_one_warn_line() {
     let text = String::from_utf8(lines.0.lock().unwrap().clone()).unwrap();
     assert_eq!(text.lines().count(), 1, "{text}");
     assert!(text.contains(" WARN "), "{text}");
+    assert!(text.contains("event=\"access.refused\""), "{text}");
     assert!(text.contains(&format!("actor={}", actor.id)), "{text}");
     assert!(text.contains("actor_kind=\"user\""), "{text}");
     assert!(

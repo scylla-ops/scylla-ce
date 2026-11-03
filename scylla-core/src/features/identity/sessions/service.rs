@@ -61,7 +61,8 @@ pub(crate) async fn refresh(pool: &PgPool, refresh: &str) -> Result<(ActorId, Op
     if secret::hash(secret) != row.refresh_hash {
         store::revoke(&mut tx, row.user, session).await?;
         tx.commit().await?;
-        tracing::warn!(%session, "a refresh token was used two times: the session is closed");
+        let user = row.user;
+        tracing::warn!(event = "session.revoked", %user, %session, scope = "reuse");
         return Err(closed());
     }
 
@@ -95,12 +96,18 @@ pub(crate) async fn user_of(pool: &PgPool, refresh: &str) -> Result<Option<Actor
 pub(crate) async fn close(pool: &PgPool, refresh: &str) -> Result<(), Error> {
     let (session, secret) = parse(refresh)?;
     let mut tx = pool.begin().await?;
+    let mut revoked = None;
     if let Some(row) = store::lock(&mut tx, session).await? {
-        if secret::hash(secret) == row.refresh_hash {
-            store::revoke(&mut tx, row.user, session).await?;
+        if secret::hash(secret) == row.refresh_hash
+            && store::revoke(&mut tx, row.user, session).await?
+        {
+            revoked = Some(row.user);
         }
     }
     tx.commit().await?;
+    if let Some(user) = revoked {
+        tracing::info!(event = "session.revoked", %user, %session, scope = "sign_out");
+    }
     Ok(())
 }
 
@@ -120,6 +127,7 @@ pub(crate) async fn close_one(pool: &PgPool, user: ActorId, id: SessionId) -> Re
         return Err(Error::NotFound("session"));
     }
     tx.commit().await?;
+    tracing::info!(event = "session.revoked", %user, session = %id, scope = "one");
     Ok(())
 }
 

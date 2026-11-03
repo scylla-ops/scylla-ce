@@ -91,7 +91,7 @@ impl From<Error> for Status {
             Error::NotFound(_) => Status::not_found(error.to_string()),
             Error::Rejected(rejection) => rejected(rejection),
             error => {
-                tracing::error!(%error, "request failed");
+                tracing::error!(event = "request.failed", %error, "request failed");
                 Status::internal("internal error")
             }
         }

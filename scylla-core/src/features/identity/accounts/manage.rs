@@ -6,11 +6,13 @@ use scylla_domain::identity::admins::{ListUsers, UserPage};
 use scylla_domain::identity::users::{Email, Password, ProfileChange, SessionId, User};
 use scylla_domain::Page;
 use sqlx::PgPool;
+use tracing::Instrument;
 
 use super::one_time::{self, Purpose};
 use super::{deletion, mails, password, refused, store, AccountContext};
 use crate::features::identity::providers::{self, IdentityInfo};
 use crate::features::identity::sessions;
+use crate::infra::logs::mask_email;
 use crate::Error;
 
 /// Returns a user. An unknown user gives `NotFound("user")`.
@@ -58,6 +60,9 @@ pub(crate) async fn change_profile(
     }
     let changed = store::find_user(&mut tx, user).await?;
     tx.commit().await?;
+    if let Some(email) = email {
+        tracing::info!(event = "email.changed", %user, email = mask_email(email.as_str()));
+    }
     changed.ok_or(Error::NotFound("user"))
 }
 
@@ -76,6 +81,7 @@ pub(crate) async fn change_password(
     store::set_password(&mut tx, user, &hash).await?;
     sessions::revoke_all(&mut tx, user, keep).await?;
     tx.commit().await?;
+    tracing::info!(event = "password.changed", %user, via = "profile");
     Ok(())
 }
 
@@ -128,6 +134,8 @@ pub(crate) async fn revoke_sessions(
     }
     sessions::revoke_all(&mut tx, user, keep).await?;
     tx.commit().await?;
+    let scope = if keep.is_some() { "others" } else { "all" };
+    tracing::info!(event = "session.revoked", %user, scope);
     Ok(())
 }
 
@@ -144,10 +152,11 @@ pub(crate) async fn request_email_change(
     let mut tx = ctx.pool.begin().await?;
     check_password(&mut tx, user, current, "password").await?;
     tx.commit().await?;
+    tracing::info!(event = "email.change_requested", %user, email = mask_email(email.as_str()));
 
     // Make and send the link in a task, after the answer.
     let ctx = ctx.clone();
-    tokio::spawn(async move {
+    let task = async move {
         let sent = async {
             // Lock the user, then skip a used email and a link sent a short time ago.
             let mut tx = ctx.pool.begin().await?;
@@ -164,13 +173,15 @@ pub(crate) async fn request_email_change(
             let token = one_time::create(&mut tx, Purpose::ChangeEmail, user, email.as_str());
             let token = token.await?;
             tx.commit().await?;
-            mails::send(&ctx, mails::change_email(&ctx, email.as_str(), &token)).await;
+            let mail = mails::change_email(&ctx, email.as_str(), &token);
+            mails::send(&ctx, "change-email", mail).await;
             Ok(())
         };
         if let Err(error) = sent.await {
             tracing::warn!(%error, "a link of an email change was not made");
         }
-    });
+    };
+    tokio::spawn(task.in_current_span());
     Ok(())
 }
 
@@ -198,8 +209,14 @@ pub(crate) async fn confirm_email_change(
     one_time::cancel_all(&mut tx, user).await?;
     let changed = store::find_user(&mut tx, user).await?;
     tx.commit().await?;
+    tracing::info!(event = "email.changed", %user, email = mask_email(new.as_str()));
     if let Some(old) = old.filter(|old| old != new.as_str()) {
-        mails::send(ctx, mails::email_changed(&old, new.as_str())).await;
+        mails::send(
+            ctx,
+            "email-changed",
+            mails::email_changed(&old, new.as_str()),
+        )
+        .await;
     }
     changed.ok_or(Error::NotFound("user"))
 }

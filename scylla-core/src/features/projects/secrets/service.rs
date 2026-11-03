@@ -27,6 +27,8 @@ pub(super) async fn create(
     let mut tx = pool.begin().await?;
     let secret = store::insert(&mut tx, id, &new, &sealed).await?;
     tx.commit().await?;
+    let (project, name) = (secret.project_id, secret.name.as_str());
+    tracing::info!(event = "secret.created", secret = %id, %project, name);
     Ok(secret)
 }
 
@@ -44,6 +46,8 @@ pub(super) async fn update(
         .await?
         .ok_or(Error::NotFound("secret"))?;
     tx.commit().await?;
+    let (project, name) = (secret.project_id, secret.name.as_str());
+    tracing::info!(event = "secret.updated", secret = %id, %project, name);
     Ok(secret)
 }
 
@@ -54,6 +58,7 @@ pub(super) async fn delete(pool: &PgPool, id: SecretId) -> Result<(), Error> {
         return Err(Error::NotFound("secret"));
     }
     tx.commit().await?;
+    tracing::info!(event = "secret.deleted", secret = %id);
     Ok(())
 }
 

@@ -171,8 +171,11 @@ impl Gate for Access {
             return Err(unauthenticated("revoked token"));
         }
 
-        // Record the token on the operation, for the route rule.
+        // Record the token on the operation, for the route rule, and the actor on the call.
         operation.set_authenticated();
+        let call = tracing::Span::current();
+        call.record("actor", tracing::field::display(claims.actor.id));
+        call.record("actor_kind", claims.actor.kind.as_str());
         let token = Arc::new(token);
         Ok(Principal::new(
             claims.actor,

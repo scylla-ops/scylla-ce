@@ -37,11 +37,13 @@ axum = "0.8.9"
 base64 = "0.23.1"
 biscuit-auth = { version = "6.0.0", default-features = false, features = ["datalog-macro"] }
 chacha20poly1305 = { version = "0.11.0", features = ["getrandom"] }
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 deunicode = "1.6.2"
 ed25519-dalek = "3.0.0"
 getrandom = "0.4.3"
 hex = "0.4.3"
+http-body = "1.1.0"
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto", "use_pem"] }
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "rustls", "ring", "webpki-roots"] }
 proc-macro2 = "1.0.107"
@@ -67,9 +69,9 @@ tonic-prost-build = { version = "0.14.9", default-features = false }
 tonic-types = "0.14.9"
 tonic-web = "0.14.9"
 tower = { version = "0.5.3", default-features = false }
-tower-http = { version = "0.7.1", default-features = false, features = ["cors", "trace"] }
+tower-http = { version = "0.7.1", default-features = false, features = ["cors"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
-tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "ansi", "std"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"] }
 url = "2.5.8"
 uuid = { version = "1.29.0", features = ["v7"] }
 

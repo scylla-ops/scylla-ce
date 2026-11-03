@@ -7,16 +7,12 @@ use clap::{Parser, Subcommand};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::Id;
 use scylla_extension::Edition;
-use tracing::Level;
-use tracing_subscriber::filter::Targets;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
 
 use super::accounts::{self, ProviderCommand, SecretCommand};
 use super::users::{self, UserCommand};
 use crate::access::{Access, TokenKeys};
 use crate::features::identity::actors;
-use crate::infra::db;
+use crate::infra::{db, logs};
 use crate::{api, Config, Error};
 
 /// The command line of a binary with only the core settings.
@@ -82,12 +78,12 @@ where
     C: AsRef<Config> + fmt::Debug,
 {
     // Install the crypto provider and start the logs.
+    let core = config.as_ref();
     crate::infra::tls::install();
-    init_tracing();
+    logs::init(core.log_format);
     tracing::info!(edition = edition.name(), ?command, ?config, "starting");
 
     // Run the command with the core settings.
-    let core = config.as_ref();
     match command {
         Command::Serve => api::run(core, edition).await,
         Command::Migrate => migrate(core, &edition).await,
@@ -152,25 +148,6 @@ async fn token(config: &Config, command: TokenCommand, edition: &Edition) -> Res
 /// Reads an id from the command line.
 pub(super) fn id<T: ?Sized + 'static>(text: &str) -> Result<Id<T>, String> {
     Id::parse(text).map_err(|error| error.to_string())
-}
-
-/// Starts the logs on stderr with the filter of `RUST_LOG`. The default hides the sqlx logs.
-fn init_tracing() {
-    // Read the filter of `RUST_LOG`, or show INFO and the sqlx warnings.
-    let filter = std::env::var("RUST_LOG")
-        .ok()
-        .and_then(|value| value.parse::<Targets>().ok())
-        .unwrap_or_else(|| {
-            Targets::new()
-                .with_default(Level::INFO)
-                .with_target("sqlx", Level::WARN)
-        });
-
-    // Write the logs to stderr.
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
-        .with(filter)
-        .init();
 }
 
 #[cfg(test)]

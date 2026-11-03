@@ -1,12 +1,11 @@
-//! The layers of the server: tracing and CORS, and the stop signal.
+//! The layers of the server: CORS, and the stop signal.
 
 use std::time::Duration;
 
 use tonic::codegen::http::{HeaderName, Method};
-use tower_http::classify::{GrpcCode, GrpcErrorsAsFailures, SharedClassifier};
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
-use tracing::Level;
+
+use super::request_log::REQUEST_ID;
 
 /// The headers that a gRPC-Web client sends.
 const CORS_REQUEST_HEADERS: [&str; 5] = [
@@ -18,28 +17,12 @@ const CORS_REQUEST_HEADERS: [&str; 5] = [
 ];
 
 /// The headers that a gRPC-Web client must read.
-const CORS_RESPONSE_HEADERS: [&str; 3] = ["grpc-status", "grpc-message", "grpc-status-details-bin"];
-
-/// The trace layer type of the server.
-pub(super) type Trace = TraceLayer<
-    SharedClassifier<GrpcErrorsAsFailures>,
-    DefaultMakeSpan,
-    DefaultOnRequest,
-    DefaultOnResponse,
->;
-
-/// Makes one span and one log line per request. Client errors log as responses, not failures.
-pub(super) fn trace_layer() -> Trace {
-    let classifier = GrpcErrorsAsFailures::new()
-        .with_success(GrpcCode::InvalidArgument)
-        .with_success(GrpcCode::Unauthenticated)
-        .with_success(GrpcCode::PermissionDenied)
-        .with_success(GrpcCode::NotFound)
-        .with_success(GrpcCode::FailedPrecondition);
-    TraceLayer::new(SharedClassifier::new(classifier))
-        .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
-        .on_response(DefaultOnResponse::new().level(Level::INFO))
-}
+const CORS_RESPONSE_HEADERS: [&str; 4] = [
+    "grpc-status",
+    "grpc-message",
+    "grpc-status-details-bin",
+    REQUEST_ID,
+];
 
 /// Lets only the listed web origins call the API from a browser.
 pub(super) fn cors_layer(origins: &[String]) -> CorsLayer {

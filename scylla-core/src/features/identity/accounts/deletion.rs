@@ -42,6 +42,7 @@ pub(crate) async fn delete_user(ctx: &AccountContext, user: ActorId) -> Result<(
     workspaces::leave_all(&mut tx, user).await?;
     store::delete_user(&mut tx, user).await?;
     tx.commit().await?;
+    tracing::info!(event = "user.deleted", %user, workspaces = sole.len());
 
     // Remove the roles of the user and of its workspaces. A failure goes to the log only.
     if let Err(error) = ctx.gate.delete_subject(&Object::of(user)).await {

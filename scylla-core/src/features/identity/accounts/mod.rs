@@ -23,7 +23,7 @@ pub(crate) use manage::{change_profile, get_user, list_users, revoke_sessions};
 pub(crate) use profile::server as profile_server;
 pub(crate) use reset::send_reset;
 pub use service::{create_admin, create_user, PERSONAL};
-pub(crate) use service::{insert_user, refused};
+pub(crate) use service::{created, insert_user, refused, signed_in};
 pub(crate) use store::{
     find_user, lock_user, record_sign_in, set_status, user_of_email, verified_emails,
 };

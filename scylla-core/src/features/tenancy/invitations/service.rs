@@ -14,6 +14,7 @@ use sqlx::PgPool;
 
 use super::store;
 use crate::features::identity::accounts::{mails, refused, verified_emails, AccountContext};
+use crate::infra::logs::mask_email;
 use crate::infra::secret;
 use crate::Error;
 
@@ -55,10 +56,13 @@ pub(crate) async fn create(
     let invitation =
         store::insert(&mut tx, workspace, email.as_str(), role, invited_by, &hash).await?;
     tx.commit().await?;
+    let email = mask_email(&invitation.email);
+    let (id, role) = (invitation.id, &invitation.role);
+    tracing::info!(event = "invitation.created", invitation = %id, %workspace, email, role);
 
     // Send the link to the email only.
     let mail = mails::invitation(ctx, &invitation.email, &name, &token);
-    mails::send(ctx, mail).await;
+    mails::send(ctx, "invitation", mail).await;
     Ok(invitation)
 }
 
@@ -86,6 +90,7 @@ pub(super) async fn revoke(
         return Err(Error::NotFound("invitation"));
     }
     tx.commit().await?;
+    tracing::info!(event = "invitation.revoked", invitation = %id, %workspace);
     Ok(())
 }
 
@@ -115,8 +120,9 @@ pub(super) async fn resend(
         .await?
         .ok_or(Error::NotFound("workspace"))?;
     tx.commit().await?;
+    tracing::info!(event = "invitation.resent", invitation = %id, %workspace);
     let mail = mails::invitation(ctx, &invitation.email, &name, &token);
-    mails::send(ctx, mail).await;
+    mails::send(ctx, "invitation", mail).await;
     Ok(invitation)
 }
 
@@ -174,6 +180,8 @@ pub(crate) async fn accept(
         return Err(not_open());
     }
     tx.commit().await?;
+    let (id, workspace, role) = (invitation.id, invitation.workspace_id, &invitation.role);
+    tracing::info!(event = "invitation.accepted", invitation = %id, %workspace, %user, role);
     Ok(invitation.workspace_id)
 }
 

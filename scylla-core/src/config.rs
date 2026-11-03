@@ -7,6 +7,8 @@ use std::time::Duration;
 
 use clap::Args;
 
+use crate::infra::logs::LogFormat;
+
 /// The core settings. Each flag also reads the environment variable in its doc.
 #[derive(Args, Clone)]
 #[group(id = "core")]
@@ -114,6 +116,11 @@ pub struct Config {
     /// The PEM private key of the server.
     #[arg(long, env = "SCYLLA_TLS_KEY", requires = "tls_cert")]
     pub tls_key: Option<PathBuf>,
+
+    /// The format of the logs on stderr: `pretty` for a person, `json` for a machine, or `auto`:
+    /// pretty in a terminal, else JSON. `RUST_LOG` sets the filter.
+    #[arg(long, env = "SCYLLA_LOG_FORMAT", value_enum, default_value_t = LogFormat::Auto)]
+    pub log_format: LogFormat,
 }
 
 impl AsRef<Config> for Config {
@@ -151,6 +158,7 @@ impl fmt::Debug for Config {
             .field("trust_forwarded_headers", &self.trust_forwarded_headers)
             .field("tls_cert", &self.tls_cert)
             .field("tls_key", &self.tls_key)
+            .field("log_format", &self.log_format)
             .finish()
     }
 }

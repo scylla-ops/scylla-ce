@@ -1,16 +1,23 @@
-//! The texts of the account mails, and their sending. A failed mail goes to the log, with no
-//! link.
+//! The texts of the account mails, and their sending. Each mail goes to the log with its kind
+//! and its masked recipient, never with its body or its link.
 
 use scylla_extension::Mail;
 
 use super::letter::Letter;
 use super::AccountContext;
+use crate::infra::logs::mask_email;
 
-/// Sends a mail, and logs a failure. The request does not fail: the user can ask again.
-pub(crate) async fn send(ctx: &AccountContext, mail: Mail) {
-    let (to, subject) = (mail.to.clone(), mail.subject.clone());
-    if let Err(error) = ctx.mailer.send(mail).await {
-        tracing::warn!(%error, %to, %subject, "a mail was not sent");
+/// Sends a mail of a kind, and logs `mail.sent` or `mail.failed`. The request does not fail:
+/// the user can ask again.
+pub(crate) async fn send(ctx: &AccountContext, kind: &'static str, mail: Mail) {
+    let address = mail.to.clone();
+    let to = mask_email(&address);
+    match ctx.mailer.send(mail).await {
+        Ok(()) => tracing::info!(event = "mail.sent", kind, to),
+        Err(error) => {
+            let error = error.to_string().replace(&address, &to);
+            tracing::warn!(event = "mail.failed", kind, to, error);
+        }
     }
 }
 

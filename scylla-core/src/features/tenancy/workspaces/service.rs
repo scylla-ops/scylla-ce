@@ -21,6 +21,8 @@ pub async fn create(pool: &PgPool, new: NewWorkspace) -> Result<Workspace, Error
     let mut tx = pool.begin().await?;
     let workspace = store::insert(&mut tx, &new).await?;
     tx.commit().await?;
+    let (id, slug) = (workspace.id, &workspace.slug);
+    tracing::info!(event = "workspace.created", workspace = %id, slug);
     Ok(workspace)
 }
 
@@ -102,6 +104,7 @@ pub(super) async fn delete(pool: &PgPool, gate: &dyn Gate, id: WorkspaceId) -> R
     // Delete it with its owners and its invitations.
     store::delete_all(&mut tx, &[id]).await?;
     tx.commit().await?;
+    tracing::info!(event = "workspace.deleted", workspace = %id);
 
     // Remove the roles after the commit. A role that stays reaches no workspace.
     if let Err(error) = gate.delete_object(&Object::of(id)).await {
@@ -119,6 +122,7 @@ pub(super) async fn add_owner(
     let mut tx = pool.begin().await?;
     store::add_owner(&mut tx, workspace, user).await?;
     tx.commit().await?;
+    tracing::info!(event = "owner.added", %workspace, %user);
     Ok(())
 }
 
@@ -150,6 +154,7 @@ pub(super) async fn remove_owner(
         return Err(Error::Rejected(Rejection::new("LAST_OWNER", message)));
     }
     tx.commit().await?;
+    tracing::info!(event = "owner.removed", %workspace, %user);
     Ok(())
 }
 

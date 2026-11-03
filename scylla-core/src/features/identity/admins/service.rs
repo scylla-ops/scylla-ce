@@ -32,6 +32,7 @@ pub async fn grant(pool: &PgPool, user: ActorId) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     store::grant(&mut tx, user).await?;
     tx.commit().await?;
+    tracing::info!(event = "admin.granted", %user);
     Ok(())
 }
 
@@ -46,6 +47,7 @@ pub async fn revoke(pool: &PgPool, user: ActorId) -> Result<(), Error> {
     keep_an_admin(&mut tx, user).await?;
     store::revoke(&mut tx, user).await?;
     tx.commit().await?;
+    tracing::info!(event = "admin.revoked", %user);
     Ok(())
 }
 
@@ -80,6 +82,10 @@ pub(super) async fn set_status(
     accounts::set_status(&mut tx, user, status).await?;
     let changed = accounts::find_user(&mut tx, user).await?;
     tx.commit().await?;
+    match status {
+        UserStatus::Disabled => tracing::info!(event = "user.disabled", %user),
+        _ => tracing::info!(event = "user.enabled", %user),
+    }
     changed.ok_or(Error::NotFound("user"))
 }
 

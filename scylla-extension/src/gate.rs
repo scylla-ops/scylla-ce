@@ -88,29 +88,41 @@ impl AccessError {
     /// Logs the refusal of a check at WARN and makes its answer. A route gives the same refusal
     /// for an object that does not exist, so no caller learns which ids exist.
     pub fn denied(principal: &Principal, check: &Check) -> Self {
-        let reason = format!("{check} is denied");
-        Self::refused(principal, check.permission(), check.object(), reason)
+        log_refusal(principal, check.permission(), check.object(), None);
+        Self::Denied(format!("{check} is denied"))
     }
 
-    /// Logs a refusal at WARN, with the actor, the route, the permission and the object, and
-    /// makes its answer with the reason.
+    /// Logs a refusal at WARN, with the actor, the route, the permission, the object and the
+    /// reason, and makes its answer with the reason.
     pub fn refused(
         principal: &Principal,
         permission: &str,
         object: &dyn fmt::Display,
         reason: String,
     ) -> Self {
-        tracing::warn!(
-            actor = %principal.actor.id,
-            actor_kind = principal.actor.kind.as_str(),
-            operation = principal.operation().as_str(),
-            permission,
-            %object,
-            %reason,
-            "access refused"
-        );
+        log_refusal(principal, permission, object, Some(&reason));
         Self::Denied(reason)
     }
+}
+
+/// Logs the event `access.refused` at WARN. The log of the server puts it on the line of its
+/// call.
+fn log_refusal(
+    principal: &Principal,
+    permission: &str,
+    object: &dyn fmt::Display,
+    reason: Option<&str>,
+) {
+    tracing::warn!(
+        event = "access.refused",
+        actor = %principal.actor.id,
+        actor_kind = principal.actor.kind.as_str(),
+        operation = principal.operation().as_str(),
+        permission,
+        %object,
+        reason,
+        "access refused"
+    );
 }
 
 /// A role of an actor on an object, as the permission system holds it.

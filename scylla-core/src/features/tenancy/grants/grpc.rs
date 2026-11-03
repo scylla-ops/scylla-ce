@@ -100,6 +100,8 @@ impl GrantsGrpc {
         // Give the role to an actor that exists, in the workspace of an agent.
         service::check_actor(&self.pool, actor, workspace).await?;
         self.gate.write(&[relationship]).await?;
+        let object = format!("{name}:{id}");
+        tracing::info!(event = "role.granted", role, object, grantee = %actor);
         Ok(pb::GrantResponse {})
     }
 
@@ -126,6 +128,8 @@ impl GrantsGrpc {
         let (check, _) = self.within(&caller, kind, &id, check).await?;
         self.gate.authorize(&caller, check).await?;
         self.gate.delete(&[relationship]).await?;
+        let object = format!("{name}:{id}");
+        tracing::info!(event = "role.revoked", role, object, grantee = %actor);
         Ok(pb::RevokeResponse {})
     }
 

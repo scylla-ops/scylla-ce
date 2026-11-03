@@ -5,6 +5,8 @@ use lettre::message::{Mailbox, MultiPart};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use scylla_extension::{async_trait, Mail, MailError, Mailer};
 
+use super::logs::mask_email;
+
 /// Sends the mails to an SMTP server.
 pub struct SmtpMailer {
     /// The connection to the server.
@@ -47,13 +49,14 @@ impl Mailer for SmtpMailer {
     }
 }
 
-/// Sends no mail: it logs the recipient and the subject, never the body with its link.
+/// Sends no mail: it logs the masked recipient and the subject, never the body with its link.
 pub struct LogMailer;
 
 #[async_trait]
 impl Mailer for LogMailer {
     async fn send(&self, mail: Mail) -> Result<(), MailError> {
-        tracing::warn!(to = %mail.to, subject = %mail.subject, "no SMTP server: the mail is not sent");
+        let to = mask_email(&mail.to);
+        tracing::warn!(%to, subject = %mail.subject, "no SMTP server: the mail is not sent");
         Ok(())
     }
 }

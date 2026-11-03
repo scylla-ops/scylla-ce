@@ -22,8 +22,8 @@ scylla-testkit (tests only) ──▶ scylla-core
 | `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, the platform, actors, users and handles, slugs, instance admins, workspaces, agents, projects and their secrets, pages |
 | `scylla-extension` | the contract: `Edition`, `Plugin`, hooks, `Gate` |
 | `scylla-proto` | generated code of `proto/` |
-| `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, agents, tokens, projects, secrets, grants, capabilities), mails, the guard against the public dev keys, server, CLI |
-| `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC |
+| `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, agents, tokens, projects, secrets, grants, capabilities), mails, logs, the guard against the public dev keys, server, CLI |
+| `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC, a capture of the log lines |
 | `scylla-ce` | the Community edition binary |
 
 ## Access
@@ -114,6 +114,30 @@ The dev setup has no identity provider: the tests use a fake one. To try a real 
 | `token create --actor <id>` | signs a token, for a first admin or an emergency |
 | `token revoke <token>` | revokes a token and each token made from it |
 
+## Logs
+
+The server and the commands write their logs to stderr.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `SCYLLA_LOG_FORMAT` (`--log-format`) | `auto` | `pretty` for a person, `json` for a machine. `auto` is pretty when stderr is a terminal, else JSON. |
+| `RUST_LOG` | `info`, and `warn` for `sqlx`, `hyper`, `h2`, `tonic`, `tower`, `tower_http` | Replaces the default filter. |
+| `NO_COLOR` | not set | Removes the colors of the pretty format. A pretty line has colors only in a terminal. |
+
+Each call has one line: its result, its route, its duration, its actor and its IP address. A refusal or an error adds a second line with the cause. A business event has its own line with a tag. A CORS preflight has no line.
+
+```text
+19:04:22.113  AUTH      account.created                       user=01a1..1ec  email=l***@example.com
+19:04:22.114  MAIL      verify-email -> l***@example.com      sent
+19:04:22.114  OK        AccountService.SignUp                 302ms  anonymous       127.0.0.1
+19:04:22.741  UNAUTH    AccountService.SignIn                 285ms  anonymous       127.0.0.1
+                        invalid identifier or password
+19:04:24.217  DENIED    WorkspaceService.GetWorkspace          22ms  user 01a1..ba7  127.0.0.1
+                        permission=get_workspace  object=workspace:01a1..ae9
+```
+
+A JSON line has `ts`, `level`, `event` (`rpc` or the name of a business event), `rpc`, `code`, `ms`, `actor`, `ip`, `request_id`, and the fields of the event. Each answer gives its request id in the header `x-request-id`. `DECISIONS.md` (59) lists the business events. A log line never has a password, a token, a cookie, the value of a secret, the body or the link of a mail, or a full email.
+
 ## Deploy
 
 1. Store `SCYLLA_TOKEN_PRIVATE_KEY`, `SCYLLA_SPICEDB_KEY` and `SCYLLA_SECRET_KEY` in a secret store. Make the keys with `token keygen` and `secret keygen`. A key of a `.env` file stops the start. With no `SCYLLA_SECRET_KEY`, the server starts but refuses the secrets of the projects (`SECRET_KEY_MISSING`).
@@ -122,7 +146,7 @@ The dev setup has no identity provider: the tests use a fake one. To try a real 
 4. Run `scylla-ce migrate` one time, as a job. Add the first instance admin with `user create --admin`, and the identity providers with `provider add-oidc` or `provider add-github`.
 5. Start the servers with `scylla-ce serve`. A server stops at start if a migration is missing.
 6. For TLS, set `SCYLLA_TLS_CERT` and `SCYLLA_TLS_KEY`. For browsers, set `SCYLLA_CORS_ORIGINS`: a cookie refresh needs one of these origins. Behind one proxy that adds the client address to `X-Forwarded-For`, set `SCYLLA_TRUST_FORWARDED_HEADERS=true`: a session then keeps the last address of this header, not the address of the proxy.
-7. Probe `grpc.health.v1.Health/Check`. Stop with SIGTERM: the server ends the running requests.
+7. Probe `grpc.health.v1.Health/Check`. Stop with SIGTERM: the server ends the running requests. With no terminal, the logs are JSON lines on stderr.
 8. To rotate the signing key: set a new key and a new `SCYLLA_TOKEN_KEY_ID`, and keep the old public key in `SCYLLA_TOKEN_PUBLIC_KEYS` for one token lifetime. Never keep the public key of the dev signing key: the server does not start with it.
 
 ## Tests
@@ -161,20 +185,22 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Open invitations: the list, the revoke, the resend and its cooldown, one open invitation for each email | `scylla-ce/tests/api/tenancy/open_invitations.rs` |
 | An acceptance at the same time as a revoke or a resend | `scylla-ce/tests/api/tenancy/invitation_races.rs` |
 | Route rule: no check, a group check, the own check, an error | `scylla-ce/tests/api/platform/routes.rs` |
+| Logs: the request id of each answer, one line with its permission and object for a refusal, the reason of a refusal of a rule, no line for a preflight, no secret and no full email in the lines of a sign-up, a sign-in, a reset and the secrets | `scylla-ce/tests/api/platform/logs.rs` |
 | Route permission names, records of the gate | `scylla-extension/src/operation.rs` |
 | Schema of the parts, typed values | `scylla-domain/src/authz/tests.rs` |
 | `authz!`: schema text, checks of the names, errors | `scylla-macros/src/tests.rs` |
 | Hook rollback, order and kind filter | `scylla-core/src/features/projects/tests.rs` |
 | The value of a secret opens only with the id of its secret, and the database has no value in clear | `scylla-core/src/features/projects/secrets/tests.rs` |
 | Config and command line, the guard against the public dev keys | `scylla-core/src/config.rs`, `scylla-core/src/cli/commands.rs`, `scylla-core/src/infra/dev_keys.rs` |
-| The `WARN` line of a refusal | `scylla-extension/src/tests.rs` |
+| The `access.refused` event of a refusal | `scylla-extension/src/tests.rs` |
+| The pretty and JSON lines: alignment, second line, colors, fields, masks | `scylla-core/src/infra/logs/tests.rs` |
 | Slugs and the tokens of the list of the access | `scylla-domain/src/tenancy/slugs.rs`, `grants.rs` |
 | The names and the values of the secrets, a value hidden in `Debug` | `scylla-domain/src/projects/secrets.rs` |
 | Random tokens, PKCE, the encryption of the secrets with and without associated data, cookies, the client of a session, the layout of the mails | `scylla-core/src/infra/secret.rs`, `scylla-core/src/features/identity/sessions/cookie.rs` and `client.rs`, `scylla-core/src/features/identity/accounts/letter.rs` |
 
 ## Releases for the Enterprise edition
 
-The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `platform`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`. The `Gate` trait has `delete_subject`, `subjects`, `roles` and `permissions`, `EditionBuilder::grants` takes `AccessRoutes` and a required search for the workspace, `AccessError::denied` takes the principal and logs the refusal, a `Mail` has an HTML body, and the details of a `Rejection` are texts. The table `workspaces` has a required `slug`. The field `TestApp.sealer` is an `Option`, `NewProject` has a `description`, the table `projects` has a column `description`, a `Name` refuses a control character, and `DomainError` has new variants.
+The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `platform`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`. The `Gate` trait has `delete_subject`, `subjects`, `roles` and `permissions`, `EditionBuilder::grants` takes `AccessRoutes` and a required search for the workspace, `AccessError::denied` takes the principal and logs the event `access.refused`, `Config` has `log_format`, `scylla_core::infra::logs` gives the log layer and the masks, the testkit has `Logs`, a `Mail` has an HTML body, and the details of a `Rejection` are texts. The table `workspaces` has a required `slug`. The field `TestApp.sealer` is an `Option`, `NewProject` has a `description`, the table `projects` has a column `description`, a `Name` refuses a control character, and `DomainError` has new variants.
 
 ## Known limits
 

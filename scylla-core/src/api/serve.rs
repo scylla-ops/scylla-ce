@@ -1,5 +1,5 @@
 //! The gRPC server: gate, operations, gRPC-Web, CORS, TLS, health, the core services, the
-//! browser routes of the sign-in, tracing, timeout and graceful shutdown.
+//! browser routes of the sign-in, the log of each call, timeout and graceful shutdown.
 
 use std::fs;
 use std::future::Future;
@@ -15,6 +15,7 @@ use tonic::transport::{Identity, Server, ServerTlsConfig};
 use tonic_health::ServingStatus;
 use tonic_web::GrpcWebLayer;
 
+use super::request_log::RequestLog;
 use crate::access::{Access, OperationLayer};
 use crate::features::identity::accounts::{self, AccountContext, AccountSettings};
 use crate::features::identity::admins;
@@ -142,6 +143,7 @@ pub async fn serve(
     stop: impl Future<Output = ()>,
 ) -> Result<(), Error> {
     // Make what the account routes share, and the clients of the identity providers.
+    let log = RequestLog::new(options.accounts.trust_forwarded);
     let gate: Arc<dyn Gate> = access;
     let ctx = AccountContext {
         pool: pool.clone(),
@@ -169,13 +171,14 @@ pub async fn serve(
     ));
     edition.add_services(&mut routes, &pool, &gate);
 
-    // Put gRPC-Web on the gRPC routes only, then add the browser routes of the sign-in.
+    // Log the calls inside gRPC-Web, then add the browser routes with their own log.
     let router = routes
         .routes()
         .into_axum_router()
         .layer(OperationLayer)
+        .layer(log)
         .layer(GrpcWebLayer::new())
-        .merge(providers::router(providers));
+        .merge(providers::router(providers).layer(log));
 
     // At the stop signal, report `NOT_SERVING` first.
     let stop = async move {
@@ -193,7 +196,6 @@ pub async fn serve(
     }
     server
         .timeout(options.request_timeout)
-        .layer(super::layers::trace_layer())
         .layer(super::layers::cors_layer(&options.cors_origins))
         .add_routes(Routes::from(router))
         .serve_with_incoming_shutdown(TcpIncoming::from(listener), stop)

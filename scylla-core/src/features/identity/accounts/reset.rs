@@ -3,17 +3,21 @@
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::users::{Email, Password};
+use tracing::Instrument;
 
 use super::one_time::{self, Purpose};
 use super::{mails, password, store, AccountContext};
 use crate::features::identity::sessions;
+use crate::infra::logs::mask_email;
 use crate::Error;
 
 /// Answers at once, then sends a reset link to the email in a task, if the email has an
 /// account. The answer is the same for each email, and an error goes to the log only.
 pub(super) fn request_reset(ctx: &AccountContext, email: Email) {
+    let masked = mask_email(email.as_str());
+    tracing::info!(event = "password.reset_requested", email = masked);
     let ctx = ctx.clone();
-    tokio::spawn(async move {
+    let task = async move {
         let sent = async {
             // Find the user of the email.
             let mut tx = ctx.pool.begin().await?;
@@ -29,7 +33,8 @@ pub(super) fn request_reset(ctx: &AccountContext, email: Email) {
         if let Err(error) = sent.await {
             tracing::warn!(%error, "a reset link was not made");
         }
-    });
+    };
+    tokio::spawn(task.in_current_span());
 }
 
 /// Sends a reset link to the primary email of a user in a task, after the answer. An unknown
@@ -45,12 +50,14 @@ pub(crate) async fn send_reset(ctx: &AccountContext, user: ActorId) -> Result<()
         .ok_or(Error::NotFound("email"))?;
 
     // Make and send the link in a task, after the answer.
+    tracing::info!(event = "password.reset_requested", %user);
     let ctx = ctx.clone();
-    tokio::spawn(async move {
+    let task = async move {
         if let Err(error) = send_link(&ctx, user, &email).await {
             tracing::warn!(%error, "a reset link was not made");
         }
-    });
+    };
+    tokio::spawn(task.in_current_span());
     Ok(())
 }
 
@@ -69,7 +76,12 @@ async fn send_link(ctx: &AccountContext, user: ActorId, email: &str) -> Result<(
     one_time::cancel(&mut tx, Purpose::ResetPassword, user).await?;
     let token = one_time::create(&mut tx, Purpose::ResetPassword, user, email).await?;
     tx.commit().await?;
-    mails::send(ctx, mails::reset_password(ctx, email, &token)).await;
+    mails::send(
+        ctx,
+        "reset-password",
+        mails::reset_password(ctx, email, &token),
+    )
+    .await;
     Ok(())
 }
 
@@ -89,5 +101,6 @@ pub(super) async fn reset_password(
     store::verify_email(&mut tx, redeemed.user, &redeemed.email).await?;
     sessions::revoke_all(&mut tx, redeemed.user, None).await?;
     tx.commit().await?;
+    tracing::info!(event = "password.changed", user = %redeemed.user, via = "reset");
     Ok(())
 }

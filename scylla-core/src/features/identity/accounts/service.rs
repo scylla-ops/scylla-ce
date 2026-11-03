@@ -1,9 +1,9 @@
 //! The logic of the accounts: the creation of a user, sign-up, the check of an email, and the
 //! sign-in with a password.
 
-use scylla_domain::identity::actors::Actor;
+use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::{
-    Email, Handle, Identifier, NewUser, Password, UserStatus, KIND,
+    Email, Handle, Identifier, NewUser, Password, SessionId, UserStatus, KIND,
 };
 use scylla_domain::tenancy::invitations::Invitation;
 use scylla_domain::tenancy::slugs::Slug;
@@ -19,6 +19,7 @@ use crate::features::identity::sessions::{self, Client, Opened};
 use crate::features::identity::{actors, admins};
 use crate::features::tenancy::invitations::{self, Pick};
 use crate::features::tenancy::workspaces;
+use crate::infra::logs::{mask_email, mask_identifier};
 use crate::{Error, SignUpMode};
 
 /// The name of the workspace that a new user gets.
@@ -60,7 +61,14 @@ async fn create(pool: &PgPool, new: NewUser, admin: bool) -> Result<Actor, Error
         admins::grant_in(&mut tx, actor.id).await?;
     }
     tx.commit().await?;
+    created(actor.id, &new.email, admin);
     Ok(actor)
+}
+
+/// Logs the event `account.created`, with the masked email.
+pub(crate) fn created(user: ActorId, email: &Email, admin: bool) {
+    let email = mask_email(email.as_str());
+    tracing::info!(event = "account.created", %user, email, admin = admin.then_some(true));
 }
 
 /// Inserts a user and its parts in the transaction of the caller, with the hash of its password.
@@ -134,7 +142,12 @@ pub(super) async fn sign_up(ctx: &AccountContext, input: SignUp) -> Result<(), E
     let mut tx = ctx.pool.begin().await?;
     if store::user_of_email(&mut tx, &new.email).await?.is_some() {
         tx.commit().await?;
-        mails::send(ctx, mails::account_exists(ctx, new.email.as_str())).await;
+        mails::send(
+            ctx,
+            "account-exists",
+            mails::account_exists(ctx, new.email.as_str()),
+        )
+        .await;
         return Ok(());
     }
     let actor = insert_user(&mut tx, &new, Some(&hash)).await?;
@@ -145,13 +158,19 @@ pub(super) async fn sign_up(ctx: &AccountContext, input: SignUp) -> Result<(), E
         ),
     };
     tx.commit().await?;
+    created(actor.id, &new.email, false);
 
     // Accept the invitation of the link, or send the link that verifies the email.
     if let (Some(_), Some(token)) = (&invitation, &input.invitation) {
         invitations::accept(ctx, Pick::Token(token), actor.id).await?;
     }
     if let Some(token) = verify {
-        mails::send(ctx, mails::verify_email(ctx, new.email.as_str(), &token)).await;
+        mails::send(
+            ctx,
+            "verify-email",
+            mails::verify_email(ctx, new.email.as_str(), &token),
+        )
+        .await;
     }
     Ok(())
 }
@@ -164,6 +183,7 @@ pub(super) async fn verify_email(ctx: &AccountContext, token: &str) -> Result<()
         .ok_or_else(|| Error::invalid("token", "is not a valid link"))?;
     store::verify_email(&mut tx, redeemed.user, &redeemed.email).await?;
     tx.commit().await?;
+    tracing::info!(event = "account.verified", user = %redeemed.user);
     Ok(())
 }
 
@@ -177,6 +197,7 @@ pub(super) async fn sign_in(
     client: &Client,
 ) -> Result<(Actor, Opened), Error> {
     // Read the credentials, and check the password even for an unknown identifier.
+    let masked = mask_identifier(&identifier);
     let credentials = match Identifier::parse(identifier) {
         Ok(identifier) => {
             let mut tx = ctx.pool.begin().await?;
@@ -200,26 +221,38 @@ pub(super) async fn sign_in(
     let credentials = match credentials {
         Some(credentials) if matches => credentials,
         Some(credentials) => {
-            store::record_failure(&mut tx, credentials.user).await?;
+            let now_locked = store::record_failure(&mut tx, credentials.user).await?;
             tx.commit().await?;
+            failed(&masked, if locked { "locked" } else { "password" });
+            if now_locked {
+                tracing::info!(event = "account.locked", user = %credentials.user);
+            }
             return Err(invalid());
         }
-        None => return Err(invalid()),
+        None => {
+            failed(&masked, "unknown");
+            return Err(invalid());
+        }
     };
 
     // Refuse an account that is not active, then open a session.
     match credentials.status {
         UserStatus::Active => {}
         UserStatus::Pending => {
-            return Err(refused("EMAIL_NOT_VERIFIED", "verify your email first"))
+            failed(&masked, "not_verified");
+            return Err(refused("EMAIL_NOT_VERIFIED", "verify your email first"));
         }
-        UserStatus::Disabled => return Err(invalid()),
+        UserStatus::Disabled => {
+            failed(&masked, "disabled");
+            return Err(invalid());
+        }
     }
     store::record_sign_in(&mut tx, credentials.user).await?;
     let methods = ["password".to_owned()];
     let ttl = ctx.settings.session_ttl;
     let opened = sessions::open(&mut tx, credentials.user, &methods, client, ttl).await?;
     tx.commit().await?;
+    signed_in(credentials.user, "password", opened.session);
     let actor = Actor {
         id: credentials.user,
         kind: KIND,
@@ -247,6 +280,16 @@ async fn invitation_for(
 /// Makes a refusal of the account rules: `FAILED_PRECONDITION` with a stable code.
 pub(crate) fn refused(code: &'static str, message: &str) -> Error {
     Error::Rejected(Rejection::new(code, message.to_owned()))
+}
+
+/// Logs the event `account.signed_in`, with the method and the session.
+pub(crate) fn signed_in(user: ActorId, method: &str, session: SessionId) {
+    tracing::info!(event = "account.signed_in", %user, method, %session);
+}
+
+/// Logs the event `account.signin_failed`, with the masked identifier and the reason.
+fn failed(identifier: &str, reason: &'static str) {
+    tracing::info!(event = "account.signin_failed", identifier, reason);
 }
 
 /// The answer of each refused password sign-in.

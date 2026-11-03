@@ -163,7 +163,7 @@ fn failure(error: &Error) -> Response {
         Error::NotFound(_) => StatusCode::NOT_FOUND,
         Error::Rejected(_) => StatusCode::CONFLICT,
         error => {
-            tracing::error!(%error, "a sign-in failed");
+            tracing::error!(event = "request.failed", %error, "a sign-in failed");
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
     };
@@ -171,6 +171,7 @@ fn failure(error: &Error) -> Response {
         Error::Rejected(rejection) => format!("{}: {}", rejection.code, rejection.message),
         error => error.to_string(),
     };
+    tracing::info!(event = "request.refused", message = %text);
     (status, text).into_response()
 }
 

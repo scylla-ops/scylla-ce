@@ -36,7 +36,7 @@ impl TokenService for TokensGrpc {
         let agent =
             agents::verify_assertion(&ctx.pool, &request.assertion, &request.signature).await?;
         let token = ctx.gate.issue(&agent, None).map_err(Error::from)?;
-        tracing::info!(actor = %agent.id, kind = agent.kind.as_str(), "token issued");
+        tracing::info!(event = "agent.signed_in", agent = %agent.id);
         Ok(Response::new(pb::ExchangeAgentAssertionResponse {
             token: Some(to_proto(token)),
         }))
@@ -55,7 +55,6 @@ impl TokenService for TokensGrpc {
             .gate
             .issue(&user, Some(opened.session))
             .map_err(Error::from)?;
-        tracing::info!(actor = %user.id, kind = user.kind.as_str(), "token issued");
         Ok(Response::new(pb::ExchangeIdTokenResponse {
             token: Some(to_proto(token)),
             refresh_token: opened.refresh,

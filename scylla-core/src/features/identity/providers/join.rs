@@ -35,6 +35,7 @@ pub(super) async fn sign_in(
         accounts::record_sign_in(&mut tx, user).await?;
         let opened = sessions::open(&mut tx, user, &methods, client, ttl).await?;
         tx.commit().await?;
+        accounts::signed_in(user, &provider.slug, opened.session);
         return Ok((
             Actor {
                 id: user,
@@ -81,6 +82,8 @@ pub(super) async fn sign_in(
     accounts::record_sign_in(&mut tx, actor.id).await?;
     let opened = sessions::open(&mut tx, actor.id, &methods, client, ttl).await?;
     tx.commit().await?;
+    accounts::created(actor.id, &new.email, false);
+    accounts::signed_in(actor.id, &provider.slug, opened.session);
 
     // Accept the invitation of the email.
     if let Some(invitation) = invitation {

@@ -50,22 +50,24 @@ pub(crate) async fn credentials(
 }
 
 /// Records a failed password: after 5 failures, each new one locks the account for longer, up
-/// to one hour. A failure while the account is locked does not count.
-pub(crate) async fn record_failure(tx: &mut Tx<'_>, user: ActorId) -> Result<(), Error> {
-    sqlx::query!(
-        "UPDATE passwords
+/// to one hour. A failure while the account is locked does not count. Returns `true` if the
+/// failure locks the account.
+pub(crate) async fn record_failure(tx: &mut Tx<'_>, user: ActorId) -> Result<bool, Error> {
+    let locked = sqlx::query_scalar!(
+        r#"UPDATE passwords
          SET failed_attempts = failed_attempts + 1,
              locked_until = CASE WHEN failed_attempts + 1 >= 5
                  THEN now() + least(interval '1 hour',
                                     interval '1 minute'
                                         * power(2, least(failed_attempts + 1 - 5, 6)))
                  END
-         WHERE user_id = $1 AND (locked_until IS NULL OR locked_until <= now())",
+         WHERE user_id = $1 AND (locked_until IS NULL OR locked_until <= now())
+         RETURNING locked_until IS NOT NULL AS "locked!""#,
         user.to_db()
     )
-    .execute(&mut **tx)
+    .fetch_optional(&mut **tx)
     .await?;
-    Ok(())
+    Ok(locked.unwrap_or(false))
 }
 
 /// Sets the password of a user, and removes its lock.
