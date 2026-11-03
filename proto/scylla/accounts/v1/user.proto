@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package scylla.accounts.v1;
+
+import "google/protobuf/timestamp.proto";
+import "scylla/common/v1/id.proto";
+
+// A user.
+message User {
+  // The id of the user.
+  scylla.common.v1.Id id = 1;
+  // The display name.
+  string display_name = 2;
+  // The handle. Empty if the user has none.
+  string handle = 3;
+  // The primary email.
+  string email = 4;
+  // The state: pending, active or disabled.
+  string status = 5;
+  // True if the user is an admin of this instance.
+  bool instance_admin = 6;
+  // The creation time.
+  google.protobuf.Timestamp created_at = 7;
+}
+
+// A session: one sign-in on one device.
+message Session {
+  // The id of the session.
+  scylla.common.v1.Id id = 1;
+  // How the user signed in: password, or the slug of a provider.
+  repeated string methods = 2;
+  // The user agent of the sign-in, if the client sent one.
+  string user_agent = 3;
+  // The IP address of the client at the sign-in, if the server knows it.
+  string ip_address = 4;
+  // The time of the sign-in.
+  google.protobuf.Timestamp created_at = 5;
+  // The time of the last refresh.
+  google.protobuf.Timestamp last_used_at = 6;
+  // True for the session of the token of the request.
+  bool current = 7;
+}

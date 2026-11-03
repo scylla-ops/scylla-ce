@@ -1,5 +1,7 @@
 //! The errors of a hook.
 
+use std::fmt;
+
 /// Why a hook stops a write.
 #[derive(Debug, thiserror::Error)]
 pub enum HookError {
@@ -18,8 +20,8 @@ pub struct Rejection {
     pub code: &'static str,
     /// A message for developers and logs.
     pub message: String,
-    /// The numbers that a client shows, for example `used` and `limit`. They become `metadata`.
-    pub details: Vec<(&'static str, i64)>,
+    /// The values that a client shows, for example `used` and `limit`. They become `metadata`.
+    pub details: Vec<(&'static str, String)>,
 }
 
 impl Rejection {
@@ -32,9 +34,9 @@ impl Rejection {
         }
     }
 
-    /// Adds one detail.
-    pub fn detail(mut self, key: &'static str, value: i64) -> Self {
-        self.details.push((key, value));
+    /// Adds one detail: a number or a text.
+    pub fn detail(mut self, key: &'static str, value: impl fmt::Display) -> Self {
+        self.details.push((key, value.to_string()));
         self
     }
 }

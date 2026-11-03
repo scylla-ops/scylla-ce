@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use scylla_domain::authz::{Check, Object, Permission, Relationship, Resource};
-use scylla_domain::identity::actors::Actor;
+use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::SessionId;
 use scylla_domain::Id;
 use time::OffsetDateTime;
@@ -118,6 +118,12 @@ pub trait Gate: Send + Sync + 'static {
 
     /// Deletes all relationships of an object.
     async fn delete_object(&self, object: &Object) -> Result<(), AccessError>;
+
+    /// Deletes all relationships of a subject: each role of an actor, on each object.
+    async fn delete_subject(&self, subject: &Object) -> Result<(), AccessError>;
+
+    /// Returns the actors that have a relation on an object: each actor with a role on it.
+    async fn subjects(&self, object: &Object) -> Result<Vec<ActorId>, AccessError>;
 
     /// Returns the ids of the objects of a definition on which the actor of the principal has a
     /// role that gives a permission. The workspaces that the actor owns are not in the answer:

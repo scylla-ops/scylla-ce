@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (EXISTS (SELECT 1 FROM projects WHERE workspace_id = $1)\n                   OR EXISTS (SELECT 1 FROM agents WHERE workspace_id = $1)) AS \"found!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "found!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4261cac4b0c63583f720e1b23cf7b3736ee0124abfda767ac3c88f13f51c4f25"
+}

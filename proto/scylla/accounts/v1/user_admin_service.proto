@@ -1,0 +1,178 @@
+syntax = "proto3";
+
+package scylla.accounts.v1;
+
+import "scylla/accounts/v1/user.proto";
+import "scylla/common/v1/id.proto";
+import "scylla/common/v1/page.proto";
+
+// The console of the users, for the admins of the instance. Each RPC checks its permission on
+// the platform, and only an instance admin passes: else PERMISSION_DENIED. An unknown user
+// gives NOT_FOUND.
+service UserAdminService {
+  // Lists the users in id order, with a filter on the email, the handle and the display name.
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  // Returns one user.
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  // Creates an active user with a verified email, a password and a personal workspace. A used
+  // email gives FAILED_PRECONDITION with EMAIL_IN_USE, a used handle HANDLE_IN_USE.
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  // Changes the display name, the handle or the primary email of a user. A new email is
+  // verified, and each open link of the user stops.
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  // Activates or disables a user. A disabled user loses each session at once. The caller
+  // cannot change itself (SELF_NOT_ALLOWED), and the last active instance admin stays
+  // (LAST_ADMIN).
+  rpc SetUserStatus(SetUserStatusRequest) returns (SetUserStatusResponse);
+  // Deletes a user, as DeleteAccount of ProfileService does, with the same refusals. The
+  // caller cannot delete itself (SELF_NOT_ALLOWED).
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+  // Sends a link that resets the password to the primary email of a user, after the answer.
+  // The server sends at most one link each 60 seconds for one user.
+  rpc SendPasswordReset(SendPasswordResetRequest) returns (SendPasswordResetResponse);
+  // Lists the open sessions of a user, newest first.
+  rpc ListUserSessions(ListUserSessionsRequest) returns (ListUserSessionsResponse);
+  // Closes each session of a user.
+  rpc RevokeUserSessions(RevokeUserSessionsRequest) returns (RevokeUserSessionsResponse);
+  // Makes a user an admin of the instance. An admin stays an admin.
+  rpc GrantInstanceAdmin(GrantInstanceAdminRequest) returns (GrantInstanceAdminResponse);
+  // Takes the instance admin right from a user. The last active instance admin stays:
+  // FAILED_PRECONDITION with LAST_ADMIN.
+  rpc RevokeInstanceAdmin(RevokeInstanceAdminRequest) returns (RevokeInstanceAdminResponse);
+}
+
+// The input of ListUsers.
+message ListUsersRequest {
+  // A text that the email, the handle or the display name contains, in any case. Empty keeps
+  // each user.
+  string query = 1;
+  // The page to return.
+  scylla.common.v1.PageRequest page = 2;
+}
+
+// The output of ListUsers.
+message ListUsersResponse {
+  // The users of the page, oldest first.
+  repeated User users = 1;
+  // How to get the next page.
+  scylla.common.v1.PageResponse page = 2;
+}
+
+// The input of GetUser.
+message GetUserRequest {
+  // The user. Required.
+  scylla.common.v1.Id user_id = 1;
+}
+
+// The output of GetUser.
+message GetUserResponse {
+  // The user.
+  User user = 1;
+}
+
+// The input of CreateUser.
+message CreateUserRequest {
+  // The email address. Required.
+  string email = 1;
+  // The display name, 1 to 100 characters after trim.
+  string display_name = 2;
+  // The handle. Empty for none.
+  string handle = 3;
+  // The password, 8 to 128 characters.
+  string password = 4;
+}
+
+// The output of CreateUser.
+message CreateUserResponse {
+  // The new user.
+  User user = 1;
+}
+
+// The input of UpdateUser. A field that is not set does not change.
+message UpdateUserRequest {
+  // The user. Required.
+  scylla.common.v1.Id user_id = 1;
+  // The new display name, 1 to 100 characters after trim.
+  optional string display_name = 2;
+  // The new handle. An empty text removes the handle.
+  optional string handle = 3;
+  // The new primary email. It replaces the old email, and it is verified.
+  optional string email = 4;
+}
+
+// The output of UpdateUser.
+message UpdateUserResponse {
+  // The user after the change.
+  User user = 1;
+}
+
+// The input of SetUserStatus.
+message SetUserStatusRequest {
+  // The user. Required.
+  scylla.common.v1.Id user_id = 1;
+  // The new state: active or disabled.
+  string status = 2;
+}
+
+// The output of SetUserStatus.
+message SetUserStatusResponse {
+  // The user after the change.
+  User user = 1;
+}
+
+// The input of DeleteUser.
+message DeleteUserRequest {
+  // The user. Required.
+  scylla.common.v1.Id user_id = 1;
+}
+
+// The output of DeleteUser.
+message DeleteUserResponse {}
+
+// The input of SendPasswordReset.
+message SendPasswordResetRequest {
+  // The user. Required.
+  scylla.common.v1.Id user_id = 1;
+}
+
+// The output of SendPasswordReset.
+message SendPasswordResetResponse {}
+
+// The input of ListUserSessions.
+message ListUserSessionsRequest {
+  // The user. Required.
+  scylla.common.v1.Id user_id = 1;
+}
+
+// The output of ListUserSessions.
+message ListUserSessionsResponse {
+  // The open sessions of the user, newest first.
+  repeated Session sessions = 1;
+}
+
+// The input of RevokeUserSessions.
+message RevokeUserSessionsRequest {
+  // The user. Required.
+  scylla.common.v1.Id user_id = 1;
+}
+
+// The output of RevokeUserSessions.
+message RevokeUserSessionsResponse {}
+
+// The input of GrantInstanceAdmin.
+message GrantInstanceAdminRequest {
+  // The user. Required.
+  scylla.common.v1.Id user_id = 1;
+}
+
+// The output of GrantInstanceAdmin.
+message GrantInstanceAdminResponse {}
+
+// The input of RevokeInstanceAdmin.
+message RevokeInstanceAdminRequest {
+  // The user. Required.
+  scylla.common.v1.Id user_id = 1;
+}
+
+// The output of RevokeInstanceAdmin.
+message RevokeInstanceAdminResponse {}

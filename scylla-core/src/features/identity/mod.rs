@@ -1,8 +1,9 @@
-//! Who acts: the accounts of the users, their sessions and identity providers, the tokens, the
-//! actors and the agents.
+//! Who acts: the accounts of the users, the instance admins, their sessions and identity
+//! providers, the tokens, the actors and the agents.
 
 pub mod accounts;
 pub mod actors;
+pub mod admins;
 pub mod agents;
 pub mod providers;
 pub mod sessions;

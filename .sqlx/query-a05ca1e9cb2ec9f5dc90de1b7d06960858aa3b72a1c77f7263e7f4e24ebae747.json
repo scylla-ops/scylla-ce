@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (\n               EXISTS (SELECT 1 FROM revoked_tokens WHERE revocation_id = ANY($1))\n               OR EXISTS (SELECT 1 FROM users WHERE id = $2 AND status = 'disabled')\n               OR ($3 AND NOT EXISTS (SELECT 1 FROM users WHERE id = $2))\n               OR ($4::uuid IS NOT NULL AND NOT EXISTS (\n                   SELECT 1 FROM sessions\n                   WHERE id = $4 AND revoked_at IS NULL AND expires_at > now()))\n           ) AS \"refused!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "refused!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "ByteaArray",
+        "Uuid",
+        "Bool",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a05ca1e9cb2ec9f5dc90de1b7d06960858aa3b72a1c77f7263e7f4e24ebae747"
+}

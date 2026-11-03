@@ -1,6 +1,7 @@
 CREATE TABLE users (
     id uuid PRIMARY KEY REFERENCES actors (id),
     display_name text NOT NULL,
+    handle text UNIQUE,
     status text NOT NULL CHECK (status IN ('pending', 'active', 'disabled')),
     created_at timestamptz NOT NULL DEFAULT now(),
     last_sign_in_at timestamptz

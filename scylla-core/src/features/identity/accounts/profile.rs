@@ -1,18 +1,17 @@
 //! The gRPC handler of `ProfileService`: the account of the caller. Each route checks its
 //! permission on the caller itself, and needs a user.
 
-use scylla_domain::authz::Check;
-use scylla_domain::identity::actors::ActorId;
-use scylla_domain::identity::users::{AccountCaller, Password, SessionId, KIND};
+use scylla_domain::authz::Permission;
+use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::identity::users::{AccountCaller, SessionId, KIND};
 use scylla_extension::{AccessError, Principal};
 use scylla_proto::accounts::v1 as pb;
 use scylla_proto::accounts::v1::profile_service_server::{ProfileService, ProfileServiceServer};
 use tonic::{Request, Response, Status};
 
-use super::service::refused;
-use super::{password, store, AccountContext};
+use super::{convert, manage, AccountContext};
 use crate::api::parse::{self, ToProto};
-use crate::features::identity::{providers, sessions};
+use crate::features::identity::sessions;
 use crate::Error;
 
 /// Makes the service.
@@ -26,60 +25,87 @@ pub(crate) struct ProfileGrpc {
     ctx: AccountContext,
 }
 
+/// The answer of a route.
+type Answer<T> = Result<Response<T>, Status>;
+
 #[tonic::async_trait]
 impl ProfileService for ProfileGrpc {
-    async fn get_me(
-        &self,
-        request: Request<pb::GetMeRequest>,
-    ) -> Result<Response<pb::GetMeResponse>, Status> {
+    async fn get_me(&self, request: Request<pb::GetMeRequest>) -> Answer<pb::GetMeResponse> {
         let (_, user) = self.user(&request, AccountCaller::GET_ME).await?;
-        let mut tx = self.ctx.pool.begin().await.map_err(Error::from)?;
-        let found = store::find_user(&mut tx, user).await?;
-        tx.commit().await.map_err(Error::from)?;
-        let user = found.ok_or(Error::NotFound("user"))?;
+        let user = manage::get_user(&self.ctx.pool, user).await?;
         Ok(Response::new(pb::GetMeResponse {
-            user: Some(pb::User {
-                id: Some(user.id.to_proto()),
-                display_name: user.display_name,
-                email: user.email.unwrap_or_default(),
-                status: user.status.as_str().to_owned(),
-                created_at: Some(parse::timestamp(user.created_at)),
-            }),
+            user: Some(user.to_proto()),
+        }))
+    }
+
+    async fn update_profile(
+        &self,
+        request: Request<pb::UpdateProfileRequest>,
+    ) -> Answer<pb::UpdateProfileResponse> {
+        let (_, user) = self.user(&request, AccountCaller::UPDATE_PROFILE).await?;
+        let request = request.into_inner();
+        let change = convert::profile_change(request.display_name, request.handle)?;
+        let user = manage::change_profile(&self.ctx.pool, user, &change, None).await?;
+        Ok(Response::new(pb::UpdateProfileResponse {
+            user: Some(user.to_proto()),
+        }))
+    }
+
+    async fn delete_account(
+        &self,
+        request: Request<pb::DeleteAccountRequest>,
+    ) -> Answer<pb::DeleteAccountResponse> {
+        let (_, user) = self.user(&request, AccountCaller::DELETE_ACCOUNT).await?;
+        let password = request.into_inner().password;
+        manage::delete_account(&self.ctx, user, password).await?;
+        Ok(Response::new(pb::DeleteAccountResponse {}))
+    }
+
+    async fn request_email_change(
+        &self,
+        request: Request<pb::RequestEmailChangeRequest>,
+    ) -> Answer<pb::RequestEmailChangeResponse> {
+        let (_, user) = self
+            .user(&request, AccountCaller::REQUEST_EMAIL_CHANGE)
+            .await?;
+        let request = request.into_inner();
+        let email = parse::field(request.new_email, "new_email")?;
+        manage::request_email_change(&self.ctx, user, email, request.password).await?;
+        Ok(Response::new(pb::RequestEmailChangeResponse {}))
+    }
+
+    async fn confirm_email_change(
+        &self,
+        request: Request<pb::ConfirmEmailChangeRequest>,
+    ) -> Answer<pb::ConfirmEmailChangeResponse> {
+        let (_, user) = self
+            .user(&request, AccountCaller::CONFIRM_EMAIL_CHANGE)
+            .await?;
+        let token = request.into_inner().token;
+        let user = manage::confirm_email_change(&self.ctx, user, &token).await?;
+        Ok(Response::new(pb::ConfirmEmailChangeResponse {
+            user: Some(user.to_proto()),
         }))
     }
 
     async fn change_password(
         &self,
         request: Request<pb::ChangePasswordRequest>,
-    ) -> Result<Response<pb::ChangePasswordResponse>, Status> {
-        // Check the caller, the new password, and the current password if the user has one.
+    ) -> Answer<pb::ChangePasswordResponse> {
         let (caller, user) = self.user(&request, AccountCaller::CHANGE_PASSWORD).await?;
         let request = request.into_inner();
-        let new: Password = parse::field(request.new_password, "new_password")?;
-        let mut tx = self.ctx.pool.begin().await.map_err(Error::from)?;
-        if let Some(hash) = store::password_hash(&mut tx, user).await? {
-            if !password::verify(request.current_password, Some(hash)).await {
-                return Err(Error::invalid("current_password", "does not match").into());
-            }
-        }
-
-        // Set the password, and close the other sessions of the user.
-        let hash = password::hash(new.as_str().to_owned()).await?;
-        store::set_password(&mut tx, user, &hash).await?;
-        sessions::revoke_all(&mut tx, user, caller.session()).await?;
-        tx.commit().await.map_err(Error::from)?;
+        let new = parse::field(request.new_password, "new_password")?;
+        let (pool, keep) = (&self.ctx.pool, caller.session());
+        manage::change_password(pool, user, keep, request.current_password, new).await?;
         Ok(Response::new(pb::ChangePasswordResponse {}))
     }
 
     async fn list_identities(
         &self,
         request: Request<pb::ListIdentitiesRequest>,
-    ) -> Result<Response<pb::ListIdentitiesResponse>, Status> {
+    ) -> Answer<pb::ListIdentitiesResponse> {
         let (_, user) = self.user(&request, AccountCaller::LIST_IDENTITIES).await?;
-        let mut tx = self.ctx.pool.begin().await.map_err(Error::from)?;
-        let identities = providers::identities_of(&mut tx, user).await?;
-        let has_password = store::password_hash(&mut tx, user).await?.is_some();
-        tx.commit().await.map_err(Error::from)?;
+        let (identities, has_password) = manage::sign_in_ways(&self.ctx.pool, user).await?;
         Ok(Response::new(pb::ListIdentitiesResponse {
             identities: identities
                 .into_iter()
@@ -97,45 +123,24 @@ impl ProfileService for ProfileGrpc {
     async fn unlink_identity(
         &self,
         request: Request<pb::UnlinkIdentityRequest>,
-    ) -> Result<Response<pb::UnlinkIdentityResponse>, Status> {
-        // Refuse to remove the last way to sign in.
+    ) -> Answer<pb::UnlinkIdentityResponse> {
         let (_, user) = self.user(&request, AccountCaller::UNLINK_IDENTITY).await?;
         let request = request.into_inner();
-        let mut tx = self.ctx.pool.begin().await.map_err(Error::from)?;
-        let identities = providers::identities_of(&mut tx, user).await?;
-        let has_password = store::password_hash(&mut tx, user).await?.is_some();
-        if identities.len() <= 1 && !has_password {
-            let message = "the last way to sign in cannot be removed";
-            return Err(refused("LAST_SIGN_IN_METHOD", message).into());
-        }
-
-        // Remove the identity.
-        if !providers::unlink(&mut tx, user, &request.provider, &request.subject).await? {
-            return Err(Error::NotFound("identity").into());
-        }
-        tx.commit().await.map_err(Error::from)?;
+        let pool = &self.ctx.pool;
+        manage::unlink_identity(pool, user, &request.provider, &request.subject).await?;
         Ok(Response::new(pb::UnlinkIdentityResponse {}))
     }
 
     async fn list_sessions(
         &self,
         request: Request<pb::ListSessionsRequest>,
-    ) -> Result<Response<pb::ListSessionsResponse>, Status> {
+    ) -> Answer<pb::ListSessionsResponse> {
         let (caller, user) = self.user(&request, AccountCaller::LIST_SESSIONS).await?;
-        let mut tx = self.ctx.pool.begin().await.map_err(Error::from)?;
-        let open = sessions::list(&mut tx, user).await?;
-        tx.commit().await.map_err(Error::from)?;
+        let open = sessions::of_user(&self.ctx.pool, user).await?;
         Ok(Response::new(pb::ListSessionsResponse {
             sessions: open
                 .into_iter()
-                .map(|session| pb::Session {
-                    current: caller.session() == Some(session.id),
-                    id: Some(session.id.to_proto()),
-                    methods: session.methods,
-                    user_agent: session.user_agent.unwrap_or_default(),
-                    created_at: Some(parse::timestamp(session.created_at)),
-                    last_used_at: Some(parse::timestamp(session.last_used_at)),
-                })
+                .map(|session| convert::session(session, caller.session()))
                 .collect(),
         }))
     }
@@ -143,15 +148,22 @@ impl ProfileService for ProfileGrpc {
     async fn revoke_session(
         &self,
         request: Request<pb::RevokeSessionRequest>,
-    ) -> Result<Response<pb::RevokeSessionResponse>, Status> {
+    ) -> Answer<pb::RevokeSessionResponse> {
         let (_, user) = self.user(&request, AccountCaller::REVOKE_SESSION).await?;
         let id: SessionId = parse::required(request.into_inner().session_id, "session_id")?;
-        let mut tx = self.ctx.pool.begin().await.map_err(Error::from)?;
-        if !sessions::revoke(&mut tx, user, id).await? {
-            return Err(Error::NotFound("session").into());
-        }
-        tx.commit().await.map_err(Error::from)?;
+        sessions::close_one(&self.ctx.pool, user, id).await?;
         Ok(Response::new(pb::RevokeSessionResponse {}))
+    }
+
+    async fn revoke_other_sessions(
+        &self,
+        request: Request<pb::RevokeOtherSessionsRequest>,
+    ) -> Answer<pb::RevokeOtherSessionsResponse> {
+        let (caller, user) = self
+            .user(&request, AccountCaller::REVOKE_OTHER_SESSIONS)
+            .await?;
+        manage::revoke_sessions(&self.ctx.pool, user, caller.session()).await?;
+        Ok(Response::new(pb::RevokeOtherSessionsResponse {}))
     }
 }
 
@@ -160,11 +172,13 @@ impl ProfileGrpc {
     async fn user<T: Sync>(
         &self,
         request: &Request<T>,
-        permission: scylla_domain::authz::Permission<scylla_domain::identity::actors::Actor>,
+        permission: Permission<Actor>,
     ) -> Result<(Principal, ActorId), Error> {
         let caller = self.ctx.gate.caller(request).await?;
-        let check: Check = permission.on(caller.actor.id);
-        self.ctx.gate.authorize(&caller, check).await?;
+        self.ctx
+            .gate
+            .authorize(&caller, permission.on(caller.actor.id))
+            .await?;
         if caller.actor.kind != KIND {
             let reason = "only a user has an account".to_owned();
             return Err(AccessError::Denied(reason).into());

@@ -62,6 +62,14 @@ impl Gate for NoGate {
         Ok(())
     }
 
+    async fn delete_subject(&self, _subject: &Object) -> Result<(), AccessError> {
+        Ok(())
+    }
+
+    async fn subjects(&self, _object: &Object) -> Result<Vec<ActorId>, AccessError> {
+        Ok(Vec::new())
+    }
+
     async fn lookup(
         &self,
         _principal: &Principal,
@@ -144,6 +152,7 @@ async fn actor(pool: &PgPool) -> Actor {
         email: Email::parse(format!("{}@test.example", ActorId::generate())).unwrap(),
         email_verified: true,
         display_name: Name::parse("Test".to_owned()).unwrap(),
+        handle: None,
         password: None,
     };
     accounts::create_user(pool, new).await.unwrap()

@@ -1,8 +1,12 @@
-//! A mailer that keeps the mails, so a test reads their links.
+//! A mailer that keeps the mails, with their text and HTML bodies, so a test reads their links.
 
 use std::sync::Mutex;
+use std::time::Duration;
 
 use scylla_extension::{async_trait, Mail, MailError, Mailer};
+
+/// The longest time that `wait` waits for a mail.
+const WAIT: Duration = Duration::from_secs(5);
 
 /// The mails that the server of a test sent, oldest first.
 #[derive(Default)]
@@ -22,13 +26,36 @@ impl Mailbox {
             .collect()
     }
 
-    /// Returns the token of the last link to a page of the web app in a mail to an address.
+    /// Waits until an address has `count` mails or more, for a mail that the server sends after
+    /// its answer, and returns them.
+    ///
+    /// # Panics
+    ///
+    /// If the mails do not come in 5 seconds.
+    pub async fn wait(&self, address: &str, count: usize) -> Vec<Mail> {
+        let start = tokio::time::Instant::now();
+        loop {
+            let mails = self.to(address);
+            if mails.len() >= count {
+                return mails;
+            }
+            assert!(
+                start.elapsed() < WAIT,
+                "{address} got {} mails, not {count}",
+                mails.len()
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    /// Returns the token of the last link to a page of the web app in a mail to an address. The
+    /// token is in the fragment of the link: `/<page>#token=<token>`.
     ///
     /// # Panics
     ///
     /// If no mail to the address has such a link.
     pub fn token(&self, address: &str, page: &str) -> String {
-        let marker = format!("/{page}?token=");
+        let marker = format!("/{page}#token=");
         self.to(address)
             .iter()
             .rev()

@@ -9,7 +9,7 @@ use scylla_extension::{AccessError, Tx};
 use sqlx::PgPool;
 use time::OffsetDateTime;
 
-use super::store;
+use super::{store, Client, SessionInfo};
 use crate::infra::secret;
 use crate::Error;
 
@@ -26,14 +26,20 @@ pub(crate) async fn open(
     tx: &mut Tx<'_>,
     user: ActorId,
     methods: &[String],
-    user_agent: Option<&str>,
+    client: &Client,
     ttl: Duration,
 ) -> Result<Opened, Error> {
     let session = SessionId::generate();
     let secret = secret::token();
-    let expires_at = OffsetDateTime::now_utc() + ttl;
-    let hash = secret::hash(&secret);
-    store::insert(tx, session, user, &hash, methods, user_agent, expires_at).await?;
+    let row = store::NewSession {
+        id: session,
+        user,
+        refresh_hash: secret::hash(&secret),
+        methods,
+        client,
+        expires_at: OffsetDateTime::now_utc() + ttl,
+    };
+    store::insert(tx, &row).await?;
     Ok(Opened {
         session,
         refresh: format!("{session}.{secret}"),
@@ -93,6 +99,25 @@ pub(crate) async fn close(pool: &PgPool, refresh: &str) -> Result<(), Error> {
         if secret::hash(secret) == row.refresh_hash {
             store::revoke(&mut tx, row.user, session).await?;
         }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Returns the open sessions of a user, newest first.
+pub(crate) async fn of_user(pool: &PgPool, user: ActorId) -> Result<Vec<SessionInfo>, Error> {
+    let mut tx = pool.begin().await?;
+    let open = store::list(&mut tx, user).await?;
+    tx.commit().await?;
+    Ok(open)
+}
+
+/// Closes one session of a user. A session that is not an open session of the user gives
+/// `NotFound("session")`.
+pub(crate) async fn close_one(pool: &PgPool, user: ActorId, id: SessionId) -> Result<(), Error> {
+    let mut tx = pool.begin().await?;
+    if !store::revoke(&mut tx, user, id).await? {
+        return Err(Error::NotFound("session"));
     }
     tx.commit().await?;
     Ok(())

@@ -1,7 +1,7 @@
-//! The mailers of the core: SMTP, and a log for a server with no SMTP server.
+//! The mailers of the core: SMTP with a text part and an HTML part, and a log for a server with
+//! no SMTP server.
 
-use lettre::message::header::ContentType;
-use lettre::message::Mailbox;
+use lettre::message::{Mailbox, MultiPart};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use scylla_extension::{async_trait, Mail, MailError, Mailer};
 
@@ -37,8 +37,7 @@ impl Mailer for SmtpMailer {
             .from(self.from.clone())
             .to(to)
             .subject(mail.subject)
-            .header(ContentType::TEXT_PLAIN)
-            .body(mail.body)
+            .multipart(MultiPart::alternative_plain_html(mail.body, mail.html))
             .map_err(|error| MailError(format!("the mail is not valid: {error}")))?;
         self.transport
             .send(message)

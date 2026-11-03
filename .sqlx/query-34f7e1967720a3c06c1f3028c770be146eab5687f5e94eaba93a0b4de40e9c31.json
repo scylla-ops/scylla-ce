@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n               SELECT 1 FROM one_time_tokens\n               WHERE email = $1 AND purpose = $2\n                 AND created_at > now() - make_interval(secs => $3)\n           ) AS \"recent!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "recent!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "34f7e1967720a3c06c1f3028c770be146eab5687f5e94eaba93a0b4de40e9c31"
+}

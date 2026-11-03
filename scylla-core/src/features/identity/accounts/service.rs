@@ -2,7 +2,7 @@
 //! sign-in with a password.
 
 use scylla_domain::identity::actors::Actor;
-use scylla_domain::identity::users::{Email, NewUser, Password, UserStatus, KIND};
+use scylla_domain::identity::users::{Email, Identifier, NewUser, Password, UserStatus, KIND};
 use scylla_domain::tenancy::invitations::Invitation;
 use scylla_domain::tenancy::workspaces::NewWorkspace;
 use scylla_domain::Name;
@@ -12,8 +12,8 @@ use time::OffsetDateTime;
 
 use super::one_time::{self, Purpose};
 use super::{mails, password, store, AccountContext};
-use crate::features::identity::actors;
-use crate::features::identity::sessions::{self, Opened};
+use crate::features::identity::sessions::{self, Client, Opened};
+use crate::features::identity::{actors, admins};
 use crate::features::tenancy::invitations;
 use crate::features::tenancy::workspaces;
 use crate::{Error, SignUpMode};
@@ -33,15 +33,29 @@ pub(super) struct SignUp {
     pub(super) invitation: Option<String>,
 }
 
-/// Creates a user, with its email, its password and its personal workspace. A known email gives
-/// `FAILED_PRECONDITION` with `EMAIL_IN_USE`.
+/// Creates a user, with its email, its handle, its password and its personal workspace. A known
+/// email gives `FAILED_PRECONDITION` with `EMAIL_IN_USE`, a known handle `HANDLE_IN_USE`.
 pub async fn create_user(pool: &PgPool, new: NewUser) -> Result<Actor, Error> {
+    create(pool, new, false).await
+}
+
+/// Creates a user as `create_user` does, and makes it an instance admin in the same
+/// transaction.
+pub async fn create_admin(pool: &PgPool, new: NewUser) -> Result<Actor, Error> {
+    create(pool, new, true).await
+}
+
+/// Creates a user, and an instance admin if `admin` is `true`, in one transaction.
+async fn create(pool: &PgPool, new: NewUser, admin: bool) -> Result<Actor, Error> {
     let hash = match &new.password {
         Some(password) => Some(password::hash(password.as_str().to_owned()).await?),
         None => None,
     };
     let mut tx = pool.begin().await?;
     let actor = insert_user(&mut tx, &new, hash.as_deref()).await?;
+    if admin {
+        admins::grant_in(&mut tx, actor.id).await?;
+    }
     tx.commit().await?;
     Ok(actor)
 }
@@ -54,8 +68,7 @@ pub(crate) async fn insert_user(
 ) -> Result<Actor, Error> {
     // Refuse a known email.
     if store::user_of_email(tx, &new.email).await?.is_some() {
-        let message = "an account uses this email";
-        return Err(Error::Rejected(Rejection::new("EMAIL_IN_USE", message)));
+        return Err(store::email_in_use());
     }
 
     // Insert the actor, the user, its email and its password.
@@ -65,7 +78,8 @@ pub(crate) async fn insert_user(
     } else {
         UserStatus::Pending
     };
-    store::insert_user(tx, actor.id, new.display_name.as_str(), status).await?;
+    let handle = new.handle.as_ref().map(|handle| handle.as_str());
+    store::insert_user(tx, actor.id, new.display_name.as_str(), handle, status).await?;
     store::insert_email(tx, actor.id, &new.email, new.email_verified).await?;
     if let Some(hash) = hash {
         store::set_password(tx, actor.id, hash).await?;
@@ -106,6 +120,7 @@ pub(super) async fn sign_up(ctx: &AccountContext, input: SignUp) -> Result<(), E
         email: input.email,
         email_verified: invitation.is_some(),
         display_name: input.display_name,
+        handle: None,
         password: None,
     };
     let mut tx = ctx.pool.begin().await?;
@@ -136,7 +151,7 @@ pub(super) async fn sign_up(ctx: &AccountContext, input: SignUp) -> Result<(), E
 /// Verifies an email with the token of its link, and activates its user.
 pub(super) async fn verify_email(ctx: &AccountContext, token: &str) -> Result<(), Error> {
     let mut tx = ctx.pool.begin().await?;
-    let redeemed = one_time::redeem(&mut tx, Purpose::VerifyEmail, token)
+    let redeemed = one_time::redeem(&mut tx, Purpose::VerifyEmail, token, None)
         .await?
         .ok_or_else(|| Error::invalid("token", "is not a valid link"))?;
     store::verify_email(&mut tx, redeemed.user, &redeemed.email).await?;
@@ -144,18 +159,25 @@ pub(super) async fn verify_email(ctx: &AccountContext, token: &str) -> Result<()
     Ok(())
 }
 
-/// Checks an email and a password, and opens a session. Each refusal has the same answer, and a
-/// locked account is not checked.
+/// Checks an email or a handle and a password, and opens a session. Each refusal has the same
+/// answer: an identifier that is not valid, an unknown one, and a wrong password. A locked
+/// account is not checked.
 pub(super) async fn sign_in(
     ctx: &AccountContext,
-    email: &Email,
+    identifier: String,
     password: String,
-    user_agent: Option<&str>,
+    client: &Client,
 ) -> Result<(Actor, Opened), Error> {
-    // Read the credentials, and check the password even for an unknown email.
-    let mut tx = ctx.pool.begin().await?;
-    let credentials = store::credentials(&mut tx, email).await?;
-    tx.commit().await?;
+    // Read the credentials, and check the password even for an unknown identifier.
+    let credentials = match Identifier::parse(identifier) {
+        Ok(identifier) => {
+            let mut tx = ctx.pool.begin().await?;
+            let credentials = store::credentials(&mut tx, &identifier).await?;
+            tx.commit().await?;
+            credentials
+        }
+        Err(_) => None,
+    };
     let locked = credentials
         .as_ref()
         .and_then(|credentials| credentials.locked_until)
@@ -188,44 +210,13 @@ pub(super) async fn sign_in(
     store::record_sign_in(&mut tx, credentials.user).await?;
     let methods = ["password".to_owned()];
     let ttl = ctx.settings.session_ttl;
-    let opened = sessions::open(&mut tx, credentials.user, &methods, user_agent, ttl).await?;
+    let opened = sessions::open(&mut tx, credentials.user, &methods, client, ttl).await?;
     tx.commit().await?;
     let actor = Actor {
         id: credentials.user,
         kind: KIND,
     };
     Ok((actor, opened))
-}
-
-/// Sends a link that resets the password, if the email has an account. The answer is the same.
-pub(super) async fn request_reset(ctx: &AccountContext, email: &Email) -> Result<(), Error> {
-    let mut tx = ctx.pool.begin().await?;
-    let Some(user) = store::user_of_email(&mut tx, email).await? else {
-        return Ok(());
-    };
-    let token = one_time::create(&mut tx, Purpose::ResetPassword, user, email.as_str()).await?;
-    tx.commit().await?;
-    mails::send(ctx, mails::reset_password(ctx, email.as_str(), &token)).await;
-    Ok(())
-}
-
-/// Sets a new password with the token of a reset link. The link proves the email, and each
-/// session of the user closes.
-pub(super) async fn reset_password(
-    ctx: &AccountContext,
-    token: &str,
-    password: Password,
-) -> Result<(), Error> {
-    let hash = password::hash(password.as_str().to_owned()).await?;
-    let mut tx = ctx.pool.begin().await?;
-    let redeemed = one_time::redeem(&mut tx, Purpose::ResetPassword, token)
-        .await?
-        .ok_or_else(|| Error::invalid("token", "is not a valid link"))?;
-    store::set_password(&mut tx, redeemed.user, &hash).await?;
-    store::verify_email(&mut tx, redeemed.user, &redeemed.email).await?;
-    sessions::revoke_all(&mut tx, redeemed.user, None).await?;
-    tx.commit().await?;
-    Ok(())
 }
 
 /// Finds an open invitation for a sign-up. It must be for the email of the sign-up.
@@ -252,5 +243,5 @@ pub(crate) fn refused(code: &'static str, message: &str) -> Error {
 
 /// The answer of each refused password sign-in.
 fn invalid() -> Error {
-    AccessError::Unauthenticated("invalid email or password".to_owned()).into()
+    AccessError::Unauthenticated("invalid identifier or password".to_owned()).into()
 }

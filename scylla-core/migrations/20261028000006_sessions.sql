@@ -4,6 +4,7 @@ CREATE TABLE sessions (
     refresh_hash bytea NOT NULL,
     methods text[] NOT NULL,
     user_agent text,
+    ip_address inet,
     created_at timestamptz NOT NULL DEFAULT now(),
     last_used_at timestamptz NOT NULL DEFAULT now(),
     expires_at timestamptz NOT NULL,

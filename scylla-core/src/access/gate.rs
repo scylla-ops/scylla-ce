@@ -7,8 +7,8 @@ use std::time::Duration;
 use biscuit_auth::builder::Term;
 use biscuit_auth::{AuthorizerBuilder, Biscuit};
 use scylla_domain::authz::{Check, Object, Relationship, Schema};
-use scylla_domain::identity::actors::Actor;
-use scylla_domain::identity::users::SessionId;
+use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::identity::users::{self, SessionId};
 use scylla_extension::{async_trait, AccessError, Gate, IssuedToken, Operation, Principal};
 use spicedb_grpc_tonic::v1::relationship_update::Operation as Update;
 use sqlx::PgPool;
@@ -132,11 +132,12 @@ impl Access {
     }
 
     /// Returns `true` if a token cannot pass: a revocation id of it is revoked, its session is
-    /// revoked or expired, or its user is disabled.
+    /// revoked or expired, or its user is disabled or deleted.
     async fn is_refused(&self, token: &Biscuit, claims: &Claims) -> Result<bool, AccessError> {
         let ids = token.revocation_identifiers();
+        let user = claims.actor.kind == users::KIND;
         let mut tx = self.pool.begin().await.map_err(store::failed)?;
-        let refused = store::is_refused(&mut tx, &ids, claims.actor.id, claims.session)
+        let refused = store::is_refused(&mut tx, &ids, claims.actor.id, user, claims.session)
             .await
             .map_err(store::failed)?;
         tx.commit().await.map_err(store::failed)?;
@@ -247,6 +248,18 @@ impl Gate for Access {
 
     async fn delete_object(&self, object: &Object) -> Result<(), AccessError> {
         self.spicedb.delete_object(object).await
+    }
+
+    async fn delete_subject(&self, subject: &Object) -> Result<(), AccessError> {
+        self.spicedb.delete_subject(subject).await
+    }
+
+    async fn subjects(&self, object: &Object) -> Result<Vec<ActorId>, AccessError> {
+        let ids = self.spicedb.subjects(object).await?;
+        Ok(ids
+            .iter()
+            .filter_map(|id| ActorId::parse(id).ok())
+            .collect())
     }
 
     async fn lookup(

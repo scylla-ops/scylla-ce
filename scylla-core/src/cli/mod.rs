@@ -3,6 +3,8 @@
 
 mod accounts;
 mod commands;
+mod users;
 
-pub use accounts::{ProviderCommand, SecretCommand, UserCommand};
+pub use accounts::{ProviderCommand, SecretCommand};
 pub use commands::{run, Cli, Command, TokenCommand};
+pub use users::{AdminCommand, UserCommand};

@@ -18,6 +18,12 @@ pub enum DomainError {
     /// The text is not an email address.
     #[error("must be an email address")]
     NotAnEmail,
+    /// The text is not a handle.
+    #[error(
+        "must be 2 to 39 lower case letters, digits, dots, dashes or underscores, \
+         and start with a letter or a digit"
+    )]
+    NotAHandle,
     /// The text is too long after trim.
     #[error("must be at most {max} characters")]
     TooLong {

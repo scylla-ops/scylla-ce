@@ -5,14 +5,15 @@ use scylla_extension::IssuedToken;
 use scylla_proto::accounts::v1 as pb;
 use scylla_proto::accounts::v1::account_service_server::{AccountService, AccountServiceServer};
 use scylla_proto::auth::v1::IssuedToken as PbToken;
-use tonic::metadata::{MetadataMap, MetadataValue};
+use tonic::metadata::MetadataValue;
 use tonic::{Request, Response, Status};
 
+use super::reset;
 use super::service::{self, SignUp};
 use super::AccountContext;
 use crate::api::parse;
 use crate::features::identity::providers;
-use crate::features::identity::sessions::{cookie, Opened};
+use crate::features::identity::sessions::{cookie, Client, Opened};
 use crate::Error;
 
 /// Makes the service.
@@ -55,12 +56,11 @@ impl AccountService for AccountsGrpc {
         &self,
         request: Request<pb::SignInRequest>,
     ) -> Result<Response<pb::SignInResponse>, Status> {
-        // Check the email and the password, and open a session.
-        let agent = user_agent(request.metadata());
+        // Check the identifier and the password, and open a session.
+        let client = Client::of_grpc(&request, self.ctx.settings.trust_forwarded);
         let request = request.into_inner();
-        let email = parse::field(request.email, "email")?;
         let (actor, opened) =
-            service::sign_in(&self.ctx, &email, request.password, agent.as_deref()).await?;
+            service::sign_in(&self.ctx, request.identifier, request.password, &client).await?;
 
         // Sign the first token, and give the refresh token in the response or in a cookie.
         let token = self
@@ -84,7 +84,7 @@ impl AccountService for AccountsGrpc {
         request: Request<pb::RequestPasswordResetRequest>,
     ) -> Result<Response<pb::RequestPasswordResetResponse>, Status> {
         let email = parse::field(request.into_inner().email, "email")?;
-        service::request_reset(&self.ctx, &email).await?;
+        reset::request_reset(&self.ctx, email);
         Ok(Response::new(pb::RequestPasswordResetResponse {}))
     }
 
@@ -94,7 +94,7 @@ impl AccountService for AccountsGrpc {
     ) -> Result<Response<pb::ResetPasswordResponse>, Status> {
         let request = request.into_inner();
         let password = parse::field(request.password, "password")?;
-        service::reset_password(&self.ctx, &request.token, password).await?;
+        reset::reset_password(&self.ctx, &request.token, password).await?;
         Ok(Response::new(pb::ResetPasswordResponse {}))
     }
 
@@ -135,14 +135,6 @@ pub(crate) fn deliver(
         secure,
     );
     (String::new(), MetadataValue::try_from(value).ok())
-}
-
-/// Returns the user agent of a request, at most 200 characters.
-pub(crate) fn user_agent(metadata: &MetadataMap) -> Option<String> {
-    metadata
-        .get("user-agent")
-        .and_then(|value| value.to_str().ok())
-        .map(|agent| agent.chars().take(200).collect())
 }
 
 /// Makes the proto of a token.

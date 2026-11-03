@@ -5,6 +5,7 @@ use scylla_domain::identity::users::{SessionId, UserStatus};
 use scylla_extension::Tx;
 use time::OffsetDateTime;
 
+use super::Client;
 use crate::Error;
 
 /// A session, as a refresh reads it.
@@ -27,31 +28,43 @@ pub struct SessionInfo {
     pub methods: Vec<String>,
     /// The user agent of the sign-in.
     pub user_agent: Option<String>,
+    /// The IP address of the client at the sign-in.
+    pub ip_address: Option<String>,
     /// The time of the sign-in.
     pub created_at: OffsetDateTime,
     /// The time of the last refresh.
     pub last_used_at: OffsetDateTime,
 }
 
+/// The row of a new session.
+pub(super) struct NewSession<'a> {
+    /// The id of the session.
+    pub(super) id: SessionId,
+    /// The user of the session.
+    pub(super) user: ActorId,
+    /// The hash of the first refresh secret.
+    pub(super) refresh_hash: Vec<u8>,
+    /// How the user signed in.
+    pub(super) methods: &'a [String],
+    /// The client of the sign-in.
+    pub(super) client: &'a Client,
+    /// The end of the session.
+    pub(super) expires_at: OffsetDateTime,
+}
+
 /// Inserts a session.
-pub(super) async fn insert(
-    tx: &mut Tx<'_>,
-    id: SessionId,
-    user: ActorId,
-    refresh_hash: &[u8],
-    methods: &[String],
-    user_agent: Option<&str>,
-    expires_at: OffsetDateTime,
-) -> Result<(), Error> {
+pub(super) async fn insert(tx: &mut Tx<'_>, row: &NewSession<'_>) -> Result<(), Error> {
     sqlx::query!(
-        "INSERT INTO sessions (id, user_id, refresh_hash, methods, user_agent, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6)",
-        id.to_db(),
-        user.to_db(),
-        refresh_hash,
-        methods,
-        user_agent,
-        expires_at,
+        "INSERT INTO sessions
+             (id, user_id, refresh_hash, methods, user_agent, ip_address, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6::text::inet, $7)",
+        row.id.to_db(),
+        row.user.to_db(),
+        &row.refresh_hash,
+        row.methods,
+        row.client.user_agent.as_deref(),
+        row.client.ip.map(|ip| ip.to_string()),
+        row.expires_at,
     )
     .execute(&mut **tx)
     .await?;
@@ -123,7 +136,8 @@ pub(crate) async fn revoke_all(
 /// Returns the open sessions of a user, newest first.
 pub(crate) async fn list(tx: &mut Tx<'_>, user: ActorId) -> Result<Vec<SessionInfo>, Error> {
     let rows = sqlx::query!(
-        "SELECT id, methods, user_agent, created_at, last_used_at FROM sessions
+        "SELECT id, methods, user_agent, host(ip_address) AS ip, created_at, last_used_at
+         FROM sessions
          WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
          ORDER BY id DESC",
         user.to_db()
@@ -136,6 +150,7 @@ pub(crate) async fn list(tx: &mut Tx<'_>, user: ActorId) -> Result<Vec<SessionIn
             id: SessionId::from_db(row.id),
             methods: row.methods,
             user_agent: row.user_agent,
+            ip_address: row.ip,
             created_at: row.created_at,
             last_used_at: row.last_used_at,
         })

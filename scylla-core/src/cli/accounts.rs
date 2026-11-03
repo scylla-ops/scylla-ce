@@ -1,37 +1,16 @@
-//! The commands of the operator on the accounts: the users, the identity providers, and the key
-//! of the client secrets.
+//! The commands of the operator on the sign-in: the identity providers, and the key of the
+//! client secrets.
 
 use std::io::BufRead;
 
 use clap::Subcommand;
-use scylla_domain::identity::users::{NewUser, ProviderId};
-use scylla_domain::Name;
+use scylla_domain::identity::users::ProviderId;
 
-use crate::api::parse;
 use crate::api::sealer;
-use crate::features::identity::accounts;
 use crate::features::identity::providers::{self, GitHubSettings, OidcSettings, ProviderRow};
 use crate::infra::db;
 use crate::infra::secret::Sealer;
 use crate::{Config, Error};
-
-/// The commands on the users.
-#[derive(Subcommand, Clone, Debug)]
-pub enum UserCommand {
-    /// Creates an active user with a verified email and its personal workspace, and prints its
-    /// id.
-    Create {
-        /// The email.
-        #[arg(long)]
-        email: String,
-        /// The display name.
-        #[arg(long)]
-        name: String,
-        /// Reads a password from the first line of stdin.
-        #[arg(long)]
-        password_stdin: bool,
-    },
-}
 
 /// The commands on the identity providers. A provider with the same slug is changed, and its
 /// identities stay.
@@ -94,30 +73,6 @@ pub enum ProviderCommand {
 pub enum SecretCommand {
     /// Prints a new key, to store as `SCYLLA_SECRET_KEY`.
     Keygen,
-}
-
-/// Runs a user command.
-pub(super) async fn user(config: &Config, command: UserCommand) -> Result<(), Error> {
-    let UserCommand::Create {
-        email,
-        name,
-        password_stdin,
-    } = command;
-    let new = NewUser {
-        email: parse::field(email, "email")?,
-        email_verified: true,
-        display_name: Name::parse(name)
-            .map_err(|reason| Error::invalid("name", reason.to_string()))?,
-        password: match password_stdin {
-            true => Some(parse::field(stdin_line()?, "password")?),
-            false => None,
-        },
-    };
-    let pool = db::connect(config).await?;
-    let user = accounts::create_user(&pool, new).await?;
-    pool.close().await;
-    println!("{}", user.id);
-    Ok(())
 }
 
 /// Runs a provider command.
@@ -240,7 +195,7 @@ fn seal(config: &Config, secret: &str) -> Result<Vec<u8>, Error> {
 }
 
 /// Reads the first line of stdin, with no line end.
-fn stdin_line() -> Result<String, Error> {
+pub(super) fn stdin_line() -> Result<String, Error> {
     let mut line = String::new();
     std::io::stdin().lock().read_line(&mut line)?;
     Ok(line.trim_end_matches(['\r', '\n']).to_owned())

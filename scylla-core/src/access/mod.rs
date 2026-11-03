@@ -4,6 +4,7 @@ mod claims;
 mod gate;
 mod keys;
 mod operation;
+mod relationships;
 mod rights;
 mod spicedb;
 mod store;

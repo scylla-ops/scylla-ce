@@ -9,7 +9,7 @@ use scylla_extension::AccessError;
 use super::store::{self, ProviderRow};
 use super::ExternalIdentity;
 use crate::features::identity::accounts::{self, refused, AccountContext};
-use crate::features::identity::sessions::{self, Opened};
+use crate::features::identity::sessions::{self, Client, Opened};
 use crate::features::tenancy::invitations;
 use crate::{Error, SignUpMode};
 
@@ -19,7 +19,7 @@ pub(super) async fn sign_in(
     ctx: &AccountContext,
     provider: &ProviderRow,
     identity: ExternalIdentity,
-    user_agent: Option<&str>,
+    client: &Client,
 ) -> Result<(Actor, Opened), Error> {
     // Sign in the user of a known identity, if its account is active.
     let (methods, ttl) = ([provider.slug.clone()], ctx.settings.session_ttl);
@@ -33,7 +33,7 @@ pub(super) async fn sign_in(
             return Err(AccessError::Unauthenticated(reason).into());
         }
         accounts::record_sign_in(&mut tx, user).await?;
-        let opened = sessions::open(&mut tx, user, &methods, user_agent, ttl).await?;
+        let opened = sessions::open(&mut tx, user, &methods, client, ttl).await?;
         tx.commit().await?;
         return Ok((
             Actor {
@@ -72,13 +72,14 @@ pub(super) async fn sign_in(
         display_name: display_name(identity.name, &email),
         email,
         email_verified: true,
+        handle: None,
         password: None,
     };
     let actor = accounts::insert_user(&mut tx, &new, None).await?;
     let email = Some(new.email.as_str());
     store::link(&mut tx, provider.id, &identity.subject, actor.id, email).await?;
     accounts::record_sign_in(&mut tx, actor.id).await?;
-    let opened = sessions::open(&mut tx, actor.id, &methods, user_agent, ttl).await?;
+    let opened = sessions::open(&mut tx, actor.id, &methods, client, ttl).await?;
     tx.commit().await?;
 
     // Accept the invitation of the email.

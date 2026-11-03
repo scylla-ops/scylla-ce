@@ -101,6 +101,11 @@ pub struct Config {
     #[arg(long, env = "SCYLLA_CORS_ORIGINS", value_delimiter = ',')]
     pub cors_origins: Vec<String>,
 
+    /// Reads the client IP address of a sign-in from the last `X-Forwarded-For` address, which
+    /// the proxy adds, in place of the peer address. Set it only behind one proxy that adds it.
+    #[arg(long, env = "SCYLLA_TRUST_FORWARDED_HEADERS")]
+    pub trust_forwarded_headers: bool,
+
     /// The PEM certificate chain of the server. With `--tls-key`, the server uses TLS.
     #[arg(long, env = "SCYLLA_TLS_CERT", requires = "tls_key")]
     pub tls_cert: Option<PathBuf>,
@@ -142,6 +147,7 @@ impl fmt::Debug for Config {
             .field("mail_from", &self.mail_from)
             .field("secret_key", &self.secret_key.as_ref().map(|_| "***"))
             .field("cors_origins", &self.cors_origins)
+            .field("trust_forwarded_headers", &self.trust_forwarded_headers)
             .field("tls_cert", &self.tls_cert)
             .field("tls_key", &self.tls_key)
             .finish()

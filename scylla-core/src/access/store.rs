@@ -1,4 +1,5 @@
-//! The SQL of the gate: the token revocations and the owners of the workspaces.
+//! The SQL of the gate: the token revocations, the owners of the workspaces and the instance
+//! admins.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::users::SessionId;
@@ -6,23 +7,26 @@ use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Tx};
 
 /// Returns `true` if a token cannot pass: one of its revocation ids is revoked, its session is
-/// revoked or expired, or its user is disabled.
+/// revoked or expired, or its user is disabled or deleted.
 pub(super) async fn is_refused(
     tx: &mut Tx<'_>,
     ids: &[Vec<u8>],
     actor: ActorId,
+    user: bool,
     session: Option<SessionId>,
 ) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar!(
         r#"SELECT (
                EXISTS (SELECT 1 FROM revoked_tokens WHERE revocation_id = ANY($1))
                OR EXISTS (SELECT 1 FROM users WHERE id = $2 AND status = 'disabled')
-               OR ($3::uuid IS NOT NULL AND NOT EXISTS (
+               OR ($3 AND NOT EXISTS (SELECT 1 FROM users WHERE id = $2))
+               OR ($4::uuid IS NOT NULL AND NOT EXISTS (
                    SELECT 1 FROM sessions
-                   WHERE id = $3 AND revoked_at IS NULL AND expires_at > now()))
+                   WHERE id = $4 AND revoked_at IS NULL AND expires_at > now()))
            ) AS "refused!""#,
         ids,
         actor.to_db(),
+        user,
         session.map(SessionId::to_db),
     )
     .fetch_one(&mut **tx)
@@ -52,6 +56,16 @@ pub(super) async fn is_owner(
                SELECT 1 FROM workspace_owners WHERE workspace_id = $1 AND user_id = $2
            ) AS "owner!""#,
         workspace.to_db(),
+        actor.to_db(),
+    )
+    .fetch_one(&mut **tx)
+    .await
+}
+
+/// Returns `true` if the actor is an admin of the instance.
+pub(super) async fn is_admin(tx: &mut Tx<'_>, actor: ActorId) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM instance_admins WHERE user_id = $1) AS "admin!""#,
         actor.to_db(),
     )
     .fetch_one(&mut **tx)

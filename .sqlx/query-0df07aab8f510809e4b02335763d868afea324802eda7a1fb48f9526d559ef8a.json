@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE one_time_tokens SET created_at = now() - interval '61 seconds' WHERE user_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0df07aab8f510809e4b02335763d868afea324802eda7a1fb48f9526d559ef8a"
+}

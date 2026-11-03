@@ -17,6 +17,7 @@ use tonic_web::GrpcWebLayer;
 
 use crate::access::{Access, OperationLayer};
 use crate::features::identity::accounts::{self, AccountContext, AccountSettings};
+use crate::features::identity::admins;
 use crate::features::identity::providers::{self, Providers};
 use crate::features::identity::tokens;
 use crate::features::tenancy::invitations;
@@ -55,6 +56,7 @@ impl Default for ServeOptions {
                 sign_up_mode: SignUpMode::InviteOnly,
                 session_ttl: Duration::from_secs(30 * 24 * 60 * 60),
                 web_origins: Vec::new(),
+                trust_forwarded: false,
             },
             mailer: Arc::new(LogMailer),
             sealer: None,
@@ -153,6 +155,7 @@ pub async fn serve(
     routes.add_service(tokens::server(providers.clone()));
     routes.add_service(accounts::account_server(ctx.clone()));
     routes.add_service(accounts::profile_server(ctx.clone()));
+    routes.add_service(admins::server(ctx.clone()));
     routes.add_service(invitations::server(ctx));
     edition.add_services(&mut routes, &pool, &gate);
 

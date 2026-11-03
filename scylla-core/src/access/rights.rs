@@ -1,18 +1,19 @@
-//! The rights of an actor on an object: the owners of the workspace from Postgres, then the
-//! roles from SpiceDB.
+//! The rights of an actor on an object: the instance admins and the owners of the workspace
+//! from Postgres, then the roles from SpiceDB.
 
 use scylla_domain::authz::{Check, Object, Resource, Schema};
 use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::platform::Platform;
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
 use scylla_extension::AccessError;
 use sqlx::PgPool;
 
 use super::{store, SpiceDb};
 
-/// Finds the rights of an actor: the owners of the workspaces in Postgres, and the roles in
-/// SpiceDB.
+/// Finds the rights of an actor: the instance admins and the owners of the workspaces in
+/// Postgres, and the roles in SpiceDB.
 pub(super) struct Rights {
-    /// The database pool, for the owners of the workspaces.
+    /// The database pool, for the instance admins and the owners of the workspaces.
     pub(super) pool: PgPool,
     /// The SpiceDB client, for the roles.
     pub(super) spicedb: SpiceDb,
@@ -21,12 +22,18 @@ pub(super) struct Rights {
 }
 
 impl Rights {
-    /// Returns `true` if the caller is the object itself, or an owner of the workspace of the
-    /// object, or has a role that gives the permission on the object or on its workspace.
+    /// Returns `true` if the caller is the object itself, an instance admin on the platform, an
+    /// owner of the workspace of the object, or has a role that gives the permission on the
+    /// object or on its workspace.
     pub(super) async fn allow(&self, caller: ActorId, check: &Check) -> Result<bool, AccessError> {
         // Pass an actor that acts on itself.
         let object = check.object();
         if object.kind() == Actor::NAME && ActorId::parse(object.id()).ok() == Some(caller) {
+            return Ok(true);
+        }
+
+        // Pass an instance admin on the platform.
+        if object.kind() == Platform::NAME && self.is_admin(caller).await? {
             return Ok(true);
         }
 
@@ -70,5 +77,15 @@ impl Rights {
             .map_err(store::failed)?;
         tx.commit().await.map_err(store::failed)?;
         Ok(owns)
+    }
+
+    /// Returns `true` if the caller is an admin of the instance.
+    async fn is_admin(&self, caller: ActorId) -> Result<bool, AccessError> {
+        let mut tx = self.pool.begin().await.map_err(store::failed)?;
+        let admin = store::is_admin(&mut tx, caller)
+            .await
+            .map_err(store::failed)?;
+        tx.commit().await.map_err(store::failed)?;
+        Ok(admin)
     }
 }

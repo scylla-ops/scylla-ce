@@ -8,10 +8,10 @@ use scylla_proto::auth::v1::token_service_server::{TokenService, TokenServiceSer
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Request, Response, Status};
 
-use crate::features::identity::accounts::{deliver, to_proto, user_agent, AccountContext};
+use crate::features::identity::accounts::{deliver, to_proto, AccountContext};
 use crate::features::identity::agents;
 use crate::features::identity::providers::Providers;
-use crate::features::identity::sessions::{self, cookie};
+use crate::features::identity::sessions::{self, cookie, Client};
 use crate::Error;
 
 /// Makes the service.
@@ -46,11 +46,9 @@ impl TokenService for TokensGrpc {
         &self,
         request: Request<pb::ExchangeIdTokenRequest>,
     ) -> Result<Response<pb::ExchangeIdTokenResponse>, Status> {
-        let agent = user_agent(request.metadata());
+        let client = Client::of_grpc(&request, self.ctx().settings.trust_forwarded);
         let id_token = request.into_inner().id_token;
-        let signed_in = self
-            .providers
-            .sign_in_with_id_token(&id_token, agent.as_deref());
+        let signed_in = self.providers.sign_in_with_id_token(&id_token, &client);
         let (user, opened) = signed_in.await?;
         let token = self
             .ctx()

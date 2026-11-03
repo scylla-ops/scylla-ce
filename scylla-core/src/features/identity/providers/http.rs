@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use axum::extract::{Path, Query, State};
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::http::{header, Extensions, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
@@ -13,7 +13,7 @@ use scylla_extension::AccessError;
 use serde::Deserialize;
 
 use super::service::{Outcome, Providers};
-use crate::features::identity::sessions::{self, cookie};
+use crate::features::identity::sessions::{self, cookie, Client};
 use crate::Error;
 
 /// The lifetime of the cookie of a sign-in.
@@ -83,6 +83,7 @@ async fn callback(
     Path(slug): Path<String>,
     Query(query): Query<CallbackQuery>,
     headers: HeaderMap,
+    extensions: Extensions,
 ) -> Response {
     // Refuse a callback with an error or with no code.
     if query.error.is_some() {
@@ -97,10 +98,12 @@ async fn callback(
     // End the sign-in for this browser.
     let browser = cookie::read(cookies(&headers), cookie::FLOW);
     let signed_in = signed_in(&providers, &headers).await;
-    let agent = headers
-        .get(header::USER_AGENT)
-        .and_then(|value| value.to_str().ok());
-    let callback = providers.callback(&slug, &code, &state, browser.as_deref(), signed_in, agent);
+    let client = Client::of_http(
+        &headers,
+        &extensions,
+        providers.ctx.settings.trust_forwarded,
+    );
+    let callback = providers.callback(&slug, &code, &state, browser.as_deref(), signed_in, &client);
     let settings = &providers.ctx.settings;
     let clear = cookie::clear(cookie::FLOW, settings.secure_cookies());
     match callback.await {

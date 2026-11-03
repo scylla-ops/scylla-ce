@@ -19,10 +19,10 @@ scylla-testkit (tests only) ──▶ scylla-core
 | Crate | Contents |
 |---|---|
 | `scylla-macros` | `authz!`: the permission model in the SpiceDB schema language |
-| `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, actors, users, workspaces, agents, projects, pages |
+| `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, the platform, actors, users and handles, instance admins, workspaces, agents, projects, pages |
 | `scylla-extension` | the contract: `Edition`, `Plugin`, hooks, `Gate` |
 | `scylla-proto` | generated code of `proto/` |
-| `scylla-core` | access (Biscuit, SpiceDB), features (accounts, sessions, providers, invitations, workspaces, actors, agents, tokens, projects, grants, capabilities), mails, server, CLI |
+| `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, agents, tokens, projects, grants, capabilities), mails, server, CLI |
 | `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC |
 | `scylla-ce` | the Community edition binary |
 
@@ -30,13 +30,15 @@ scylla-testkit (tests only) ──▶ scylla-core
 
 | Step | How |
 |---|---|
-| A person signs up | `AccountService.SignUp` with an email and a password, then the link of the mail (`VerifyEmail`). The mode `SCYLLA_SIGN_UP_MODE` is `invite_only` by default: the link of an invitation is necessary. The first user is a user of `user create`. |
-| A person signs in | With a password: `AccountService.SignIn`. In a browser with an identity provider: `/auth/<slug>/start`, then the session cookie. A native client: `TokenService.ExchangeIdToken`. Each sign-in opens a session, and `TokenService.Refresh` gives new tokens. |
+| A person signs up | `AccountService.SignUp` with an email and a password, then the link of the mail (`VerifyEmail`). The mode `SCYLLA_SIGN_UP_MODE` is `invite_only` by default: the link of an invitation is necessary. The first user is a user of `user create --admin`. |
+| A person signs in | With an email or a handle and a password: `AccountService.SignIn`. In a browser with an identity provider: `/auth/<slug>/start`, then the session cookie. A native client: `TokenService.ExchangeIdToken`. Each sign-in opens a session, and `TokenService.Refresh` gives new tokens. |
 | An agent signs in | `AgentService.RegisterAgent` in a workspace (by an admin, with the agent public key), then each time an assertion signed with the agent private key: `TokenService.ExchangeAgentAssertion`. |
 | Each request | `authorization: Bearer <biscuit>`. 10 minutes by default. A holder can attenuate it offline before it gives it to a step. The operation of a request is its gRPC method. |
-| Each route | The permission of the route: the RPC name in snake case. An owner of the workspace passes with no SpiceDB call. Else one SpiceDB call looks for a role on the object or on its workspace. |
+| Each route | The permission of the route: the RPC name in snake case. An owner of the workspace, and an instance admin on the platform, pass with no SpiceDB call. Else one SpiceDB call looks for a role on the object or on its workspace. |
 | A share | `AccessService.Grant` and `Revoke`: a role (`admin`, `member`, `viewer` in a workspace, `admin`, `editor`, `viewer` on a project) for one actor. `InvitationService` invites an email into a workspace. |
 | A list | `ListWorkspaces` and `ListProjects` show only what the caller can see (SpiceDB reverse lookups for the roles). `workspace_id` filters the projects. |
+| An account | `ProfileService`: the profile and the handle, a change of email with a link to the new email, the password, the identities, the sessions (with their IP address), and the deletion of the account. |
+| The users of the instance | `UserAdminService`, for the instance admins only: list, read, create, change, disable, delete, reset link, sessions, and the instance admin right. The last active instance admin stays. |
 
 A workspace contains the projects and the agents. One user or more own it: `WorkspaceService.AddOwner`, `RemoveOwner` and `ListOwners` change and read the owners, and the last owner stays. Each user has a personal workspace. Postgres holds the containers and their owners (`workspace_id`, `workspace_owners`). SpiceDB holds only the roles that a person gives. A creation writes nothing to SpiceDB.
 
@@ -86,11 +88,11 @@ Also Docker, Rust 1.94 or later, `just` and `protoc`. `grpcurl` is optional.
 just run                                   # Postgres, SpiceDB, Mailpit, migrations, schema, server on 127.0.0.1:3000
 echo "$PASSWORD" | just user alice@example.com Alice   # an active user with its personal workspace
 grpcurl -plaintext -import-path proto -proto scylla/accounts/v1/account_service.proto \
-  -d "{\"email\":\"alice@example.com\",\"password\":\"$PASSWORD\"}" \
+  -d "{\"identifier\":\"alice@example.com\",\"password\":\"$PASSWORD\"}" \
   127.0.0.1:3000 scylla.accounts.v1.AccountService/SignIn
 ```
 
-The answer has an access token and a refresh token. Mailpit shows the mails of the server at http://127.0.0.1:58025.
+The answer has an access token and a refresh token. Mailpit shows the mails of the server at http://127.0.0.1:51080.
 
 The dev setup has no identity provider: the tests use a fake one. To try a real one, add it with `provider add-oidc` or `provider add-github`, then open `http://127.0.0.1:3000/auth/<slug>/start` in a browser.
 
@@ -100,7 +102,8 @@ The dev setup has no identity provider: the tests use a fake one. To try a real 
 |---|---|
 | `serve` | serves gRPC, gRPC-Web and the browser routes of the sign-in (the default) |
 | `migrate` | applies the migrations and writes the SpiceDB schema, then stops |
-| `user create --email <email> --name <name> [--password-stdin]` | creates an active user with its personal workspace, and prints its id |
+| `user create --email <email> --name <name> [--handle <handle>] [--password-stdin] [--admin]` | creates an active user with its personal workspace, and prints its id; `--admin` makes it an instance admin |
+| `user admin grant <id>`, `user admin revoke <id>` | gives or takes back the instance admin right; the last active admin stays |
 | `provider add-oidc --slug <slug> --name <name> --issuer <url> --client-id <id> [--client-secret-stdin] [--allow-sign-up]` | adds or changes an OIDC provider |
 | `provider add-github --slug <slug> --name <name> --client-id <id> [--allow-sign-up]` | adds or changes a GitHub provider; the client secret comes from stdin |
 | `provider list`, `provider disable --slug <slug>` | lists the providers, turns one off |
@@ -114,9 +117,9 @@ The dev setup has no identity provider: the tests use a fake one. To try a real 
 1. Store `SCYLLA_TOKEN_PRIVATE_KEY`, `SCYLLA_SPICEDB_KEY` and `SCYLLA_SECRET_KEY` in a secret store. Make the keys with `token keygen` and `secret keygen`.
 2. Run SpiceDB with a Postgres datastore, and set `SCYLLA_SPICEDB_ENDPOINT`.
 3. Set `SCYLLA_API_URL` (the public URL of the server), `SCYLLA_APP_URL` (the web app), `SCYLLA_SMTP_URL` and `SCYLLA_MAIL_FROM`, and choose `SCYLLA_SIGN_UP_MODE`.
-4. Run `scylla-ce migrate` one time, as a job. Add the first admin with `user create`, and the identity providers with `provider add-oidc` or `provider add-github`.
+4. Run `scylla-ce migrate` one time, as a job. Add the first instance admin with `user create --admin`, and the identity providers with `provider add-oidc` or `provider add-github`.
 5. Start the servers with `scylla-ce serve`. A server stops at start if a migration is missing.
-6. For TLS, set `SCYLLA_TLS_CERT` and `SCYLLA_TLS_KEY`. For browsers, set `SCYLLA_CORS_ORIGINS`: a cookie refresh needs one of these origins.
+6. For TLS, set `SCYLLA_TLS_CERT` and `SCYLLA_TLS_KEY`. For browsers, set `SCYLLA_CORS_ORIGINS`: a cookie refresh needs one of these origins. Behind one proxy that adds the client address to `X-Forwarded-For`, set `SCYLLA_TRUST_FORWARDED_HEADERS=true`: a session then keeps the last address of this header, not the address of the proxy.
 7. Probe `grpc.health.v1.Health/Check`. Stop with SIGTERM: the server ends the running requests.
 8. To rotate the signing key: set a new key and a new `SCYLLA_TOKEN_KEY_ID`, and keep the old public key in `SCYLLA_TOKEN_PUBLIC_KEYS` for one token lifetime.
 
@@ -135,8 +138,14 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Ownership: a role in a workspace goes down, an agent with a role, no SpiceDB for an owner | `scylla-ce/tests/api/tenancy/ownership.rs` |
 | Owners of a workspace: add, remove, list, only an owner changes them, the last owner stays, two removals at the same time | `scylla-ce/tests/api/tenancy/owners.rs` |
 | Shares: grant and revoke, each role, only the admins give roles, the visible list | `scylla-ce/tests/api/tenancy/grants.rs` |
-| Accounts: sign-up and its link, the modes, the same answer for each refusal, the lock, the reset, the change of a password | `scylla-ce/tests/api/identity/accounts.rs` |
-| Sessions: rotation and reuse, sign-out, list and revoke, a disabled user, the cookie and its origin | `scylla-ce/tests/api/identity/sessions.rs` |
+| Accounts: sign-up and its link, the modes, the length of a password (8 and 128), the same answer for each refusal, the lock and 50 failures, the reset, the change of a password | `scylla-ce/tests/api/identity/accounts.rs` |
+| Handles: the limits and the characters, one user for each handle, the sign-in with a handle | `scylla-ce/tests/api/identity/handles.rs` |
+| Profile: the display name, the sign-out of the other sessions, the change of email with the current password and its link, the notice to the old email, the old links stop | `scylla-ce/tests/api/identity/profile.rs` |
+| Mails: text and HTML bodies, the escape, the token in the fragment of each link, one reset link and one email change link each minute, one email change link each minute to one email | `scylla-ce/tests/api/identity/mails.rs` |
+| Deletion of an account: the empty personal workspace, the last owner of a workspace with content, a shared workspace, a workspace that the user left during the deletion, the roles, the last admin | `scylla-ce/tests/api/identity/deletion.rs` |
+| Instance admins: only they pass each route of the console, grant and revoke, the last active admin, two admins that disable each other at the same time | `scylla-ce/tests/api/identity/admins.rs` |
+| Console of the users: list and filter, create, change, a new email stops the old links, disable, delete, reset link, sessions of a user | `scylla-ce/tests/api/identity/console.rs` |
+| Sessions: rotation and reuse, sign-out, list and revoke, a disabled user, the cookie and its origin, the IP address with and without a trusted proxy | `scylla-ce/tests/api/identity/sessions.rs` |
 | Identity providers: browser sign-in with OIDC and GitHub, return address, no automatic link, same browser, invitations; `ExchangeIdToken` | `scylla-ce/tests/api/identity/sign_in.rs`, `oidc.rs` |
 | Invitations: the role of the link, admins only, the email of the invitation, sign-up with a link | `scylla-ce/tests/api/tenancy/invitations.rs` |
 | Route rule: no check, a group check, the own check, an error | `scylla-ce/tests/api/platform/routes.rs` |
@@ -145,11 +154,11 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | `authz!`: schema text, checks of the names, errors | `scylla-macros/src/tests.rs` |
 | Hook rollback, order and kind filter | `scylla-core/src/features/projects/tests.rs` |
 | Config and command line | `scylla-core/src/config.rs`, `scylla-core/src/cli/commands.rs` |
-| Random tokens, PKCE, the encryption of the secrets, cookies | `scylla-core/src/infra/secret.rs`, `scylla-core/src/features/identity/sessions/cookie.rs` |
+| Random tokens, PKCE, the encryption of the secrets, cookies, the client of a session, the layout of the mails | `scylla-core/src/infra/secret.rs`, `scylla-core/src/features/identity/sessions/cookie.rs` and `client.rs`, `scylla-core/src/features/identity/accounts/letter.rs` |
 
 ## Releases for the Enterprise edition
 
-The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`.
+The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `platform`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`. The `Gate` trait has `delete_subject` and `subjects`, a `Mail` has an HTML body, and the details of a `Rejection` are texts.
 
 ## Known limits
 

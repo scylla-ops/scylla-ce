@@ -12,7 +12,8 @@ use tracing_subscriber::filter::Targets;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use super::accounts::{self, ProviderCommand, SecretCommand, UserCommand};
+use super::accounts::{self, ProviderCommand, SecretCommand};
+use super::users::{self, UserCommand};
 use crate::access::{Access, TokenKeys};
 use crate::features::identity::actors;
 use crate::infra::db;
@@ -89,7 +90,7 @@ where
     match command {
         Command::Serve => api::run(core, edition).await,
         Command::Migrate => migrate(core, &edition).await,
-        Command::User(command) => accounts::user(core, command).await,
+        Command::User(command) => users::user(core, command).await,
         Command::Provider(command) => accounts::provider(core, command).await,
         Command::Secret(command) => {
             accounts::secret(command);
@@ -148,7 +149,7 @@ async fn token(config: &Config, command: TokenCommand, edition: &Edition) -> Res
 }
 
 /// Reads an id from the command line.
-fn id<T: ?Sized + 'static>(text: &str) -> Result<Id<T>, String> {
+pub(super) fn id<T: ?Sized + 'static>(text: &str) -> Result<Id<T>, String> {
     Id::parse(text).map_err(|error| error.to_string())
 }
 

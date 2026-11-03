@@ -100,12 +100,30 @@ async fn sign_up_checks_the_values(pool: PgPool) {
     let app = app_in(pool, SignUpMode::Open).await;
 
     // when
-    let short = app.sign_up("c@example.com", "too short", "").await;
+    let short = app.sign_up("c@example.com", "short", "").await;
     let not_an_email = app.sign_up("nope", PASSWORD, "").await;
 
     // then
     assert_invalid_field(&short.unwrap_err(), "password");
     assert_invalid_field(&not_an_email.unwrap_err(), "email");
+}
+
+/// A password has 8 to 128 characters.
+#[sqlx::test(migrations = false)]
+async fn sign_up_checks_the_length_of_the_password(pool: PgPool) {
+    // given
+    let app = app_in(pool, SignUpMode::Open).await;
+
+    // when
+    let seven = app.sign_up("p7@example.com", &"p".repeat(7), "").await;
+    let eight = app.sign_up("p8@example.com", &"p".repeat(8), "").await;
+    let max = app.sign_up("p128@example.com", &"p".repeat(128), "").await;
+    let over = app.sign_up("p129@example.com", &"p".repeat(129), "").await;
+
+    // then
+    assert_invalid_field(&seven.unwrap_err(), "password");
+    assert!(eight.is_ok() && max.is_ok(), "{eight:?} {max:?}");
+    assert_invalid_field(&over.unwrap_err(), "password");
 }
 
 /// A wrong password and an unknown email get the same answer. After 5 failures, even the right
@@ -137,6 +155,45 @@ async fn sign_in_refuses_the_same_way_and_locks(pool: PgPool) {
     assert_code(locked, Code::Unauthenticated);
 }
 
+/// A failure while the account is locked does not count, so 50 failures keep the same answer
+/// and the lock. A long count of old failures still gives a lock of one hour at most.
+#[sqlx::test(migrations = false)]
+async fn sign_in_stays_locked_after_many_failures(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let email = "lou@example.com";
+    let user = app.user_with(email, Some(PASSWORD)).await;
+
+    // when
+    let mut codes = Vec::new();
+    for _ in 0..50 {
+        codes.push(app.sign_in(email, NEW_PASSWORD).await.unwrap_err().code());
+    }
+    let locked = app.sign_in(email, PASSWORD).await;
+    let counted = sqlx::query_scalar!(
+        "SELECT failed_attempts FROM passwords WHERE user_id = $1",
+        user.to_db()
+    )
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    sqlx::query!(
+        "UPDATE passwords SET failed_attempts = 60, locked_until = now() - interval '1 second'
+         WHERE user_id = $1",
+        user.to_db()
+    )
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    let after_many = app.sign_in(email, NEW_PASSWORD).await;
+
+    // then
+    assert_eq!(codes, vec![Code::Unauthenticated; 50]);
+    assert_code(locked, Code::Unauthenticated);
+    assert_eq!(counted, 5);
+    assert_code(after_many, Code::Unauthenticated);
+}
+
 /// The link of a reset sets a new password and closes each session. An unknown email gets the
 /// same answer and no mail.
 #[sqlx::test(migrations = false)]
@@ -150,6 +207,7 @@ async fn reset_password_closes_the_sessions(pool: PgPool) {
     // when
     app.request_reset(email).await.unwrap();
     let unknown = app.request_reset("nobody@example.com").await;
+    app.mails.wait(email, 1).await;
     let token = app.mails.token(email, "reset-password");
     app.reset_password(&token, NEW_PASSWORD).await.unwrap();
 

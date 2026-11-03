@@ -14,7 +14,7 @@ use super::oidc::{OidcClients, OidcSettings};
 use super::store::{self, FlowRow, ProviderRow};
 use super::{join, ExternalIdentity};
 use crate::features::identity::accounts::AccountContext;
-use crate::features::identity::sessions::Opened;
+use crate::features::identity::sessions::{Client, Opened};
 use crate::infra::secret;
 use crate::Error;
 
@@ -120,7 +120,7 @@ impl Providers {
         state: &str,
         browser: Option<&str>,
         signed_in: Option<ActorId>,
-        user_agent: Option<&str>,
+        client: &Client,
     ) -> Result<Outcome, Error> {
         // Take the sign-in of the state, for this browser and this provider.
         let mut tx = self.ctx.pool.begin().await?;
@@ -146,7 +146,7 @@ impl Providers {
                 return_to: flow.return_to,
             });
         }
-        let (_, opened) = join::sign_in(&self.ctx, &provider, identity, user_agent).await?;
+        let (_, opened) = join::sign_in(&self.ctx, &provider, identity, client).await?;
         Ok(Outcome::SignedIn {
             opened,
             return_to: flow.return_to,
@@ -158,7 +158,7 @@ impl Providers {
     pub(crate) async fn sign_in_with_id_token(
         &self,
         id_token: &str,
-        user_agent: Option<&str>,
+        client: &Client,
     ) -> Result<(Actor, Opened), Error> {
         // Find the OIDC provider of the issuer of the token.
         let issuer = unverified_issuer(id_token).ok_or_else(invalid_id_token)?;
@@ -176,7 +176,7 @@ impl Providers {
 
         // Check the token, then sign in.
         let identity = self.oidc.verify(&settings, id_token, None).await?;
-        join::sign_in(&self.ctx, &provider, identity, user_agent).await
+        join::sign_in(&self.ctx, &provider, identity, client).await
     }
 
     /// Exchanges the code of a callback for the identity of the person.

@@ -130,7 +130,7 @@ async fn a_browser_refreshes_with_its_cookie(pool: PgPool) {
     let email = "ida@example.com";
     app.user_with(email, Some(PASSWORD)).await;
     let request = SignInRequest {
-        email: email.to_owned(),
+        identifier: email.to_owned(),
         password: PASSWORD.to_owned(),
         cookie: true,
     };
@@ -169,4 +169,57 @@ async fn a_browser_refreshes_with_its_cookie(pool: PgPool) {
     assert_code(other_origin, Code::PermissionDenied);
     assert!(refreshed.metadata().get("set-cookie").is_some());
     assert!(refreshed.into_inner().refresh_token.is_empty());
+}
+
+/// Signs in with a password and a `X-Forwarded-For` header, and returns the access token.
+async fn sign_in_forwarded(app: &TestApp, email: &str, forwarded: &str) -> String {
+    let request = SignInRequest {
+        identifier: email.to_owned(),
+        password: PASSWORD.to_owned(),
+        cookie: false,
+    };
+    let mut request = Request::new(request);
+    let value = MetadataValue::try_from(forwarded).unwrap();
+    request.metadata_mut().insert("x-forwarded-for", value);
+    let response = AccountServiceClient::new(app.channel.clone())
+        .sign_in(request)
+        .await
+        .unwrap();
+    response.into_inner().token.unwrap().value
+}
+
+/// A session keeps the peer address of the client, and the server ignores `X-Forwarded-For`
+/// when the settings do not trust it.
+#[sqlx::test(migrations = false)]
+async fn a_session_keeps_the_peer_address(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let email = "ivy@example.com";
+    app.user_with(email, Some(PASSWORD)).await;
+
+    // when
+    let token = sign_in_forwarded(&app, email, "203.0.113.7").await;
+    let sessions = app.list_sessions(&token).await.unwrap();
+
+    // then
+    assert_eq!(sessions[0].ip_address, "127.0.0.1");
+}
+
+/// With `SCYLLA_TRUST_FORWARDED_HEADERS`, a session keeps the last `X-Forwarded-For` address:
+/// the address that the proxy adds, not an address that the client wrote.
+#[sqlx::test(migrations = false)]
+async fn a_trusted_proxy_gives_the_client_address(pool: PgPool) {
+    // given
+    let mut options = ServeOptions::default();
+    options.accounts.trust_forwarded = true;
+    let app = TestApp::spawn_with(pool, scylla_ce::edition(), options).await;
+    let email = "jay@example.com";
+    app.user_with(email, Some(PASSWORD)).await;
+
+    // when
+    let token = sign_in_forwarded(&app, email, "198.51.100.9, 203.0.113.7").await;
+    let sessions = app.list_sessions(&token).await.unwrap();
+
+    // then
+    assert_eq!(sessions[0].ip_address, "203.0.113.7");
 }

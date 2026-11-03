@@ -6,6 +6,7 @@ extern crate self as scylla_domain;
 pub mod authz;
 pub mod identity;
 mod kernel;
+pub mod platform;
 pub mod projects;
 pub mod tenancy;
 

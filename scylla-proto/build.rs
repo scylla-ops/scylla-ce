@@ -8,6 +8,8 @@ const PROTOS: &[&str] = &[
     "scylla/access/v1/access_service.proto",
     "scylla/accounts/v1/account_service.proto",
     "scylla/accounts/v1/profile_service.proto",
+    "scylla/accounts/v1/user.proto",
+    "scylla/accounts/v1/user_admin_service.proto",
     "scylla/agents/v1/agent_service.proto",
     "scylla/auth/v1/assertion.proto",
     "scylla/auth/v1/token_service.proto",

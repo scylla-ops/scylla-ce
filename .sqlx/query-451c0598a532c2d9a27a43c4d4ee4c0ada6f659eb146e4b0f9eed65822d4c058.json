@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE one_time_tokens SET used_at = now()\n         WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "451c0598a532c2d9a27a43c4d4ee4c0ada6f659eb146e4b0f9eed65822d4c058"
+}

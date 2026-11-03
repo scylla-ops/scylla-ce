@@ -2,7 +2,7 @@ set dotenv-load
 
 # Starts Postgres (127.0.0.1:55432), SpiceDB (127.0.0.1:55051), the SpiceDB of the tests
 # (127.0.0.1:55052, an empty store for each key) and Mailpit (SMTP 127.0.0.1:51025, web
-# http://127.0.0.1:58025).
+# http://127.0.0.1:51080).
 db-up:
     docker compose up -d --wait db spicedb spicedb-test mailpit
 

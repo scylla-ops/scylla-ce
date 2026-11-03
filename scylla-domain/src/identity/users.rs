@@ -60,14 +60,67 @@ impl Email {
     }
 }
 
+/// A handle: a short unique name of a user, trimmed and in lower case. It has 2 to 39 letters,
+/// digits, dots, dashes or underscores, and starts with a letter or a digit. It has no `@`, so
+/// a sign-in tells a handle from an email.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Handle(String);
+
+impl Handle {
+    /// The minimum number of characters.
+    pub const MIN_LEN: usize = 2;
+    /// The maximum number of characters.
+    pub const MAX_LEN: usize = 39;
+
+    /// Trims the text, makes it lower case, and checks its form.
+    pub fn parse(raw: String) -> Result<Self, DomainError> {
+        let handle = raw.trim().to_lowercase();
+        let allowed = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit();
+        let valid = (Self::MIN_LEN..=Self::MAX_LEN).contains(&handle.chars().count())
+            && handle.chars().next().is_some_and(allowed)
+            && handle
+                .chars()
+                .all(|c| allowed(c) || matches!(c, '.' | '_' | '-'));
+        if !valid {
+            return Err(DomainError::NotAHandle);
+        }
+        Ok(Self(handle))
+    }
+
+    /// Returns the handle as text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// The name that a person types to sign in: an email if it has an `@`, else a handle.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Identifier {
+    /// An email address.
+    Email(Email),
+    /// A handle.
+    Handle(Handle),
+}
+
+impl Identifier {
+    /// Reads an email if the text has an `@`, else a handle.
+    pub fn parse(raw: String) -> Result<Self, DomainError> {
+        if raw.contains('@') {
+            Email::parse(raw).map(Self::Email)
+        } else {
+            Handle::parse(raw).map(Self::Handle)
+        }
+    }
+}
+
 /// A password: `MIN_LEN` to `MAX_LEN` characters, with no other rule. Its text never goes to a
 /// log.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Password(String);
 
 impl Password {
-    /// The minimum number of characters, for a password that is the only factor.
-    pub const MIN_LEN: usize = 15;
+    /// The minimum number of characters.
+    pub const MIN_LEN: usize = 8;
     /// The maximum number of characters.
     pub const MAX_LEN: usize = 128;
 
@@ -133,10 +186,14 @@ pub struct User {
     pub id: ActorId,
     /// The display name.
     pub display_name: String,
+    /// The handle, if the user has one.
+    pub handle: Option<String>,
     /// The primary email, if the user has one.
     pub email: Option<String>,
     /// The state of the account.
     pub status: UserStatus,
+    /// `true` if the user is an admin of this instance.
+    pub instance_admin: bool,
     /// The creation time, set by the database.
     pub created_at: OffsetDateTime,
 }
@@ -150,8 +207,19 @@ pub struct NewUser {
     pub email_verified: bool,
     /// The display name.
     pub display_name: Name,
+    /// The handle, if the user has one.
+    pub handle: Option<Handle>,
     /// The password, for a sign-in with a password.
     pub password: Option<Password>,
+}
+
+/// A change of a profile: each field that is `Some` changes.
+#[derive(Clone, Debug, Default)]
+pub struct ProfileChange {
+    /// The new display name.
+    pub display_name: Option<Name>,
+    /// The new handle. `Some(None)` removes the handle.
+    pub handle: Option<Option<Handle>>,
 }
 
 crate::authz! {
@@ -159,6 +227,16 @@ crate::authz! {
     extend Actor as AccountCaller {
         /// The route `GetMe`.
         permission get_me = nil;
+        /// The route `UpdateProfile`.
+        permission update_profile = nil;
+        /// The route `DeleteAccount`.
+        permission delete_account = nil;
+        /// The route `RequestEmailChange`.
+        permission request_email_change = nil;
+        /// The route `ConfirmEmailChange`.
+        permission confirm_email_change = nil;
+        /// The route `RevokeOtherSessions`.
+        permission revoke_other_sessions = nil;
         /// The route `ChangePassword`.
         permission change_password = nil;
         /// The route `ListIdentities`.

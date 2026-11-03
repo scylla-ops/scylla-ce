@@ -22,6 +22,8 @@ pub struct AccountSettings {
     pub session_ttl: Duration,
     /// The web origins of the app: a cookie refresh needs one, and a sign-in returns to one.
     pub web_origins: Vec<String>,
+    /// `true` if the IP address of a sign-in comes from the last `X-Forwarded-For` address.
+    pub trust_forwarded: bool,
 }
 
 impl AccountSettings {
@@ -33,6 +35,7 @@ impl AccountSettings {
             sign_up_mode: config.sign_up_mode,
             session_ttl: config.session_ttl,
             web_origins: config.cors_origins.clone(),
+            trust_forwarded: config.trust_forwarded_headers,
         }
     }
 
@@ -41,9 +44,10 @@ impl AccountSettings {
         self.api_url.starts_with("https://")
     }
 
-    /// Makes a link of the web app with a one-time token: `<app>/<page>?token=<token>`.
+    /// Makes a link of the web app with a one-time token in the fragment, so the token never
+    /// goes to a server log or a `Referer` header: `<app>/<page>#token=<token>`.
     pub fn link(&self, page: &str, token: &str) -> String {
-        format!("{}/{page}?token={token}", self.app_url)
+        format!("{}/{page}#token={token}", self.app_url)
     }
 
     /// Returns `true` if a browser can go back to this address after a sign-in: the web app,

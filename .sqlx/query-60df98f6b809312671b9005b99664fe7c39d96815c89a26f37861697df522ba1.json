@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE passwords\n         SET failed_attempts = failed_attempts + 1,\n             locked_until = CASE WHEN failed_attempts + 1 >= 5\n                 THEN now() + least(interval '1 hour',\n                                    interval '1 minute'\n                                        * power(2, least(failed_attempts + 1 - 5, 6)))\n                 END\n         WHERE user_id = $1 AND (locked_until IS NULL OR locked_until <= now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "60df98f6b809312671b9005b99664fe7c39d96815c89a26f37861697df522ba1"
+}

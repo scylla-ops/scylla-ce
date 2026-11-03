@@ -167,3 +167,68 @@ pub(super) async fn owners(
         })
         .collect())
 }
+
+/// Locks the workspaces that a user owns, in id order, then returns those where the user is the
+/// only owner. The lock is the lock of `RemoveOwner`, so a removal at the same time waits.
+pub(crate) async fn lock_sole_owned(
+    tx: &mut Tx<'_>,
+    user: ActorId,
+) -> Result<Vec<WorkspaceId>, Error> {
+    // Lock each workspace of the user.
+    let owned = sqlx::query_scalar!(
+        "SELECT w.id FROM workspaces w
+         JOIN workspace_owners o ON o.workspace_id = w.id
+         WHERE o.user_id = $1
+         ORDER BY w.id
+         FOR UPDATE OF w",
+        user.to_db()
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    // Keep the workspaces where the user is still the one owner, after the lock.
+    let sole = sqlx::query_scalar!(
+        r#"SELECT workspace_id AS "id!" FROM workspace_owners
+           WHERE workspace_id = ANY($1)
+           GROUP BY workspace_id
+           HAVING count(*) = 1 AND bool_and(user_id = $2)
+           ORDER BY workspace_id"#,
+        &owned,
+        user.to_db(),
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(sole.into_iter().map(WorkspaceId::from_db).collect())
+}
+
+/// Returns `true` if a workspace holds a project or an agent.
+pub(crate) async fn has_content(tx: &mut Tx<'_>, workspace: WorkspaceId) -> Result<bool, Error> {
+    let found = sqlx::query_scalar!(
+        r#"SELECT (EXISTS (SELECT 1 FROM projects WHERE workspace_id = $1)
+                   OR EXISTS (SELECT 1 FROM agents WHERE workspace_id = $1)) AS "found!""#,
+        workspace.to_db()
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(found)
+}
+
+/// Deletes workspaces, with their owners and their invitations.
+pub(crate) async fn delete_all(tx: &mut Tx<'_>, ids: &[WorkspaceId]) -> Result<(), Error> {
+    let ids: Vec<_> = ids.iter().map(|id| id.to_db()).collect();
+    sqlx::query!("DELETE FROM workspaces WHERE id = ANY($1)", &ids)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Takes a user out of the owners of each workspace.
+pub(crate) async fn leave_all(tx: &mut Tx<'_>, user: ActorId) -> Result<(), Error> {
+    sqlx::query!(
+        "DELETE FROM workspace_owners WHERE user_id = $1",
+        user.to_db()
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}

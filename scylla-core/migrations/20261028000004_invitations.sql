@@ -6,7 +6,7 @@ CREATE TABLE invitations (
     token_hash bytea NOT NULL UNIQUE,
     invited_by uuid NOT NULL REFERENCES actors (id),
     expires_at timestamptz NOT NULL,
-    accepted_by uuid REFERENCES users (id),
+    accepted_by uuid REFERENCES actors (id),
     accepted_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now()
 );

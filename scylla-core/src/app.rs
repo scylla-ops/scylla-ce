@@ -1,7 +1,9 @@
 //! The start of each edition.
 
 use scylla_domain::identity::actors::Actor;
+use scylla_domain::identity::admins::UserAdminHolder;
 use scylla_domain::identity::users::AccountCaller;
+use scylla_domain::platform::Platform;
 use scylla_extension::{Edition, EditionBuilder};
 
 use crate::features::identity::agents::Agents;
@@ -18,6 +20,8 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .migrations(&MIGRATOR)
         .authz::<Actor>()
         .authz::<AccountCaller>()
+        .authz::<Platform>()
+        .authz::<UserAdminHolder>()
         .plugin(Workspaces)
         .plugin(Agents)
         .plugin(Projects)

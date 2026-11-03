@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, methods, user_agent, created_at, last_used_at FROM sessions\n         WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()\n         ORDER BY id DESC",
+  "query": "SELECT id, methods, user_agent, host(ip_address) AS ip, created_at, last_used_at\n         FROM sessions\n         WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()\n         ORDER BY id DESC",
   "describe": {
     "columns": [
       {
@@ -38,6 +38,12 @@
       },
       {
         "ordinal": 3,
+        "name": "ip",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -48,7 +54,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "last_used_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -68,9 +74,10 @@
       false,
       false,
       true,
+      null,
       false,
       false
     ]
   },
-  "hash": "a4351f9aa10c6c9dc7ccfa9093a96bea90f39b98468b220ce0b6eca43de7990c"
+  "hash": "a67789ae7f8e7e93b87820c9ee1eb040880743bee93ec1ff400f9dea02fc1269"
 }

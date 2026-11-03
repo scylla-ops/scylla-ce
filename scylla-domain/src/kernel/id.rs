@@ -40,8 +40,13 @@ impl<T: ?Sized> Id<T> {
         Uuid::from_u128(self.bits)
     }
 
+    /// Returns the id of the only object of a type: each bit is zero.
+    pub const fn singleton() -> Self {
+        Self::from_bits(0)
+    }
+
     /// Makes an id from its bits.
-    fn from_bits(bits: u128) -> Self {
+    const fn from_bits(bits: u128) -> Self {
         Self {
             bits,
             kind: PhantomData,

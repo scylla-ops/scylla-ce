@@ -147,6 +147,7 @@ impl TestApp {
             email: Email::parse(email.to_owned()).expect("email"),
             email_verified: true,
             display_name: Name::parse("Test User".to_owned()).expect("name"),
+            handle: None,
             password: password.map(|text| Password::parse(text.to_owned()).expect("password")),
         };
         accounts::create_user(&self.pool, new)

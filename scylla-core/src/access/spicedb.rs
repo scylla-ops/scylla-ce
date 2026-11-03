@@ -1,17 +1,15 @@
-//! The SpiceDB client: permission checks, relationship writes and the schema.
+//! The SpiceDB client: permission checks, reverse lookups and the schema.
 
-use scylla_domain::authz::{self, Object};
+use scylla_domain::authz::Object;
 use scylla_extension::AccessError;
 use spicedb_grpc_tonic::v1::check_bulk_permissions_pair::Response as Answer;
 use spicedb_grpc_tonic::v1::consistency::Requirement;
 use spicedb_grpc_tonic::v1::permissions_service_client::PermissionsServiceClient;
-use spicedb_grpc_tonic::v1::relationship_update::Operation;
 use spicedb_grpc_tonic::v1::schema_service_client::SchemaServiceClient;
 use spicedb_grpc_tonic::v1::{
     check_permission_response::Permissionship, CheckBulkPermissionsRequest,
-    CheckBulkPermissionsRequestItem, Consistency, DeleteRelationshipsRequest, LookupPermissionship,
-    LookupResourcesRequest, ObjectReference, Relationship, RelationshipFilter, RelationshipUpdate,
-    SubjectReference, WriteRelationshipsRequest, WriteSchemaRequest, ZedToken,
+    CheckBulkPermissionsRequestItem, Consistency, LookupPermissionship, LookupResourcesRequest,
+    ObjectReference, SubjectReference, WriteSchemaRequest, ZedToken,
 };
 use tonic::metadata::{Ascii, MetadataValue};
 use tonic::service::interceptor::InterceptedService;
@@ -39,7 +37,7 @@ type Authed = InterceptedService<Channel, PresharedKey>;
 #[derive(Clone)]
 pub struct SpiceDb {
     /// The permissions API.
-    permissions: PermissionsServiceClient<Authed>,
+    pub(super) permissions: PermissionsServiceClient<Authed>,
     /// The schema API.
     schema: SchemaServiceClient<Authed>,
 }
@@ -173,66 +171,10 @@ impl SpiceDb {
         }
         Ok(ids)
     }
-
-    /// Applies one operation to relationships, and returns the token of the write.
-    pub(super) async fn update(
-        &self,
-        relationships: &[authz::Relationship],
-        operation: Operation,
-    ) -> Result<String, AccessError> {
-        // Make one update for each relationship.
-        let updates = relationships
-            .iter()
-            .map(|relationship| RelationshipUpdate {
-                operation: operation as i32,
-                relationship: Some(Relationship {
-                    resource: Some(reference(relationship.object())),
-                    relation: relationship.relation().to_owned(),
-                    subject: Some(subject_reference(relationship.subject())),
-                    ..Default::default()
-                }),
-            })
-            .collect();
-
-        // Write them in one call, and keep the token of the write.
-        let request = WriteRelationshipsRequest {
-            updates,
-            ..Default::default()
-        };
-        let response = self
-            .permissions
-            .clone()
-            .write_relationships(request)
-            .await
-            .map_err(unavailable)?;
-        Ok(response
-            .into_inner()
-            .written_at
-            .map(|token| token.token)
-            .unwrap_or_default())
-    }
-
-    /// Deletes all relationships of an object.
-    pub(super) async fn delete_object(&self, object: &Object) -> Result<(), AccessError> {
-        let request = DeleteRelationshipsRequest {
-            relationship_filter: Some(RelationshipFilter {
-                resource_type: object.kind().to_owned(),
-                optional_resource_id: object.id().to_owned(),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        self.permissions
-            .clone()
-            .delete_relationships(request)
-            .await
-            .map_err(unavailable)?;
-        Ok(())
-    }
 }
 
 /// Makes an object reference.
-fn reference(object: &Object) -> ObjectReference {
+pub(super) fn reference(object: &Object) -> ObjectReference {
     ObjectReference {
         object_type: object.kind().to_owned(),
         object_id: object.id().to_owned(),
@@ -240,7 +182,7 @@ fn reference(object: &Object) -> ObjectReference {
 }
 
 /// Makes a subject reference.
-fn subject_reference(subject: &Object) -> SubjectReference {
+pub(super) fn subject_reference(subject: &Object) -> SubjectReference {
     SubjectReference {
         object: Some(reference(subject)),
         optional_relation: String::new(),
@@ -248,7 +190,7 @@ fn subject_reference(subject: &Object) -> SubjectReference {
 }
 
 /// Logs a SpiceDB failure and hides its details from the client.
-fn unavailable(status: Status) -> AccessError {
+pub(super) fn unavailable(status: Status) -> AccessError {
     tracing::error!(%status, "SpiceDB call failed");
     AccessError::Unavailable("permission system unavailable".to_owned())
 }
