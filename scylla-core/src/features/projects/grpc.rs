@@ -106,7 +106,7 @@ impl ProjectsGrpc {
         // Check the route permission. An unknown project gets the answer of a refusal.
         let check = Project::GET_PROJECT.on(id);
         let Some(project) = service::get(&self.pool, id).await? else {
-            return Err(AccessError::denied(&check).into());
+            return Err(AccessError::denied(&caller, &check).into());
         };
         self.gate
             .authorize(&caller, check.within(project.workspace_id))
@@ -170,7 +170,7 @@ impl ProjectsGrpc {
         // Check the route permission. An unknown project gets the answer of a refusal.
         let check = Project::DELETE_PROJECT.on(id);
         let Some(workspace) = service::workspace(&self.pool, id).await? else {
-            return Err(AccessError::denied(&check).into());
+            return Err(AccessError::denied(&caller, &check).into());
         };
         self.gate
             .authorize(&caller, check.within(workspace))

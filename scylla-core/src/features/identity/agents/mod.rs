@@ -6,4 +6,5 @@ mod service;
 mod store;
 
 pub(crate) use plugin::Agents;
+pub(crate) use service::workspace_of;
 pub use service::{register, verify_assertion, AUDIENCE};

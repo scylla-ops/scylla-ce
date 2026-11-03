@@ -10,7 +10,7 @@ use super::store::{self, ProviderRow};
 use super::ExternalIdentity;
 use crate::features::identity::accounts::{self, refused, AccountContext};
 use crate::features::identity::sessions::{self, Client, Opened};
-use crate::features::tenancy::invitations;
+use crate::features::tenancy::invitations::{self, Pick};
 use crate::{Error, SignUpMode};
 
 /// Signs in the user of an identity, or makes a user as the provider and the sign-up mode
@@ -84,7 +84,7 @@ pub(super) async fn sign_in(
 
     // Accept the invitation of the email.
     if let Some(invitation) = invitation {
-        invitations::accept(ctx, &invitation, actor.id).await?;
+        invitations::accept(ctx, Pick::Id(invitation.id), actor.id).await?;
     }
     Ok((actor, opened))
 }

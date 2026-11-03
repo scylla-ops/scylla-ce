@@ -1,29 +1,28 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO workspaces (id, name) VALUES ($1, $2) RETURNING created_at",
+  "query": "SELECT id FROM workspaces WHERE id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "created_at",
-        "type_info": "Timestamptz",
+        "name": "id",
+        "type_info": "Uuid",
         "origin": {
           "Table": {
             "table": "workspaces",
-            "name": "created_at"
+            "name": "id"
           }
         }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "c49ad845f8d80fcb8c5fbed8a34b13627284ae8d58e43390bd5d74473842c05f"
+  "hash": "f33f61b876b51f1b11355265c731842b770f7dfed6518ef5646f4205e1e366dd"
 }

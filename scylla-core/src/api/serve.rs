@@ -21,9 +21,9 @@ use crate::features::identity::admins;
 use crate::features::identity::providers::{self, Providers};
 use crate::features::identity::tokens;
 use crate::features::tenancy::invitations;
-use crate::infra::db;
 use crate::infra::mail::{LogMailer, SmtpMailer};
 use crate::infra::secret::Sealer;
+use crate::infra::{db, dev_keys};
 use crate::{Config, Error, SignUpMode};
 
 /// The options of `serve`.
@@ -66,6 +66,9 @@ impl Default for ServeOptions {
 
 /// Checks the schema, then serves on the address of the config until SIGTERM or Ctrl+C.
 pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
+    // Refuse a public dev key on an address that other machines can reach.
+    dev_keys::guard(config)?;
+
     // Read the optional parts: TLS, SMTP and the key of the client secrets.
     let tls = match (&config.tls_cert, &config.tls_key) {
         (Some(cert), Some(key)) => Some(Identity::from_pem(fs::read(cert)?, fs::read(key)?)),

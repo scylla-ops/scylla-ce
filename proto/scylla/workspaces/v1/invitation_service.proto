@@ -4,17 +4,33 @@ package scylla.workspaces.v1;
 
 import "google/protobuf/timestamp.proto";
 import "scylla/common/v1/id.proto";
+import "scylla/common/v1/page.proto";
 
-// Invites a person into a workspace by email. Each RPC needs an authenticated actor, else
-// UNAUTHENTICATED.
+// Invites a person into a workspace by email, and manages the open invitations. Each RPC needs
+// an authenticated actor, else UNAUTHENTICATED. An unknown workspace gives PERMISSION_DENIED,
+// as a refusal does.
 service InvitationService {
   // Sends a link that gives a role in a workspace. The caller needs the permission
-  // create_invitation on the workspace: its admins. An unknown workspace gives
-  // PERMISSION_DENIED, as a refusal does.
+  // create_invitation on the workspace: its admins. An email with an open invitation in the
+  // workspace gives FAILED_PRECONDITION with the reason INVITATION_PENDING: use
+  // ResendInvitation.
   rpc CreateInvitation(CreateInvitationRequest) returns (CreateInvitationResponse);
   // Accepts an invitation with the token of the link. The caller must be a user with the
-  // verified email of the invitation.
+  // verified email of the invitation. A link that a revoke or a resend stopped gives the answer
+  // of an unknown link: INVALID_ARGUMENT on the field token.
   rpc AcceptInvitation(AcceptInvitationRequest) returns (AcceptInvitationResponse);
+  // Lists the open invitations of a workspace, oldest first: the invitations that nobody
+  // accepted, expired ones too. The caller needs the permission list_invitations: its admins.
+  rpc ListInvitations(ListInvitationsRequest) returns (ListInvitationsResponse);
+  // Stops an open invitation: its link stops at once. The caller needs the permission
+  // revoke_invitation: its admins. An invitation that is not open in the workspace gives
+  // NOT_FOUND.
+  rpc RevokeInvitation(RevokeInvitationRequest) returns (RevokeInvitationResponse);
+  // Sends a new link of an open invitation, valid 7 days. The old link stops. The caller needs
+  // the permission resend_invitation: its admins. A second send in less than 60 seconds gives
+  // FAILED_PRECONDITION with the reason RESEND_TOO_SOON and the metadata retry_after_seconds.
+  // An invitation that is not open in the workspace gives NOT_FOUND.
+  rpc ResendInvitation(ResendInvitationRequest) returns (ResendInvitationResponse);
 }
 
 // An invitation.
@@ -27,8 +43,12 @@ message Invitation {
   string email = 3;
   // The role in the workspace: admin, member or viewer.
   string role = 4;
+  // The actor that invited the person.
+  scylla.common.v1.Id invited_by = 5;
   // The end of the validity of the link.
-  google.protobuf.Timestamp expires_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  // The time of the last mail with a link.
+  google.protobuf.Timestamp sent_at = 7;
 }
 
 // The input of CreateInvitation.
@@ -57,4 +77,45 @@ message AcceptInvitationRequest {
 message AcceptInvitationResponse {
   // The workspace that the caller joined.
   scylla.common.v1.Id workspace_id = 1;
+}
+
+// The input of ListInvitations.
+message ListInvitationsRequest {
+  // The workspace. Required.
+  scylla.common.v1.Id workspace_id = 1;
+  // The page to return.
+  scylla.common.v1.PageRequest page = 2;
+}
+
+// The output of ListInvitations.
+message ListInvitationsResponse {
+  // The open invitations of the page, oldest first.
+  repeated Invitation invitations = 1;
+  // How to get the next page.
+  scylla.common.v1.PageResponse page = 2;
+}
+
+// The input of RevokeInvitation.
+message RevokeInvitationRequest {
+  // The workspace of the invitation. Required.
+  scylla.common.v1.Id workspace_id = 1;
+  // The invitation. Required.
+  scylla.common.v1.Id invitation_id = 2;
+}
+
+// The output of RevokeInvitation.
+message RevokeInvitationResponse {}
+
+// The input of ResendInvitation.
+message ResendInvitationRequest {
+  // The workspace of the invitation. Required.
+  scylla.common.v1.Id workspace_id = 1;
+  // The invitation. Required.
+  scylla.common.v1.Id invitation_id = 2;
+}
+
+// The output of ResendInvitation.
+message ResendInvitationResponse {
+  // The invitation with its new expiry. The link goes only to the email.
+  Invitation invitation = 1;
 }

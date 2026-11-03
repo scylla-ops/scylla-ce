@@ -1,12 +1,15 @@
 //! The logic of the workspaces: one transaction for each call.
 
+use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::tenancy::owners::{ListOwners, OwnerPage};
+use scylla_domain::tenancy::slugs::Slug;
 use scylla_domain::tenancy::workspaces::{
-    ListWorkspaces, NewWorkspace, VisibleWorkspaces, Workspace, WorkspaceId, WorkspacePage,
+    ListWorkspaces, NewWorkspace, VisibleWorkspaces, Workspace, WorkspaceChange, WorkspaceId,
+    WorkspacePage,
 };
 use scylla_domain::Page;
-use scylla_extension::Rejection;
+use scylla_extension::{Gate, Rejection, WorkspaceFuture};
 use sqlx::PgPool;
 
 use super::store;
@@ -29,6 +32,25 @@ pub(super) async fn get(pool: &PgPool, id: WorkspaceId) -> Result<Option<Workspa
     Ok(workspace)
 }
 
+/// Returns the workspace of a slug, or `None` if no workspace has this slug.
+pub(super) async fn get_by_slug(pool: &PgPool, slug: &Slug) -> Result<Option<Workspace>, Error> {
+    let mut tx = pool.begin().await?;
+    let workspace = store::find_by_slug(&mut tx, slug).await?;
+    tx.commit().await?;
+    Ok(workspace)
+}
+
+/// Finds a workspace, for `AccessService`: the workspace itself, or `None` if no workspace has
+/// this id.
+pub(super) fn find_workspace(pool: PgPool, id: WorkspaceId) -> WorkspaceFuture {
+    Box::pin(async move {
+        let mut tx = pool.begin().await?;
+        let workspace = store::exists(&mut tx, id).await?;
+        tx.commit().await?;
+        Ok(workspace)
+    })
+}
+
 /// Returns one page of the workspaces that a caller can read, oldest first.
 pub(super) async fn list(
     pool: &PgPool,
@@ -43,6 +65,49 @@ pub(super) async fn list(
         query.page.size,
         |workspace| workspace.id,
     ))
+}
+
+/// Changes the name or the slug of a workspace, and returns it. A slug in use gives
+/// `SLUG_IN_USE`.
+pub(super) async fn update(
+    pool: &PgPool,
+    id: WorkspaceId,
+    change: WorkspaceChange,
+) -> Result<Workspace, Error> {
+    let mut tx = pool.begin().await?;
+    let workspace = store::update(&mut tx, id, &change)
+        .await?
+        .ok_or(Error::NotFound("workspace"))?;
+    tx.commit().await?;
+    Ok(workspace)
+}
+
+/// Deletes an empty workspace with its owners and its invitations, then removes the roles in
+/// it. A project or an agent in it gives `WORKSPACE_NOT_EMPTY`. The lock of the row makes a
+/// creation in the workspace at the same time wait, or the delete wait for it.
+pub(super) async fn delete(pool: &PgPool, gate: &dyn Gate, id: WorkspaceId) -> Result<(), Error> {
+    // Lock the workspace, then refuse if it holds a project or an agent.
+    let mut tx = pool.begin().await?;
+    if !store::lock(&mut tx, id).await? {
+        return Err(Error::NotFound("workspace"));
+    }
+    if store::has_content(&mut tx, id).await? {
+        let message = "the workspace holds projects or agents";
+        return Err(Error::Rejected(Rejection::new(
+            "WORKSPACE_NOT_EMPTY",
+            message,
+        )));
+    }
+
+    // Delete it with its owners and its invitations.
+    store::delete_all(&mut tx, &[id]).await?;
+    tx.commit().await?;
+
+    // Remove the roles after the commit. A role that stays reaches no workspace.
+    if let Err(error) = gate.delete_object(&Object::of(id)).await {
+        tracing::warn!(%error, workspace = %id, "the roles of a deleted workspace stay");
+    }
+    Ok(())
 }
 
 /// Makes a user an owner of a workspace. An owner stays an owner.

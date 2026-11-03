@@ -24,6 +24,15 @@ pub enum DomainError {
          and start with a letter or a digit"
     )]
     NotAHandle,
+    /// The text is not a slug.
+    #[error(
+        "must be 2 to 39 lower case letters, digits or dashes, and start and end with a letter \
+         or a digit"
+    )]
+    NotASlug,
+    /// The text is a reserved name, for example a route of the web app.
+    #[error("is a reserved name")]
+    ReservedSlug,
     /// The text is too long after trim.
     #[error("must be at most {max} characters")]
     TooLong {

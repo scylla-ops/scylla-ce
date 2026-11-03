@@ -1,7 +1,7 @@
 //! The plugin of the projects feature.
 
 use scylla_domain::projects::{Project, ProjectCaller, ProjectHolder};
-use scylla_extension::{EditionBuilder, Plugin};
+use scylla_extension::{AccessRoutes, EditionBuilder, Plugin};
 
 use super::{grpc, service};
 
@@ -11,15 +11,16 @@ pub(crate) struct Projects;
 
 impl Plugin for Projects {
     fn install(self, edition: EditionBuilder) -> EditionBuilder {
+        let routes = AccessRoutes {
+            grant: Project::GRANT,
+            revoke: Project::REVOKE,
+            list_access: Project::LIST_ACCESS,
+        };
         edition
             .authz::<Project>()
             .authz::<ProjectHolder>()
             .authz::<ProjectCaller>()
-            .grants(
-                Project::GRANT,
-                Project::REVOKE,
-                Some(service::find_workspace),
-            )
+            .grants(routes, service::find_workspace)
             .role(Project::ADMIN)
             .role(Project::EDITOR)
             .role(Project::VIEWER)

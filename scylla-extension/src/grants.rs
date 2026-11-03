@@ -1,11 +1,11 @@
-//! The roles that `AccessService` can give: for each kind of object, its roles, the checks of
-//! the routes `Grant` and `Revoke`, and the search for the workspace of an object.
+//! The kinds of objects that `AccessService` serves: for each kind, its roles, the checks of the
+//! routes `Grant`, `Revoke` and `ListAccess`, and the search for the workspace of an object.
 
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use scylla_domain::authz::{Check, Permission, Relation, Relationship, Resource};
+use scylla_domain::authz::{Check, Object, Permission, Relation, Relationship, Resource};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Id;
@@ -15,11 +15,14 @@ use sqlx::PgPool;
 pub type WorkspaceFuture =
     Pin<Box<dyn Future<Output = Result<Option<WorkspaceId>, sqlx::Error>> + Send>>;
 
-/// Finds the workspace of an object of `R` in Postgres.
+/// Finds the workspace of an object of `R` in Postgres: the object itself for a workspace.
 pub type FindWorkspace<R> = fn(PgPool, Id<R>) -> WorkspaceFuture;
 
 /// Makes a check of a route on an object, from the text of its id.
 type MakeCheck = Box<dyn Fn(&str) -> Option<Check> + Send + Sync>;
+
+/// Makes an object, from the text of its id.
+type MakeObject = Box<dyn Fn(&str) -> Option<Object> + Send + Sync>;
 
 /// Starts the search for the workspace of an object, from the text of its id.
 type StartSearch = Box<dyn Fn(PgPool, &str) -> Option<WorkspaceFuture> + Send + Sync>;
@@ -27,32 +30,48 @@ type StartSearch = Box<dyn Fn(PgPool, &str) -> Option<WorkspaceFuture> + Send + 
 /// Makes the relationship of a role, from the text of the object id and the actor.
 type MakeRole = Box<dyn Fn(&str, ActorId) -> Option<Relationship> + Send + Sync>;
 
+/// The route permissions of `AccessService` on one kind of object.
+pub struct AccessRoutes<R> {
+    /// The permission of the route `Grant`.
+    pub grant: Permission<R>,
+    /// The permission of the route `Revoke`.
+    pub revoke: Permission<R>,
+    /// The permission of the route `ListAccess`.
+    pub list_access: Permission<R>,
+}
+
 /// The roles of one kind of object.
 pub struct Grantable {
     /// The check of the route `Grant`.
     grant: MakeCheck,
     /// The check of the route `Revoke`.
     revoke: MakeCheck,
-    /// The search for the workspace. A workspace needs none: it is the top.
-    workspace: Option<StartSearch>,
+    /// The check of the route `ListAccess`.
+    list_access: MakeCheck,
+    /// The object of an id.
+    object: MakeObject,
+    /// The search for the workspace.
+    workspace: StartSearch,
     /// The roles, by name.
     roles: BTreeMap<&'static str, MakeRole>,
 }
 
 impl Grantable {
-    /// Makes the roles of `R`, with no role yet.
-    fn new<R: Resource>(
-        grant: Permission<R>,
-        revoke: Permission<R>,
-        workspace: Option<FindWorkspace<R>>,
-    ) -> Self {
-        let search = workspace.map(|find| -> StartSearch {
-            Box::new(move |pool, id| Id::<R>::parse(id).ok().map(|id| find(pool, id)))
-        });
+    /// Makes the kind `R`, with no role yet.
+    fn new<R: Resource>(routes: AccessRoutes<R>, workspace: FindWorkspace<R>) -> Self {
+        let AccessRoutes {
+            grant,
+            revoke,
+            list_access,
+        } = routes;
         Self {
             grant: Box::new(move |id| Id::<R>::parse(id).ok().map(|id| grant.on(id))),
             revoke: Box::new(move |id| Id::<R>::parse(id).ok().map(|id| revoke.on(id))),
-            workspace: search,
+            list_access: Box::new(move |id| Id::<R>::parse(id).ok().map(|id| list_access.on(id))),
+            object: Box::new(|id| Id::<R>::parse(id).ok().map(Object::of)),
+            workspace: Box::new(move |pool, id| {
+                Id::<R>::parse(id).ok().map(|id| workspace(pool, id))
+            }),
             roles: BTreeMap::new(),
         }
     }
@@ -67,9 +86,19 @@ impl Grantable {
         (self.revoke)(id)
     }
 
-    /// Starts the search for the workspace of an object. `None` means that the kind needs none.
+    /// Returns the check of the route `ListAccess` on an object, or `None` for a bad id.
+    pub fn list_access(&self, id: &str) -> Option<Check> {
+        (self.list_access)(id)
+    }
+
+    /// Returns the object of an id, or `None` for a bad id.
+    pub fn object(&self, id: &str) -> Option<Object> {
+        (self.object)(id)
+    }
+
+    /// Starts the search for the workspace of an object, or returns `None` for a bad id.
     pub fn workspace(&self, pool: PgPool, id: &str) -> Option<WorkspaceFuture> {
-        self.workspace.as_ref().and_then(|search| search(pool, id))
+        (self.workspace)(pool, id)
     }
 
     /// Returns the relationship of a role, or `None` for an unknown role or a bad id.
@@ -94,15 +123,14 @@ impl Grants {
     /// Adds a kind. Returns `false` if the kind is there already.
     pub(crate) fn add_kind<R: Resource>(
         &mut self,
-        grant: Permission<R>,
-        revoke: Permission<R>,
-        workspace: Option<FindWorkspace<R>>,
+        routes: AccessRoutes<R>,
+        workspace: FindWorkspace<R>,
     ) -> bool {
         if self.kinds.contains_key(R::NAME) {
             return false;
         }
-        let grantable = Grantable::new(grant, revoke, workspace);
-        self.kinds.insert(R::NAME, grantable);
+        self.kinds
+            .insert(R::NAME, Grantable::new(routes, workspace));
         true
     }
 

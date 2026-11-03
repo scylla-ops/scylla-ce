@@ -12,8 +12,11 @@ message Workspace {
   scylla.common.v1.Id id = 1;
   // The display name, 1 to 100 characters, trimmed.
   string name = 2;
+  // The unique short name for the URLs: 2 to 39 lower case letters, digits or dashes, that
+  // start and end with a letter or a digit.
+  string slug = 3;
   // The creation time. The server sets it.
-  google.protobuf.Timestamp created_at = 3;
+  google.protobuf.Timestamp created_at = 4;
 }
 
 // An owner of a workspace: a user with each right in it, with no role. A workspace has one

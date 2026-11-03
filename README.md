@@ -19,10 +19,10 @@ scylla-testkit (tests only) ──▶ scylla-core
 | Crate | Contents |
 |---|---|
 | `scylla-macros` | `authz!`: the permission model in the SpiceDB schema language |
-| `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, the platform, actors, users and handles, instance admins, workspaces, agents, projects, pages |
+| `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, the platform, actors, users and handles, slugs, instance admins, workspaces, agents, projects, pages |
 | `scylla-extension` | the contract: `Edition`, `Plugin`, hooks, `Gate` |
 | `scylla-proto` | generated code of `proto/` |
-| `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, agents, tokens, projects, grants, capabilities), mails, server, CLI |
+| `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, agents, tokens, projects, grants, capabilities), mails, the guard against the public dev keys, server, CLI |
 | `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC |
 | `scylla-ce` | the Community edition binary |
 
@@ -35,12 +35,12 @@ scylla-testkit (tests only) ──▶ scylla-core
 | An agent signs in | `AgentService.RegisterAgent` in a workspace (by an admin, with the agent public key), then each time an assertion signed with the agent private key: `TokenService.ExchangeAgentAssertion`. |
 | Each request | `authorization: Bearer <biscuit>`. 10 minutes by default. A holder can attenuate it offline before it gives it to a step. The operation of a request is its gRPC method. |
 | Each route | The permission of the route: the RPC name in snake case. An owner of the workspace, and an instance admin on the platform, pass with no SpiceDB call. Else one SpiceDB call looks for a role on the object or on its workspace. |
-| A share | `AccessService.Grant` and `Revoke`: a role (`admin`, `member`, `viewer` in a workspace, `admin`, `editor`, `viewer` on a project) for one actor. `InvitationService` invites an email into a workspace. |
+| A share | `AccessService.Grant` and `Revoke`: a role (`admin`, `member`, `viewer` in a workspace, `admin`, `editor`, `viewer` on a project) for one actor. An agent gets roles only in its own workspace. `ListAccess` lists the owners and the roles of an object, and `CheckPermissions` tells a caller its permissions on an object. `InvitationService` invites an email into a workspace, and lists, revokes and sends again the open invitations. |
 | A list | `ListWorkspaces` and `ListProjects` show only what the caller can see (SpiceDB reverse lookups for the roles). `workspace_id` filters the projects. |
 | An account | `ProfileService`: the profile and the handle, a change of email with a link to the new email, the password, the identities, the sessions (with their IP address), and the deletion of the account. |
 | The users of the instance | `UserAdminService`, for the instance admins only: list, read, create, change, disable, delete, reset link, sessions, and the instance admin right. The last active instance admin stays. |
 
-A workspace contains the projects and the agents. One user or more own it: `WorkspaceService.AddOwner`, `RemoveOwner` and `ListOwners` change and read the owners, and the last owner stays. Each user has a personal workspace. Postgres holds the containers and their owners (`workspace_id`, `workspace_owners`). SpiceDB holds only the roles that a person gives. A creation writes nothing to SpiceDB.
+A workspace contains the projects and the agents, and has a unique slug for the URLs. Its admins rename it, and its owners delete it when it is empty. One user or more own it: `WorkspaceService.AddOwner`, `RemoveOwner` and `ListOwners` change and read the owners, and the last owner stays. Each user has a personal workspace. Postgres holds the containers and their owners (`workspace_id`, `workspace_owners`). SpiceDB holds only the roles that a person gives. A creation writes nothing to SpiceDB.
 
 The permission model is Rust code. `authz!` declares a SpiceDB definition next to its type, and the compiler checks each name and each id. A route permission uses a group, and a role gives a group:
 
@@ -82,7 +82,7 @@ Also Docker, Rust 1.94 or later, `just` and `protoc`. `grpcurl` is optional.
 
 ## Run
 
-`.env` holds dev values only: the database URL, the SpiceDB key, a dev signing key, the SMTP of Mailpit and a dev key for the client secrets.
+`.env` holds dev values only: the database URL, the SpiceDB key, a dev signing key, the SMTP of Mailpit and a dev key for the client secrets. These keys are public: `serve` stops at start if one of them, or the public key of the dev signing key, is in use on a server that is not local (an address that is not a loopback address, a trusted proxy, or a URL that is not on a loopback address), and logs a warning on a local server.
 
 ```sh
 just run                                   # Postgres, SpiceDB, Mailpit, migrations, schema, server on 127.0.0.1:3000
@@ -114,14 +114,14 @@ The dev setup has no identity provider: the tests use a fake one. To try a real 
 
 ## Deploy
 
-1. Store `SCYLLA_TOKEN_PRIVATE_KEY`, `SCYLLA_SPICEDB_KEY` and `SCYLLA_SECRET_KEY` in a secret store. Make the keys with `token keygen` and `secret keygen`.
+1. Store `SCYLLA_TOKEN_PRIVATE_KEY`, `SCYLLA_SPICEDB_KEY` and `SCYLLA_SECRET_KEY` in a secret store. Make the keys with `token keygen` and `secret keygen`. A key of a `.env` file stops the start.
 2. Run SpiceDB with a Postgres datastore, and set `SCYLLA_SPICEDB_ENDPOINT`.
 3. Set `SCYLLA_API_URL` (the public URL of the server), `SCYLLA_APP_URL` (the web app), `SCYLLA_SMTP_URL` and `SCYLLA_MAIL_FROM`, and choose `SCYLLA_SIGN_UP_MODE`.
 4. Run `scylla-ce migrate` one time, as a job. Add the first instance admin with `user create --admin`, and the identity providers with `provider add-oidc` or `provider add-github`.
 5. Start the servers with `scylla-ce serve`. A server stops at start if a migration is missing.
 6. For TLS, set `SCYLLA_TLS_CERT` and `SCYLLA_TLS_KEY`. For browsers, set `SCYLLA_CORS_ORIGINS`: a cookie refresh needs one of these origins. Behind one proxy that adds the client address to `X-Forwarded-For`, set `SCYLLA_TRUST_FORWARDED_HEADERS=true`: a session then keeps the last address of this header, not the address of the proxy.
 7. Probe `grpc.health.v1.Health/Check`. Stop with SIGTERM: the server ends the running requests.
-8. To rotate the signing key: set a new key and a new `SCYLLA_TOKEN_KEY_ID`, and keep the old public key in `SCYLLA_TOKEN_PUBLIC_KEYS` for one token lifetime.
+8. To rotate the signing key: set a new key and a new `SCYLLA_TOKEN_KEY_ID`, and keep the old public key in `SCYLLA_TOKEN_PUBLIC_KEYS` for one token lifetime. Never keep the public key of the dev signing key: the server does not start with it.
 
 ## Tests
 
@@ -137,7 +137,11 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Permission model: roles in a workspace and on one project, an extension, a new definition | `scylla-ce/tests/api/tenancy/authz.rs` |
 | Ownership: a role in a workspace goes down, an agent with a role, no SpiceDB for an owner | `scylla-ce/tests/api/tenancy/ownership.rs` |
 | Owners of a workspace: add, remove, list, only an owner changes them, the last owner stays, two removals at the same time | `scylla-ce/tests/api/tenancy/owners.rs` |
-| Shares: grant and revoke, each role, only the admins give roles, the visible list | `scylla-ce/tests/api/tenancy/grants.rs` |
+| Shares: grant and revoke, each role, only the admins give roles, the visible list, an agent only in its workspace | `scylla-ce/tests/api/tenancy/grants.rs` |
+| Slugs: the form, the reserved names, one workspace for each slug, the slug of a name and its suffix, the slug of a handle, `GetWorkspace` with a slug, `UpdateWorkspace` | `scylla-ce/tests/api/tenancy/slugs.rs` |
+| Deletion of a workspace: owners only, an empty workspace only, its invitations and roles go, a project creation, a new owner or an invitation at the same time | `scylla-ce/tests/api/tenancy/deletion.rs` |
+| Permissions of a caller: owner, admin, member, viewer, another user, instance admin, a project, the platform, unknown names | `scylla-ce/tests/api/tenancy/checks.rs` |
+| List of the access: owners and roles of a workspace, roles of a project, the pages, who can read it | `scylla-ce/tests/api/tenancy/access_lists.rs` |
 | Accounts: sign-up and its link, the modes, the length of a password (8 and 128), the same answer for each refusal, the lock and 50 failures, the reset, the change of a password | `scylla-ce/tests/api/identity/accounts.rs` |
 | Handles: the limits and the characters, one user for each handle, the sign-in with a handle | `scylla-ce/tests/api/identity/handles.rs` |
 | Profile: the display name, the sign-out of the other sessions, the change of email with the current password and its link, the notice to the old email, the old links stop | `scylla-ce/tests/api/identity/profile.rs` |
@@ -148,17 +152,21 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Sessions: rotation and reuse, sign-out, list and revoke, a disabled user, the cookie and its origin, the IP address with and without a trusted proxy | `scylla-ce/tests/api/identity/sessions.rs` |
 | Identity providers: browser sign-in with OIDC and GitHub, return address, no automatic link, same browser, invitations; `ExchangeIdToken` | `scylla-ce/tests/api/identity/sign_in.rs`, `oidc.rs` |
 | Invitations: the role of the link, admins only, the email of the invitation, sign-up with a link | `scylla-ce/tests/api/tenancy/invitations.rs` |
+| Open invitations: the list, the revoke, the resend and its cooldown, one open invitation for each email | `scylla-ce/tests/api/tenancy/open_invitations.rs` |
+| An acceptance at the same time as a revoke or a resend | `scylla-ce/tests/api/tenancy/invitation_races.rs` |
 | Route rule: no check, a group check, the own check, an error | `scylla-ce/tests/api/platform/routes.rs` |
 | Route permission names, records of the gate | `scylla-extension/src/operation.rs` |
 | Schema of the parts, typed values | `scylla-domain/src/authz/tests.rs` |
 | `authz!`: schema text, checks of the names, errors | `scylla-macros/src/tests.rs` |
 | Hook rollback, order and kind filter | `scylla-core/src/features/projects/tests.rs` |
-| Config and command line | `scylla-core/src/config.rs`, `scylla-core/src/cli/commands.rs` |
+| Config and command line, the guard against the public dev keys | `scylla-core/src/config.rs`, `scylla-core/src/cli/commands.rs`, `scylla-core/src/infra/dev_keys.rs` |
+| The `WARN` line of a refusal | `scylla-extension/src/tests.rs` |
+| Slugs and the tokens of the list of the access | `scylla-domain/src/tenancy/slugs.rs`, `grants.rs` |
 | Random tokens, PKCE, the encryption of the secrets, cookies, the client of a session, the layout of the mails | `scylla-core/src/infra/secret.rs`, `scylla-core/src/features/identity/sessions/cookie.rs` and `client.rs`, `scylla-core/src/features/identity/accounts/letter.rs` |
 
 ## Releases for the Enterprise edition
 
-The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `platform`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`. The `Gate` trait has `delete_subject` and `subjects`, a `Mail` has an HTML body, and the details of a `Rejection` are texts.
+The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `platform`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`. The `Gate` trait has `delete_subject`, `subjects`, `roles` and `permissions`, `EditionBuilder::grants` takes `AccessRoutes` and a required search for the workspace, `AccessError::denied` takes the principal and logs the refusal, a `Mail` has an HTML body, and the details of a `Rejection` are texts. The table `workspaces` has a required `slug`.
 
 ## Known limits
 

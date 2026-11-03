@@ -1,6 +1,9 @@
-//! The workspaces feature: the `workspaces` table and `WorkspaceService`.
+//! The workspaces feature: the `workspaces` and `workspace_owners` tables, and
+//! `WorkspaceService`.
 
+mod convert;
 mod grpc;
+mod owners;
 mod plugin;
 mod service;
 mod store;

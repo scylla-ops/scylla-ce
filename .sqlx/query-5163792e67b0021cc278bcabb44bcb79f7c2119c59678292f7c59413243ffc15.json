@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, created_at FROM workspaces\n         WHERE (id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)\n                OR id = ANY($2))\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
+  "query": "SELECT id, name, slug, created_at FROM workspaces WHERE slug = $1",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,17 @@
       },
       {
         "ordinal": 2,
+        "name": "slug",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -39,17 +50,15 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "UuidArray",
-        "Uuid",
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "fc408e5071be393da5d3abebc6cea8696289a384da19c75a831dac5a1d3f34e4"
+  "hash": "5163792e67b0021cc278bcabb44bcb79f7c2119c59678292f7c59413243ffc15"
 }

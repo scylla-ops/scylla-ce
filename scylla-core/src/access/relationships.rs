@@ -1,16 +1,22 @@
-//! The relationship calls of the SpiceDB client: writes, deletes, and the subjects of an object.
+//! The relationship calls of the SpiceDB client: writes, deletes, and the roles on an object.
 
-use scylla_domain::authz::{self, Object};
-use scylla_extension::AccessError;
+use scylla_domain::authz::{self, Object, Resource};
+use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::PageSize;
+use scylla_extension::{AccessError, RoleHolder, RolePage};
 use spicedb_grpc_tonic::v1::consistency::Requirement;
 use spicedb_grpc_tonic::v1::relationship_update::Operation;
 use spicedb_grpc_tonic::v1::{
-    Consistency, DeleteRelationshipsRequest, ReadRelationshipsRequest, Relationship,
+    Consistency, Cursor, DeleteRelationshipsRequest, ReadRelationshipsRequest, Relationship,
     RelationshipFilter, RelationshipUpdate, SubjectFilter, WriteRelationshipsRequest,
 };
+use tonic::{Code, Status};
 
 use super::spicedb::{reference, subject_reference, unavailable};
 use super::SpiceDb;
+
+/// The limit of each read of the roles: one more than the largest page.
+const READ_LIMIT: u32 = PageSize::MAX as u32 + 1;
 
 impl SpiceDb {
     /// Applies one operation to relationships, and returns the token of the write.
@@ -111,6 +117,69 @@ impl SpiceDb {
             }
         }
         Ok(ids)
+    }
+
+    /// Reads up to `count` roles of actors on an object, after a cursor or from the first role.
+    /// Returns `None` if SpiceDB refuses the cursor.
+    pub(super) async fn roles(
+        &self,
+        object: &Object,
+        cursor: Option<&str>,
+        count: usize,
+    ) -> Result<Option<RolePage>, AccessError> {
+        // Read the roles with a fixed limit, as a cursor needs the same request each time.
+        let request = ReadRelationshipsRequest {
+            consistency: Some(Consistency {
+                requirement: Some(Requirement::FullyConsistent(true)),
+            }),
+            relationship_filter: Some(RelationshipFilter {
+                resource_type: object.kind().to_owned(),
+                optional_resource_id: object.id().to_owned(),
+                optional_subject_filter: Some(SubjectFilter {
+                    subject_type: Actor::NAME.to_owned(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            optional_limit: READ_LIMIT,
+            optional_cursor: cursor.map(|token| Cursor {
+                token: token.to_owned(),
+            }),
+        };
+        let refused = |status: Status| match status.code() {
+            Code::InvalidArgument | Code::FailedPrecondition if cursor.is_some() => Ok(None),
+            _ => Err(unavailable(status)),
+        };
+        let mut answers = match self.permissions.clone().read_relationships(request).await {
+            Ok(response) => response.into_inner(),
+            Err(status) => return refused(status),
+        };
+
+        // Keep `count` roles, and look for one more.
+        let mut page = RolePage::default();
+        loop {
+            let answer = match answers.message().await {
+                Ok(Some(answer)) => answer,
+                Ok(None) => break,
+                Err(status) => return refused(status),
+            };
+            if page.holders.len() == count {
+                page.more = true;
+                break;
+            }
+            let Some(relationship) = answer.relationship else {
+                continue;
+            };
+            let subject = relationship.subject.and_then(|subject| subject.object);
+            if let Some(actor) = subject.and_then(|object| ActorId::parse(&object.object_id).ok()) {
+                page.holders.push(RoleHolder {
+                    role: relationship.relation,
+                    actor,
+                });
+                page.cursor = answer.after_result_cursor.map(|cursor| cursor.token);
+            }
+        }
+        Ok(Some(page))
     }
 
     /// Sends a delete of relationships.

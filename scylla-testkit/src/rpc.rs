@@ -1,4 +1,5 @@
-//! The helpers that make requests: a token in a header, an id message, the text of an id.
+//! The helpers that make requests: a token in a header, an id message, the text of an id, a
+//! page.
 
 use scylla_proto::common::v1 as common;
 use tonic::metadata::MetadataValue;
@@ -22,4 +23,12 @@ pub fn id(value: impl Into<String>) -> common::Id {
 /// Returns the text of an id of a response.
 pub fn text(id: &Option<common::Id>) -> &str {
     &id.as_ref().expect("id in response").value
+}
+
+/// Makes a page request.
+pub(crate) fn page(size: i32, token: &str) -> common::PageRequest {
+    common::PageRequest {
+        size,
+        token: token.to_owned(),
+    }
 }

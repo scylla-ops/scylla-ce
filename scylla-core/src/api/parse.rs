@@ -5,6 +5,7 @@ use std::fmt;
 use prost_types::Timestamp;
 use scylla_domain::identity::users::{Email, Handle, Password};
 use scylla_domain::projects::ProjectName;
+use scylla_domain::tenancy::slugs::Slug;
 use scylla_domain::{DomainError, Id};
 use scylla_domain::{PageRequest, PageSize};
 use scylla_proto::common::v1 as pb;
@@ -134,6 +135,12 @@ impl FromProto<String> for Password {
 }
 
 impl FromProto<String> for Handle {
+    fn from_proto(value: String) -> Result<Self, Invalid> {
+        Ok(Self::parse(value)?)
+    }
+}
+
+impl FromProto<String> for Slug {
     fn from_proto(value: String) -> Result<Self, Invalid> {
         Ok(Self::parse(value)?)
     }

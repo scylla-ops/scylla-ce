@@ -4,6 +4,7 @@ use time::OffsetDateTime;
 
 use crate::authz::Resource;
 use crate::identity::actors::{Actor, ActorId};
+use crate::tenancy::slugs::Slug;
 use crate::{Id, Name, Page, PageRequest, ResourceKind};
 
 /// The kind of a workspace, for the hooks: the name of its definition.
@@ -22,8 +23,19 @@ pub struct Workspace {
     pub id: WorkspaceId,
     /// The display name.
     pub name: String,
+    /// The unique slug, for the URLs.
+    pub slug: String,
     /// The creation time, set by the database.
     pub created_at: OffsetDateTime,
+}
+
+/// How a new workspace gets its slug.
+#[derive(Clone, Debug)]
+pub enum NewSlug {
+    /// A slug that the caller chose: a slug in use is refused.
+    Chosen(Slug),
+    /// A slug made from a name: a slug in use gets the first free suffix, `-2`, `-3` and on.
+    Derived(Slug),
 }
 
 /// The input of a workspace creation.
@@ -33,6 +45,17 @@ pub struct NewWorkspace {
     pub creator: ActorId,
     /// The display name.
     pub name: WorkspaceName,
+    /// The slug.
+    pub slug: NewSlug,
+}
+
+/// A change of a workspace. A field that is `None` does not change.
+#[derive(Clone, Debug, Default)]
+pub struct WorkspaceChange {
+    /// The new display name.
+    pub name: Option<WorkspaceName>,
+    /// The new slug. A slug in use is refused.
+    pub slug: Option<Slug>,
 }
 
 /// What a caller can read: the workspaces that it owns, and the workspaces where it has a role.
@@ -74,6 +97,11 @@ crate::authz! {
         permission get_workspace = read;
         /// The route `ListWorkspaces`: a workspace that the caller can read is in its list.
         permission list_workspaces = read;
+        /// The route `UpdateWorkspace`: change the name and the slug.
+        permission update_workspace = manage;
+        /// The route `DeleteWorkspace`: delete an empty workspace. Only its owners: no role
+        /// gives it.
+        permission delete_workspace = nil;
         /// The route `AddOwner`: make a user an owner of this workspace. Only its owners: no
         /// role gives it.
         permission add_owner = nil;
@@ -86,9 +114,18 @@ crate::authz! {
         permission grant = admin;
         /// The route `Revoke` of `AccessService`: take back a role in this workspace.
         permission revoke = admin;
+        /// The route `ListAccess` of `AccessService`: the owners and the roles of this
+        /// workspace, and the roles on each object in it.
+        permission list_access = read;
         /// The route `CreateInvitation` of `InvitationService`: invite a person into this
         /// workspace.
         permission create_invitation = manage;
+        /// The route `ListInvitations` of `InvitationService`: the open invitations.
+        permission list_invitations = manage;
+        /// The route `RevokeInvitation` of `InvitationService`: stop an open invitation.
+        permission revoke_invitation = manage;
+        /// The route `ResendInvitation` of `InvitationService`: send a new link.
+        permission resend_invitation = manage;
     }
 
     /// The routes of the workspaces on the caller itself.

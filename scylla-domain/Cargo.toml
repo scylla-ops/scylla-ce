@@ -9,6 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+deunicode.workspace = true
 scylla-macros.workspace = true
 thiserror.workspace = true
 time.workspace = true

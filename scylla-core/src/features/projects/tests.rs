@@ -6,11 +6,13 @@ use scylla_domain::authz::{Check, Object, Relationship};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::{Email, NewUser, SessionId};
 use scylla_domain::projects::{NewProject, ProjectName, KIND};
-use scylla_domain::tenancy::workspaces::{NewWorkspace, WorkspaceId};
+use scylla_domain::tenancy::slugs::Slug;
+use scylla_domain::tenancy::workspaces::{NewSlug, NewWorkspace, WorkspaceId};
 use scylla_domain::{Name, ResourceKind};
 use scylla_extension::{
     async_trait, AccessError, AfterDelete, BeforeCreate, CreateContext, DeleteContext, Edition,
-    EditionBuilder, Gate, HookError, Hooks, IssuedToken, Operation, Principal, Rejection, Tx,
+    EditionBuilder, Gate, HookError, Hooks, IssuedToken, Operation, Principal, Rejection, RolePage,
+    Tx,
 };
 use sqlx::PgPool;
 use tonic::metadata::MetadataMap;
@@ -68,6 +70,25 @@ impl Gate for NoGate {
 
     async fn subjects(&self, _object: &Object) -> Result<Vec<ActorId>, AccessError> {
         Ok(Vec::new())
+    }
+
+    async fn roles(
+        &self,
+        _object: &Object,
+        _cursor: Option<&str>,
+        _count: usize,
+    ) -> Result<Option<RolePage>, AccessError> {
+        Ok(Some(RolePage::default()))
+    }
+
+    async fn permissions(
+        &self,
+        _principal: &Principal,
+        _object: &Object,
+        _workspace: Option<WorkspaceId>,
+        permissions: &[&'static str],
+    ) -> Result<Vec<bool>, AccessError> {
+        Ok(vec![true; permissions.len()])
     }
 
     async fn lookup(
@@ -163,6 +184,7 @@ async fn workspace(pool: &PgPool, owner: &Actor) -> WorkspaceId {
     let new = NewWorkspace {
         creator: owner.id,
         name: Name::parse("main".to_owned()).unwrap(),
+        slug: NewSlug::Derived(Slug::derive("main")),
     };
     workspaces::create(pool, new).await.unwrap().id
 }

@@ -38,6 +38,7 @@ base64 = "0.23.1"
 biscuit-auth = { version = "6.0.0", default-features = false, features = ["datalog-macro"] }
 chacha20poly1305 = { version = "0.11.0", features = ["getrandom"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
+deunicode = "1.6.2"
 ed25519-dalek = "3.0.0"
 getrandom = "0.4.3"
 hex = "0.4.3"

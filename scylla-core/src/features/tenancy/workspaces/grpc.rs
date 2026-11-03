@@ -1,16 +1,18 @@
 //! The gRPC handler of `WorkspaceService`: authenticate, authorize, parse, call the service,
-//! answer.
+//! answer. The routes of the owners are in `owners.rs`.
 
 use std::sync::Arc;
 
-use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::users;
-use scylla_domain::tenancy::owners::{ListOwners, WorkspaceOwner};
+use scylla_domain::tenancy::slugs::Slug;
 use scylla_domain::tenancy::workspaces::{
-    ListWorkspaces, NewWorkspace, VisibleWorkspaces, Workspace, WorkspaceCaller, WorkspaceId,
+    ListWorkspaces, NewSlug, NewWorkspace, VisibleWorkspaces, Workspace, WorkspaceCaller,
+    WorkspaceChange, WorkspaceId,
 };
-use scylla_extension::{AccessError, Gate};
+use scylla_domain::Name;
+use scylla_extension::{AccessError, Gate, Principal};
 use scylla_proto::workspaces::v1 as pb;
+use scylla_proto::workspaces::v1::get_workspace_request::Workspace as Named;
 use scylla_proto::workspaces::v1::workspace_service_server::{
     WorkspaceService, WorkspaceServiceServer,
 };
@@ -29,9 +31,9 @@ pub(super) fn server(pool: PgPool, gate: Arc<dyn Gate>) -> WorkspaceServiceServe
 /// The handler.
 pub(super) struct WorkspacesGrpc {
     /// The database pool.
-    pool: PgPool,
+    pub(super) pool: PgPool,
     /// The access gate.
-    gate: Arc<dyn Gate>,
+    pub(super) gate: Arc<dyn Gate>,
 }
 
 #[tonic::async_trait]
@@ -57,6 +59,20 @@ impl WorkspaceService for WorkspacesGrpc {
         Ok(Response::new(self.list(request).await?))
     }
 
+    async fn update_workspace(
+        &self,
+        request: Request<pb::UpdateWorkspaceRequest>,
+    ) -> Result<Response<pb::UpdateWorkspaceResponse>, Status> {
+        Ok(Response::new(self.update(request).await?))
+    }
+
+    async fn delete_workspace(
+        &self,
+        request: Request<pb::DeleteWorkspaceRequest>,
+    ) -> Result<Response<pb::DeleteWorkspaceResponse>, Status> {
+        Ok(Response::new(self.delete(request).await?))
+    }
+
     async fn add_owner(
         &self,
         request: Request<pb::AddOwnerRequest>,
@@ -80,28 +96,33 @@ impl WorkspaceService for WorkspacesGrpc {
 }
 
 impl WorkspacesGrpc {
-    /// Handles `CreateWorkspace`. The caller becomes the first owner, so it must be a user.
+    /// Handles `CreateWorkspace`. The caller becomes the first owner, so it must be a user. With
+    /// no slug, the slug comes from the name.
     async fn create(
         &self,
         request: Request<pb::CreateWorkspaceRequest>,
     ) -> Result<pb::CreateWorkspaceResponse, Error> {
         // Authenticate the caller, then read the request.
         let caller = self.gate.caller(&request).await?;
+        let request = request.into_inner();
+        let name: Name = parse::field(request.name, "name")?;
+        let slug = match request.slug {
+            Some(slug) => NewSlug::Chosen(parse::field(slug, "slug")?),
+            None => NewSlug::Derived(Slug::derive(name.as_str())),
+        };
         let new = NewWorkspace {
             creator: caller.actor.id,
-            name: parse::field(request.into_inner().name, "name")?,
+            name,
+            slug,
         };
 
         // Check the route permission on the caller. Only a user can own a workspace.
-        self.gate
-            .authorize(
-                &caller,
-                WorkspaceCaller::CREATE_WORKSPACE.on(caller.actor.id),
-            )
-            .await?;
+        let check = WorkspaceCaller::CREATE_WORKSPACE.on(caller.actor.id);
+        self.gate.authorize(&caller, check.clone()).await?;
         if caller.actor.kind != users::KIND {
             let reason = "only a user can own a workspace".to_owned();
-            return Err(AccessError::Denied(reason).into());
+            let object = check.object();
+            return Err(AccessError::refused(&caller, check.permission(), object, reason).into());
         }
 
         // Create the workspace.
@@ -111,25 +132,56 @@ impl WorkspacesGrpc {
         })
     }
 
-    /// Handles `GetWorkspace`. An unknown workspace gives `PERMISSION_DENIED`, so no caller
-    /// learns which ids exist.
+    /// Handles `GetWorkspace`, by id or by slug. An unknown workspace gives
+    /// `PERMISSION_DENIED`, as a refusal does. A slug is public: it is in the URLs.
     async fn get(
         &self,
         request: Request<pb::GetWorkspaceRequest>,
     ) -> Result<pb::GetWorkspaceResponse, Error> {
-        // Authenticate the caller, then read the request.
+        // Authenticate the caller, then read the id or the slug.
         let caller = self.gate.caller(&request).await?;
-        let id: WorkspaceId = parse::required(request.into_inner().workspace_id, "workspace_id")?;
+        let named = request
+            .into_inner()
+            .workspace
+            .ok_or_else(|| Error::invalid("workspace", "is required"))?;
 
-        // Check the route permission. An unknown workspace gets the answer of a refusal.
-        let check = Workspace::GET_WORKSPACE.on(id);
-        let Some(workspace) = service::get(&self.pool, id).await? else {
-            return Err(AccessError::denied(&check).into());
+        // Find the workspace. An unknown one gets the answer of a refusal.
+        let workspace = match named {
+            Named::WorkspaceId(id) => {
+                let id: WorkspaceId = parse::field(id, "workspace_id")?;
+                let check = Workspace::GET_WORKSPACE.on(id);
+                let Some(workspace) = service::get(&self.pool, id).await? else {
+                    return Err(AccessError::denied(&caller, &check).into());
+                };
+                self.gate.authorize(&caller, check).await?;
+                workspace
+            }
+            Named::Slug(slug) => self.get_by_slug(&caller, slug).await?,
         };
-        self.gate.authorize(&caller, check).await?;
         Ok(pb::GetWorkspaceResponse {
             workspace: Some(workspace.to_proto()),
         })
+    }
+
+    /// Finds a workspace by its slug and checks the route permission on it. A refusal names the
+    /// slug, not the id of the workspace.
+    async fn get_by_slug(&self, caller: &Principal, slug: String) -> Result<Workspace, Error> {
+        // Read the slug, then find its workspace.
+        let slug: Slug = parse::field(slug, "slug")?;
+        let permission = Workspace::GET_WORKSPACE.name();
+        let reason = format!("{permission} on the workspace {} is denied", slug.as_str());
+        let Some(workspace) = service::get_by_slug(&self.pool, &slug).await? else {
+            let object = format!("workspace slug {}", slug.as_str());
+            return Err(AccessError::refused(caller, permission, &object, reason).into());
+        };
+
+        // Check the route permission on it, and hide its id in a refusal.
+        let check = Workspace::GET_WORKSPACE.on(workspace.id);
+        match self.gate.authorize(caller, check).await {
+            Ok(()) => Ok(workspace),
+            Err(AccessError::Denied(_)) => Err(AccessError::Denied(reason).into()),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Handles `ListWorkspaces`: the workspaces that the caller owns or where it has a role.
@@ -173,86 +225,54 @@ impl WorkspacesGrpc {
         })
     }
 
-    /// Handles `AddOwner`. Only an owner passes: no role gives this permission. An unknown
-    /// workspace gets the answer of a refusal.
-    async fn add(
+    /// Handles `UpdateWorkspace`: a new name or a new slug. An unknown workspace gets the answer
+    /// of a refusal.
+    async fn update(
         &self,
-        request: Request<pb::AddOwnerRequest>,
-    ) -> Result<pb::AddOwnerResponse, Error> {
+        request: Request<pb::UpdateWorkspaceRequest>,
+    ) -> Result<pb::UpdateWorkspaceResponse, Error> {
         // Authenticate the caller, then read the request.
         let caller = self.gate.caller(&request).await?;
         let request = request.into_inner();
-        let workspace: WorkspaceId = parse::required(request.workspace_id, "workspace_id")?;
-        let user: ActorId = parse::required(request.user_id, "user_id")?;
-
-        // Check the route permission, then add the owner.
-        self.gate
-            .authorize(&caller, Workspace::ADD_OWNER.on(workspace))
-            .await?;
-        service::add_owner(&self.pool, workspace, user).await?;
-        Ok(pb::AddOwnerResponse {})
-    }
-
-    /// Handles `RemoveOwner`. Only an owner passes, and the last owner stays.
-    async fn remove(
-        &self,
-        request: Request<pb::RemoveOwnerRequest>,
-    ) -> Result<pb::RemoveOwnerResponse, Error> {
-        // Authenticate the caller, then read the request.
-        let caller = self.gate.caller(&request).await?;
-        let request = request.into_inner();
-        let workspace: WorkspaceId = parse::required(request.workspace_id, "workspace_id")?;
-        let user: ActorId = parse::required(request.user_id, "user_id")?;
-
-        // Check the route permission, then remove the owner.
-        self.gate
-            .authorize(&caller, Workspace::REMOVE_OWNER.on(workspace))
-            .await?;
-        service::remove_owner(&self.pool, workspace, user).await?;
-        Ok(pb::RemoveOwnerResponse {})
-    }
-
-    /// Handles `ListOwners`. A reader of the workspace passes.
-    async fn owners(
-        &self,
-        request: Request<pb::ListOwnersRequest>,
-    ) -> Result<pb::ListOwnersResponse, Error> {
-        // Authenticate the caller, then read the request.
-        let caller = self.gate.caller(&request).await?;
-        let request = request.into_inner();
-        let query = ListOwners {
-            workspace_id: parse::required(request.workspace_id, "workspace_id")?,
-            page: parse::optional(request.page, "page")?,
+        let id: WorkspaceId = parse::required(request.workspace_id, "workspace_id")?;
+        let change = WorkspaceChange {
+            name: request
+                .name
+                .map(|name| parse::field(name, "name"))
+                .transpose()?,
+            slug: request
+                .slug
+                .map(|slug| parse::field(slug, "slug"))
+                .transpose()?,
         };
 
-        // Check the route permission, then read one page of owners.
-        self.gate
-            .authorize(&caller, Workspace::LIST_OWNERS.on(query.workspace_id))
-            .await?;
-        let page = service::owners(&self.pool, query).await?;
-        Ok(pb::ListOwnersResponse {
-            owners: page.items.into_iter().map(ToProto::to_proto).collect(),
-            page: Some(page.next_after.to_proto()),
+        // Check the route permission on a workspace that exists, then change it.
+        let check = Workspace::UPDATE_WORKSPACE.on(id);
+        if service::get(&self.pool, id).await?.is_none() {
+            return Err(AccessError::denied(&caller, &check).into());
+        }
+        self.gate.authorize(&caller, check).await?;
+        let workspace = service::update(&self.pool, id, change).await?;
+        Ok(pb::UpdateWorkspaceResponse {
+            workspace: Some(workspace.to_proto()),
         })
     }
-}
 
-impl ToProto<pb::Workspace> for Workspace {
-    fn to_proto(self) -> pb::Workspace {
-        pb::Workspace {
-            id: Some(self.id.to_proto()),
-            name: self.name,
-            created_at: Some(parse::timestamp(self.created_at)),
-        }
-    }
-}
+    /// Handles `DeleteWorkspace`. Only an owner passes: no role gives this permission. An
+    /// unknown workspace has no owner, so it gets the answer of a refusal.
+    async fn delete(
+        &self,
+        request: Request<pb::DeleteWorkspaceRequest>,
+    ) -> Result<pb::DeleteWorkspaceResponse, Error> {
+        // Authenticate the caller, then read the request.
+        let caller = self.gate.caller(&request).await?;
+        let id: WorkspaceId = parse::required(request.into_inner().workspace_id, "workspace_id")?;
 
-impl ToProto<pb::WorkspaceOwner> for WorkspaceOwner {
-    fn to_proto(self) -> pb::WorkspaceOwner {
-        pb::WorkspaceOwner {
-            user_id: Some(self.user_id.to_proto()),
-            display_name: self.display_name,
-            since: Some(parse::timestamp(self.since)),
-        }
+        // Check the route permission, then delete the workspace.
+        self.gate
+            .authorize(&caller, Workspace::DELETE_WORKSPACE.on(id))
+            .await?;
+        service::delete(&self.pool, self.gate.as_ref(), id).await?;
+        Ok(pb::DeleteWorkspaceResponse {})
     }
 }

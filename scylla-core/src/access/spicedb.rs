@@ -73,14 +73,14 @@ impl SpiceDb {
         Ok(())
     }
 
-    /// Returns `true` if `subject` has `permission` on one of the objects. One call asks for all.
-    pub(super) async fn check_any(
+    /// Asks if `subject` has each permission on its object, in one call. An answer is `None`
+    /// when SpiceDB could not check its item.
+    pub(super) async fn check_bulk(
         &self,
         subject: &Object,
-        objects: &[Object],
-        permission: &str,
+        items: &[(Object, &'static str)],
         fresh: Option<&str>,
-    ) -> Result<bool, AccessError> {
+    ) -> Result<Vec<Option<bool>>, AccessError> {
         // See at least the write of the check token, or else all the writes.
         let requirement = match fresh {
             Some(token) if !token.is_empty() => Requirement::AtLeastAsFresh(ZedToken {
@@ -89,21 +89,20 @@ impl SpiceDb {
             _ => Requirement::FullyConsistent(true),
         };
 
-        // Ask for the permission on each object in one call.
-        let items = objects
-            .iter()
-            .map(|object| CheckBulkPermissionsRequestItem {
-                resource: Some(reference(object)),
-                permission: permission.to_owned(),
-                subject: Some(subject_reference(subject)),
-                context: None,
-            })
-            .collect();
+        // Ask for each permission on its object in one call.
         let request = CheckBulkPermissionsRequest {
             consistency: Some(Consistency {
                 requirement: Some(requirement),
             }),
-            items,
+            items: items
+                .iter()
+                .map(|(object, permission)| CheckBulkPermissionsRequestItem {
+                    resource: Some(reference(object)),
+                    permission: (*permission).to_owned(),
+                    subject: Some(subject_reference(subject)),
+                    context: None,
+                })
+                .collect(),
             with_tracing: false,
         };
         let response = self
@@ -113,28 +112,28 @@ impl SpiceDb {
             .await
             .map_err(unavailable)?;
 
-        // Pass on one yes. With no yes, an error on one object fails closed.
-        let mut failed = false;
-        for pair in response.into_inner().pairs {
-            match pair.response {
-                Some(Answer::Item(item))
-                    if item.permissionship == Permissionship::HasPermission as i32 =>
-                {
-                    return Ok(true);
+        // Read one answer for each item, in the order of the items.
+        let answers: Vec<_> = response
+            .into_inner()
+            .pairs
+            .into_iter()
+            .map(|pair| match pair.response {
+                Some(Answer::Item(item)) => {
+                    Some(item.permissionship == Permissionship::HasPermission as i32)
                 }
                 Some(Answer::Error(status)) => {
                     tracing::error!(message = status.message, "a SpiceDB check failed");
-                    failed = true;
+                    None
                 }
-                _ => {}
-            }
-        }
-        if failed {
+                None => None,
+            })
+            .collect();
+        if answers.len() != items.len() {
             return Err(AccessError::Unavailable(
                 "permission system unavailable".to_owned(),
             ));
         }
-        Ok(false)
+        Ok(answers)
     }
 
     /// Returns the ids of the objects of a definition on which `subject` has `permission`.

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, email, role, expires_at FROM invitations\n         WHERE token_hash = $1 AND accepted_at IS NULL AND expires_at > now()",
+  "query": "SELECT id, workspace_id, email, role, invited_by, expires_at, sent_at FROM invitations\n         WHERE (token_hash = $1 OR id = $2) AND accepted_at IS NULL AND expires_at > now()\n         FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,17 @@
       },
       {
         "ordinal": 4,
+        "name": "invited_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "invitations",
+            "name": "invited_by"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "expires_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -57,11 +68,23 @@
             "name": "expires_at"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "sent_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "invitations",
+            "name": "sent_at"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Bytea"
+        "Bytea",
+        "Uuid"
       ]
     },
     "nullable": [
@@ -69,8 +92,10 @@
       false,
       false,
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "c573eb301772284d9eee4a72ce1dc03d5565e0fda51952df101f9780d9cedc84"
+  "hash": "26b5f7faa779c9edb3ac28e4fd6a501aa837e33c4c531c8903c39db01df8fced"
 }

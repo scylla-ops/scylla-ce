@@ -90,3 +90,17 @@ pub(super) async fn use_nonce(
     .await?;
     Ok(result.rows_affected() == 1)
 }
+
+/// Returns the workspace of an agent, or `None` if the actor is not an agent.
+pub(super) async fn workspace_of(
+    tx: &mut Tx<'_>,
+    agent: ActorId,
+) -> Result<Option<WorkspaceId>, sqlx::Error> {
+    let workspace = sqlx::query_scalar!(
+        "SELECT workspace_id FROM agents WHERE id = $1",
+        agent.to_db()
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(workspace.map(WorkspaceId::from_db))
+}

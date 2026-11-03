@@ -1,21 +1,34 @@
 //! The logic of the invitations: a link by mail that gives a role in a workspace to the person
-//! with the email.
+//! with the email, and the management of the open invitations.
 
 use scylla_domain::authz::Resource;
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::users::Email;
-use scylla_domain::tenancy::invitations::{Invitation, InvitationId};
+use scylla_domain::tenancy::invitations::{
+    Invitation, InvitationId, InvitationPage, ListInvitations,
+};
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
-use scylla_extension::{Grantable, Tx};
+use scylla_domain::Page;
+use scylla_extension::{Grantable, Rejection, Tx};
 use sqlx::PgPool;
 
 use super::store;
-use crate::features::identity::accounts::{mails, AccountContext};
+use crate::features::identity::accounts::{mails, refused, verified_emails, AccountContext};
 use crate::infra::secret;
 use crate::Error;
 
+/// Which open invitation an acceptance takes.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Pick<'a> {
+    /// The invitation of the token of a link.
+    Token(&'a str),
+    /// An invitation found by its email.
+    Id(InvitationId),
+}
+
 /// Creates an invitation and sends its link to the email. The role must be a role of the
-/// workspaces in the registry of the edition.
+/// workspaces in the registry of the edition. An open invitation of the email in the workspace
+/// gives `INVITATION_PENDING`.
 pub(crate) async fn create(
     ctx: &AccountContext,
     invited_by: ActorId,
@@ -34,21 +47,74 @@ pub(crate) async fn create(
 
     // Store the invitation with the hash of a new token.
     let token = secret::token();
-    let invitation = Invitation {
-        id: InvitationId::generate(),
-        workspace_id: workspace,
-        email: email.as_str().to_owned(),
-        role: role.to_owned(),
-        expires_at: store::expiry(),
-    };
     let mut tx = ctx.pool.begin().await?;
     let name = store::workspace_name(&mut tx, workspace)
         .await?
         .ok_or(Error::NotFound("workspace"))?;
-    store::insert(&mut tx, &invitation, &secret::hash(&token), invited_by).await?;
+    let hash = secret::hash(&token);
+    let invitation =
+        store::insert(&mut tx, workspace, email.as_str(), role, invited_by, &hash).await?;
     tx.commit().await?;
 
     // Send the link to the email only.
+    let mail = mails::invitation(ctx, &invitation.email, &name, &token);
+    mails::send(ctx, mail).await;
+    Ok(invitation)
+}
+
+/// Returns one page of the invitations of a workspace that nobody accepted, oldest first.
+pub(super) async fn list(pool: &PgPool, query: ListInvitations) -> Result<InvitationPage, Error> {
+    let mut tx = pool.begin().await?;
+    let invitations = store::list_open(&mut tx, query.workspace_id, query.page).await?;
+    tx.commit().await?;
+    Ok(Page::from_overfetch(
+        invitations,
+        query.page.size,
+        |invitation| invitation.id,
+    ))
+}
+
+/// Deletes an open invitation of a workspace, so its link stops. An invitation that is not open
+/// in the workspace gives `NotFound("invitation")`.
+pub(super) async fn revoke(
+    pool: &PgPool,
+    workspace: WorkspaceId,
+    id: InvitationId,
+) -> Result<(), Error> {
+    let mut tx = pool.begin().await?;
+    if !store::delete_open(&mut tx, workspace, id).await? {
+        return Err(Error::NotFound("invitation"));
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Gives an open invitation a new token and a new expiry, and sends the new link. The old link
+/// stops. A second send in less than 60 seconds gives `RESEND_TOO_SOON`.
+pub(super) async fn resend(
+    ctx: &AccountContext,
+    workspace: WorkspaceId,
+    id: InvitationId,
+) -> Result<Invitation, Error> {
+    // Lock the invitation, and refuse a send soon after the last one.
+    let mut tx = ctx.pool.begin().await?;
+    let (_, wait) = store::lock_for_resend(&mut tx, workspace, id)
+        .await?
+        .ok_or(Error::NotFound("invitation"))?;
+    if let Some(seconds) = wait {
+        let message = "the invitation got a mail less than 60 seconds ago";
+        let rejection =
+            Rejection::new("RESEND_TOO_SOON", message).detail("retry_after_seconds", seconds);
+        return Err(Error::Rejected(rejection));
+    }
+
+    // Store the hash of a new token, then send the new link to the email only.
+    let token = secret::token();
+    let invitation = store::renew(&mut tx, id, &secret::hash(&token)).await?;
+    let name = store::workspace_name(&mut tx, workspace)
+        .await?
+        .ok_or(Error::NotFound("workspace"))?;
+    tx.commit().await?;
     let mail = mails::invitation(ctx, &invitation.email, &name, &token);
     mails::send(ctx, mail).await;
     Ok(invitation)
@@ -70,22 +136,50 @@ pub(crate) async fn open_for_email(
     store::open_for_email(tx, email).await
 }
 
-/// Gives the role of an invitation to a user, then marks the invitation as accepted. The role
-/// is a SpiceDB write, so it comes first: a retry writes it again with no harm.
+/// Gives the role of an open invitation to a user with its verified email, and returns the
+/// workspace. One transaction locks the invitation, writes the role and marks the invitation,
+/// so a revoke or a resend waits, or wins and the link gives the answer of an unknown link. A
+/// retry after a failed commit writes the same role again with no harm.
 pub(crate) async fn accept(
     ctx: &AccountContext,
-    invitation: &Invitation,
+    pick: Pick<'_>,
     user: ActorId,
-) -> Result<(), Error> {
+) -> Result<WorkspaceId, Error> {
+    // Lock the open invitation.
+    let mut tx = ctx.pool.begin().await?;
+    let invitation = match pick {
+        Pick::Token(token) => {
+            store::lock_acceptable(&mut tx, Some(&secret::hash(token)), None).await?
+        }
+        Pick::Id(id) => store::lock_acceptable(&mut tx, None, Some(id)).await?,
+    };
+    let invitation = invitation.ok_or_else(not_open)?;
+
+    // Refuse a user with no verified email of the invitation.
+    if !verified_emails(&mut tx, user)
+        .await?
+        .contains(&invitation.email)
+    {
+        let message = "the invitation is for another email";
+        return Err(refused("INVITATION_FOR_ANOTHER_EMAIL", message));
+    }
+
+    // Give the role, then mark the invitation, and commit.
     let id = invitation.workspace_id.to_string();
     let role = workspace_roles(ctx)?
         .relationship(&invitation.role, &id, user)
         .ok_or_else(|| Error::Internal(format!("unknown role {}", invitation.role)))?;
     ctx.gate.write(&[role]).await?;
-    let mut tx = ctx.pool.begin().await?;
-    store::mark_accepted(&mut tx, invitation.id, user).await?;
+    if !store::mark_accepted(&mut tx, invitation.id, user).await? {
+        return Err(not_open());
+    }
     tx.commit().await?;
-    Ok(())
+    Ok(invitation.workspace_id)
+}
+
+/// The answer to a link that is not open: unknown, stopped, accepted or expired.
+fn not_open() -> Error {
+    Error::invalid("token", "is not an open invitation")
 }
 
 /// Returns the roles of the workspaces in the registry of the edition.

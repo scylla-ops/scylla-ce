@@ -59,6 +59,8 @@ crate::authz! {
         permission grant = admin;
         /// The route `Revoke` of `AccessService`: take back a role on this project.
         permission revoke = admin;
+        /// The route `ListAccess` of `AccessService`: the roles on this project.
+        permission list_access = view;
     }
 
     /// The routes of the projects on their workspace. A role there gives the route on each

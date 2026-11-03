@@ -1,21 +1,22 @@
 //! The gate: verifies the Biscuit of each request and its revocation, then finds the rights.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use biscuit_auth::builder::Term;
-use biscuit_auth::{AuthorizerBuilder, Biscuit};
+use biscuit_auth::Biscuit;
 use scylla_domain::authz::{Check, Object, Relationship, Schema};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::{self, SessionId};
-use scylla_extension::{async_trait, AccessError, Gate, IssuedToken, Operation, Principal};
+use scylla_domain::tenancy::workspaces::WorkspaceId;
+use scylla_extension::{
+    async_trait, AccessError, Gate, IssuedToken, Operation, Principal, RolePage,
+};
 use spicedb_grpc_tonic::v1::relationship_update::Operation as Update;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use tonic::metadata::MetadataMap;
 
-use super::claims::{claims, sign, unauthenticated, Claims};
+use super::claims::{allows, claims, sign, unauthenticated, Claims};
 use super::rights::Rights;
 use super::{store, SpiceDb, TokenKeys};
 use crate::{Config, Error};
@@ -200,36 +201,23 @@ impl Gate for Access {
             .token()
             .downcast_ref::<Biscuit>()
             .ok_or_else(|| unauthenticated("unknown token type"))?;
-        let params = HashMap::from([
-            ("op".to_owned(), Term::Str(operation.as_str().to_owned())),
-            (
-                "type".to_owned(),
-                Term::Str(check.object().kind().to_owned()),
-            ),
-            (
-                "object".to_owned(),
-                Term::Str(check.object().id().to_owned()),
-            ),
-        ]);
-        AuthorizerBuilder::new()
-            .time()
-            .code_with_params(
-                "operation({op}); resource({type}, {object}); allow if actor($id, $kind);",
-                params,
-                HashMap::new(),
-            )
-            .and_then(|builder| builder.build(token))
-            .and_then(|mut authorizer| authorizer.authorize())
-            .map_err(|_| {
-                AccessError::Denied("the token does not allow this operation".to_owned())
-            })?;
+        if !allows(token, operation, &check) {
+            let reason = "the token does not allow this operation".to_owned();
+            let object = check.object();
+            return Err(AccessError::refused(
+                principal,
+                check.permission(),
+                object,
+                reason,
+            ));
+        }
 
         // Pass an owner or a grant, and record a passed check for the route rule.
         if self.rights.allow(principal.actor.id, &check).await? {
             operation.set_authorized();
             Ok(())
         } else {
-            Err(AccessError::denied(&check))
+            Err(AccessError::denied(principal, &check))
         }
     }
 
@@ -260,6 +248,28 @@ impl Gate for Access {
             .iter()
             .filter_map(|id| ActorId::parse(id).ok())
             .collect())
+    }
+
+    async fn roles(
+        &self,
+        object: &Object,
+        cursor: Option<&str>,
+        count: usize,
+    ) -> Result<Option<RolePage>, AccessError> {
+        self.spicedb.roles(object, cursor, count).await
+    }
+
+    async fn permissions(
+        &self,
+        principal: &Principal,
+        object: &Object,
+        workspace: Option<WorkspaceId>,
+        permissions: &[&'static str],
+    ) -> Result<Vec<bool>, AccessError> {
+        let caller = principal.actor.id;
+        self.rights
+            .answers(caller, object, workspace, permissions, None)
+            .await
     }
 
     async fn lookup(

@@ -5,6 +5,8 @@ use scylla_testkit::{text, Role};
 use sqlx::PgPool;
 use tonic::Code;
 
+use crate::identity::accounts::assert_refused;
+use crate::identity::agents::agent_in;
 use crate::{app, assert_code, assert_invalid_field, UNKNOWN_ID};
 
 /// A viewer gets the project after `Grant`, and no more after `Revoke`.
@@ -200,4 +202,54 @@ async fn list_projects_shows_owned_member_and_shared_projects(pool: PgPool) {
     // then
     assert_eq!(all, ["alice", "bob shared", "carol"]);
     assert_eq!(of_bob, ["bob shared"]);
+}
+
+/// An agent gets a role in its own workspace, on the workspace or on a project in it. An agent
+/// gets no role in another workspace: `ACTOR_OUTSIDE_WORKSPACE`. A user gets a role in any
+/// workspace.
+#[sqlx::test(migrations = false)]
+async fn grant_keeps_an_agent_in_its_workspace(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let (owner, other) = (app.user().await, app.user().await);
+    let workspace = app.workspace_of(owner).await;
+    let (agent, _) = agent_in(&app, owner, workspace).await;
+    let project = app.create_project(owner, "alpha").await.unwrap();
+    let foreign = app.create_project(other, "beta").await.unwrap();
+    let (home, abroad) = (workspace.to_string(), text(&foreign.workspace_id));
+    let (agent, user) = (agent.to_string(), owner.to_string());
+
+    // when
+    let in_home = app
+        .grant_role(owner, Role::on("workspace", &home, "member"), &agent)
+        .await;
+    let on_project = app
+        .grant_role(
+            owner,
+            Role::on("project", text(&project.id), "viewer"),
+            &agent,
+        )
+        .await;
+    let in_other = app
+        .grant_role(other, Role::on("workspace", abroad, "viewer"), &agent)
+        .await;
+    let on_foreign = app
+        .grant_role(
+            other,
+            Role::on("project", text(&foreign.id), "viewer"),
+            &agent,
+        )
+        .await;
+    let user_in_other = app
+        .grant_role(other, Role::on("workspace", abroad, "viewer"), &user)
+        .await;
+
+    // then
+    assert!(
+        in_home.is_ok() && on_project.is_ok(),
+        "{in_home:?} {on_project:?}"
+    );
+    assert_refused(in_other, "ACTOR_OUTSIDE_WORKSPACE");
+    assert_refused(on_foreign, "ACTOR_OUTSIDE_WORKSPACE");
+    assert!(user_in_other.is_ok(), "{user_in_other:?}");
 }

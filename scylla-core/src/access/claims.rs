@@ -1,12 +1,14 @@
-//! The claims of a token: the actor, the expiry and the session that the first block signs.
+//! The claims of a token: the actor, the expiry and the session that the first block signs, and
+//! the checks of the token on an operation.
 
 use std::collections::HashMap;
 
 use biscuit_auth::builder::Term;
 use biscuit_auth::{AuthorizerBuilder, Biscuit};
+use scylla_domain::authz::Check;
 use scylla_domain::identity::actors::{Actor, ActorId, ActorKind};
 use scylla_domain::identity::users::SessionId;
-use scylla_extension::AccessError;
+use scylla_extension::{AccessError, Operation};
 use time::OffsetDateTime;
 
 use super::TokenKeys;
@@ -107,4 +109,29 @@ fn invalid() -> AccessError {
 /// Makes an `Unauthenticated` error.
 pub(super) fn unauthenticated(reason: &str) -> AccessError {
     AccessError::Unauthenticated(reason.to_owned())
+}
+
+/// Returns `true` if the checks of a token allow an operation on the object of a check.
+pub(super) fn allows(token: &Biscuit, operation: &Operation, check: &Check) -> bool {
+    let params = HashMap::from([
+        ("op".to_owned(), Term::Str(operation.as_str().to_owned())),
+        (
+            "type".to_owned(),
+            Term::Str(check.object().kind().to_owned()),
+        ),
+        (
+            "object".to_owned(),
+            Term::Str(check.object().id().to_owned()),
+        ),
+    ]);
+    AuthorizerBuilder::new()
+        .time()
+        .code_with_params(
+            "operation({op}); resource({type}, {object}); allow if actor($id, $kind);",
+            params,
+            HashMap::new(),
+        )
+        .and_then(|builder| builder.build(token))
+        .and_then(|mut authorizer| authorizer.authorize())
+        .is_ok()
 }

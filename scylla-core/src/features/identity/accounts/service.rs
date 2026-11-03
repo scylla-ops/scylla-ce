@@ -2,9 +2,12 @@
 //! sign-in with a password.
 
 use scylla_domain::identity::actors::Actor;
-use scylla_domain::identity::users::{Email, Identifier, NewUser, Password, UserStatus, KIND};
+use scylla_domain::identity::users::{
+    Email, Handle, Identifier, NewUser, Password, UserStatus, KIND,
+};
 use scylla_domain::tenancy::invitations::Invitation;
-use scylla_domain::tenancy::workspaces::NewWorkspace;
+use scylla_domain::tenancy::slugs::Slug;
+use scylla_domain::tenancy::workspaces::{NewSlug, NewWorkspace};
 use scylla_domain::Name;
 use scylla_extension::{AccessError, Rejection, Tx};
 use sqlx::PgPool;
@@ -14,7 +17,7 @@ use super::one_time::{self, Purpose};
 use super::{mails, password, store, AccountContext};
 use crate::features::identity::sessions::{self, Client, Opened};
 use crate::features::identity::{actors, admins};
-use crate::features::tenancy::invitations;
+use crate::features::tenancy::invitations::{self, Pick};
 use crate::features::tenancy::workspaces;
 use crate::{Error, SignUpMode};
 
@@ -85,10 +88,15 @@ pub(crate) async fn insert_user(
         store::set_password(tx, actor.id, hash).await?;
     }
 
-    // Give the user its personal workspace.
+    // Give the user its personal workspace, with a slug from its handle or its name.
+    let source = new
+        .handle
+        .as_ref()
+        .map_or(new.display_name.as_str(), Handle::as_str);
     let personal = NewWorkspace {
         creator: actor.id,
         name: Name::parse(PERSONAL.to_owned()).expect("a valid name"),
+        slug: NewSlug::Derived(Slug::derive(source)),
     };
     workspaces::insert(tx, &personal).await?;
     Ok(actor)
@@ -138,9 +146,9 @@ pub(super) async fn sign_up(ctx: &AccountContext, input: SignUp) -> Result<(), E
     };
     tx.commit().await?;
 
-    // Accept the invitation, or send the link that verifies the email.
-    if let Some(invitation) = invitation {
-        invitations::accept(ctx, &invitation, actor.id).await?;
+    // Accept the invitation of the link, or send the link that verifies the email.
+    if let (Some(_), Some(token)) = (&invitation, &input.invitation) {
+        invitations::accept(ctx, Pick::Token(token), actor.id).await?;
     }
     if let Some(token) = verify {
         mails::send(ctx, mails::verify_email(ctx, new.email.as_str(), &token)).await;

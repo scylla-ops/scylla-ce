@@ -21,6 +21,9 @@ pub const AUDIENCE: &str = "scylla";
 /// The longest life of an assertion.
 const MAX_LIFETIME: Duration = Duration::minutes(2);
 
+/// The foreign key from an agent to its workspace.
+const WORKSPACE_FOREIGN_KEY: &str = "agents_workspace_id_fkey";
+
 /// The shortest nonce.
 const MIN_NONCE_LEN: usize = 16;
 
@@ -41,11 +44,29 @@ pub async fn register(
     // Store the agent as an actor of the workspace, with its public key.
     let mut tx = pool.begin().await?;
     let agent = actors::insert(&mut tx, KIND).await?;
-    store::insert_agent(&mut tx, agent.id, workspace_id).await?;
+    store::insert_agent(&mut tx, agent.id, workspace_id)
+        .await
+        .map_err(|error| match error {
+            sqlx::Error::Database(db) if db.constraint() == Some(WORKSPACE_FOREIGN_KEY) => {
+                Error::NotFound("workspace")
+            }
+            error => error.into(),
+        })?;
     let key_id = AgentKeyId::generate();
     store::insert_key(&mut tx, key_id, agent.id, public_key).await?;
     tx.commit().await?;
     Ok((agent.id, key_id))
+}
+
+/// Returns the workspace of an agent, or `None` if the actor is not an agent.
+pub(crate) async fn workspace_of(
+    pool: &PgPool,
+    agent: ActorId,
+) -> Result<Option<WorkspaceId>, Error> {
+    let mut tx = pool.begin().await?;
+    let workspace = store::workspace_of(&mut tx, agent).await?;
+    tx.commit().await?;
+    Ok(workspace)
 }
 
 /// Checks an assertion that an agent signed, and returns the agent.

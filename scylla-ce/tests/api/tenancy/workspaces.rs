@@ -35,6 +35,7 @@ async fn create_workspace_needs_a_user(pool: PgPool) {
     let (_, token) = agent_in(&app, user, app.workspace_of(user).await).await;
     let request = CreateWorkspaceRequest {
         name: "bots".to_owned(),
+        slug: None,
     };
 
     // when

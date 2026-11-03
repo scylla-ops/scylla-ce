@@ -4,6 +4,7 @@ use crate::authz::{Model, Schema, SchemaError};
 use crate::identity::actors::{Actor, ActorId};
 use crate::identity::agents::AgentHolder;
 use crate::projects::{Project, ProjectCaller, ProjectHolder, ProjectId};
+use crate::tenancy::grants::AccessCaller;
 use crate::tenancy::workspaces::{Workspace, WorkspaceCaller, WorkspaceId};
 
 crate::authz! {
@@ -24,6 +25,7 @@ definition actor {
     permission list_workspaces = nil
     permission accept_invitation = nil
     permission list_projects = nil
+    permission check_permissions = nil
 }
 
 definition workspace {
@@ -35,12 +37,18 @@ definition workspace {
     permission read = work + viewer
     permission get_workspace = read
     permission list_workspaces = read
+    permission update_workspace = manage
+    permission delete_workspace = nil
     permission add_owner = nil
     permission remove_owner = nil
     permission list_owners = read
     permission grant = admin
     permission revoke = admin
+    permission list_access = read
     permission create_invitation = manage
+    permission list_invitations = manage
+    permission revoke_invitation = manage
+    permission resend_invitation = manage
     permission register_agent = manage
     permission create_project = work
     permission list_projects = read
@@ -60,6 +68,7 @@ definition project {
     permission delete_project = delete
     permission grant = admin
     permission revoke = admin
+    permission list_access = view
 }
 ";
 
@@ -74,6 +83,7 @@ fn core() -> Schema {
         Project::part(),
         ProjectHolder::part(),
         ProjectCaller::part(),
+        AccessCaller::part(),
     ];
     for part in parts {
         schema.add(part).expect("core part fits");
@@ -107,7 +117,7 @@ fn an_extension_adds_to_its_definition() {
     let text = schema.to_string();
     assert!(text.contains("    relation viewer: actor\n    relation auditor: actor\n"));
     assert!(text.contains(
-        "    permission revoke = admin\n    \
+        "    permission list_access = view\n    \
          permission audit = auditor + delete\n}"
     ));
 }
@@ -129,11 +139,17 @@ fn the_schema_knows_where_a_permission_is() {
         schema.has("project", "audit"),
     );
     let a_relation = schema.has("project", "viewer");
+    let named = (
+        schema.permission("project", "audit"),
+        schema.permission("project", "viewer"),
+        schema.permission("nothing", "audit"),
+    );
 
     // then
     assert_eq!(on_both, (true, true));
     assert_eq!(on_project, (false, true));
     assert!(!a_relation);
+    assert_eq!(named, (Some("audit"), None, None));
 }
 
 /// A definition declared twice, an extension before its definition and a name declared two

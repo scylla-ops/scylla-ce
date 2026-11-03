@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM invitations WHERE id = $1 AND workspace_id = $2 AND accepted_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "66acea0fc2af72124ece6e85b149d87618279534fa92a296973be134f2b247af"
+}

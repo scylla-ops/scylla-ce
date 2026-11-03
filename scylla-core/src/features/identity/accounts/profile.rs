@@ -175,13 +175,12 @@ impl ProfileGrpc {
         permission: Permission<Actor>,
     ) -> Result<(Principal, ActorId), Error> {
         let caller = self.ctx.gate.caller(request).await?;
-        self.ctx
-            .gate
-            .authorize(&caller, permission.on(caller.actor.id))
-            .await?;
+        let check = permission.on(caller.actor.id);
+        self.ctx.gate.authorize(&caller, check.clone()).await?;
         if caller.actor.kind != KIND {
             let reason = "only a user has an account".to_owned();
-            return Err(AccessError::Denied(reason).into());
+            let object = check.object();
+            return Err(AccessError::refused(&caller, check.permission(), object, reason).into());
         }
         let user = caller.actor.id;
         Ok((caller, user))

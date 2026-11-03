@@ -2,14 +2,14 @@
 
 use std::sync::Arc;
 
-use scylla_domain::authz::{Model, Permission, Relation, Resource, Schema};
+use scylla_domain::authz::{Model, Relation, Resource, Schema};
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::ResourceKind;
 use sqlx::migrate::Migrator;
 use sqlx::PgPool;
 use tonic::service::RoutesBuilder;
 
-use crate::grants::{FindWorkspace, Grants};
+use crate::grants::{AccessRoutes, FindWorkspace, Grants};
 use crate::{AfterDelete, BeforeCreate, Gate, Hooks};
 
 /// A function that adds the gRPC services of one plugin.
@@ -130,6 +130,11 @@ impl ServiceContext<'_> {
         Arc::clone(&self.edition.grants)
     }
 
+    /// Returns the permission model of the edition: each definition and its permissions.
+    pub fn authz_model(&self) -> &Schema {
+        self.edition.authz_model()
+    }
+
     /// Returns the name of the edition.
     pub fn edition_name(&self) -> &'static str {
         self.edition.name()
@@ -184,19 +189,19 @@ impl EditionBuilder {
         self
     }
 
-    /// Lets `AccessService` give roles on the objects of `R`. `grant` and `revoke` are the route
-    /// permissions of `R`. `workspace` finds the workspace of an object; a workspace needs none.
+    /// Lets `AccessService` give, take back and list the roles on the objects of `R`. `routes`
+    /// are the route permissions of `R`. `workspace` finds the workspace of an object in
+    /// Postgres, the object itself for a workspace, and tells that an object does not exist.
     ///
     /// # Panics
     ///
     /// If `R` has its roles already. Each start of the edition finds it.
     pub fn grants<R: Resource>(
         mut self,
-        grant: Permission<R>,
-        revoke: Permission<R>,
-        workspace: Option<FindWorkspace<R>>,
+        routes: AccessRoutes<R>,
+        workspace: FindWorkspace<R>,
     ) -> Self {
-        if !self.grants.add_kind(grant, revoke, workspace) {
+        if !self.grants.add_kind(routes, workspace) {
             panic!("grants: `{}` has its roles already", R::NAME);
         }
         self

@@ -2,8 +2,9 @@
 //! `InvitationService`.
 
 mod grpc;
+mod manage;
 mod service;
 mod store;
 
 pub(crate) use grpc::server;
-pub(crate) use service::{accept, find_open, open_for_email};
+pub(crate) use service::{accept, find_open, open_for_email, Pick};

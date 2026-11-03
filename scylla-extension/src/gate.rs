@@ -1,12 +1,14 @@
 //! Access control: each request proves its actor with a token, then passes permission checks.
 
 use std::any::Any;
+use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use scylla_domain::authz::{Check, Object, Permission, Relationship, Resource};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::SessionId;
+use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Id;
 use time::OffsetDateTime;
 use tonic::metadata::MetadataMap;
@@ -83,11 +85,52 @@ pub enum AccessError {
 }
 
 impl AccessError {
-    /// Makes the refusal of a check. A route gives the same refusal for an object that does not
-    /// exist, so no caller learns which ids exist.
-    pub fn denied(check: &Check) -> Self {
-        Self::Denied(format!("{check} is denied"))
+    /// Logs the refusal of a check at WARN and makes its answer. A route gives the same refusal
+    /// for an object that does not exist, so no caller learns which ids exist.
+    pub fn denied(principal: &Principal, check: &Check) -> Self {
+        let reason = format!("{check} is denied");
+        Self::refused(principal, check.permission(), check.object(), reason)
     }
+
+    /// Logs a refusal at WARN, with the actor, the route, the permission and the object, and
+    /// makes its answer with the reason.
+    pub fn refused(
+        principal: &Principal,
+        permission: &str,
+        object: &dyn fmt::Display,
+        reason: String,
+    ) -> Self {
+        tracing::warn!(
+            actor = %principal.actor.id,
+            actor_kind = principal.actor.kind.as_str(),
+            operation = principal.operation().as_str(),
+            permission,
+            %object,
+            %reason,
+            "access refused"
+        );
+        Self::Denied(reason)
+    }
+}
+
+/// A role of an actor on an object, as the permission system holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RoleHolder {
+    /// The name of the role.
+    pub role: String,
+    /// The actor.
+    pub actor: ActorId,
+}
+
+/// One page of the roles on an object, in the order of the permission system.
+#[derive(Clone, Debug, Default)]
+pub struct RolePage {
+    /// The roles of the page.
+    pub holders: Vec<RoleHolder>,
+    /// `true` if more roles come after the page.
+    pub more: bool,
+    /// The cursor after the last role of the page, if the page has one.
+    pub cursor: Option<String>,
 }
 
 /// The gate of each request: tokens and permissions. Each route checks its own permission: the
@@ -124,6 +167,28 @@ pub trait Gate: Send + Sync + 'static {
 
     /// Returns the actors that have a relation on an object: each actor with a role on it.
     async fn subjects(&self, object: &Object) -> Result<Vec<ActorId>, AccessError>;
+
+    /// Returns up to `count` roles on an object, after the cursor of a previous page or from the
+    /// first role. `None` means that the permission system refuses the cursor.
+    async fn roles(
+        &self,
+        object: &Object,
+        cursor: Option<&str>,
+        count: usize,
+    ) -> Result<Option<RolePage>, AccessError>;
+
+    /// Returns, for each permission, `true` if the actor of the principal has it on an object,
+    /// with its workspace if it is in one. The rights are those of a route check: the actor
+    /// itself, an instance admin on the platform, an owner of the workspace, else the roles on
+    /// the object and on its workspace, in one call. It is not a route check: it records nothing
+    /// on the operation, and the token does not take part.
+    async fn permissions(
+        &self,
+        principal: &Principal,
+        object: &Object,
+        workspace: Option<WorkspaceId>,
+        permissions: &[&'static str],
+    ) -> Result<Vec<bool>, AccessError>;
 
     /// Returns the ids of the objects of a definition on which the actor of the principal has a
     /// role that gives a permission. The workspaces that the actor owns are not in the answer:

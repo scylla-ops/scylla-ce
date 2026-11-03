@@ -95,11 +95,18 @@ pub struct Schema {
 impl Schema {
     /// Returns `true` if the definition has this permission.
     pub fn has(&self, definition: &str, permission: &str) -> bool {
+        self.permission(definition, permission).is_some()
+    }
+
+    /// Returns the name of a permission of the definition, or `None` if the definition does not
+    /// have it. A relation is not a permission.
+    pub fn permission(&self, definition: &str, name: &str) -> Option<&'static str> {
         self.definitions
             .iter()
             .filter(|part| part.definition == definition)
             .flat_map(|part| &part.permissions)
-            .any(|(name, _)| *name == permission)
+            .map(|(permission, _)| *permission)
+            .find(|permission| *permission == name)
     }
 
     /// Adds a part. A definition comes one time, before its extensions, and a name comes one
