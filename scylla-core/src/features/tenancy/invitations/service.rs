@@ -2,14 +2,15 @@
 //! with the email, and the management of the open invitations.
 
 use scylla_domain::authz::Resource;
-use scylla_domain::identity::actors::ActorId;
-use scylla_domain::identity::users::Email;
+use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::identity::users::{self, Email};
+use scylla_domain::tenancy::grants::MEMBER_KIND;
 use scylla_domain::tenancy::invitations::{
-    Invitation, InvitationId, InvitationPage, ListInvitations,
+    self, Invitation, InvitationId, InvitationPage, ListInvitations,
 };
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
 use scylla_domain::Page;
-use scylla_extension::{Grantable, Rejection, Tx};
+use scylla_extension::{CreateContext, Grantable, Rejection, Tx};
 use sqlx::PgPool;
 
 use super::store;
@@ -32,12 +33,13 @@ pub(crate) enum Pick<'a> {
 /// gives `INVITATION_PENDING`.
 pub(crate) async fn create(
     ctx: &AccountContext,
-    invited_by: ActorId,
+    inviter: Actor,
     workspace: WorkspaceId,
     email: Email,
     role: &str,
 ) -> Result<Invitation, Error> {
     // Refuse a name that is not a role of the workspaces.
+    let invited_by = inviter.id;
     let id = workspace.to_string();
     if workspace_roles(ctx)?
         .relationship(role, &id, invited_by)
@@ -52,6 +54,8 @@ pub(crate) async fn create(
     let name = store::workspace_name(&mut tx, workspace)
         .await?
         .ok_or(Error::NotFound("workspace"))?;
+    let hook = CreateContext::new(invitations::KIND, inviter, workspace);
+    ctx.hooks.before_create(&mut tx, &hook).await?;
     let hash = secret::hash(&token);
     let invitation =
         store::insert(&mut tx, workspace, email.as_str(), role, invited_by, &hash).await?;
@@ -170,15 +174,26 @@ pub(crate) async fn accept(
         return Err(refused("INVITATION_FOR_ANOTHER_EMAIL", message));
     }
 
-    // Give the role, then mark the invitation, and commit.
+    // Mark the invitation, let the hooks check the new member, give the role, and commit.
     let id = invitation.workspace_id.to_string();
     let role = workspace_roles(ctx)?
         .relationship(&invitation.role, &id, user)
         .ok_or_else(|| Error::Internal(format!("unknown role {}", invitation.role)))?;
-    ctx.gate.write(&[role]).await?;
     if !store::mark_accepted(&mut tx, invitation.id, user).await? {
         return Err(not_open());
     }
+    let member = Actor {
+        id: user,
+        kind: users::KIND,
+    };
+    let object = Some(format!("{}:{id}", Workspace::NAME));
+    let hook = CreateContext::new(MEMBER_KIND, member, invitation.workspace_id).with_member(
+        user,
+        object,
+        &invitation.role,
+    );
+    ctx.hooks.before_create(&mut tx, &hook).await?;
+    ctx.gate.write(&[role]).await?;
     tx.commit().await?;
     let (id, workspace, role) = (invitation.id, invitation.workspace_id, &invitation.role);
     tracing::info!(event = "invitation.accepted", invitation = %id, %workspace, %user, role);

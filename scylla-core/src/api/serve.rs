@@ -164,6 +164,7 @@ pub async fn serve(
         settings: Arc::new(options.accounts),
         sealer: options.sealer.clone(),
         grants: edition.grants(),
+        hooks: edition.hooks(),
     };
     let providers = Providers::new(ctx.clone());
 

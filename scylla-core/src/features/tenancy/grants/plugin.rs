@@ -13,7 +13,8 @@ impl Plugin for Grants {
     fn install(self, edition: EditionBuilder) -> EditionBuilder {
         edition.authz::<AccessCaller>().service(|routes, ctx| {
             let schema = ctx.authz_model().clone();
-            routes.add_service(grpc::server(ctx.pool(), ctx.gate(), ctx.grants(), schema));
+            let (pool, gate, grants) = (ctx.pool(), ctx.gate(), ctx.grants());
+            routes.add_service(grpc::server(pool, gate, grants, schema, ctx.hooks()));
         })
     }
 }

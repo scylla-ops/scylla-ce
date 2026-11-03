@@ -24,7 +24,7 @@ impl Plugin for Workspaces {
             .role(Workspace::MEMBER)
             .role(Workspace::VIEWER)
             .service(|routes, ctx| {
-                routes.add_service(grpc::server(ctx.pool(), ctx.gate()));
+                routes.add_service(grpc::server(ctx.pool(), ctx.gate(), ctx.hooks()));
             })
     }
 }

@@ -2,12 +2,12 @@
 //! access.
 
 use scylla_domain::authz::Object;
-use scylla_domain::identity::actors::ActorId;
+use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::apps;
-use scylla_domain::tenancy::grants::{AccessCursor, AccessEntry, AccessPage};
+use scylla_domain::tenancy::grants::{AccessCursor, AccessEntry, AccessPage, MEMBER_KIND};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::PageSize;
-use scylla_extension::{Gate, Rejection};
+use scylla_extension::{CreateContext, DeleteContext, Gate, Hooks, Rejection};
 use sqlx::PgPool;
 
 use super::store;
@@ -21,18 +21,50 @@ pub(super) async fn check_actor(
     pool: &PgPool,
     actor: ActorId,
     workspace: WorkspaceId,
-) -> Result<(), Error> {
+) -> Result<Actor, Error> {
     let actor = actors::find(pool, actor).await?;
     if actor.kind != apps::KIND
         || app_feature::workspace_of(pool, actor.id).await? == Some(workspace)
     {
-        return Ok(());
+        return Ok(actor);
     }
     let message = "an app gets roles only in its own workspace";
     Err(Error::Rejected(Rejection::new(
         "ACTOR_OUTSIDE_WORKSPACE",
         message,
     )))
+}
+
+/// Runs the `BeforeCreate` hooks of a user that gets a role in a workspace or on one of its
+/// objects: `(user, object, role)`. A hook can refuse, for example over a limit of members.
+pub(super) async fn join(
+    pool: &PgPool,
+    hooks: &Hooks,
+    actor: Actor,
+    workspace: WorkspaceId,
+    (user, object, role): (ActorId, String, &str),
+) -> Result<(), Error> {
+    let mut tx = pool.begin().await?;
+    let hook =
+        CreateContext::new(MEMBER_KIND, actor, workspace).with_member(user, Some(object), role);
+    hooks.before_create(&mut tx, &hook).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Runs the `AfterDelete` hooks of an actor that loses a role: `(actor, object, role)`.
+pub(super) async fn leave(
+    pool: &PgPool,
+    hooks: &Hooks,
+    actor: Actor,
+    workspace: WorkspaceId,
+    (member, object, role): (ActorId, String, &str),
+) -> Result<(), Error> {
+    let mut tx = pool.begin().await?;
+    let hook = DeleteContext::new(MEMBER_KIND, actor, workspace).with_member(member, object, role);
+    hooks.after_delete(&mut tx, &hook).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 /// Returns one page of the access to an object: the owners of a workspace first, in user id

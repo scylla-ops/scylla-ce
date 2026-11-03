@@ -82,8 +82,14 @@ impl InvitationsGrpc {
             .gate
             .authorize(&caller, Workspace::CREATE_INVITATION.on(workspace))
             .await?;
-        let invitation =
-            service::create(&self.ctx, caller.actor.id, workspace, email, &request.role).await?;
+        let invitation = service::create(
+            &self.ctx,
+            caller.actor.clone(),
+            workspace,
+            email,
+            &request.role,
+        )
+        .await?;
         Ok(pb::CreateInvitationResponse {
             invitation: Some(invitation.to_proto()),
         })

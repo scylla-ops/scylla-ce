@@ -28,7 +28,7 @@ impl WorkspacesGrpc {
         self.gate
             .authorize(&caller, Workspace::ADD_OWNER.on(workspace))
             .await?;
-        service::add_owner(&self.pool, workspace, user).await?;
+        service::add_owner(&self.pool, &self.hooks, caller.actor, workspace, user).await?;
         Ok(pb::AddOwnerResponse {})
     }
 

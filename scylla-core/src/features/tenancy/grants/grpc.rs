@@ -6,8 +6,9 @@ use std::sync::Arc;
 
 use scylla_domain::authz::{Check, Schema};
 use scylla_domain::identity::actors::ActorId;
+use scylla_domain::identity::users;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_extension::{AccessError, Gate, Grantable, Grants, Principal};
+use scylla_extension::{AccessError, Gate, Grantable, Grants, Hooks, Principal};
 use scylla_proto::access::v1 as pb;
 use scylla_proto::access::v1::access_service_server::{AccessService, AccessServiceServer};
 use sqlx::PgPool;
@@ -23,12 +24,14 @@ pub(super) fn server(
     gate: Arc<dyn Gate>,
     grants: Arc<Grants>,
     schema: Schema,
+    hooks: Arc<Hooks>,
 ) -> AccessServiceServer<GrantsGrpc> {
     AccessServiceServer::new(GrantsGrpc {
         pool,
         gate,
         grants,
         schema,
+        hooks,
     })
 }
 
@@ -42,6 +45,8 @@ pub(super) struct GrantsGrpc {
     pub(super) grants: Arc<Grants>,
     /// The permission model: the permissions of each definition.
     pub(super) schema: Schema,
+    /// The hooks of the edition, for a membership.
+    pub(super) hooks: Arc<Hooks>,
 }
 
 #[tonic::async_trait]
@@ -97,10 +102,14 @@ impl GrantsGrpc {
         let (check, workspace) = self.within(&caller, kind, &id, check).await?;
         self.gate.authorize(&caller, check).await?;
 
-        // Give the role to an actor that exists, in the workspace of an agent.
-        service::check_actor(&self.pool, actor, workspace).await?;
-        self.gate.write(&[relationship]).await?;
+        // Give the role to an actor that exists, after the hooks of a user that joins.
+        let grantee = service::check_actor(&self.pool, actor, workspace).await?;
         let object = format!("{name}:{id}");
+        if grantee.kind == users::KIND {
+            let member = (actor, object.clone(), role.as_str());
+            service::join(&self.pool, &self.hooks, caller.actor, workspace, member).await?;
+        }
+        self.gate.write(&[relationship]).await?;
         tracing::info!(event = "role.granted", role, object, grantee = %actor);
         Ok(pb::GrantResponse {})
     }
@@ -125,10 +134,12 @@ impl GrantsGrpc {
             .ok_or_else(|| Error::invalid("role", format!("is not a role of {name}")))?;
 
         // Check the route permission on the object with its workspace, then take back the role.
-        let (check, _) = self.within(&caller, kind, &id, check).await?;
+        let (check, workspace) = self.within(&caller, kind, &id, check).await?;
         self.gate.authorize(&caller, check).await?;
         self.gate.delete(&[relationship]).await?;
         let object = format!("{name}:{id}");
+        let member = (actor, object.clone(), role.as_str());
+        service::leave(&self.pool, &self.hooks, caller.actor, workspace, member).await?;
         tracing::info!(event = "role.revoked", role, object, grantee = %actor);
         Ok(pb::RevokeResponse {})
     }

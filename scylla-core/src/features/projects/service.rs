@@ -1,6 +1,6 @@
 //! The logic of the projects: one transaction for each call, with the hooks.
 
-use scylla_domain::authz::Object;
+use scylla_domain::authz::{Object, Resource};
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::projects::{
     ListProjects, NewProject, Project, ProjectChange, ProjectId, ProjectPage, Visible, KIND,
@@ -98,7 +98,11 @@ pub(super) async fn delete(
         .await?
         .ok_or(Error::NotFound("project"))?;
     hooks
-        .after_delete(&mut tx, &DeleteContext::new(KIND, actor, workspace_id))
+        .after_delete(
+            &mut tx,
+            &DeleteContext::new(KIND, actor, workspace_id)
+                .with_object(format!("{}:{id}", Project::NAME)),
+        )
         .await?;
     tx.commit().await?;
 

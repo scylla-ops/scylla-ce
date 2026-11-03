@@ -1,7 +1,8 @@
 //! The logic of the workspaces: one transaction for each call.
 
 use scylla_domain::authz::Object;
-use scylla_domain::identity::actors::ActorId;
+use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::tenancy::grants::{MEMBER_KIND, OWNER};
 use scylla_domain::tenancy::owners::{ListOwners, OwnerPage};
 use scylla_domain::tenancy::slugs::Slug;
 use scylla_domain::tenancy::workspaces::{
@@ -9,7 +10,7 @@ use scylla_domain::tenancy::workspaces::{
     WorkspacePage,
 };
 use scylla_domain::Page;
-use scylla_extension::{Gate, Rejection, WorkspaceFuture};
+use scylla_extension::{CreateContext, Gate, Hooks, Rejection, WorkspaceFuture};
 use sqlx::PgPool;
 
 use super::store;
@@ -116,10 +117,14 @@ pub(super) async fn delete(pool: &PgPool, gate: &dyn Gate, id: WorkspaceId) -> R
 /// Makes a user an owner of a workspace. An owner stays an owner.
 pub(super) async fn add_owner(
     pool: &PgPool,
+    hooks: &Hooks,
+    actor: Actor,
     workspace: WorkspaceId,
     user: ActorId,
 ) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
+    let hook = CreateContext::new(MEMBER_KIND, actor, workspace).with_member(user, None, OWNER);
+    hooks.before_create(&mut tx, &hook).await?;
     store::add_owner(&mut tx, workspace, user).await?;
     tx.commit().await?;
     tracing::info!(event = "owner.added", %workspace, %user);

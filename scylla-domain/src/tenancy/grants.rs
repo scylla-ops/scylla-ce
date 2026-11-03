@@ -7,6 +7,10 @@ use crate::identity::actors::{Actor, ActorId, ActorKind};
 /// name.
 pub const OWNER: &str = "owner";
 
+/// The kind of a membership, for the hooks: a user gets a role in a workspace or on one of its
+/// objects, accepts an invitation, or becomes an owner.
+pub const MEMBER_KIND: crate::ResourceKind = crate::ResourceKind::new("member");
+
 /// The largest number of permissions in one `CheckPermissions`.
 pub const MAX_CHECKS: usize = 50;
 

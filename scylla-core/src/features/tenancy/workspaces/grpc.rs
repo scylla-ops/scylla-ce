@@ -10,7 +10,7 @@ use scylla_domain::tenancy::workspaces::{
     WorkspaceChange, WorkspaceId,
 };
 use scylla_domain::Name;
-use scylla_extension::{AccessError, Gate, Principal};
+use scylla_extension::{AccessError, Gate, Hooks, Principal};
 use scylla_proto::workspaces::v1 as pb;
 use scylla_proto::workspaces::v1::get_workspace_request::Workspace as Named;
 use scylla_proto::workspaces::v1::workspace_service_server::{
@@ -24,8 +24,12 @@ use crate::api::parse::{self, ToProto};
 use crate::Error;
 
 /// Makes the service.
-pub(super) fn server(pool: PgPool, gate: Arc<dyn Gate>) -> WorkspaceServiceServer<WorkspacesGrpc> {
-    WorkspaceServiceServer::new(WorkspacesGrpc { pool, gate })
+pub(super) fn server(
+    pool: PgPool,
+    gate: Arc<dyn Gate>,
+    hooks: Arc<Hooks>,
+) -> WorkspaceServiceServer<WorkspacesGrpc> {
+    WorkspaceServiceServer::new(WorkspacesGrpc { pool, gate, hooks })
 }
 
 /// The handler.
@@ -34,6 +38,8 @@ pub(super) struct WorkspacesGrpc {
     pub(super) pool: PgPool,
     /// The access gate.
     pub(super) gate: Arc<dyn Gate>,
+    /// The hooks of the edition, for a new owner.
+    pub(super) hooks: Arc<Hooks>,
 }
 
 #[tonic::async_trait]

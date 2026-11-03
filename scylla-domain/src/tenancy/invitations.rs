@@ -4,7 +4,10 @@ use time::OffsetDateTime;
 
 use crate::identity::actors::ActorId;
 use crate::tenancy::workspaces::WorkspaceId;
-use crate::{Id, Page, PageRequest};
+use crate::{Id, Page, PageRequest, ResourceKind};
+
+/// The kind of an invitation, for the hooks.
+pub const KIND: ResourceKind = ResourceKind::new("invitation");
 
 /// The id of an invitation.
 pub type InvitationId = Id<Invitation>;

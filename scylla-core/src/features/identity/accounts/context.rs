@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use scylla_extension::{Gate, Grants, Mailer};
+use scylla_extension::{Gate, Grants, Hooks, Mailer};
 use sqlx::PgPool;
 
 use crate::infra::secret::Sealer;
@@ -75,4 +75,6 @@ pub struct AccountContext {
     pub sealer: Option<Arc<Sealer>>,
     /// The roles that an invitation can give.
     pub grants: Arc<Grants>,
+    /// The hooks of the edition, for the invitations and the memberships.
+    pub hooks: Arc<Hooks>,
 }
