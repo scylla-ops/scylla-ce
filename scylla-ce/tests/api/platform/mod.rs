@@ -4,6 +4,7 @@
 mod capabilities;
 mod grpc_web;
 mod health;
+mod import;
 mod logs;
 mod routes;
 mod tls;

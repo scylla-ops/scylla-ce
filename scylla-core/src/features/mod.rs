@@ -1,6 +1,6 @@
 //! The core features, grouped by subject. Each feature is one folder with the same file names.
 
 pub mod identity;
-pub(crate) mod platform;
+pub mod platform;
 pub(crate) mod projects;
 pub mod tenancy;

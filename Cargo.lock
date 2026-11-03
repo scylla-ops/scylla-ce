@@ -2719,6 +2719,7 @@ dependencies = [
 name = "scylla-ce"
 version = "0.1.0"
 dependencies = [
+ "argon2",
  "axum",
  "base64 0.23.1",
  "biscuit-auth",
@@ -2743,6 +2744,7 @@ dependencies = [
  "tonic",
  "tonic-health",
  "tonic-types",
+ "uuid",
 ]
 
 [[package]]

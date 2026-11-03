@@ -165,6 +165,16 @@ A JSON line has `ts`, `level`, `event` (`rpc` or the name of a business event), 
 7. Probe `grpc.health.v1.Health/Check`. Stop with SIGTERM: the server ends the running requests. With no terminal, the logs are JSON lines on stderr.
 8. To rotate the signing key: set a new key and a new `SCYLLA_TOKEN_KEY_ID`, and keep the old public key in `SCYLLA_TOKEN_PUBLIC_KEYS` for one token lifetime. Never keep the public key of the dev signing key: the server does not start with it.
 
+## Import the old product
+
+One time, into a base with migrations and no user:
+
+```sh
+SCYLLA_IMPORT_FROM=postgres://user:password@old-host/scylla SCYLLA_OLD_SECRET_KEY=<old master_key> scylla-ce import
+```
+
+The command prints what it imported and each row that it left, with the reason. The users sign in with their old passwords; their sessions do not come over. The Apps, the agents, the jobs, the logs and the triggers do not come over: an agent joins again with a new key pair.
+
 ## Tests
 
 ```sh
@@ -179,6 +189,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Pipelines: the nodes and their graph, the path of a bad value, the version of a change, each role, the snapshot of a run, the secrets of a run, the delete | `scylla-ce/tests/api/projects/pipelines.rs` |
 | Jobs: the cancel, the rerun, the delete, the lists newest first, who can call them | `scylla-ce/tests/api/projects/jobs.rs` |
 | Agent: the join, the order of the nodes, a script with a secret masked in the logs, a retry, the skip after a failure, a cancel that stops the process and deletes the work folder | `scylla-agent/tests/agent.rs` |
+| Import of the old product: its real schema, the users and their passwords, a disabled user, a user with no email, the workspaces and their owners, the roles, the project ids, the secrets sealed again, the pipelines and a pipeline with a cycle, a second import | `scylla-ce/tests/api/platform/import.rs` |
 | Web app: a file, a route of the web app gives `index.html`, the API on the same address | `scylla-ce/tests/api/platform/web.rs` |
 | Triggers: the schedules, the inputs, a fire now as the runner, the signature of a webhook, a second delivery, a body with no value, a ping, a stopped trigger, the rate limit, the roles, the key of the secrets | `scylla-ce/tests/api/projects/triggers.rs` |
 | Jobs on the agents: the dispatch with the secrets, the events, the logs and their tail, the role and the capacity, the containers, the cancel | `scylla-ce/tests/api/projects/runs.rs` |

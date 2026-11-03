@@ -9,6 +9,7 @@ use scylla_domain::Id;
 use scylla_extension::{Binding, Edition};
 
 use super::accounts::{self, ProviderCommand, SecretCommand};
+use super::import::{self, ImportArgs};
 use super::users::{self, UserCommand};
 use crate::access::{Access, TokenKeys};
 use crate::features::identity::actors;
@@ -49,6 +50,8 @@ pub enum Command {
     /// secrets of the projects.
     #[command(subcommand)]
     Secret(SecretCommand),
+    /// Imports the database of the old product one time, into a base with no user.
+    Import(ImportArgs),
 }
 
 /// The commands on the tokens.
@@ -94,6 +97,7 @@ where
             Ok(())
         }
         Command::Token(command) => token(core, command, &edition).await,
+        Command::Import(args) => import::import(core, args, &edition).await,
     }
 }
 

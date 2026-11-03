@@ -10,4 +10,4 @@ mod store;
 
 pub(crate) use plugin::Workspaces;
 pub use service::create;
-pub(crate) use store::{delete_all, has_content, insert, leave_all, lock_sole_owned};
+pub(crate) use store::{add_owner, delete_all, has_content, insert, leave_all, lock_sole_owned};
