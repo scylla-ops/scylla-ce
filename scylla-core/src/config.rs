@@ -81,6 +81,11 @@ pub struct Config {
     #[arg(long, env = "SCYLLA_SESSION_TTL_DAYS", default_value = "30", value_parser = days)]
     pub session_ttl: Duration,
 
+    /// The folder of the built web app. With it, the server also serves the web app on its
+    /// address: a path that is not a file gives `index.html`.
+    #[arg(long, env = "SCYLLA_WEB_DIR")]
+    pub web_dir: Option<std::path::PathBuf>,
+
     /// The time that the server keeps the logs of the jobs, in days.
     #[arg(long, env = "SCYLLA_LOG_RETENTION_DAYS", default_value = "30", value_parser = days)]
     pub log_retention: Duration,
@@ -155,6 +160,7 @@ impl fmt::Debug for Config {
             .field("app_url", &self.app_url)
             .field("sign_up_mode", &self.sign_up_mode)
             .field("session_ttl", &self.session_ttl)
+            .field("web_dir", &self.web_dir)
             .field("log_retention", &self.log_retention)
             .field("smtp_url", &self.smtp_url.as_deref().map(redact))
             .field("mail_from", &self.mail_from)

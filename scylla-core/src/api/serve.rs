@@ -50,6 +50,8 @@ pub struct ServeOptions {
     pub sealer: Option<Arc<Sealer>>,
     /// The time that the server keeps the logs of the jobs.
     pub log_retention: Duration,
+    /// The folder of the built web app, if the server serves it.
+    pub web_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for ServeOptions {
@@ -70,6 +72,7 @@ impl Default for ServeOptions {
             mailer: Arc::new(LogMailer),
             sealer: None,
             log_retention: Duration::from_secs(30 * 24 * 60 * 60),
+            web_dir: None,
         }
     }
 }
@@ -119,6 +122,7 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
         mailer,
         sealer,
         log_retention: config.log_retention,
+        web_dir: config.web_dir.clone(),
     };
     let stop = super::layers::stop_signal();
     serve(listener, pool.clone(), edition, access, options, stop).await?;
@@ -211,7 +215,7 @@ pub async fn serve(
     edition.add_services(&mut routes, &pool, &gate);
 
     // Log the calls inside gRPC-Web, then add the browser routes with their own log.
-    let router = routes
+    let mut router = routes
         .routes()
         .into_axum_router()
         .layer(OperationLayer)
@@ -219,6 +223,11 @@ pub async fn serve(
         .layer(GrpcWebLayer::new())
         .merge(providers::router(providers).layer(log))
         .merge(webhook::router(webhooks).layer(log));
+
+    // Serve the files of the web app for each other GET, if the settings name its folder.
+    if let Some(dir) = &options.web_dir {
+        router = router.fallback_service(super::web::files(dir));
+    }
 
     // At the stop signal, report `NOT_SERVING` first.
     let stop = async move {

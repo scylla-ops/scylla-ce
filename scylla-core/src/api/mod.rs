@@ -5,5 +5,6 @@ mod layers;
 pub mod parse;
 mod request_log;
 mod serve;
+mod web;
 
 pub use serve::{run, sealer, serve, ServeOptions};

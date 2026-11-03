@@ -72,7 +72,7 @@ tonic-prost-build = { version = "0.14.9", default-features = false }
 tonic-types = "0.14.9"
 tonic-web = "0.14.9"
 tower = { version = "0.5.3", default-features = false }
-tower-http = { version = "0.7.1", default-features = false, features = ["cors"] }
+tower-http = { version = "0.7.1", default-features = false, features = ["cors", "fs"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"] }
 url = "2.5.8"
