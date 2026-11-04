@@ -230,7 +230,7 @@ pub async fn serve(
         .layer(OperationLayer)
         .layer(log)
         .layer(GrpcWebLayer::new());
-    let gateway = super::json::router(grpc.clone());
+    let gateway = super::json::router(grpc.clone(), edition.descriptor_sets());
     let mut router = grpc
         .merge(providers::router(providers).layer(log))
         .merge(webhook::router(webhooks).layer(log))

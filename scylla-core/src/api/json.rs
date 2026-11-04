@@ -32,10 +32,16 @@ pub(super) struct Gateway {
     tokens: Arc<TokenCache>,
 }
 
-/// Makes the route of the gateway on the gRPC routes of the server.
-pub(super) fn router(grpc: Router) -> Router {
-    let pool = DescriptorPool::decode(scylla_proto::FILE_DESCRIPTOR_SET)
+/// Makes the route of the gateway on the gRPC routes of the server, with the descriptors of the
+/// core and of the edition.
+pub(super) fn router(grpc: Router, edition: &[&'static [u8]]) -> Router {
+    let mut pool = DescriptorPool::decode(scylla_proto::FILE_DESCRIPTOR_SET)
         .expect("the descriptors of the protos are valid");
+    for set in edition {
+        if let Err(error) = pool.decode_file_descriptor_set(*set) {
+            tracing::error!(%error, "the JSON gateway lacks the methods of the edition");
+        }
+    }
     let gateway = Gateway {
         pool,
         grpc,

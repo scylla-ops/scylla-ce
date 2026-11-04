@@ -31,6 +31,8 @@ pub struct Edition {
     hooks: Arc<Hooks>,
     /// The functions that add the gRPC services.
     services: Vec<AddServices>,
+    /// The encoded descriptor sets of the protos of the edition, for the JSON gateway.
+    descriptors: Vec<&'static [u8]>,
 }
 
 impl Edition {
@@ -45,10 +47,16 @@ impl Edition {
                 grants: Arc::default(),
                 hooks: Arc::new(Hooks::default()),
                 services: Vec::new(),
+                descriptors: Vec::new(),
             },
             grants: Grants::default(),
             hooks: Hooks::default(),
         }
+    }
+
+    /// Returns the encoded descriptor sets of the protos that the edition adds to the core.
+    pub fn descriptor_sets(&self) -> &[&'static [u8]] {
+        &self.descriptors
     }
 
     /// Returns the name of the edition.
@@ -166,6 +174,13 @@ impl EditionBuilder {
     /// Adds an optional feature that `GetCapabilities` reports.
     pub fn capability(mut self, name: &'static str) -> Self {
         self.edition.capabilities.push(name);
+        self
+    }
+
+    /// Adds an encoded descriptor set of the protos of the edition, so the JSON gateway calls
+    /// their methods.
+    pub fn descriptors(mut self, set: &'static [u8]) -> Self {
+        self.edition.descriptors.push(set);
         self
     }
 
