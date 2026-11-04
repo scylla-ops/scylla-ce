@@ -2,6 +2,7 @@
 //! admins.
 
 use scylla_domain::identity::actors::ActorId;
+use scylla_domain::identity::api_tokens::ApiTokenId;
 use scylla_domain::identity::apps::AppKeyId;
 use scylla_domain::identity::users::SessionId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -21,11 +22,13 @@ pub(super) struct TokenFacts<'a> {
     pub(super) session: Option<SessionId>,
     /// The App key of the token.
     pub(super) key: Option<AppKeyId>,
+    /// The API token that gave the token.
+    pub(super) api_token: Option<ApiTokenId>,
 }
 
 /// Returns `true` if a token cannot pass: one of its revocation ids is revoked, its session is
-/// revoked or expired, its user is disabled or deleted, its App is deleted or disabled, or
-/// its key is revoked.
+/// revoked or expired, its user is disabled or deleted, its App is deleted or disabled, its
+/// key is revoked, or its API token is revoked or expired.
 pub(super) async fn is_refused(
     tx: &mut Tx<'_>,
     facts: &TokenFacts<'_>,
@@ -42,6 +45,9 @@ pub(super) async fn is_refused(
                OR ($6::uuid IS NOT NULL AND NOT EXISTS (
                    SELECT 1 FROM app_keys
                    WHERE id = $6 AND app_id = $2 AND revoked_at IS NULL))
+               OR ($7::uuid IS NOT NULL AND NOT EXISTS (
+                   SELECT 1 FROM api_tokens
+                   WHERE id = $7 AND actor_id = $2 AND revoked_at IS NULL AND expires_at > now()))
            ) AS "refused!""#,
         facts.ids,
         facts.actor.to_db(),
@@ -49,6 +55,7 @@ pub(super) async fn is_refused(
         facts.session.map(SessionId::to_db),
         facts.app,
         facts.key.map(AppKeyId::to_db),
+        facts.api_token.map(ApiTokenId::to_db),
     )
     .fetch_one(&mut **tx)
     .await

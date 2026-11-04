@@ -203,6 +203,12 @@ crate::authz! {
         permission rename_app_key = nil;
         /// The route `GetAgentStats`.
         permission get_agent_stats = nil;
+        /// The route `CreateAppToken`.
+        permission create_app_token = nil;
+        /// The route `ListAppTokens`.
+        permission list_app_tokens = nil;
+        /// The route `RevokeAppToken`.
+        permission revoke_app_token = nil;
     }
 
     /// The routes of the Apps on their workspace.
@@ -231,5 +237,11 @@ crate::authz! {
         permission get_agent_stats = read;
         /// The route `ListAgentStats`: the agents of this workspace.
         permission list_agent_stats = read;
+        /// The route `CreateAppToken`, on each App of this workspace.
+        permission create_app_token = manage;
+        /// The route `ListAppTokens`, on each App of this workspace.
+        permission list_app_tokens = read;
+        /// The route `RevokeAppToken`, on each App of this workspace.
+        permission revoke_app_token = manage;
     }
 }

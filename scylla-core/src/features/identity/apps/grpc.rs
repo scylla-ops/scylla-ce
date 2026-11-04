@@ -112,6 +112,27 @@ impl AppService for AppsGrpc {
     ) -> Result<Response<pb::RenameAppKeyResponse>, Status> {
         Ok(Response::new(self.rename_key(request).await?))
     }
+
+    async fn create_app_token(
+        &self,
+        request: Request<pb::CreateAppTokenRequest>,
+    ) -> Result<Response<pb::CreateAppTokenResponse>, Status> {
+        Ok(Response::new(self.create_token(request).await?))
+    }
+
+    async fn list_app_tokens(
+        &self,
+        request: Request<pb::ListAppTokensRequest>,
+    ) -> Result<Response<pb::ListAppTokensResponse>, Status> {
+        Ok(Response::new(self.list_tokens(request).await?))
+    }
+
+    async fn revoke_app_token(
+        &self,
+        request: Request<pb::RevokeAppTokenRequest>,
+    ) -> Result<Response<pb::RevokeAppTokenResponse>, Status> {
+        Ok(Response::new(self.revoke_token(request).await?))
+    }
 }
 
 impl AppsGrpc {

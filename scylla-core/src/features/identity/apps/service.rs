@@ -16,6 +16,7 @@ use super::assertion;
 use super::store::{apps, codes, keys};
 use crate::features::identity::actors;
 use crate::features::identity::agents::Registry;
+use crate::features::identity::api_tokens;
 use crate::features::projects::jobs::runs;
 use crate::infra::secret;
 use crate::Error;
@@ -68,7 +69,8 @@ pub(crate) async fn list(pool: &PgPool, query: ListApps) -> Result<AppPage, Erro
     Ok(Page::from_overfetch(apps, query.page.size, |app| app.id))
 }
 
-/// Deletes an App with its keys and its codes, then removes its roles and closes its stream.
+/// Deletes an App with its keys, its codes and its API tokens, then removes its roles and closes
+/// its stream.
 /// Its actor stays, so each `created_by` stays valid.
 pub(crate) async fn delete(
     pool: &PgPool,
@@ -81,6 +83,7 @@ pub(crate) async fn delete(
     if !apps::delete(&mut tx, id).await? {
         return Err(Error::NotFound("app"));
     }
+    api_tokens::delete_all(&mut tx, App::actor(id)).await?;
     tx.commit().await?;
 
     // Close the stream, then remove the roles. A role that stays gives nothing to a token.

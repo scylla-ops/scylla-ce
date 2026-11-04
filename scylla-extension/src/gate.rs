@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use scylla_domain::authz::{Check, Object, Permission, Relationship, Resource};
 use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::identity::api_tokens::ApiTokenId;
 use scylla_domain::identity::apps::AppKeyId;
 use scylla_domain::identity::users::SessionId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -74,7 +75,8 @@ impl Principal {
     }
 }
 
-/// What a token is bound to. The token stops when its session closes or its key is revoked.
+/// What a token is bound to. The token stops when its session closes, or its key or its API
+/// token is revoked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Binding {
     /// Nothing: a token of the command line.
@@ -83,6 +85,8 @@ pub enum Binding {
     Session(SessionId),
     /// The key of an App that signed an assertion.
     Key(AppKeyId),
+    /// The API token that the actor exchanged.
+    ApiToken(ApiTokenId),
 }
 
 /// A short-lived token for an actor.

@@ -46,6 +46,23 @@ impl TokenService for TokensGrpc {
         }))
     }
 
+    async fn exchange_api_token(
+        &self,
+        request: Request<pb::ExchangeApiTokenRequest>,
+    ) -> Result<Response<pb::ExchangeApiTokenResponse>, Status> {
+        let ctx = self.ctx();
+        let secret = request.into_inner().api_token;
+        let (app, token) = apps::exchange_token(&ctx.pool, &secret).await?;
+        let issued = ctx
+            .gate
+            .issue(&app, Binding::ApiToken(token))
+            .map_err(Error::from)?;
+        tracing::info!(event = "app.signed_in", app = %app.id, %token);
+        Ok(Response::new(pb::ExchangeApiTokenResponse {
+            token: Some(to_proto(issued)),
+        }))
+    }
+
     async fn join_app(
         &self,
         request: Request<pb::JoinAppRequest>,

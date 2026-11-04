@@ -66,6 +66,9 @@ definition workspace {
     permission rename_app_key = manage
     permission get_agent_stats = read
     permission list_agent_stats = read
+    permission create_app_token = manage
+    permission list_app_tokens = read
+    permission revoke_app_token = manage
     permission create_project = work
     permission list_projects = read
     permission get_project = read
@@ -109,6 +112,9 @@ definition app {
     permission revoke_app_key = nil
     permission rename_app_key = nil
     permission get_agent_stats = nil
+    permission create_app_token = nil
+    permission list_app_tokens = nil
+    permission revoke_app_token = nil
 }
 
 definition project {

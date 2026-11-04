@@ -132,8 +132,9 @@ impl Access {
         Ok(IssuedToken { value, expires_at })
     }
 
-    /// Returns `true` if a token cannot pass: a revocation id of it is revoked, its session or
-    /// its key is revoked, its session is expired, or its user or App is gone or disabled.
+    /// Returns `true` if a token cannot pass: a revocation id of it is revoked, its session, its
+    /// key or its API token is revoked, its session or its API token is expired, or its user or
+    /// App is gone or disabled.
     async fn is_refused(&self, token: &Biscuit, claims: &Claims) -> Result<bool, AccessError> {
         let ids = token.revocation_identifiers();
         let facts = store::TokenFacts {
@@ -143,6 +144,7 @@ impl Access {
             app: claims.actor.kind == apps::KIND,
             session: claims.session(),
             key: claims.key(),
+            api_token: claims.api_token(),
         };
         let mut tx = self.pool.begin().await.map_err(store::failed)?;
         let refused = store::is_refused(&mut tx, &facts)

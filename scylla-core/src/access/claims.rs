@@ -8,6 +8,7 @@ use biscuit_auth::builder::Term;
 use biscuit_auth::{AuthorizerBuilder, AuthorizerLimits, Biscuit};
 use scylla_domain::authz::Check;
 use scylla_domain::identity::actors::{Actor, ActorId, ActorKind};
+use scylla_domain::identity::api_tokens::ApiTokenId;
 use scylla_domain::identity::apps::AppKeyId;
 use scylla_domain::identity::users::SessionId;
 use scylla_extension::{AccessError, Binding, Operation};
@@ -25,7 +26,7 @@ pub(super) struct Claims {
     pub(super) actor: Actor,
     /// The end of the validity, in unix seconds.
     pub(super) expires: i64,
-    /// The session of a user that signed in, or the key of an App.
+    /// The session of a user that signed in, the key of an App, or the API token.
     pub(super) binding: Binding,
 }
 
@@ -45,10 +46,18 @@ impl Claims {
             _ => None,
         }
     }
+
+    /// Returns the API token of a token that an API token gave.
+    pub(super) fn api_token(&self) -> Option<ApiTokenId> {
+        match self.binding {
+            Binding::ApiToken(token) => Some(token),
+            _ => None,
+        }
+    }
 }
 
-/// Signs the first block of a token: the actor, the expiry, the session of a user that signed in
-/// or the key of an App, and a check of the expiry.
+/// Signs the first block of a token: the actor, the expiry, the session of a user that signed in,
+/// the key of an App or the API token, and a check of the expiry.
 pub(super) fn sign(
     keys: &TokenKeys,
     actor: &Actor,
@@ -80,6 +89,10 @@ pub(super) fn sign(
             params.insert("key".to_owned(), Term::Str(key.to_string()));
             code.push_str(" key({key});");
         }
+        Binding::ApiToken(token) => {
+            params.insert("api_token".to_owned(), Term::Str(token.to_string()));
+            code.push_str(" api_token({api_token});");
+        }
     }
 
     // Sign the block with the root key.
@@ -90,7 +103,8 @@ pub(super) fn sign(
         .map_err(|error| AccessError::Unavailable(format!("token signing failed: {error}")))
 }
 
-/// Reads the actor, the expiry, and the session or the key from the first block of a token.
+/// Reads the actor, the expiry, and the session, the key or the API token from the first block
+/// of a token.
 /// Later blocks cannot add them.
 pub(super) fn claims(token: &Biscuit) -> Result<Claims, AccessError> {
     // Query the facts of the first block.
@@ -110,8 +124,11 @@ pub(super) fn claims(token: &Biscuit) -> Result<Claims, AccessError> {
     let app_keys: Vec<(String,)> = authorizer
         .query("data($id) <- key($id)")
         .map_err(|_| unauthenticated("invalid token"))?;
+    let api_tokens: Vec<(String,)> = authorizer
+        .query("data($id) <- api_token($id)")
+        .map_err(|_| unauthenticated("invalid token"))?;
 
-    // Keep exactly one actor and one expiry, and at most one session or key.
+    // Keep exactly one actor and one expiry, and at most one session, key or API token.
     let [(id, kind)] = actors.as_slice() else {
         return Err(unauthenticated("the token must name one actor"));
     };
@@ -120,10 +137,18 @@ pub(super) fn claims(token: &Biscuit) -> Result<Claims, AccessError> {
         .first()
         .map(|(exp,)| *exp)
         .ok_or_else(|| unauthenticated("the token has no expiry"))?;
-    let binding = match (sessions.as_slice(), app_keys.as_slice()) {
-        ([], []) => Binding::None,
-        ([(session,)], []) => Binding::Session(SessionId::parse(session).map_err(|_| invalid())?),
-        ([], [(key,)]) => Binding::Key(AppKeyId::parse(key).map_err(|_| invalid())?),
+    let bound = (
+        sessions.as_slice(),
+        app_keys.as_slice(),
+        api_tokens.as_slice(),
+    );
+    let binding = match bound {
+        ([], [], []) => Binding::None,
+        ([(session,)], [], []) => {
+            Binding::Session(SessionId::parse(session).map_err(|_| invalid())?)
+        }
+        ([], [(key,)], []) => Binding::Key(AppKeyId::parse(key).map_err(|_| invalid())?),
+        ([], [], [(token,)]) => Binding::ApiToken(ApiTokenId::parse(token).map_err(|_| invalid())?),
         _ => return Err(invalid()),
     };
     let actor = Actor {
@@ -145,7 +170,7 @@ fn limits() -> AuthorizerLimits {
     }
 }
 
-/// Makes the error of a token with a bad session or key.
+/// Makes the error of a token with a bad session, key or API token.
 fn invalid() -> AccessError {
     unauthenticated("invalid session or key in the token")
 }
