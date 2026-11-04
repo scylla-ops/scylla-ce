@@ -1,4 +1,4 @@
-//! The generated code of `proto/`. Docs come from the proto comments, which `buf lint` checks.
+//! The generated code of `proto/`. Docs come from the proto comments, which the lint of `scylla-protos` checks.
 
 /// The capabilities API.
 pub mod capabilities {

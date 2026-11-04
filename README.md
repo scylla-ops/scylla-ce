@@ -1,6 +1,6 @@
 # Scylla: core and Community edition
 
-The public repository of Scylla. It holds the core and the `scylla-ce` binary. The Enterprise edition is in a separate repository (`../ee` in this POC) and adds its features through plugins.
+The public repository of Scylla. It holds the core and the `scylla-ce` binary. The Enterprise edition is in a separate private repository (`scylla-ops/scylla-ee`) and adds its features through plugins. The protos are in `scylla-ops/scylla-protos`, a git submodule at `proto`: clone with `git clone --recurse-submodules`, or run `git submodule update --init` in a clone.
 
 Users sign up or sign in with an identity provider, and work in workspaces with their projects and Apps (machine identities, and the agents that run jobs). The API is gRPC and gRPC-Web on one port. Access is zero trust: a short-lived Biscuit token on each request, and a SpiceDB permission check on each operation.
 
@@ -21,7 +21,7 @@ scylla-testkit (tests only) ──▶ scylla-core
 | `scylla-macros` | `authz!`: the permission model in the SpiceDB schema language |
 | `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, the platform, actors, users and handles, slugs, instance admins, workspaces, Apps and agents, projects and their secrets, pages |
 | `scylla-extension` | the contract: `Edition`, `Plugin`, hooks, `Gate` |
-| `scylla-proto` | generated code of `proto/` |
+| `scylla-proto` | generated code of `proto/`, the submodule `scylla-protos` |
 | `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, Apps, agents, tokens, projects, secrets, grants, capabilities), mails, logs, the guard against the public dev keys, server, CLI |
 | `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC, a capture of the log lines |
 | `scylla-ce` | the Community edition binary |
@@ -82,7 +82,6 @@ Use the latest version of each tool:
 
 ```sh
 cargo install sqlx-cli --locked --features sqlx-toml
-npm install -g @bufbuild/buf
 ```
 
 Also Docker, Rust 1.94 or later, `just` and `protoc`. `grpcurl` is optional.

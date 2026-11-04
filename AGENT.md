@@ -2,7 +2,7 @@
 
 This is the public repository: the core and the Community edition. `README.md` tells what it is and how to run it. `DECISIONS.md` tells why the code has its shape. This file tells how to write code here. Follow it in each change.
 
-The Enterprise edition is in a separate repository (`../ee` in this POC). Do not change it from here.
+The Enterprise edition is in a separate private repository, `scylla-ops/scylla-ee`. Do not change it from here. The protos are in `scylla-ops/scylla-protos`, a git submodule at `proto`.
 
 ## Skills
 
@@ -114,8 +114,9 @@ This project overrides the global "no comments" rule.
 ## Protos
 
 - All ids use `scylla.common.v1.Id`. Lists use `PageRequest` and `PageResponse`.
-- Each service, RPC, message and field has a comment (`buf lint`, category `COMMENTS`).
+- Each service, RPC, message and field has a comment (`just lint` of `scylla-protos`, category `COMMENTS`).
 - Each RPC has its own request and response messages.
+- A change of a proto is a change of `scylla-protos`: change the files there, run its `just lint`, commit and push there, then move the submodule `proto` to the new commit and commit the new pin with the code that uses it. A new file also goes in the list of `scylla-proto/build.rs`.
 - No compatibility code: no client of an old version exists. Remove a field or an RPC with no `reserved` line and no deprecated mark. The fields of a message have the numbers 1 to n, with no gap.
 
 ## SQL
@@ -138,7 +139,7 @@ This project overrides the global "no comments" rule.
 ## Pitfalls
 
 - The database is on port 55432. SpiceDB is on 55051, the SpiceDB of the tests on 55052, and Mailpit on 51025 (SMTP) and 51080 (web). These ports are outside the ranges that Windows keeps for Hyper-V (for example 57950-58049): a port in such a range cannot be bound. Port 5432 and the container `scylla-postgres` belong to another project. Do not touch them.
-- Use the latest tools: `cargo install sqlx-cli --locked --features sqlx-toml`, and `npm install -g @bufbuild/buf`. Remove an old version before you install a new one.
-- The IDE builds in the same target folder while you edit. If a build sees old code of a path crate (for example in `../ee`), run `cargo clean -p <crate>` there.
+- Use the latest tools: `cargo install sqlx-cli --locked --features sqlx-toml`. `buf` is a tool of `scylla-protos`. Remove an old version before you install a new one.
+- The IDE builds in the same target folder while you edit. If a build sees old code of a crate, run `cargo clean -p <crate>`.
 - A clap `Args` struct needs a unique `#[group(id = ...)]`. The test `cli_is_valid` finds a conflict.
 - On Windows, many full test runs in a short time can use all the local ports. A closed connection keeps its port for 4 minutes (`TIME_WAIT`), and Hyper-V keeps blocks of the dynamic range. The error is `AddrInUse` (10048) when a test connects to the database. It is not a bug of the code. Wait some minutes, or set `TcpTimedWaitDelay` to 30 (a setting of the machine, for an admin).

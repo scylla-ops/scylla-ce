@@ -131,7 +131,7 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 24. Tools
 
-- **Decision:** the latest version of each tool and crate. The recipes call `cargo sqlx` and `buf`.
+- **Decision:** the latest version of each tool and crate. The recipes call `cargo sqlx`. `scylla-protos` calls `buf`.
 - **Why:** one known version for each tool, with the latest fixes. The README gives the install lines.
 
 
@@ -221,7 +221,7 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 39. No compatibility code
 
-- **Decision:** Scylla has no deployed database and no client of an old version, so the code keeps no trace of a previous design. A proto removes a field or an RPC with no `reserved` line and no deprecated mark, and the fields of a message have the numbers 1 to n. `buf.yaml` has no breaking rules. A migration has only `CREATE` statements, one file for each feature: a change of a table changes its `CREATE TABLE`, and `just db-reset` creates the dev database again. `build.rs` makes Cargo rebuild `scylla-core` and `scylla-ee` when a migration changes, because `sqlx::migrate!` embeds the files.
+- **Decision:** Scylla has no deployed database and no client of an old version, so the code keeps no trace of a previous design. A proto removes a field or an RPC with no `reserved` line and no deprecated mark, and the fields of a message have the numbers 1 to n. The `buf.yaml` of `scylla-protos` has no breaking rules. A migration has only `CREATE` statements, one file for each feature: a change of a table changes its `CREATE TABLE`, and `just db-reset` creates the dev database again. `build.rs` makes Cargo rebuild `scylla-core` and `scylla-ee` when a migration changes, because `sqlx::migrate!` embeds the files.
 - **Why:** an upgrade path costs code, tests and reading time, and nothing uses it before a first release. The clean migrations give the same tables, columns, constraints and indexes as the old chain: a comparison of the two catalogs found no difference.
 - **Not kept:** forward migrations with data moves (they stay in the history for a design that is gone); `reserved` fields (no old client reads them). After a first release, this decision changes: from then on, a change is a new migration.
 
@@ -417,3 +417,9 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 - **Decision:** the agent builds and runs on Windows too. On Unix, nothing changes. On Windows, a step runs in a job object (the crate `process-wrap`) and in a new console process group, so a Ctrl+C in the console of the agent does not go to the steps. A timeout, a cancel or a halt ends each process of the job object at once, with no grace. The end of a step is the end of each process of its job object. The environment of a step also keeps `SystemRoot`, `windir`, `ComSpec`, `PATHEXT`, `TEMP` and `TMP` of the agent, and `USERPROFILE` is the work folder, as `HOME`. A script runs with the `sh` or the `bash` of the `PATH`, for example the ones of Git for Windows. The file of the agent gets the access of its folder, with no mode 600. The default folder is `%LOCALAPPDATA%\scylla-agent`, with `agent.json` and `work`. The agent stops at Ctrl+C, Ctrl+Break, the close of its console, or a shutdown.
 - **Why:** a developer on Windows can run a real agent next to a local server, with no container and no WSL. A job object keeps and ends a tree of processes, as a process group on Unix. The workspace forbids unsafe code, so a crate makes the calls to Windows; the crate `windows`, at the version of `process-wrap`, gives only the flag `CREATE_NEW_PROCESS_GROUP`. With no `SystemRoot`, many Windows programs do not start. `%LOCALAPPDATA%` is private to its user, as the mode 600 on Unix.
 - **Not kept:** a stop with a grace on Windows (`CTRL_BREAK_EVENT` needs a shared console, and a service has none); PowerShell or `cmd` as the shell of a script (the proto has `sh` and `bash` only); a Windows service.
+
+## 71. The repositories
+
+- **Decision:** the code of Scylla is in five repositories of `scylla-ops`. `scylla-ce` (public) has the core, the Community edition and the agent. `scylla-protos` (public) has the public protos and a subset of `google/rpc` for the clients; `scylla-ce` has it as a git submodule at `proto`, with an HTTPS URL. `scylla-ee` (private) has the Enterprise edition; it takes the crates of `scylla-ce` with cargo git dependencies pinned to one commit (`rev`), and has `scylla-ee-protos` (private) as a git submodule at `proto-ee`, with an SSH URL. `scylla-web` (public) has `scylla-protos` as a git submodule at `protos`. The lint of the protos runs in their repositories. The history of each repository comes from one folder of the migration repository, with `git subtree split`.
+- **Why:** one contract serves the backend, the Enterprise edition and the web UI, and each consumer pins the commit that its code uses. A public submodule with HTTPS lets CI and cargo get it with no key. A pinned `rev` makes each Enterprise build use one known version of the core.
+- **Not kept:** one repository for all the code (the Enterprise code stays private); a package registry for the protos (a submodule is enough for two consumers).

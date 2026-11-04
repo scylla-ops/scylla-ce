@@ -35,7 +35,6 @@ test: migrate
 lint:
     cargo fmt --all --check
     cargo clippy --workspace --all-targets -- -D warnings
-    buf lint
     scripts/check-structure.sh
 
 # Creates an active user with its personal workspace and prints its id. The password comes from stdin.
