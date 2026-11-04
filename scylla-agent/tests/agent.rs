@@ -1,5 +1,6 @@
 //! The tests of the agent against the real server of the Community edition: the join, the run of
-//! a pipeline with its secrets, its retries, its failure and its logs, and a cancel.
+//! a pipeline with its secrets, its retries, its failure and its logs, a cancel, and the name of
+//! its key.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -186,4 +187,22 @@ async fn the_agent_stops_a_cancelled_job(pool: PgPool) {
     assert!(gone, "the work folder of a cancelled job stays");
     let read = app.get_job(owner, &id).await.unwrap();
     assert_eq!(read.status, JobStatus::Cancelled as i32);
+}
+
+/// The join gives the key of the agent the name of its machine.
+#[sqlx::test(migrations = false)]
+async fn the_join_names_the_key_after_the_machine(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let workspace = app.workspace_of(owner).await;
+    let created = app.create_app(owner, workspace, true).await.unwrap();
+    let url = format!("http://{}", app.addr);
+
+    // when
+    let config = scylla_agent::join(&url, &created.join_code).await.unwrap();
+
+    // then
+    let keys = app.get_app(owner, &config.app_id).await.unwrap().keys;
+    assert!(!keys[0].label.is_empty());
 }

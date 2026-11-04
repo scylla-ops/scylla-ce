@@ -8,12 +8,13 @@ use crate::agent::AgentError;
 use crate::config::AgentConfig;
 
 /// Joins the App of a join code, and returns the file to keep. The private key stays on this
-/// machine.
+/// machine, and the key gets the name of the machine.
 pub async fn join(url: &str, code: &str) -> Result<AgentConfig, AgentError> {
     let key = keys::new_key();
     let request = JoinAppRequest {
         join_code: code.trim().to_owned(),
         public_key: key.verifying_key().to_bytes().to_vec(),
+        label: crate::stream::hostname().unwrap_or_default(),
     };
     let channel = connect(url).await?;
     let response = TokenServiceClient::new(channel)

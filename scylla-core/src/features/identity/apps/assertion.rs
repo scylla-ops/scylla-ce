@@ -82,6 +82,8 @@ pub async fn verify(
     if !nonces::use_nonce(&mut tx, &claims.nonce, expires_at).await? {
         return Err(refused());
     }
+    keys::touch(&mut tx, key_id).await?;
+    apps::touch(&mut tx, app_id).await?;
     tx.commit().await?;
     let app = Actor {
         id: App::actor(app_id),

@@ -25,7 +25,9 @@ CREATE TABLE app_keys (
     app_id uuid NOT NULL REFERENCES apps (id) ON DELETE CASCADE,
     public_key bytea NOT NULL CHECK (length(public_key) = 32),
     created_at timestamptz NOT NULL DEFAULT now(),
-    revoked_at timestamptz
+    revoked_at timestamptz,
+    label text,
+    last_used_at timestamptz
 );
 
 CREATE INDEX app_keys_app_id_idx ON app_keys (app_id);

@@ -63,6 +63,7 @@ definition workspace {
     permission create_join_code = manage
     permission add_app_key = manage
     permission revoke_app_key = manage
+    permission rename_app_key = manage
     permission create_project = work
     permission list_projects = read
     permission get_project = read
@@ -104,6 +105,7 @@ definition app {
     permission create_join_code = nil
     permission add_app_key = nil
     permission revoke_app_key = nil
+    permission rename_app_key = nil
 }
 
 definition project {

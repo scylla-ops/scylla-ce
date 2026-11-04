@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 clap.workspace = true
 ed25519-dalek.workspace = true
+gethostname.workspace = true
 getrandom.workspace = true
 hex.workspace = true
 prost.workspace = true

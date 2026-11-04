@@ -4,7 +4,7 @@
 use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::apps::{
-    App, AppId, AppKeyId, AppKeyInfo, AppPage, Host, JoinCode, ListApps, NewApp, KIND,
+    App, AppId, AppKeyId, AppKeyInfo, AppPage, Host, JoinCode, KeyLabel, ListApps, NewApp, KIND,
 };
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Page;
@@ -137,13 +137,30 @@ pub(crate) async fn add_key(
     pool: &PgPool,
     id: AppId,
     public_key: &[u8],
+    label: Option<&KeyLabel>,
 ) -> Result<AppKeyInfo, Error> {
     assertion::check_public_key(public_key)?;
     let mut tx = pool.begin().await?;
-    let key = keys::insert(&mut tx, id, public_key).await?;
+    let key = keys::insert(&mut tx, id, public_key, label).await?;
     tx.commit().await?;
     tracing::info!(event = "app.key_added", app = %id, key = %key.id);
     Ok(key)
+}
+
+/// Gives a new name to a key of an App. An unknown key gives `NotFound("key")`.
+pub(crate) async fn rename_key(
+    pool: &PgPool,
+    id: AppId,
+    key: AppKeyId,
+    label: &KeyLabel,
+) -> Result<AppKeyInfo, Error> {
+    let mut tx = pool.begin().await?;
+    let renamed = keys::rename(&mut tx, id, key, label)
+        .await?
+        .ok_or(Error::NotFound("key"))?;
+    tx.commit().await?;
+    tracing::info!(event = "app.key_renamed", app = %id, %key);
+    Ok(renamed)
 }
 
 /// Revokes a key of an App and closes its stream. An unknown key gives `NotFound("key")`.
@@ -169,13 +186,14 @@ pub async fn join(
     pool: &PgPool,
     code: &str,
     public_key: &[u8],
+    label: Option<&KeyLabel>,
 ) -> Result<(AppId, AppKeyId), Error> {
     assertion::check_public_key(public_key)?;
     let mut tx = pool.begin().await?;
     let app = codes::take(&mut tx, &secret::hash(code))
         .await?
         .ok_or_else(|| AccessError::Unauthenticated("invalid join code".to_owned()))?;
-    let key = keys::insert(&mut tx, app, public_key).await?;
+    let key = keys::insert(&mut tx, app, public_key, label).await?;
     tx.commit().await?;
     tracing::info!(event = "app.joined", %app, key = %key.id);
     Ok((app, key.id))

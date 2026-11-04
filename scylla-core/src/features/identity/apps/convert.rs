@@ -1,6 +1,6 @@
 //! The conversions between the proto messages and the domain types of the Apps.
 
-use scylla_domain::identity::apps::{App, AppKeyInfo, Host};
+use scylla_domain::identity::apps::{App, AppKeyInfo, Host, KeyLabel};
 use scylla_proto::apps::v1 as pb;
 
 use crate::api::parse::{self, FromProto, Invalid, ToProto};
@@ -18,6 +18,14 @@ pub(super) fn app(app: App, connected: bool) -> pb::App {
         last_seen_at: app.last_seen_at.map(parse::timestamp),
         host: app.host.map(host),
         disabled_at: app.disabled_at.map(parse::timestamp),
+    }
+}
+
+/// Reads the optional name of a key: an empty text gives none.
+pub(crate) fn optional_label(text: String) -> Result<Option<KeyLabel>, crate::Error> {
+    match text.trim().is_empty() {
+        true => Ok(None),
+        false => parse::field(text, "label").map(Some),
     }
 }
 
@@ -42,6 +50,8 @@ impl ToProto<pb::AppKey> for AppKeyInfo {
             public_key: self.public_key,
             created_at: Some(parse::timestamp(self.created_at)),
             revoked_at: self.revoked_at.map(parse::timestamp),
+            label: self.label.unwrap_or_default(),
+            last_used_at: self.last_used_at.map(parse::timestamp),
         }
     }
 }

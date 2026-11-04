@@ -14,7 +14,7 @@ use scylla_proto::apps::v1::app_service_client::AppServiceClient;
 use scylla_proto::apps::v1::{
     AddAppKeyRequest, App, AppAssertion, AppKey, CreateAppRequest, CreateAppResponse,
     CreateJoinCodeRequest, DeleteAppRequest, DisableAppRequest, EnableAppRequest, GetAppRequest,
-    GetAppResponse, ListAppsRequest, ListAppsResponse, RevokeAppKeyRequest,
+    GetAppResponse, ListAppsRequest, ListAppsResponse, RenameAppKeyRequest, RevokeAppKeyRequest,
 };
 use scylla_proto::auth::v1::{ExchangeAppAssertionRequest, JoinAppRequest};
 use tokio::sync::mpsc;
@@ -171,16 +171,18 @@ impl TestApp {
             .join_code)
     }
 
-    /// Calls `AddAppKey` as `actor` with the public key of `key`.
+    /// Calls `AddAppKey` as `actor` with the public key of `key` and a name.
     pub async fn add_app_key(
         &self,
         actor: ActorId,
         app: &str,
         key: &SigningKey,
+        label: &str,
     ) -> Result<AppKey, Status> {
         let request = AddAppKeyRequest {
             app_id: Some(id(app)),
             public_key: key.verifying_key().to_bytes().to_vec(),
+            label: label.to_owned(),
         };
         let request = self.authed(actor, request).await;
         let response = self.apps().add_app_key(request).await?.into_inner();
@@ -198,12 +200,36 @@ impl TestApp {
         Ok(())
     }
 
-    /// Calls `JoinApp` with a code and the public key of a new key pair.
+    /// Calls `RenameAppKey` as `actor`, and returns the key.
+    pub async fn rename_app_key(
+        &self,
+        actor: ActorId,
+        app: &str,
+        key: &str,
+        label: &str,
+    ) -> Result<AppKey, Status> {
+        let request = RenameAppKeyRequest {
+            app_id: Some(id(app)),
+            key_id: Some(id(key)),
+            label: label.to_owned(),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.apps().rename_app_key(request).await?.into_inner();
+        Ok(response.key.expect("key in response"))
+    }
+
+    /// Calls `JoinApp` with a code and the public key of a new key pair, with no name.
     pub async fn join_app(&self, code: &str) -> Result<TestKey, Status> {
+        self.join_app_named(code, "").await
+    }
+
+    /// Calls `JoinApp` with a code, the public key of a new key pair and a name for the key.
+    pub async fn join_app_named(&self, code: &str, label: &str) -> Result<TestKey, Status> {
         let key = new_key();
         let request = JoinAppRequest {
             join_code: code.to_owned(),
             public_key: key.verifying_key().to_bytes().to_vec(),
+            label: label.to_owned(),
         };
         let response = self.tokens().join_app(request).await?.into_inner();
         Ok(TestKey {

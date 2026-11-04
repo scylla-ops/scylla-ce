@@ -104,6 +104,13 @@ impl AppService for AppsGrpc {
     ) -> Result<Response<pb::RevokeAppKeyResponse>, Status> {
         Ok(Response::new(self.revoke_key(request).await?))
     }
+
+    async fn rename_app_key(
+        &self,
+        request: Request<pb::RenameAppKeyRequest>,
+    ) -> Result<Response<pb::RenameAppKeyResponse>, Status> {
+        Ok(Response::new(self.rename_key(request).await?))
+    }
 }
 
 impl AppsGrpc {

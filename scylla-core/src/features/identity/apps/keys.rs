@@ -1,11 +1,11 @@
 //! The handlers of `AppService` for the keys and the join codes of an App.
 
-use scylla_domain::identity::apps::{App, AppId, AppKeyId};
+use scylla_domain::identity::apps::{App, AppId, AppKeyId, KeyLabel};
 use scylla_proto::apps::v1 as pb;
 use tonic::Request;
 
 use super::grpc::AppsGrpc;
-use super::service;
+use super::{optional_label, service};
 use crate::api::parse::{self, ToProto};
 use crate::Error;
 
@@ -25,7 +25,7 @@ impl AppsGrpc {
         })
     }
 
-    /// Handles `AddAppKey`: a public key that the App made.
+    /// Handles `AddAppKey`: a public key that the App made, with an optional name.
     pub(super) async fn add_key(
         &self,
         request: Request<pb::AddAppKeyRequest>,
@@ -33,8 +33,9 @@ impl AppsGrpc {
         let caller = self.gate.caller(&request).await?;
         let request = request.into_inner();
         let id: AppId = parse::required(request.app_id, "app_id")?;
+        let label = optional_label(request.label)?;
         self.authorize(&caller, App::ADD_APP_KEY, id).await?;
-        let key = service::add_key(&self.pool, id, &request.public_key).await?;
+        let key = service::add_key(&self.pool, id, &request.public_key, label.as_ref()).await?;
         Ok(pb::AddAppKeyResponse {
             key: Some(key.to_proto()),
         })
@@ -52,5 +53,22 @@ impl AppsGrpc {
         self.authorize(&caller, App::REVOKE_APP_KEY, id).await?;
         service::revoke_key(&self.pool, &self.registry, id, key).await?;
         Ok(pb::RevokeAppKeyResponse {})
+    }
+
+    /// Handles `RenameAppKey`: a new name for a key.
+    pub(super) async fn rename_key(
+        &self,
+        request: Request<pb::RenameAppKeyRequest>,
+    ) -> Result<pb::RenameAppKeyResponse, Error> {
+        let caller = self.gate.caller(&request).await?;
+        let request = request.into_inner();
+        let id: AppId = parse::required(request.app_id, "app_id")?;
+        let key: AppKeyId = parse::required(request.key_id, "key_id")?;
+        let label: KeyLabel = parse::field(request.label, "label")?;
+        self.authorize(&caller, App::RENAME_APP_KEY, id).await?;
+        let renamed = service::rename_key(&self.pool, id, key, &label).await?;
+        Ok(pb::RenameAppKeyResponse {
+            key: Some(renamed.to_proto()),
+        })
     }
 }

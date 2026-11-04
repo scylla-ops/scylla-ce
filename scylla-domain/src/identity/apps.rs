@@ -15,6 +15,9 @@ pub type AppId = Id<App>;
 /// The display name of an App.
 pub type AppName = Name;
 
+/// The name of a key of an App, for example the host name of its machine.
+pub type KeyLabel = Name;
+
 /// The marker of an App key id.
 pub enum AppKey {}
 
@@ -132,10 +135,14 @@ pub struct AppKeyInfo {
     pub id: AppKeyId,
     /// The Ed25519 public key, 32 bytes.
     pub public_key: Vec<u8>,
+    /// The name of the key, if it has one.
+    pub label: Option<String>,
     /// The time when the key was added.
     pub created_at: OffsetDateTime,
     /// The time when the key was revoked.
     pub revoked_at: Option<OffsetDateTime>,
+    /// The last time that the key signed an assertion for a token.
+    pub last_used_at: Option<OffsetDateTime>,
 }
 
 /// The input of an App creation.
@@ -192,6 +199,8 @@ crate::authz! {
         permission add_app_key = nil;
         /// The route `RevokeAppKey`.
         permission revoke_app_key = nil;
+        /// The route `RenameAppKey`.
+        permission rename_app_key = nil;
     }
 
     /// The routes of the Apps on their workspace.
@@ -214,5 +223,7 @@ crate::authz! {
         permission add_app_key = manage;
         /// The route `RevokeAppKey`, on each App of this workspace.
         permission revoke_app_key = manage;
+        /// The route `RenameAppKey`, on each App of this workspace.
+        permission rename_app_key = manage;
     }
 }

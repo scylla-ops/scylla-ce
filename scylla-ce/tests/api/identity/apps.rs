@@ -153,7 +153,7 @@ async fn the_key_routes_need_an_admin(pool: PgPool) {
 
     // when
     let code = app.create_join_code(member, &key.app).await;
-    let added = app.add_app_key(member, &key.app, &new_key()).await;
+    let added = app.add_app_key(member, &key.app, &new_key(), "").await;
     let revoked = app.revoke_app_key(member, &key.app, &key.key_id).await;
     let deleted = app.delete_app(member, &key.app).await;
 
@@ -174,7 +174,7 @@ async fn revoke_app_key_stops_its_tokens(pool: PgPool) {
     let workspace = app.workspace_of(owner).await;
     let (key, token) = app.app_in(owner, workspace, true).await;
     let spare = new_key();
-    let added = app.add_app_key(owner, &key.app, &spare).await.unwrap();
+    let added = app.add_app_key(owner, &key.app, &spare, "").await.unwrap();
     let rotated = scylla_testkit::TestKey {
         app: key.app.clone(),
         key_id: text(&added.id).to_owned(),
@@ -260,6 +260,7 @@ async fn join_app_checks_the_public_key(pool: PgPool) {
     let request = scylla_proto::auth::v1::JoinAppRequest {
         join_code: created.join_code,
         public_key: vec![1, 2, 3],
+        label: String::new(),
     };
 
     // when

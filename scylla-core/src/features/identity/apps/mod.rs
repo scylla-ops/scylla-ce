@@ -10,6 +10,7 @@ mod service;
 mod store;
 
 pub use assertion::{verify as verify_assertion, AUDIENCE};
+pub(crate) use convert::optional_label;
 pub(crate) use grpc::server;
 pub(crate) use plugin::Apps;
 #[cfg(test)]

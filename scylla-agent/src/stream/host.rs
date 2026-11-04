@@ -6,9 +6,7 @@ use crate::agent::Settings;
 
 /// Reads the facts of the machine.
 pub(super) fn host(settings: &Settings) -> Host {
-    let hostname = std::fs::read_to_string("/proc/sys/kernel/hostname")
-        .map(|name| name.trim().to_owned())
-        .unwrap_or_else(|_| "unknown".to_owned());
+    let hostname = hostname().unwrap_or_else(|| "unknown".to_owned());
     let cpu_count = std::thread::available_parallelism()
         .map(|count| count.get() as u32)
         .unwrap_or(1);
@@ -22,6 +20,13 @@ pub(super) fn host(settings: &Settings) -> Host {
         capacity: settings.capacity,
         container_runtime: settings.container_runtime.clone().unwrap_or_default(),
     }
+}
+
+/// Returns the name of the machine, or `None` if it has no name.
+pub(crate) fn hostname() -> Option<String> {
+    let name = gethostname::gethostname();
+    let name = name.to_string_lossy().trim().to_owned();
+    (!name.is_empty()).then_some(name)
 }
 
 /// Reads the memory of the machine from `/proc/meminfo`, or 0.

@@ -51,8 +51,15 @@ impl TokenService for TokensGrpc {
         request: Request<pb::JoinAppRequest>,
     ) -> Result<Response<pb::JoinAppResponse>, Status> {
         let request = request.into_inner();
-        let (app, key) =
-            apps::join(&self.ctx().pool, &request.join_code, &request.public_key).await?;
+        let label = apps::optional_label(request.label)?;
+        let pool = &self.ctx().pool;
+        let joined = apps::join(
+            pool,
+            &request.join_code,
+            &request.public_key,
+            label.as_ref(),
+        );
+        let (app, key) = joined.await?;
         Ok(Response::new(pb::JoinAppResponse {
             app_id: Some(app.to_proto()),
             key_id: Some(key.to_proto()),

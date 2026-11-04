@@ -3,4 +3,5 @@
 mod host;
 mod session;
 
+pub(crate) use host::hostname;
 pub(crate) use session::{session, Shared};

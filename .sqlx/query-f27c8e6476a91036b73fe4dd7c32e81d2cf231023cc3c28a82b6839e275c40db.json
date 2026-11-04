@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, public_key, created_at, revoked_at FROM app_keys\n         WHERE app_id = $1 ORDER BY id",
+  "query": "INSERT INTO app_keys (id, app_id, public_key, label) VALUES ($1, $2, $3, $4)\n         RETURNING id, public_key, label, created_at, revoked_at, last_used_at",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,17 @@
       },
       {
         "ordinal": 2,
+        "name": "label",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "app_keys",
+            "name": "label"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "revoked_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -46,19 +57,35 @@
             "name": "revoked_at"
           }
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "last_used_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "app_keys",
+            "name": "last_used_at"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Uuid",
+        "Bytea",
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
+      true,
       false,
+      true,
       true
     ]
   },
-  "hash": "62a1db685e38730cfb2e8f87375297c01f1aca62914cae04e050277969f0920c"
+  "hash": "f27c8e6476a91036b73fe4dd7c32e81d2cf231023cc3c28a82b6839e275c40db"
 }
