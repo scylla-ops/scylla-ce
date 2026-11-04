@@ -223,16 +223,19 @@ pub async fn serve(
     };
     edition.add_services(&mut routes, &pool, &gate);
 
-    // Log the calls inside gRPC-Web, then add the browser routes with their own log.
-    let mut router = routes
+    // Log the calls inside gRPC-Web, then add the browser routes and the JSON gateway.
+    let grpc = routes
         .routes()
         .into_axum_router()
         .layer(OperationLayer)
         .layer(log)
-        .layer(GrpcWebLayer::new())
+        .layer(GrpcWebLayer::new());
+    let gateway = super::json::router(grpc.clone());
+    let mut router = grpc
         .merge(providers::router(providers).layer(log))
         .merge(webhook::router(webhooks).layer(log))
-        .merge(install.layer(log));
+        .merge(install.layer(log))
+        .merge(gateway);
 
     // Serve the files of the web app for each other GET, if the settings name its folder.
     if let Some(dir) = &options.web_dir {

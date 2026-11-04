@@ -99,3 +99,7 @@ pub mod platform {
         tonic::include_proto!("scylla.platform.v1");
     }
 }
+
+/// The descriptors of each proto file, for the JSON gateway.
+pub const FILE_DESCRIPTOR_SET: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/scylla_descriptors.bin"));

@@ -43,7 +43,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .join("..")
         .join("proto");
     let files: Vec<PathBuf> = PROTOS.iter().map(|file| root.join(file)).collect();
-    tonic_prost_build::configure().compile_protos(&files, std::slice::from_ref(&root))?;
+    let descriptors = PathBuf::from(env::var("OUT_DIR")?).join("scylla_descriptors.bin");
+    tonic_prost_build::configure()
+        .file_descriptor_set_path(descriptors)
+        .compile_protos(&files, std::slice::from_ref(&root))?;
     println!("cargo::metadata=include={}", root.display());
     Ok(())
 }

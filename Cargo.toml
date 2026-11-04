@@ -50,12 +50,14 @@ getrandom = "0.4.3"
 hex = "0.4.3"
 hmac = "0.13.0"
 http-body = "1.1.0"
+http-body-util = "0.1.5"
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto", "use_pem"] }
 nix = { version = "0.31.3", features = ["signal", "process"] }
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "rustls", "ring", "webpki-roots"] }
 proc-macro2 = "1.0.107"
 process-wrap = { version = "10.0.1", default-features = false, features = ["tokio1", "job-object", "creation-flags"] }
 prost = "0.14.4"
+prost-reflect = { version = "0.16.5", features = ["serde"] }
 prost-types = "0.14.4"
 quote = "1.0.47"
 rcgen = "0.14.10"
@@ -77,7 +79,7 @@ tonic-prost = "0.14.9"
 tonic-prost-build = { version = "0.14.9", default-features = false }
 tonic-types = "0.14.9"
 tonic-web = "0.14.9"
-tower = { version = "0.5.3", default-features = false }
+tower = { version = "0.5.3", default-features = false, features = ["util"] }
 tower-http = { version = "0.7.1", default-features = false, features = ["cors", "fs"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-appender = "0.2.5"
