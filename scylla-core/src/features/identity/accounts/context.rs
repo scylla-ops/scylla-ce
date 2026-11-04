@@ -50,6 +50,13 @@ impl AccountSettings {
         format!("{}/{page}#token={token}", self.app_url)
     }
 
+    /// Returns `true` if a request from this origin comes from the web app: the origin of
+    /// `app_url`, which serves the app when the server holds it, or one of `web_origins`.
+    pub fn is_web_origin(&self, origin: &str) -> bool {
+        origin_of(&self.app_url) == origin
+            || self.web_origins.iter().any(|allowed| allowed == origin)
+    }
+
     /// Returns `true` if a browser can go back to this address after a sign-in: the web app,
     /// or one of its origins.
     pub fn can_return_to(&self, url: &str) -> bool {
@@ -58,6 +65,14 @@ impl AccountSettings {
             .into_iter()
             .any(|origin| url == origin || url.starts_with(&format!("{origin}/")))
     }
+}
+
+/// Returns the origin of a URL: its scheme, its host and its port, with no path.
+fn origin_of(url: &str) -> &str {
+    let start = url.find("://").map_or(0, |index| index + 3);
+    url[start..]
+        .find('/')
+        .map_or(url, |end| &url[..start + end])
 }
 
 /// What the account routes share.
@@ -77,4 +92,19 @@ pub struct AccountContext {
     pub grants: Arc<Grants>,
     /// The hooks of the edition, for the invitations and the memberships.
     pub hooks: Arc<Hooks>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::origin_of;
+
+    #[test]
+    fn the_origin_of_a_url_has_no_path() {
+        assert_eq!(
+            origin_of("https://scylla.example/app/"),
+            "https://scylla.example"
+        );
+        assert_eq!(origin_of("http://127.0.0.1:3000"), "http://127.0.0.1:3000");
+        assert_eq!(origin_of("http://127.0.0.1:3000/"), "http://127.0.0.1:3000");
+    }
 }

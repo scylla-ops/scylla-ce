@@ -171,6 +171,50 @@ async fn a_browser_refreshes_with_its_cookie(pool: PgPool) {
     assert!(refreshed.into_inner().refresh_token.is_empty());
 }
 
+/// A server that serves the web app itself takes a cookie refresh from the origin of
+/// `SCYLLA_APP_URL`, with no CORS origin set.
+#[sqlx::test(migrations = false)]
+async fn the_origin_of_the_app_refreshes_with_its_cookie(pool: PgPool) {
+    // given
+    let mut options = ServeOptions::default();
+    options.accounts.app_url = "https://scylla.example/app".to_owned();
+    options.accounts.web_origins = Vec::new();
+    let app = TestApp::spawn_with(pool, scylla_ce::edition(), options).await;
+    let email = "jo@example.com";
+    app.user_with(email, Some(PASSWORD)).await;
+    let request = SignInRequest {
+        identifier: email.to_owned(),
+        password: PASSWORD.to_owned(),
+        cookie: true,
+    };
+    let signed_in = AccountServiceClient::new(app.channel.clone())
+        .sign_in(request)
+        .await
+        .unwrap();
+    let cookie = signed_in
+        .metadata()
+        .get("set-cookie")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let cookie = cookie.split(';').next().unwrap().to_owned();
+
+    // when
+    let mut request = Request::new(RefreshRequest::default());
+    let metadata = request.metadata_mut();
+    metadata.insert("cookie", MetadataValue::try_from(cookie.as_str()).unwrap());
+    metadata.insert(
+        "origin",
+        MetadataValue::from_static("https://scylla.example"),
+    );
+    let refreshed = TokenServiceClient::new(app.channel.clone())
+        .refresh(request)
+        .await;
+
+    // then
+    assert!(refreshed.is_ok());
+}
+
 /// Signs in with a password and a `X-Forwarded-For` header, and returns the access token.
 async fn sign_in_forwarded(app: &TestApp, email: &str, forwarded: &str) -> String {
     let request = SignInRequest {

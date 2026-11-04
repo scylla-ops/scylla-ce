@@ -145,12 +145,7 @@ fn refresh_token(
         return Ok((request.refresh_token.clone(), false));
     }
     let origin = metadata.get("origin").and_then(|value| value.to_str().ok());
-    if !origin.is_some_and(|origin| {
-        ctx.settings
-            .web_origins
-            .iter()
-            .any(|allowed| allowed == origin)
-    }) {
+    if !origin.is_some_and(|origin| ctx.settings.is_web_origin(origin)) {
         let reason = "a cookie refresh needs an allowed web origin".to_owned();
         return Err(AccessError::Denied(reason).into());
     }
