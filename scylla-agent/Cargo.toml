@@ -32,7 +32,9 @@ nix.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 process-wrap.workspace = true
+tracing-appender.workspace = true
 windows.workspace = true
+windows-service.workspace = true
 
 [dev-dependencies]
 scylla-ce.workspace = true

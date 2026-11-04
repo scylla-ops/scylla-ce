@@ -80,10 +80,12 @@ tonic-web = "0.14.9"
 tower = { version = "0.5.3", default-features = false }
 tower-http = { version = "0.7.1", default-features = false, features = ["cors", "fs"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
-windows = { version = "0.62.2", default-features = false, features = ["Win32_System_Threading"] }
+tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"] }
 url = "2.5.8"
 uuid = { version = "1.29.0", features = ["v7"] }
+windows = { version = "0.62.2", default-features = false, features = ["Win32_System_Threading"] }
+windows-service = "0.8.1"
 
 [profile.dev]
 debug = 1

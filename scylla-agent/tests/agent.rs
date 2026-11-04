@@ -1,6 +1,6 @@
 //! The tests of the agent against the real server of the Community edition: the join, the run of
-//! a pipeline with its secrets, its retries, its failure and its logs, a cancel, and the name of
-//! its key.
+//! a pipeline with its secrets, its retries, its failure and its logs, a cancel, the name of its
+//! key, and the join at a first start.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -205,4 +205,28 @@ async fn the_join_names_the_key_after_the_machine(pool: PgPool) {
     // then
     let keys = app.get_app(owner, &config.app_id).await.unwrap().keys;
     assert!(!keys[0].label.is_empty());
+}
+
+/// A first start with a join code and no file joins and writes the file. A second start reads
+/// the file and does not use the code again.
+#[sqlx::test(migrations = false)]
+async fn a_first_start_joins_one_time(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let workspace = app.workspace_of(owner).await;
+    let created = app.create_app(owner, workspace, true).await.unwrap();
+    let url = format!("http://{}", app.addr);
+    let root = std::env::temp_dir().join(format!("scylla-agent-{}", ActorId::generate()));
+    let path = root.join("agent.json");
+    let join_with = Some((url.as_str(), created.join_code.as_str()));
+
+    // when
+    let (first, joined) = scylla_agent::load_or_join(&path, join_with).await.unwrap();
+    let (second, again) = scylla_agent::load_or_join(&path, join_with).await.unwrap();
+
+    // then
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(joined && !again);
+    assert_eq!((first.app_id, first.key_id), (second.app_id, second.key_id));
 }

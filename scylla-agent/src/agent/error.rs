@@ -22,6 +22,10 @@ pub enum AgentError {
     /// The file of the agent cannot be read or written.
     #[error("the file of the agent: {0}")]
     File(String),
+    /// The system refuses a need of the process: its runtime, its log file, or the service
+    /// control manager.
+    #[error("the system: {0}")]
+    System(String),
 }
 
 impl AgentError {

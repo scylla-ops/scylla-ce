@@ -1,4 +1,7 @@
-//! The join of an App: the agent makes its key pair and sends the public key with the code.
+//! The join of an App: the agent makes its key pair and sends the public key with the code, and
+//! a first start joins when it has a code and no file.
+
+use std::path::Path;
 
 use scylla_proto::auth::v1::token_service_client::TokenServiceClient;
 use scylla_proto::auth::v1::JoinAppRequest;
@@ -29,4 +32,21 @@ pub async fn join(url: &str, code: &str) -> Result<AgentConfig, AgentError> {
         key_id: text(response.key_id),
         private_key: hex::encode(key.to_bytes()),
     })
+}
+
+/// Reads the file of the agent at `path`. When it does not exist and `join_with` has the URL of the
+/// server and a join code, joins first and writes the file. Returns `true` with the file of a
+/// new join.
+pub async fn load_or_join(
+    path: &Path,
+    join_with: Option<(&str, &str)>,
+) -> Result<(AgentConfig, bool), AgentError> {
+    match join_with {
+        Some((url, code)) if !path.exists() => {
+            let config = join(url, code).await?;
+            config.save(path)?;
+            Ok((config, true))
+        }
+        _ => Ok((AgentConfig::load(path)?, false)),
+    }
 }
