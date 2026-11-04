@@ -97,6 +97,9 @@ pub(super) async fn node(
             ),
             Attempt::Broke(error) => (None, error),
         };
+        tracing::warn!(%job, node = %node.id, attempt, %error, "a node attempt failed");
+        let line = format!("attempt {attempt} failed: {error}");
+        output::report(outbox, job, &node.id, &line).await;
         if attempt == node.retries + 1 {
             let event = Event {
                 node: &node.id,

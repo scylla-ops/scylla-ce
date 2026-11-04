@@ -80,6 +80,17 @@ impl Sink {
     }
 }
 
+/// Sends a line of the agent itself in the logs of a node, because a process that does not start
+/// writes nothing.
+pub(super) async fn report(outbox: &Outbox, job: &str, node: &str, text: &str) {
+    let line = LogLine {
+        stream: LogStream::Stderr.into(),
+        text: cut(format!("scylla-agent: {text}")),
+        at: Some(now()),
+    };
+    events::logs(outbox, job, node, vec![line]).await;
+}
+
 /// Reads the lines of a pipe until its end, and sends them masked.
 pub(super) fn read<R>(
     pipe: R,

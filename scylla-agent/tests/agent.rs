@@ -152,6 +152,49 @@ async fn the_agent_runs_a_pipeline(pool: PgPool) {
     assert!(lines.contains(&"done"), "{lines:?}");
 }
 
+/// A process that does not start writes nothing, so the agent writes the reason in the logs of
+/// the node.
+#[sqlx::test(migrations = false)]
+async fn the_agent_reports_a_node_that_did_not_start(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let project = text(&app.create_project(owner, "alpha").await.unwrap().id).to_owned();
+    let mut missing = exec_node("missing", &[]);
+    missing.step = Some(node::Step::Exec(Exec {
+        argv: vec!["scylla-no-such-program".to_owned()],
+    }));
+    let pipeline = app
+        .create_pipeline(owner, &project, vec![missing])
+        .await
+        .unwrap();
+    let running = agent(&app, owner).await;
+
+    // when
+    let job = app.run_pipeline(owner, text(&pipeline.id)).await.unwrap();
+    let id = text(&job.id).to_owned();
+    wait(&app, owner, &id, |job| {
+        job.status == JobStatus::Failed as i32
+    })
+    .await;
+    let logs = app.tail_job_logs(owner, &id, "missing", "").await.unwrap();
+    running.stop().await;
+
+    // then
+    let lines: Vec<_> = logs
+        .iter()
+        .flat_map(|batch| &batch.lines)
+        .map(|line| line.text.as_str())
+        .collect();
+    assert!(
+        lines
+            .iter()
+            .any(|line| line
+                .starts_with("scylla-agent: attempt 1 failed: the process did not start")),
+        "{lines:?}"
+    );
+}
+
 /// A cancel stops the running node of a job with its child processes, and the agent deletes the
 /// work folder.
 #[sqlx::test(migrations = false)]
