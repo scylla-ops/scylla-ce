@@ -103,6 +103,14 @@ pub fn timestamp(at: OffsetDateTime) -> Timestamp {
     }
 }
 
+/// Makes a proto duration.
+pub fn duration(length: time::Duration) -> prost_types::Duration {
+    prost_types::Duration {
+        seconds: length.whole_seconds(),
+        nanos: length.subsec_nanoseconds(),
+    }
+}
+
 impl<T: ?Sized> FromProto<pb::Id> for Id<T> {
     fn from_proto(message: pb::Id) -> Result<Self, Invalid> {
         Ok(Self::parse(&message.value)?)

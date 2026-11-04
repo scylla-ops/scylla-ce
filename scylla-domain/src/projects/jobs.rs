@@ -3,11 +3,13 @@
 
 mod logs;
 mod state;
+mod stats;
 #[cfg(test)]
 mod tests;
 
 pub use logs::{LogBatch, LogBatchId, LogLine, LogStream};
 pub use state::{JobEvent, NodeRun};
+pub use stats::{AgentStats, DayOutcomes, Outcomes, STATS_DAYS};
 use time::OffsetDateTime;
 
 use crate::identity::actors::ActorId;

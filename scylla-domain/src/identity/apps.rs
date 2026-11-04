@@ -201,6 +201,8 @@ crate::authz! {
         permission revoke_app_key = nil;
         /// The route `RenameAppKey`.
         permission rename_app_key = nil;
+        /// The route `GetAgentStats`.
+        permission get_agent_stats = nil;
     }
 
     /// The routes of the Apps on their workspace.
@@ -225,5 +227,9 @@ crate::authz! {
         permission revoke_app_key = manage;
         /// The route `RenameAppKey`, on each App of this workspace.
         permission rename_app_key = manage;
+        /// The route `GetAgentStats`, on each App of this workspace.
+        permission get_agent_stats = read;
+        /// The route `ListAgentStats`: the agents of this workspace.
+        permission list_agent_stats = read;
     }
 }

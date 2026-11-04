@@ -4,3 +4,4 @@
 pub(crate) mod holds;
 pub(crate) mod jobs;
 pub(crate) mod logs;
+pub(crate) mod stats;

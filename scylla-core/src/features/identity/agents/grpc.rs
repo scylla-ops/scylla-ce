@@ -1,4 +1,4 @@
-//! The gRPC handler of `AgentService`: an agent opens its stream.
+//! The gRPC handler of `AgentService`: an agent opens its stream. The stats are in `stats.rs`.
 
 use std::sync::Arc;
 
@@ -40,9 +40,9 @@ pub(crate) fn server(
 /// The handler.
 pub(crate) struct AgentsGrpc {
     /// The database pool.
-    pool: PgPool,
+    pub(super) pool: PgPool,
     /// The access gate.
-    gate: Arc<dyn Gate>,
+    pub(super) gate: Arc<dyn Gate>,
     /// The open streams of the server.
     registry: Arc<Registry>,
     /// The key of the secrets, for the dispatch of the jobs.
@@ -58,6 +58,20 @@ impl AgentService for AgentsGrpc {
         request: Request<Streaming<pb::OpenStreamRequest>>,
     ) -> Result<Response<Self::OpenStreamStream>, Status> {
         Ok(Response::new(self.open(request).await?))
+    }
+
+    async fn get_agent_stats(
+        &self,
+        request: Request<pb::GetAgentStatsRequest>,
+    ) -> Result<Response<pb::GetAgentStatsResponse>, Status> {
+        Ok(Response::new(self.get_stats(request).await?))
+    }
+
+    async fn list_agent_stats(
+        &self,
+        request: Request<pb::ListAgentStatsRequest>,
+    ) -> Result<Response<pb::ListAgentStatsResponse>, Status> {
+        Ok(Response::new(self.list_stats(request).await?))
     }
 }
 

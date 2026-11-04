@@ -22,7 +22,7 @@ CREATE TABLE jobs (
 
 CREATE INDEX jobs_pipeline_id_idx ON jobs (pipeline_id);
 CREATE INDEX jobs_project_id_idx ON jobs (project_id);
-CREATE INDEX jobs_workspace_id_idx ON jobs (workspace_id);
+CREATE INDEX jobs_workspace_id_idx ON jobs (workspace_id, created_at);
 CREATE INDEX jobs_created_by_idx ON jobs (created_by);
 CREATE INDEX jobs_rerun_of_idx ON jobs (rerun_of);
 CREATE INDEX jobs_trigger_id_idx ON jobs (trigger_id);

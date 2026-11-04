@@ -6,6 +6,7 @@ mod grpc;
 pub(crate) mod housekeeping;
 pub(crate) mod runs;
 mod service;
+pub(crate) mod stats;
 mod store;
 mod tail;
 
