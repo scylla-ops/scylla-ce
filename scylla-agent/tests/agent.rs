@@ -190,7 +190,7 @@ async fn the_agent_reports_a_node_that_did_not_start(pool: PgPool) {
         lines
             .iter()
             .any(|line| line
-                .starts_with("scylla-agent: attempt 1 failed: the process did not start")),
+                .starts_with("scylla-agent: attempt 1 failed: the agent did not find the program scylla-no-such-program")),
         "{lines:?}"
     );
 }

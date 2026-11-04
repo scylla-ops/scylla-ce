@@ -131,9 +131,16 @@ async fn once(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null());
+    let program = command
+        .as_std()
+        .get_program()
+        .to_string_lossy()
+        .into_owned();
+    let script =
+        node.container.is_none() && matches!(node.step, Some(dispatch_node::Step::Script(_)));
     let mut child = match Process::spawn(command) {
         Ok(child) => child,
-        Err(error) => return Attempt::Broke(format!("the process did not start: {error}")),
+        Err(error) => return Attempt::Broke(not_started(&program, script, &error)),
     };
     let masks: Vec<String> = node
         .env
@@ -171,6 +178,23 @@ async fn once(
     }
     sink.finish().await;
     end
+}
+
+/// Says which program did not start and why. The error of the system does not name it. On Windows,
+/// a script needs a shell that a default install of Git does not put on the path.
+fn not_started(program: &str, script: bool, error: &std::io::Error) -> String {
+    if error.kind() != std::io::ErrorKind::NotFound {
+        return format!("the program {program} did not start: {error}");
+    }
+    let missing = format!("the agent did not find the program {program} on its PATH");
+    if script && cfg!(windows) {
+        return format!(
+            "{missing}. A script runs with sh or bash. On Windows, install Git for Windows, add \
+             its bin folder (for example C:\\Program Files\\Git\\bin) to the PATH, and start the \
+             agent again."
+        );
+    }
+    missing
 }
 
 /// Stops the processes of an attempt, and its container.
@@ -285,5 +309,58 @@ fn environment(command: &mut Command, context: &NodeContext, node: &DispatchNode
         .env("SCYLLA_PROJECT_ID", &context.project);
     for var in &node.env {
         command.env(&var.name, &var.value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests of the reason of a process that did not start.
+
+    use std::io::{Error, ErrorKind};
+
+    use super::not_started;
+
+    /// The reason names a program that the agent did not find.
+    #[test]
+    fn a_missing_program_is_named() {
+        // given
+        let error = Error::from(ErrorKind::NotFound);
+
+        // when
+        let reason = not_started("deploy-tool", false, &error);
+
+        // then
+        assert_eq!(
+            reason,
+            "the agent did not find the program deploy-tool on its PATH"
+        );
+    }
+
+    /// A missing shell says how to fix it on Windows.
+    #[cfg(windows)]
+    #[test]
+    fn a_missing_shell_says_how_to_fix_it() {
+        // given
+        let error = Error::from(ErrorKind::NotFound);
+
+        // when
+        let reason = not_started("sh", true, &error);
+
+        // then
+        assert!(reason.starts_with("the agent did not find the program sh on its PATH."));
+        assert!(reason.contains("install Git for Windows"), "{reason}");
+    }
+
+    /// Another error keeps the words of the system.
+    #[test]
+    fn another_error_keeps_its_words() {
+        // given
+        let error = Error::from(ErrorKind::PermissionDenied);
+
+        // when
+        let reason = not_started("deploy-tool", true, &error);
+
+        // then
+        assert!(reason.starts_with("the program deploy-tool did not start: "));
     }
 }

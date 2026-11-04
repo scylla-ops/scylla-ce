@@ -504,6 +504,6 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 85. The agent writes a failed attempt in the logs
 
-- **Decision:** after each failed attempt of a node, the agent sends one line on stderr in the logs of the node: `scylla-agent: attempt <n> failed: <reason>`. The reason is the one of the `error` of the run: an exit code, a process that did not start, or a timeout. The agent also writes the reason in its own log, as a warning.
+- **Decision:** after each failed attempt of a node, the agent sends one line on stderr in the logs of the node: `scylla-agent: attempt <n> failed: <reason>`. The reason is the one of the `error` of the run: an exit code, a process that did not start, or a timeout. The agent also writes the reason in its own log, as a warning. A program that the agent does not find is named in the reason, and for a script on Windows the reason says how to install a shell: the error of the system does not name the program.
 - **Why:** a process that does not start writes nothing, so its logs were empty, and a reader of the logs had no reason. The `error` of a run keeps only the last attempt; the line stays for each attempt. Each client that shows the logs gets the reason with no work.
 - **Not kept:** a new stream for the lines of the agent (the prefix is enough, and the proto stays the same); the same line from the server (only the agent knows each attempt).
