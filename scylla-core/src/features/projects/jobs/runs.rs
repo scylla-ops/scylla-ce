@@ -1,6 +1,8 @@
 //! The logic of the jobs that the agents call on their stream: the placement of a job with the
 //! values of its secrets, the events, the logs, and the check of the jobs after a new stream.
 
+use std::collections::HashMap;
+
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::{Job, JobEvent, JobId, JobStatus, LogLine};
 use scylla_domain::projects::pipelines::EnvValue;
@@ -49,6 +51,18 @@ pub(crate) async fn held(pool: &PgPool, agent: AppId) -> Result<usize, Error> {
     let held = holds::held_by(&mut tx, agent).await?;
     tx.commit().await?;
     Ok(held.len())
+}
+
+/// Returns the number of jobs that each agent of `agents` holds and that did not end. An agent
+/// with no job is not in the map.
+pub(crate) async fn held_counts(
+    pool: &PgPool,
+    agents: &[AppId],
+) -> Result<HashMap<AppId, u32>, Error> {
+    let mut tx = pool.begin().await?;
+    let counts = holds::counts(&mut tx, agents).await?;
+    tx.commit().await?;
+    Ok(counts)
 }
 
 /// Gives the oldest pending job of a workspace to an agent, with the values of its secrets: of

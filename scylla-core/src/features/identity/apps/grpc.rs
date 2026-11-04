@@ -15,6 +15,7 @@ use tonic::{Request, Response, Status};
 use super::{convert, service};
 use crate::api::parse::{self, ToProto};
 use crate::features::identity::agents::Registry;
+use crate::features::projects::jobs::runs;
 use crate::Error;
 
 /// Makes the service.
@@ -135,7 +136,7 @@ impl AppsGrpc {
             .await?;
         let (app, code) = service::create(&self.pool, new).await?;
         Ok(pb::CreateAppResponse {
-            app: Some(convert::app(app, false)),
+            app: Some(convert::app(app, false, 0)),
             join_code: code.code,
             join_code_expires_at: Some(parse::timestamp(code.expires_at)),
         })
@@ -154,7 +155,7 @@ impl AppsGrpc {
             .ok_or(Error::NotFound("app"))?;
         let keys = service::keys(&self.pool, id).await?;
         Ok(pb::GetAppResponse {
-            app: Some(convert::app(app, self.registry.is_connected(id))),
+            app: self.messages(vec![app]).await?.pop(),
             keys: keys.into_iter().map(ToProto::to_proto).collect(),
         })
     }
@@ -178,12 +179,8 @@ impl AppsGrpc {
             .authorize(&caller, AppHolder::LIST_APPS.on(query.workspace_id))
             .await?;
         let page = service::list(&self.pool, query).await?;
-        let apps = page.items.into_iter().map(|app| {
-            let connected = self.registry.is_connected(app.id);
-            convert::app(app, connected)
-        });
         Ok(pb::ListAppsResponse {
-            apps: apps.collect(),
+            apps: self.messages(page.items).await?,
             page: Some(page.next_after.to_proto()),
         })
     }
@@ -211,7 +208,7 @@ impl AppsGrpc {
         self.authorize(&caller, App::DISABLE_APP, id).await?;
         let app = service::disable(&self.pool, &self.registry, id).await?;
         Ok(pb::DisableAppResponse {
-            app: Some(convert::app(app, false)),
+            app: Some(convert::app(app, false, 0)),
         })
     }
 
@@ -225,8 +222,21 @@ impl AppsGrpc {
         self.authorize(&caller, App::ENABLE_APP, id).await?;
         let app = service::enable(&self.pool, id).await?;
         Ok(pb::EnableAppResponse {
-            app: Some(convert::app(app, self.registry.is_connected(id))),
+            app: self.messages(vec![app]).await?.pop(),
         })
+    }
+
+    /// Makes the messages of Apps, with their presence on this server and the number of jobs
+    /// that each holds.
+    async fn messages(&self, apps: Vec<App>) -> Result<Vec<pb::App>, Error> {
+        let ids: Vec<AppId> = apps.iter().map(|app| app.id).collect();
+        let held = runs::held_counts(&self.pool, &ids).await?;
+        let messages = apps.into_iter().map(|app| {
+            let connected = self.registry.is_connected(app.id);
+            let running_jobs = held.get(&app.id).copied().unwrap_or(0);
+            convert::app(app, connected, running_jobs)
+        });
+        Ok(messages.collect())
     }
 
     /// Checks a route permission on an App and on its workspace, and returns the workspace. An

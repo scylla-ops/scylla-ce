@@ -441,3 +441,9 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 - **Decision:** a key of an App has an optional name (`label`, 1 to 100 characters, one line). `JoinApp` and `AddAppKey` take it; an empty text gives no name. The agent sends the name of its machine at the join, from the system on each platform. `RenameAppKey` changes the name, for the admins of the workspace (`rename_app_key` is `manage`); a key of another App gives `NOT_FOUND`. Each `ExchangeAppAssertion` that passes sets `last_used_at` on the key and `last_seen_at` on the App, in the transaction that uses the nonce.
 - **Why:** an App with keys on many machines needs a name for each key, so that an admin revokes the right one. The last use shows a key that no machine uses now, and an App that stopped.
 - **Not kept:** a name that the server makes from the host of the stream (a key exists before its first stream, and a non-agent App has no host); a separate log of each use (one time per key is sufficient for the screens).
+
+## 75. The number of jobs of an agent
+
+- **Decision:** each App message has `running_jobs`: the number of jobs that its agent holds now, that is the jobs that it took and that did not end (`pending` with the agent, or `running`). `GetApp`, `ListApps` and `EnableApp` count them in one query for each call (a `GROUP BY` on the partial index `jobs_agent_id_idx`). `CreateApp` and `DisableApp` give 0, because a new App has no job and a disable releases each job. `ListJobs` with `agent_id` gives the jobs.
+- **Why:** the screen of the agents shows the load of each agent next to its capacity, and the count comes from the jobs table, so it is always true after a restart of the server.
+- **Not kept:** a count in memory in the registry (it is wrong after a restart, and it knows only the streams of this server); a list of the jobs in the App message (the page of the jobs has its filters and its pages).

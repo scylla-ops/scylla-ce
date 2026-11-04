@@ -5,8 +5,9 @@ use scylla_proto::apps::v1 as pb;
 
 use crate::api::parse::{self, FromProto, Invalid, ToProto};
 
-/// Makes the message of an App, with its presence on this server.
-pub(super) fn app(app: App, connected: bool) -> pb::App {
+/// Makes the message of an App, with its presence on this server and the number of jobs that it
+/// holds.
+pub(super) fn app(app: App, connected: bool, running_jobs: u32) -> pb::App {
     pb::App {
         id: Some(app.id.to_proto()),
         workspace_id: Some(app.workspace_id.to_proto()),
@@ -18,6 +19,7 @@ pub(super) fn app(app: App, connected: bool) -> pb::App {
         last_seen_at: app.last_seen_at.map(parse::timestamp),
         host: app.host.map(host),
         disabled_at: app.disabled_at.map(parse::timestamp),
+        running_jobs,
     }
 }
 

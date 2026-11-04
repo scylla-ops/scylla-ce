@@ -1,5 +1,7 @@
-//! The SQL of the jobs that the agents hold: the jobs of a pipeline, of an agent, and of the
-//! agents that went away.
+//! The SQL of the jobs that the agents hold: the jobs of a pipeline, of an agent, of the
+//! agents that went away, and their number for each agent.
+
+use std::collections::HashMap;
 
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::JobId;
@@ -53,5 +55,28 @@ pub(crate) async fn held_by_stale(
     Ok(rows
         .into_iter()
         .map(|row| (JobId::from_db(row.id), AppId::from_db(row.agent_id)))
+        .collect())
+}
+
+/// Returns the number of jobs that each agent of `agents` holds and that did not end. An agent
+/// with no job is not in the map.
+pub(crate) async fn counts(
+    tx: &mut Tx<'_>,
+    agents: &[AppId],
+) -> Result<HashMap<AppId, u32>, sqlx::Error> {
+    let ids: Vec<uuid::Uuid> = agents.iter().map(|id| id.to_db()).collect();
+    let rows = sqlx::query!(
+        r#"SELECT agent_id AS "agent_id!", count(*) AS "count!" FROM jobs
+           WHERE agent_id = ANY($1) AND status IN ('pending', 'running') GROUP BY agent_id"#,
+        &ids,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let count = u32::try_from(row.count).unwrap_or(u32::MAX);
+            (AppId::from_db(row.agent_id), count)
+        })
         .collect())
 }
