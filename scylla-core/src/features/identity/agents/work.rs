@@ -2,8 +2,8 @@
 //! logs of the agent, and the messages of the server.
 
 use scylla_domain::authz::Object;
-use scylla_domain::projects::jobs::{JobEvent, JobId, LogLine, LogStream};
-use scylla_domain::projects::pipelines::{NodeId, PipelineHolder};
+use scylla_domain::projects::jobs::{JobEvent, JobId, LogLine, LogStream, RunScope};
+use scylla_domain::projects::pipelines::{NodeId, PipelineAccess, PipelineHolder};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Gate, Principal};
 use scylla_proto::agents::v1 as pb;
@@ -46,17 +46,26 @@ pub(super) fn cancel(job: JobId) -> Down {
     })
 }
 
-/// Returns `true` if the agent has the role `runner` in its workspace. It is not a route check.
-pub(super) async fn may_run(
+/// Returns the jobs that the agent may take: each project of its workspace with the role
+/// `runner` of the workspace, else the projects where it has the role `runner`. It is not a
+/// route check.
+pub(super) async fn run_scope(
     gate: &dyn Gate,
     principal: &Principal,
     workspace: WorkspaceId,
-) -> Result<bool, AccessError> {
+) -> Result<RunScope, AccessError> {
     let name = PipelineHolder::RUN_JOBS.name();
     let answers = gate
         .permissions(principal, &Object::of(workspace), Some(workspace), &[name])
         .await?;
-    Ok(answers.first().copied().unwrap_or(false))
+    if answers.first().copied().unwrap_or(false) {
+        return Ok(RunScope::Workspace);
+    }
+    let projects = gate.granted(principal, PipelineAccess::RUN_JOBS).await?;
+    Ok(match projects.is_empty() {
+        true => RunScope::Nothing,
+        false => RunScope::Projects(projects),
+    })
 }
 
 /// Checks the jobs of the agent after its hello, and returns the jobs that it must stop.
@@ -71,8 +80,13 @@ pub(super) async fn reconcile(stream: &Stream, running: &[JobId]) -> Result<Vec<
 /// Gives pending jobs to an agent with the role, while it holds fewer jobs than its capacity.
 /// Returns `false` when the agent is gone.
 pub(super) async fn fill(stream: &Stream, out: &Outbox) -> Result<bool, Status> {
-    let Some(workspace) = stream.workspace.filter(|_| stream.runner) else {
+    let Some(workspace) = stream.workspace else {
         return Ok(true);
+    };
+    let projects = match &stream.scope {
+        RunScope::Nothing => return Ok(true),
+        RunScope::Workspace => None,
+        RunScope::Projects(projects) => Some(projects.as_slice()),
     };
     let sealer = stream.sealer.as_deref();
     while runs::held(&stream.pool, stream.app).await? < stream.capacity {
@@ -80,6 +94,7 @@ pub(super) async fn fill(stream: &Stream, out: &Outbox) -> Result<bool, Status> 
             &stream.pool,
             sealer,
             workspace,
+            projects,
             stream.app,
             stream.containers,
         );

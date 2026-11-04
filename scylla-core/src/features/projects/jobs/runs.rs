@@ -4,6 +4,7 @@
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::{Job, JobEvent, JobId, JobStatus, LogLine};
 use scylla_domain::projects::pipelines::EnvValue;
+use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::DomainError;
 use sqlx::PgPool;
@@ -50,19 +51,21 @@ pub(crate) async fn held(pool: &PgPool, agent: AppId) -> Result<usize, Error> {
     Ok(held.len())
 }
 
-/// Gives the oldest pending job of a workspace to an agent, with the values of its secrets. A
-/// job whose secrets do not open fails with the reason, and the next job comes.
+/// Gives the oldest pending job of a workspace to an agent, with the values of its secrets: of
+/// each project, or of `projects` only. A job whose secrets do not open fails with the reason,
+/// and the next job comes.
 pub(crate) async fn claim(
     pool: &PgPool,
     sealer: Option<&Sealer>,
     workspace: WorkspaceId,
+    projects: Option<&[ProjectId]>,
     agent: AppId,
     containers: bool,
 ) -> Result<Option<Assignment>, Error> {
     loop {
         // Take the oldest free job.
         let mut tx = pool.begin().await?;
-        let job = jobs::claim(&mut tx, workspace, agent, containers).await?;
+        let job = jobs::claim(&mut tx, workspace, projects, agent, containers).await?;
         tx.commit().await?;
         let Some(job) = job else {
             return Ok(None);

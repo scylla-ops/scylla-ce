@@ -129,7 +129,7 @@ async fn placed_job(pool: &PgPool, place: &Place) -> JobId {
     let job = service::create(pool, &Hooks::default(), &registry, place.user.clone(), new)
         .await
         .unwrap();
-    let claimed = runs::claim(pool, None, place.workspace, place.agent, false)
+    let claimed = runs::claim(pool, None, place.workspace, None, place.agent, false)
         .await
         .unwrap()
         .unwrap();

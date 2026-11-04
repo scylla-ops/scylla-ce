@@ -22,7 +22,7 @@ use tonic::Streaming;
 use crate::app;
 
 /// An agent of a test, with its open stream.
-struct Agent {
+pub(super) struct Agent {
     /// The machine of the agent.
     key: TestKey,
     /// The sender of the messages of the agent.
@@ -33,13 +33,13 @@ struct Agent {
 
 impl Agent {
     /// Reads the next message of the server, or `None` if none comes in `wait`.
-    async fn next(&mut self, wait: Duration) -> Option<Down> {
+    pub(super) async fn next(&mut self, wait: Duration) -> Option<Down> {
         let message = timeout(wait, self.down.message()).await.ok()?;
         message.expect("an open stream")?.message
     }
 
     /// Reads the next dispatch, in at most 10 seconds.
-    async fn dispatch(&mut self) -> Dispatch {
+    pub(super) async fn dispatch(&mut self) -> Dispatch {
         loop {
             match self.next(Duration::from_secs(10)).await {
                 Some(Down::Dispatch(dispatch)) => return dispatch,
@@ -68,7 +68,7 @@ impl Agent {
 
 /// Registers an agent in a workspace, with the role `runner` if `runner`, and opens its stream
 /// with a capacity and a container runtime.
-async fn agent(
+pub(super) async fn agent(
     app: &TestApp,
     owner: ActorId,
     workspace: WorkspaceId,
@@ -81,7 +81,19 @@ async fn agent(
         app.grant(&[PipelineHolder::RUNNER.of(workspace, key.actor())])
             .await;
     }
-    let (up, mut down) = app.open_stream(&token).await.unwrap();
+    connect(app, key, &token, capacity, runtime).await
+}
+
+/// Opens the stream of a registered agent with a capacity and a container runtime, and waits for
+/// the welcome.
+pub(super) async fn connect(
+    app: &TestApp,
+    key: TestKey,
+    token: &str,
+    capacity: u32,
+    runtime: &str,
+) -> Agent {
+    let (up, mut down) = app.open_stream(token).await.unwrap();
     let host = Host {
         version: "1.0.0".to_owned(),
         os: "linux".to_owned(),
@@ -111,7 +123,7 @@ async fn agent(
 
 /// Creates a user, a project and a pipeline with these nodes. Returns the user, its workspace,
 /// the project id and the pipeline id.
-async fn pipeline(
+pub(super) async fn pipeline(
     app: &TestApp,
     nodes: Vec<scylla_proto::pipelines::v1::Node>,
 ) -> (ActorId, WorkspaceId, String, String) {

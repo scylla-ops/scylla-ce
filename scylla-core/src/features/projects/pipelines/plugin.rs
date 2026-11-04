@@ -4,8 +4,8 @@ use scylla_domain::projects::pipelines::{PipelineAccess, PipelineHolder};
 use scylla_extension::{EditionBuilder, Plugin};
 
 /// Adds the permission model of the pipelines and of the jobs, and the role `runner` of the
-/// agents in a workspace. The services need the open streams of the agents, so the server adds
-/// them. The tables come from the core migrations.
+/// agents in a workspace and in a project. The services need the open streams of the agents, so
+/// the server adds them. The tables come from the core migrations.
 pub(crate) struct Pipelines;
 
 impl Plugin for Pipelines {
@@ -14,5 +14,6 @@ impl Plugin for Pipelines {
             .authz::<PipelineAccess>()
             .authz::<PipelineHolder>()
             .role(PipelineHolder::RUNNER)
+            .role(PipelineAccess::RUNNER)
     }
 }

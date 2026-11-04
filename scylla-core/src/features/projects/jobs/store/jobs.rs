@@ -168,26 +168,31 @@ pub(crate) async fn delete(
     .transpose()
 }
 
-/// Gives the oldest pending job of a workspace with no agent to an agent, and returns it. A job
-/// with a container goes only to an agent with a container runtime.
+/// Gives the oldest pending job of a workspace with no agent to an agent, and returns it: of
+/// each project, or of `projects` only. A job with a container goes only to an agent with a
+/// container runtime.
 pub(crate) async fn claim(
     tx: &mut Tx<'_>,
     workspace: WorkspaceId,
+    projects: Option<&[ProjectId]>,
     agent: AppId,
     containers: bool,
 ) -> Result<Option<Job>, Error> {
+    let projects: Option<Vec<_>> = projects.map(|ids| ids.iter().map(|id| id.to_db()).collect());
     let row = sqlx::query_as!(
         Row,
         "UPDATE jobs SET agent_id = $2, version = version + 1
          WHERE id = (SELECT id FROM jobs
                      WHERE workspace_id = $1 AND status = 'pending' AND agent_id IS NULL
                        AND ($3 OR NOT need_container)
+                       AND ($4::uuid[] IS NULL OR project_id = ANY($4))
                      ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
          RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
                    nodes, runs, agent_id, error, version, created_at, started_at, finished_at",
         workspace.to_db(),
         agent.to_db(),
         containers,
+        projects.as_deref(),
     )
     .fetch_optional(&mut **tx)
     .await?;

@@ -203,6 +203,18 @@ pub struct ListJobs {
 /// One page of jobs.
 pub type JobPage = Page<Job, JobId>;
 
+/// The jobs that an agent may take.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum RunScope {
+    /// No job: the agent has no role `runner`.
+    #[default]
+    Nothing,
+    /// The jobs of each project of its workspace.
+    Workspace,
+    /// The jobs of these projects only.
+    Projects(Vec<ProjectId>),
+}
+
 /// Keeps at most `MAX_ERROR` characters of an error text.
 pub fn error_text(text: &str) -> String {
     text.chars().take(MAX_ERROR).collect()

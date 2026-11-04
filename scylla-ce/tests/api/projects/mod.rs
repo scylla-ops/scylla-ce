@@ -6,6 +6,7 @@ mod jobs;
 mod lifecycle;
 mod pipelines;
 mod runs;
+mod scopes;
 mod secret_access;
 mod secrets;
 mod triggers;

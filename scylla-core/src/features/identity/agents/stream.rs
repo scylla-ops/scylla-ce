@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use scylla_domain::identity::agents::AgentCaller;
 use scylla_domain::identity::apps::{App, AppId};
+use scylla_domain::projects::jobs::RunScope;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Gate, Principal};
 use scylla_proto::agents::v1 as pb;
@@ -53,8 +54,8 @@ pub(super) struct Stream {
     pub(super) capacity: usize,
     /// `true` if the agent has a container runtime.
     pub(super) containers: bool,
-    /// `true` if the agent has the role that gives the jobs of its workspace.
-    pub(super) runner: bool,
+    /// The jobs that the agent may take, from its roles `runner`.
+    pub(super) scope: RunScope,
 }
 
 impl Stream {
@@ -116,7 +117,7 @@ impl Stream {
         self.workspace = Some(app.workspace_id);
         self.capacity = host.capacity as usize;
         self.containers = host.container_runtime.is_some();
-        self.runner = self.may_run().await;
+        self.scope = self.run_scope().await;
 
         // Welcome the agent, then stop the jobs that it must not run.
         work::send(out, work::welcome(self.principal.expires_at())).await;
@@ -170,7 +171,7 @@ impl Stream {
         match request.message {
             Some(Up::Renew(renew)) => {
                 self.principal = self.renew(&renew.token).await?;
-                self.runner = self.may_run().await;
+                self.scope = self.run_scope().await;
                 apps::touch(&self.pool, self.app).await?;
                 let renewed = work::renewed(self.principal.expires_at());
                 if !work::send(out, renewed).await {
@@ -204,17 +205,17 @@ impl Stream {
         Ok(principal)
     }
 
-    /// Returns `true` if the agent has the role that gives the jobs of its workspace. A failure
-    /// of the permission system gives `false` until the next renewal.
-    async fn may_run(&self) -> bool {
+    /// Returns the jobs that the agent may take, from its roles `runner`. A failure of the
+    /// permission system gives no job until the next renewal.
+    async fn run_scope(&self) -> RunScope {
         let Some(workspace) = self.workspace else {
-            return false;
+            return RunScope::Nothing;
         };
-        match work::may_run(self.gate.as_ref(), &self.principal, workspace).await {
-            Ok(runner) => runner,
+        match work::run_scope(self.gate.as_ref(), &self.principal, workspace).await {
+            Ok(scope) => scope,
             Err(error) => {
                 tracing::warn!(%error, app = %self.app, "the role of the agent is unknown");
-                false
+                RunScope::Nothing
             }
         }
     }

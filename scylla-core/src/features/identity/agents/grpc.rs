@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use scylla_domain::identity::agents::AgentCaller;
+use scylla_domain::projects::jobs::RunScope;
 use scylla_extension::Gate;
 use scylla_proto::agents::v1 as pb;
 use scylla_proto::agents::v1::agent_service_server::{AgentService, AgentServiceServer};
@@ -87,7 +88,7 @@ impl AgentsGrpc {
             workspace: None,
             capacity: 1,
             containers: false,
-            runner: false,
+            scope: RunScope::Nothing,
         };
         let inbound = request.into_inner();
         tokio::spawn(stream.run(inbound, out).in_current_span());

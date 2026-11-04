@@ -93,8 +93,13 @@ pub struct ListPipelines {
 pub type PipelinePage = Page<Pipeline, PipelineId>;
 
 crate::authz! {
-    /// The routes of the pipelines and of their jobs on a project.
+    /// The routes of the pipelines and of their jobs on a project, and the role of the agents of
+    /// this project only.
     extend Project as PipelineAccess {
+        /// An agent that runs the jobs of this project only.
+        relation runner: Actor;
+        /// The agents get the jobs of this project. It is not a route.
+        permission run_jobs = runner;
         /// The route `CreatePipeline`, in this project.
         permission create_pipeline = edit;
         /// The route `GetPipeline`, on each pipeline of this project.

@@ -106,6 +106,7 @@ definition project {
     relation admin: actor
     relation editor: actor
     relation viewer: actor
+    relation runner: actor
     permission delete = admin
     permission edit = delete + editor
     permission view = edit + viewer
@@ -120,6 +121,7 @@ definition project {
     permission grant = admin
     permission revoke = admin
     permission list_access = view
+    permission run_jobs = runner
     permission create_pipeline = edit
     permission get_pipeline = view
     permission update_pipeline = edit
@@ -191,7 +193,7 @@ fn an_extension_adds_to_its_definition() {
 
     // then
     let text = schema.to_string();
-    assert!(text.contains("    relation viewer: actor\n    relation auditor: actor\n"));
+    assert!(text.contains("    relation runner: actor\n    relation auditor: actor\n"));
     assert!(text.contains(
         "    permission list_pipeline_triggers = view\n    \
          permission audit = auditor + delete\n}"

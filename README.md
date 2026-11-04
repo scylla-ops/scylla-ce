@@ -120,7 +120,7 @@ The dev setup has no identity provider: the tests use a fake one. To try a real 
 
 ## Run an agent
 
-An admin creates an App with `runner = true` (`AppService.CreateApp`) and gives it the role `runner` of the workspace (`AccessService.Grant`). On the machine of the agent:
+An admin creates an App with `runner = true` (`AppService.CreateApp`) and gives it the role `runner` of the workspace, or of some projects (`AccessService.Grant`). On the machine of the agent:
 
 ```sh
 scylla-agent --config /var/lib/scylla-agent/agent.json join https://scylla.example.com <join code>
@@ -198,7 +198,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Import of the old product: its real schema, the users and their passwords, a disabled user, a user with no email, the workspaces and their owners, the roles, the project ids, the secrets sealed again, the pipelines and a pipeline with a cycle, a second import | `scylla-ce/tests/api/platform/import.rs` |
 | Web app: a file, a route of the web app gives `index.html`, the API on the same address | `scylla-ce/tests/api/platform/web.rs` |
 | Triggers: the schedules, the inputs, a fire now as the runner, the signature of a webhook, a second delivery, a body with no value, a ping, a stopped trigger, the rate limit, the roles, the key of the secrets | `scylla-ce/tests/api/projects/triggers.rs` |
-| Jobs on the agents: the dispatch with the secrets, the events, the logs and their tail, the role and the capacity, the containers, the cancel | `scylla-ce/tests/api/projects/runs.rs` |
+| Jobs on the agents: the dispatch with the secrets, the events, the logs and their tail, the role and the capacity, the containers, the cancel, an agent of some projects | `scylla-ce/tests/api/projects/runs.rs`, `scopes.rs` |
 | Apps: the join code and its one use, the exchange of an assertion, each refused assertion, the keys and their revocation, the delete, who can create, read and change them | `scylla-ce/tests/api/identity/apps.rs` |
 | Streams of the agents: the hello and the host, the presence, only an agent, the renewal of the token, the end at the expiry, a second stream, a revoked key, a deleted App | `scylla-ce/tests/api/identity/agents.rs` |
 | Projects: creation, reads, the list and its pages, deletion | `scylla-ce/tests/api/projects/lifecycle.rs` |
