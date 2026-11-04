@@ -86,10 +86,13 @@ pub(crate) async fn delete(
     api_tokens::delete_all(&mut tx, App::actor(id)).await?;
     tx.commit().await?;
 
-    // Close the stream, then remove the roles. A role that stays gives nothing to a token.
+    // Close the stream, then remove the roles of the App and the relation of its creator.
     registry.stop(id, "the app was deleted");
     if let Err(error) = gate.delete_subject(&Object::of(App::actor(id))).await {
         tracing::error!(%error, app = %id, "roles stay after a delete");
+    }
+    if let Err(error) = gate.delete_object(&Object::of(id)).await {
+        tracing::error!(%error, app = %id, "the creator stays after a delete");
     }
     tracing::info!(event = "app.deleted", app = %id);
     Ok(())

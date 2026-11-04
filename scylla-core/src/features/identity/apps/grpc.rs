@@ -151,11 +151,13 @@ impl AppsGrpc {
             runner: request.runner,
         };
 
-        // Check the route permission on the workspace, then create the App.
+        // Check the route permission on the workspace, create the App, and name its creator.
         self.gate
             .authorize(&caller, AppHolder::CREATE_APP.on(new.workspace_id))
             .await?;
         let (app, code) = service::create(&self.pool, new).await?;
+        let creator = App::CREATOR.of(app.id, caller.actor.id);
+        self.gate.write(&[creator]).await?;
         Ok(pb::CreateAppResponse {
             app: Some(convert::app(app, false, 0)),
             join_code: code.code,

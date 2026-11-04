@@ -36,6 +36,7 @@ definition workspace {
     relation admin: actor
     relation member: actor
     relation viewer: actor
+    relation app_creator: actor
     relation runner: actor
     permission manage = admin
     permission work = manage + member
@@ -54,7 +55,7 @@ definition workspace {
     permission list_invitations = manage
     permission revoke_invitation = manage
     permission resend_invitation = manage
-    permission create_app = manage
+    permission create_app = manage + app_creator
     permission get_app = read
     permission list_apps = read
     permission delete_app = manage
@@ -103,18 +104,19 @@ definition workspace {
 }
 
 definition app {
-    permission get_app = nil
-    permission delete_app = nil
-    permission disable_app = nil
-    permission enable_app = nil
-    permission create_join_code = nil
-    permission add_app_key = nil
-    permission revoke_app_key = nil
-    permission rename_app_key = nil
-    permission get_agent_stats = nil
-    permission create_app_token = nil
-    permission list_app_tokens = nil
-    permission revoke_app_token = nil
+    relation creator: actor
+    permission get_app = creator
+    permission delete_app = creator
+    permission disable_app = creator
+    permission enable_app = creator
+    permission create_join_code = creator
+    permission add_app_key = creator
+    permission revoke_app_key = creator
+    permission rename_app_key = creator
+    permission get_agent_stats = creator
+    permission create_app_token = creator
+    permission list_app_tokens = creator
+    permission revoke_app_token = creator
 }
 
 definition project {

@@ -2,7 +2,7 @@
 
 use time::OffsetDateTime;
 
-use crate::identity::actors::{ActorId, ActorKind};
+use crate::identity::actors::{Actor, ActorId, ActorKind};
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
 use crate::{DomainError, Id, Name, Page, PageRequest};
 
@@ -182,39 +182,43 @@ pub struct JoinCode {
 }
 
 crate::authz! {
-    /// The routes on one App. No role is on an App: the roles of its workspace, which is in
-    /// Postgres, give these permissions.
+    /// The routes on one App: its creator, and the roles of its workspace, which is in Postgres.
     definition app for App {
+        /// The actor that created the App: it manages the App, also with no role in the
+        /// workspace.
+        relation creator: Actor;
         /// The route `GetApp`.
-        permission get_app = nil;
+        permission get_app = creator;
         /// The route `DeleteApp`.
-        permission delete_app = nil;
+        permission delete_app = creator;
         /// The route `DisableApp`.
-        permission disable_app = nil;
+        permission disable_app = creator;
         /// The route `EnableApp`.
-        permission enable_app = nil;
+        permission enable_app = creator;
         /// The route `CreateJoinCode`.
-        permission create_join_code = nil;
+        permission create_join_code = creator;
         /// The route `AddAppKey`.
-        permission add_app_key = nil;
+        permission add_app_key = creator;
         /// The route `RevokeAppKey`.
-        permission revoke_app_key = nil;
+        permission revoke_app_key = creator;
         /// The route `RenameAppKey`.
-        permission rename_app_key = nil;
+        permission rename_app_key = creator;
         /// The route `GetAgentStats`.
-        permission get_agent_stats = nil;
+        permission get_agent_stats = creator;
         /// The route `CreateAppToken`.
-        permission create_app_token = nil;
+        permission create_app_token = creator;
         /// The route `ListAppTokens`.
-        permission list_app_tokens = nil;
+        permission list_app_tokens = creator;
         /// The route `RevokeAppToken`.
-        permission revoke_app_token = nil;
+        permission revoke_app_token = creator;
     }
 
     /// The routes of the Apps on their workspace.
     extend Workspace as AppHolder {
-        /// The route `CreateApp`, in this workspace: its admins.
-        permission create_app = manage;
+        /// The role that creates Apps in this workspace, with no other right in it.
+        relation app_creator: Actor;
+        /// The route `CreateApp`, in this workspace: its admins and its App creators.
+        permission create_app = manage + app_creator;
         /// The route `GetApp`, on each App of this workspace.
         permission get_app = read;
         /// The route `ListApps`: the Apps of this workspace.
