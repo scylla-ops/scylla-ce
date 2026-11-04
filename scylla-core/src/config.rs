@@ -130,7 +130,19 @@ pub struct Config {
     /// pretty in a terminal, else JSON. `RUST_LOG` sets the filter.
     #[arg(long, env = "SCYLLA_LOG_FORMAT", value_enum, default_value_t = LogFormat::Auto)]
     pub log_format: LogFormat,
+
+    /// The folder of the downloads of the agent for the install scripts, with
+    /// `scylla-agent-<target>.tar.gz` or `.zip` and `SHA256SUMS`. The default is the release of
+    /// this version.
+    #[arg(long, env = "SCYLLA_AGENT_DOWNLOADS_URL", default_value = AGENT_DOWNLOADS)]
+    pub agent_downloads_url: String,
 }
+
+/// The release of the agent of this version.
+pub const AGENT_DOWNLOADS: &str = concat!(
+    "https://github.com/scylla-ops/scylla-ce/releases/download/v",
+    env!("CARGO_PKG_VERSION")
+);
 
 impl AsRef<Config> for Config {
     fn as_ref(&self) -> &Config {
@@ -170,6 +182,7 @@ impl fmt::Debug for Config {
             .field("tls_cert", &self.tls_cert)
             .field("tls_key", &self.tls_key)
             .field("log_format", &self.log_format)
+            .field("agent_downloads_url", &self.agent_downloads_url)
             .finish()
     }
 }

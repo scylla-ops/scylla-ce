@@ -25,7 +25,7 @@ scylla-testkit (tests only) ──▶ scylla-core
 | `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, Apps, agents, tokens, projects, secrets, grants, capabilities), mails, logs, the guard against the public dev keys, server, CLI |
 | `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC, a capture of the log lines |
 | `scylla-ce` | the Community edition binary |
-| `scylla-agent` | the agent binary: `join` and `run`, the stream, the order of the nodes, the processes and the containers, the logs with the secrets masked |
+| `scylla-agent` | the agent binary: `join`, `run` and the Windows service, the stream, the order of the nodes, the processes and the containers, the logs with the secrets masked |
 
 ## Access
 
@@ -120,7 +120,24 @@ The dev setup has no identity provider: the tests use a fake one. To try a real 
 
 ## Run an agent
 
-An admin creates an App with `runner = true` (`AppService.CreateApp`) and gives it the role `runner` of the workspace, or of some projects (`AccessService.Grant`). On the machine of the agent:
+An admin creates an App with `runner = true` (`AppService.CreateApp`) and gives it the role `runner` of the workspace, or of some projects (`AccessService.Grant`). The server gives an install script that downloads the agent, checks its SHA-256, joins the App, and starts the agent as a service:
+
+```sh
+# Linux (systemd, user scylla-agent) or macOS (launchd, user of the command)
+curl -fsSL https://scylla.example.com/install.sh | sh -s -- <join code> --capacity 2
+```
+
+```powershell
+# Windows, PowerShell as administrator: the service ScyllaAgent
+& ([scriptblock]::Create((irm https://scylla.example.com/install.ps1))) -JoinCode <join code> -Capacity 2
+```
+
+```sh
+# A container: the first start joins, the volume keeps the file of the agent
+docker run -d --name scylla-agent -e SCYLLA_URL=https://scylla.example.com -e SCYLLA_JOIN_CODE=<join code> -v scylla-agent:/var/lib/scylla-agent ghcr.io/scylla-ops/scylla-agent
+```
+
+The scripts take `--container-runtime` (`-ContainerRuntime`) and `--no-service` (`-NoService`), and download from the release of the version of the server, or from `SCYLLA_AGENT_DOWNLOADS_URL` (on the server, or on the machine for one install). The release workflow (`.github/workflows/release.yml`, at each tag `v*`) builds the archives, `SHA256SUMS` and the image. By hand, on the machine of the agent:
 
 ```sh
 scylla-agent --config /var/lib/scylla-agent/agent.json join https://scylla.example.com <join code>
@@ -134,7 +151,7 @@ scylla-agent join https://scylla.example.com <join code>
 scylla-agent run --capacity 2
 ```
 
-`join` makes the key pair and writes the file (mode 600 on Unix) with the private key; the key never leaves the machine. `run` keeps the stream open, renews its token one minute before its expiry, and connects again after an end (1 to 60 seconds of wait). It stops for good when the server refuses the agent (a revoked key, a deleted App, an App that runs no job). The settings are also environment values: `SCYLLA_AGENT_CONFIG`, `SCYLLA_AGENT_WORKSPACE_ROOT`, `SCYLLA_AGENT_CAPACITY`, `SCYLLA_AGENT_CONTAINER_RUNTIME`, `SCYLLA_AGENT_KEEP_WORKSPACE`.
+`join` makes the key pair and writes the file (mode 600 on Unix) with the private key; the key never leaves the machine. `run` keeps the stream open, renews its token one minute before its expiry, and connects again after an end (1 to 60 seconds of wait). It stops for good when the server refuses the agent (a revoked key, a deleted App, an App that runs no job). The settings are also environment values: `SCYLLA_AGENT_CONFIG`, `SCYLLA_AGENT_WORKSPACE_ROOT`, `SCYLLA_AGENT_CAPACITY`, `SCYLLA_AGENT_CONTAINER_RUNTIME`, `SCYLLA_AGENT_KEEP_WORKSPACE`. With `SCYLLA_URL` and `SCYLLA_JOIN_CODE`, `run` joins first when the file does not exist. `run --service` is the Windows service; its logs are `agent.<date>.log` next to the file.
 
 ## Logs
 
@@ -194,12 +211,13 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Workspaces, projects and their permissions, tokens, Apps and agents, gRPC-Web, CORS, TLS, health | `scylla-ce/tests/api/` |
 | Pipelines: the nodes and their graph, the path of a bad value, the version of a change, each role, the snapshot of a run, the secrets of a run, the delete | `scylla-ce/tests/api/projects/pipelines.rs` |
 | Jobs: the cancel, the rerun, the delete, the lists newest first, who can call them | `scylla-ce/tests/api/projects/jobs.rs` |
-| Agent: the join, the order of the nodes, a script with a secret masked in the logs, a retry, the skip after a failure, a cancel that stops the process and its children and deletes the work folder, on Unix and Windows, the name of the machine on the key | `scylla-agent/tests/agent.rs` |
+| Agent: the join, the order of the nodes, a script with a secret masked in the logs, a retry, the skip after a failure, a cancel that stops the process and its children and deletes the work folder, on Unix and Windows, the name of the machine on the key, the join at a first start | `scylla-agent/tests/agent.rs` |
 | Import of the old product: its real schema, the users and their passwords, a disabled user, a user with no email, the workspaces and their owners, the roles, the project ids, the secrets sealed again, the pipelines and a pipeline with a cycle, a second import | `scylla-ce/tests/api/platform/import.rs` |
 | Web app: a file, a route of the web app gives `index.html`, the API on the same address | `scylla-ce/tests/api/platform/web.rs` |
 | Triggers: the schedules, the inputs, a fire now as the runner, the signature of a webhook, a second delivery, a body with no value, a ping, a stopped trigger, the rate limit, the roles, the key of the secrets | `scylla-ce/tests/api/projects/triggers.rs` |
 | Jobs on the agents: the dispatch with the secrets, the events, the logs and their tail, the role and the capacity, the containers, the cancel, an agent of some projects, the jobs of a disabled agent, the number of jobs of each agent, the stats of the jobs of each agent and who reads them | `scylla-ce/tests/api/projects/runs.rs`, `scopes.rs`, `disabled.rs`, `held.rs`, `stats.rs` |
 | Apps: the join code and its one use, the exchange of an assertion, each refused assertion, the keys, their names, their last use and their revocation, the delete, the disable and the enable, who can create, read and change them | `scylla-ce/tests/api/identity/apps.rs`, `disable.rs`, `keys.rs` |
+| The install scripts of the agent: the URL, the version and the downloads of the server in `/install.sh` and `/install.ps1` | `scylla-ce/tests/api/identity/install.rs` |
 | Streams of the agents: the hello and the host, the presence, only an agent, the renewal of the token, the end at the expiry, a second stream, a revoked key, a deleted App | `scylla-ce/tests/api/identity/agents.rs` |
 | Projects: creation, reads, the list and its pages, deletion | `scylla-ce/tests/api/projects/lifecycle.rs` |
 | Change of a project: the name and the description, their limits (100 and 101, 1024 and 1025), one line for a name, an empty description, each role | `scylla-ce/tests/api/projects/updates.rs` |

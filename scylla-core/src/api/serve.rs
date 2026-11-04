@@ -52,6 +52,8 @@ pub struct ServeOptions {
     pub log_retention: Duration,
     /// The folder of the built web app, if the server serves it.
     pub web_dir: Option<std::path::PathBuf>,
+    /// The folder of the downloads of the agent, for the install scripts.
+    pub agent_downloads: String,
 }
 
 impl Default for ServeOptions {
@@ -73,6 +75,7 @@ impl Default for ServeOptions {
             sealer: None,
             log_retention: Duration::from_secs(30 * 24 * 60 * 60),
             web_dir: None,
+            agent_downloads: crate::config::AGENT_DOWNLOADS.to_owned(),
         }
     }
 }
@@ -123,6 +126,7 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
         sealer,
         log_retention: config.log_retention,
         web_dir: config.web_dir.clone(),
+        agent_downloads: config.agent_downloads_url.trim_end_matches('/').to_owned(),
     };
     let stop = super::layers::stop_signal();
     serve(listener, pool.clone(), edition, access, options, stop).await?;
@@ -156,6 +160,7 @@ pub async fn serve(
 ) -> Result<(), Error> {
     // Make what the account routes share, and the clients of the identity providers.
     let log = RequestLog::new(options.accounts.trust_forwarded);
+    let install = agents::install_router(&options.accounts.api_url, &options.agent_downloads);
     let gate: Arc<dyn Gate> = access;
     let ctx = AccountContext {
         pool: pool.clone(),
@@ -223,7 +228,8 @@ pub async fn serve(
         .layer(log)
         .layer(GrpcWebLayer::new())
         .merge(providers::router(providers).layer(log))
-        .merge(webhook::router(webhooks).layer(log));
+        .merge(webhook::router(webhooks).layer(log))
+        .merge(install.layer(log));
 
     // Serve the files of the web app for each other GET, if the settings name its folder.
     if let Some(dir) = &options.web_dir {
