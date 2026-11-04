@@ -151,14 +151,15 @@ async fn the_agent_runs_a_pipeline(pool: PgPool) {
     assert!(lines.contains(&"done"), "{lines:?}");
 }
 
-/// A cancel stops the running node of a job, and the agent deletes the work folder.
+/// A cancel stops the running node of a job with its child processes, and the agent deletes the
+/// work folder.
 #[sqlx::test(migrations = false)]
 async fn the_agent_stops_a_cancelled_job(pool: PgPool) {
     // given
     let app = app(pool).await;
     let owner = app.user().await;
     let project = text(&app.create_project(owner, "alpha").await.unwrap().id).to_owned();
-    let nodes = vec![shell("wait", &[], "sleep 30")];
+    let nodes = vec![shell("wait", &[], "sleep 30 & sleep 30")];
     let pipeline = app.create_pipeline(owner, &project, nodes).await.unwrap();
     let running = agent(&app, owner).await;
     let job = app.run_pipeline(owner, text(&pipeline.id)).await.unwrap();

@@ -1,7 +1,9 @@
-//! The file of the agent, in JSON, readable by its user only.
+//! The file of the agent, in JSON, readable by its user only: the mode 600 on Unix, and the
+//! access of the parent folder on Windows.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
@@ -40,7 +42,7 @@ impl AgentConfig {
         serde_json::from_str(&text).map_err(|error| AgentError::File(error.to_string()))
     }
 
-    /// Writes the file with the mode 600, and its folder if it is missing.
+    /// Writes the file with the mode 600 on Unix, and its folder if it is missing.
     pub fn save(&self, path: &Path) -> Result<(), AgentError> {
         let fail = |error: std::io::Error| AgentError::File(error.to_string());
         if let Some(parent) = path.parent() {
@@ -48,13 +50,11 @@ impl AgentConfig {
         }
         let text = serde_json::to_string_pretty(self)
             .map_err(|error| AgentError::File(error.to_string()))?;
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)
-            .map_err(fail)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut file = options.open(path).map_err(fail)?;
         file.write_all(text.as_bytes()).map_err(fail)
     }
 }

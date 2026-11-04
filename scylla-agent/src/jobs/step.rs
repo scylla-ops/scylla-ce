@@ -5,18 +5,18 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-use nix::sys::signal::{killpg, Signal};
-use nix::unistd::Pid;
 use scylla_proto::agents::v1::{dispatch_node, DispatchNode, EventKind};
 use scylla_proto::pipelines::v1::{LogStream, Shell};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tokio::sync::watch;
 
 use super::events::{self, Event, Outbox};
 use super::output;
+use super::process::Process;
 
-/// The time between the stop signal and the kill of a process group.
-const GRACE: Duration = Duration::from_secs(5);
+/// The variables of the agent that a Windows program needs to start.
+#[cfg(windows)]
+const SYSTEM: [&str; 6] = ["SystemRoot", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP"];
 
 /// What each node of a job shares.
 #[derive(Clone)]
@@ -127,9 +127,8 @@ async fn once(
     command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .process_group(0);
-    let mut child = match command.spawn() {
+        .stdin(Stdio::null());
+    let mut child = match Process::spawn(command) {
         Ok(child) => child,
         Err(error) => return Attempt::Broke(format!("the process did not start: {error}")),
     };
@@ -142,12 +141,10 @@ async fn once(
     let sink = output::Sink::start(context.outbox.clone(), context.job.clone(), node.id.clone());
     let readers = [
         child
-            .stdout
-            .take()
+            .stdout()
             .map(|out| output::read(out, LogStream::Stdout, masks.clone(), sink.lines())),
         child
-            .stderr
-            .take()
+            .stderr()
             .map(|err| output::read(err, LogStream::Stderr, masks, sink.lines())),
     ];
 
@@ -173,18 +170,12 @@ async fn once(
     end
 }
 
-/// Stops the process group of an attempt, and its container: a stop signal, then a kill.
-async fn stop(child: &mut Child, context: &NodeContext, node: &DispatchNode, name: &str) {
+/// Stops the processes of an attempt, and its container.
+async fn stop(child: &mut Process, context: &NodeContext, node: &DispatchNode, name: &str) {
     if let (Some(runtime), Some(_)) = (&context.runtime, &node.container) {
         let _ = Command::new(runtime).args(["kill", name]).output().await;
     }
-    if let Some(pid) = child.id().and_then(|pid| i32::try_from(pid).ok()) {
-        let _ = killpg(Pid::from_raw(pid), Signal::SIGTERM);
-        if tokio::time::timeout(GRACE, child.wait()).await.is_err() {
-            let _ = killpg(Pid::from_raw(pid), Signal::SIGKILL);
-        }
-    }
-    let _ = child.wait().await;
+    child.stop().await;
 }
 
 /// Makes the command of an attempt: a process in the work folder, or a container with the work
@@ -264,9 +255,19 @@ fn base_names() -> Vec<&'static str> {
 }
 
 /// Sets a clean environment: the path, a home in the work folder, the base variables of the
-/// job, then the variables of the node.
+/// job, then the variables of the node. On Windows, it keeps the system variables and puts the
+/// user profile in the work folder too.
 fn environment(command: &mut Command, context: &NodeContext, node: &DispatchNode) {
     command.env_clear();
+    #[cfg(windows)]
+    {
+        for name in SYSTEM {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
+        command.env("USERPROFILE", &context.dir);
+    }
     let path = std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".to_owned());
     command
         .env("PATH", path)

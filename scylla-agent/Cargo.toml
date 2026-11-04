@@ -13,7 +13,6 @@ clap.workspace = true
 ed25519-dalek.workspace = true
 getrandom.workspace = true
 hex.workspace = true
-nix.workspace = true
 prost.workspace = true
 prost-types.workspace = true
 scylla-proto.workspace = true
@@ -25,6 +24,13 @@ tokio-stream.workspace = true
 tonic.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+process-wrap.workspace = true
+windows.workspace = true
 
 [dev-dependencies]
 scylla-ce.workspace = true

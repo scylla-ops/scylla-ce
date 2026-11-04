@@ -4,6 +4,7 @@
 mod dag;
 mod events;
 mod output;
+mod process;
 mod set;
 mod step;
 

@@ -128,7 +128,14 @@ scylla-agent --config /var/lib/scylla-agent/agent.json join https://scylla.examp
 scylla-agent --config /var/lib/scylla-agent/agent.json run --capacity 2 --container-runtime docker
 ```
 
-`join` makes the key pair and writes the file (mode 600) with the private key; the key never leaves the machine. `run` keeps the stream open, renews its token one minute before its expiry, and connects again after an end (1 to 60 seconds of wait). It stops for good when the server refuses the agent (a revoked key, a deleted App, an App that runs no job). The settings are also environment values: `SCYLLA_AGENT_CONFIG`, `SCYLLA_AGENT_WORKSPACE_ROOT`, `SCYLLA_AGENT_CAPACITY`, `SCYLLA_AGENT_CONTAINER_RUNTIME`, `SCYLLA_AGENT_KEEP_WORKSPACE`.
+On Windows, in PowerShell, the default folder is `%LOCALAPPDATA%\scylla-agent`, and a script step needs `sh` or `bash` in the `PATH` (for example the ones of Git for Windows):
+
+```powershell
+scylla-agent join https://scylla.example.com <join code>
+scylla-agent run --capacity 2
+```
+
+`join` makes the key pair and writes the file (mode 600 on Unix) with the private key; the key never leaves the machine. `run` keeps the stream open, renews its token one minute before its expiry, and connects again after an end (1 to 60 seconds of wait). It stops for good when the server refuses the agent (a revoked key, a deleted App, an App that runs no job). The settings are also environment values: `SCYLLA_AGENT_CONFIG`, `SCYLLA_AGENT_WORKSPACE_ROOT`, `SCYLLA_AGENT_CAPACITY`, `SCYLLA_AGENT_CONTAINER_RUNTIME`, `SCYLLA_AGENT_KEEP_WORKSPACE`.
 
 ## Logs
 
@@ -188,7 +195,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Workspaces, projects and their permissions, tokens, Apps and agents, gRPC-Web, CORS, TLS, health | `scylla-ce/tests/api/` |
 | Pipelines: the nodes and their graph, the path of a bad value, the version of a change, each role, the snapshot of a run, the secrets of a run, the delete | `scylla-ce/tests/api/projects/pipelines.rs` |
 | Jobs: the cancel, the rerun, the delete, the lists newest first, who can call them | `scylla-ce/tests/api/projects/jobs.rs` |
-| Agent: the join, the order of the nodes, a script with a secret masked in the logs, a retry, the skip after a failure, a cancel that stops the process and deletes the work folder | `scylla-agent/tests/agent.rs` |
+| Agent: the join, the order of the nodes, a script with a secret masked in the logs, a retry, the skip after a failure, a cancel that stops the process and its children and deletes the work folder, on Unix and Windows | `scylla-agent/tests/agent.rs` |
 | Import of the old product: its real schema, the users and their passwords, a disabled user, a user with no email, the workspaces and their owners, the roles, the project ids, the secrets sealed again, the pipelines and a pipeline with a cycle, a second import | `scylla-ce/tests/api/platform/import.rs` |
 | Web app: a file, a route of the web app gives `index.html`, the API on the same address | `scylla-ce/tests/api/platform/web.rs` |
 | Triggers: the schedules, the inputs, a fire now as the runner, the signature of a webhook, a second delivery, a body with no value, a ping, a stopped trigger, the rate limit, the roles, the key of the secrets | `scylla-ce/tests/api/projects/triggers.rs` |
@@ -239,6 +246,6 @@ The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extensio
 
 ## Known limits
 
-- The agent runs on Unix only: it stops a step with the signals of its process group.
+- On Windows, the agent stops a step at once, with no grace: a job object has no stop signal.
 - The server is one instance: the open streams of the agents are in memory.
 - No route reads the value of a secret yet: the dispatch of a job will use `secrets::service::reveal`.

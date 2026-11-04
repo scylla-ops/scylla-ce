@@ -1,5 +1,6 @@
 //! The `scylla-agent` binary: `join` makes the key pair and joins an App, and `run` serves its
-//! jobs until SIGTERM or Ctrl+C.
+//! jobs until a stop: Ctrl+C, SIGTERM on Unix, Ctrl+Break, the close of the console or a
+//! shutdown on Windows.
 
 use std::path::PathBuf;
 
@@ -14,7 +15,7 @@ struct Cli {
     #[arg(
         long,
         env = "SCYLLA_AGENT_CONFIG",
-        default_value = "/var/lib/scylla-agent/agent.json",
+        default_value_os_t = home().join("agent.json"),
         global = true
     )]
     config: PathBuf,
@@ -33,13 +34,13 @@ enum Command {
         /// The join code of the App.
         code: String,
     },
-    /// Connects to the server and runs the jobs until SIGTERM or Ctrl+C.
+    /// Connects to the server and runs the jobs until a stop.
     Run {
         /// The folder of the work folders of the jobs.
         #[arg(
             long,
             env = "SCYLLA_AGENT_WORKSPACE_ROOT",
-            default_value = "/var/lib/scylla-agent/work"
+            default_value_os_t = home().join("work")
         )]
         workspace_root: PathBuf,
         /// The largest number of jobs at the same time.
@@ -90,17 +91,47 @@ async fn main() -> Result<(), AgentError> {
     }
 }
 
-/// Waits for SIGTERM or Ctrl+C.
+/// The folder of the agent: `/var/lib/scylla-agent` on Unix, and
+/// `%LOCALAPPDATA%\scylla-agent` on Windows.
+fn home() -> PathBuf {
+    #[cfg(windows)]
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        return PathBuf::from(local).join("scylla-agent");
+    }
+    PathBuf::from("/var/lib/scylla-agent")
+}
+
+/// Waits for Ctrl+C or a stop of the system.
 async fn stop() {
-    let terminate = async {
-        if let Ok(mut signal) =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        {
-            signal.recv().await;
-        }
-    };
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {}
-        () = terminate => {}
+        () = system_stop() => {}
+    }
+}
+
+/// Waits for SIGTERM.
+#[cfg(unix)]
+async fn system_stop() {
+    if let Ok(mut signal) =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+    {
+        signal.recv().await;
+    }
+}
+
+/// Waits for Ctrl+Break, the close of the console, or a shutdown.
+#[cfg(windows)]
+async fn system_stop() {
+    use tokio::signal::windows::{ctrl_break, ctrl_close, ctrl_shutdown};
+
+    let (Ok(mut brk), Ok(mut close), Ok(mut shutdown)) =
+        (ctrl_break(), ctrl_close(), ctrl_shutdown())
+    else {
+        return;
+    };
+    tokio::select! {
+        _ = brk.recv() => {}
+        _ = close.recv() => {}
+        _ = shutdown.recv() => {}
     }
 }
