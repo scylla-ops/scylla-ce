@@ -51,12 +51,15 @@ struct Claims {
     nonce: Option<String>,
 }
 
-/// The part of the discovery document that the server reads.
+/// The part of the discovery document that the server reads. An issuer of CI jobs has no sign-in
+/// endpoints.
 #[derive(Deserialize)]
 struct Discovery {
     /// The URL where the browser signs in.
+    #[serde(default)]
     authorization_endpoint: String,
     /// The URL that exchanges a code for tokens.
+    #[serde(default)]
     token_endpoint: String,
     /// The URL of the keys.
     jwks_uri: String,
@@ -188,6 +191,33 @@ impl OidcClients {
             email: claims.email,
             name: claims.name,
         })
+    }
+
+    /// Checks the ID token of a CI job of an issuer for an audience, and returns its claims. A
+    /// token that does not pass gives `None`, and an issuer that does not answer an error. Only
+    /// asymmetric signatures pass.
+    pub(crate) async fn verify_ci(
+        &self,
+        issuer: &str,
+        audience: &str,
+        token: &str,
+    ) -> Result<Option<HashMap<String, serde_json::Value>>, Error> {
+        let Ok(header) = decode_header(token) else {
+            return Ok(None);
+        };
+        let symmetric = [Algorithm::HS256, Algorithm::HS384, Algorithm::HS512];
+        let Some(kid) = header.kid.filter(|_| !symmetric.contains(&header.alg)) else {
+            return Ok(None);
+        };
+        let found = self.issuer(issuer).await?;
+        let Ok(key) = self.key(&found, &kid).await else {
+            return Ok(None);
+        };
+        let mut validation = Validation::new(header.alg);
+        validation.set_issuer(&[issuer]);
+        validation.set_audience(&[audience]);
+        let claims = decode::<HashMap<String, serde_json::Value>>(token, &key, &validation);
+        Ok(claims.ok().map(|data| data.claims))
     }
 
     /// Returns an issuer, and reads its discovery and its keys at its first use.

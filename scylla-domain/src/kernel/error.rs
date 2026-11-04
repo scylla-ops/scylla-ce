@@ -104,4 +104,10 @@ pub enum DomainError {
     /// The value is only for the custom preset.
     #[error("must be empty for a preset that is not custom")]
     NotCustom,
+    /// The text is not an http or https URL.
+    #[error("must be an http or https URL")]
+    NotAnUrl,
+    /// The text is not the path of a repository.
+    #[error("must be owner/repo or group/project")]
+    NotARepository,
 }

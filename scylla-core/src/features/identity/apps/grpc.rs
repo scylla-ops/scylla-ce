@@ -133,6 +133,27 @@ impl AppService for AppsGrpc {
     ) -> Result<Response<pb::RevokeAppTokenResponse>, Status> {
         Ok(Response::new(self.revoke_token(request).await?))
     }
+
+    async fn add_ci_identity(
+        &self,
+        request: Request<pb::AddCiIdentityRequest>,
+    ) -> Result<Response<pb::AddCiIdentityResponse>, Status> {
+        Ok(Response::new(self.add_ci(request).await?))
+    }
+
+    async fn list_ci_identities(
+        &self,
+        request: Request<pb::ListCiIdentitiesRequest>,
+    ) -> Result<Response<pb::ListCiIdentitiesResponse>, Status> {
+        Ok(Response::new(self.list_ci(request).await?))
+    }
+
+    async fn remove_ci_identity(
+        &self,
+        request: Request<pb::RemoveCiIdentityRequest>,
+    ) -> Result<Response<pb::RemoveCiIdentityResponse>, Status> {
+        Ok(Response::new(self.remove_ci(request).await?))
+    }
 }
 
 impl AppsGrpc {
@@ -208,50 +229,9 @@ impl AppsGrpc {
         })
     }
 
-    /// Handles `DeleteApp`: the App goes with its keys, its roles and its stream.
-    async fn delete(
-        &self,
-        request: Request<pb::DeleteAppRequest>,
-    ) -> Result<pb::DeleteAppResponse, Error> {
-        let caller = self.gate.caller(&request).await?;
-        let id: AppId = parse::required(request.into_inner().app_id, "app_id")?;
-        self.authorize(&caller, App::DELETE_APP, id).await?;
-        let gate = self.gate.as_ref();
-        service::delete(&self.pool, gate, &self.registry, id).await?;
-        Ok(pb::DeleteAppResponse {})
-    }
-
-    /// Handles `DisableApp`: its tokens, its stream and its jobs stop.
-    async fn disable(
-        &self,
-        request: Request<pb::DisableAppRequest>,
-    ) -> Result<pb::DisableAppResponse, Error> {
-        let caller = self.gate.caller(&request).await?;
-        let id: AppId = parse::required(request.into_inner().app_id, "app_id")?;
-        self.authorize(&caller, App::DISABLE_APP, id).await?;
-        let app = service::disable(&self.pool, &self.registry, id).await?;
-        Ok(pb::DisableAppResponse {
-            app: Some(convert::app(app, false, 0)),
-        })
-    }
-
-    /// Handles `EnableApp`: the App gets tokens again.
-    async fn enable(
-        &self,
-        request: Request<pb::EnableAppRequest>,
-    ) -> Result<pb::EnableAppResponse, Error> {
-        let caller = self.gate.caller(&request).await?;
-        let id: AppId = parse::required(request.into_inner().app_id, "app_id")?;
-        self.authorize(&caller, App::ENABLE_APP, id).await?;
-        let app = service::enable(&self.pool, id).await?;
-        Ok(pb::EnableAppResponse {
-            app: self.messages(vec![app]).await?.pop(),
-        })
-    }
-
     /// Makes the messages of Apps, with their presence on this server and the number of jobs
     /// that each holds.
-    async fn messages(&self, apps: Vec<App>) -> Result<Vec<pb::App>, Error> {
+    pub(super) async fn messages(&self, apps: Vec<App>) -> Result<Vec<pb::App>, Error> {
         let ids: Vec<AppId> = apps.iter().map(|app| app.id).collect();
         let held = runs::held_counts(&self.pool, &ids).await?;
         let messages = apps.into_iter().map(|app| {

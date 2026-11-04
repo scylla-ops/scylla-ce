@@ -2,6 +2,7 @@
 
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::identity::api_tokens::PERSONAL_TOKEN_PREFIX;
+use scylla_domain::identity::apps::AppId;
 use scylla_domain::identity::users::KIND;
 use scylla_extension::{AccessError, Binding};
 use scylla_proto::auth::v1 as pb;
@@ -10,7 +11,7 @@ use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Request, Response, Status};
 
 use crate::access::attenuate;
-use crate::api::parse::ToProto;
+use crate::api::parse::{self, ToProto};
 use crate::features::identity::accounts::{deliver, to_proto, AccountContext};
 use crate::features::identity::providers::Providers;
 use crate::features::identity::sessions::{self, cookie, Client};
@@ -66,6 +67,24 @@ impl TokenService for TokensGrpc {
         issued.value = attenuate(&issued.value, &limits).map_err(Error::from)?;
         tracing::info!(event = "api_token.exchanged", actor = %actor.id, %token);
         Ok(Response::new(pb::ExchangeApiTokenResponse {
+            token: Some(to_proto(issued)),
+        }))
+    }
+
+    async fn exchange_ci_token(
+        &self,
+        request: Request<pb::ExchangeCiTokenRequest>,
+    ) -> Result<Response<pb::ExchangeCiTokenResponse>, Status> {
+        let ctx = self.ctx();
+        let request = request.into_inner();
+        let app: AppId = parse::required(request.app_id, "app_id")?;
+        let audience = &ctx.settings.api_url;
+        let id_token = &request.id_token;
+        let exchanged = apps::exchange_ci(&ctx.pool, &self.providers, audience, app, id_token);
+        let (actor, limits) = exchanged.await?;
+        let mut issued = ctx.gate.issue(&actor, Binding::None).map_err(Error::from)?;
+        issued.value = attenuate(&issued.value, &limits).map_err(Error::from)?;
+        Ok(Response::new(pb::ExchangeCiTokenResponse {
             token: Some(to_proto(issued)),
         }))
     }

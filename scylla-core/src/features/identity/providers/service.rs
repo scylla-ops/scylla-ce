@@ -1,6 +1,7 @@
 //! The sign-in with an identity provider: the start in the browser, the callback, and the
 //! exchange of an ID token for a native client.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -63,6 +64,17 @@ impl Providers {
             http,
             ctx,
         }
+    }
+
+    /// Checks the ID token of a CI job of an issuer for an audience, and returns its claims, or
+    /// `None` if it does not pass.
+    pub(crate) async fn verify_ci(
+        &self,
+        issuer: &str,
+        audience: &str,
+        token: &str,
+    ) -> Result<Option<HashMap<String, serde_json::Value>>, Error> {
+        self.oidc.verify_ci(issuer, audience, token).await
     }
 
     /// Starts a sign-in, or a link for a signed-in user. Returns the URL of the provider and

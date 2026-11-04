@@ -211,6 +211,12 @@ crate::authz! {
         permission list_app_tokens = creator;
         /// The route `RevokeAppToken`.
         permission revoke_app_token = creator;
+        /// The route `AddCiIdentity`.
+        permission add_ci_identity = creator;
+        /// The route `ListCiIdentities`.
+        permission list_ci_identities = creator;
+        /// The route `RemoveCiIdentity`.
+        permission remove_ci_identity = creator;
     }
 
     /// The routes of the Apps on their workspace.
@@ -247,5 +253,11 @@ crate::authz! {
         permission list_app_tokens = read;
         /// The route `RevokeAppToken`, on each App of this workspace.
         permission revoke_app_token = manage;
+        /// The route `AddCiIdentity`, on each App of this workspace.
+        permission add_ci_identity = manage;
+        /// The route `ListCiIdentities`, on each App of this workspace.
+        permission list_ci_identities = read;
+        /// The route `RemoveCiIdentity`, on each App of this workspace.
+        permission remove_ci_identity = manage;
     }
 }

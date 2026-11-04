@@ -1,12 +1,16 @@
-//! The `TestApp` helpers of the API tokens of the Apps, and of their exchange.
+//! The `TestApp` helpers of the API tokens and of the CI identities of the Apps, and of their
+//! exchanges.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_proto::apps::v1::app_service_client::AppServiceClient;
 use scylla_proto::apps::v1::{
-    CreateAppTokenRequest, CreateAppTokenResponse, ListAppTokensRequest, RevokeAppTokenRequest,
+    AddCiIdentityRequest, CiIdentity, CreateAppTokenRequest, CreateAppTokenResponse,
+    ListAppTokensRequest, ListCiIdentitiesRequest, RemoveCiIdentityRequest, RevokeAppTokenRequest,
 };
 use scylla_proto::auth::v1::token_service_client::TokenServiceClient;
-use scylla_proto::auth::v1::{ApiToken, ExchangeApiTokenRequest, TokenLimits};
+use scylla_proto::auth::v1::{
+    ApiToken, ExchangeApiTokenRequest, ExchangeCiTokenRequest, TokenLimits,
+};
 use tonic::Status;
 
 use crate::{id, TestApp};
@@ -83,6 +87,66 @@ impl TestApp {
         };
         let mut client = TokenServiceClient::new(self.channel.clone());
         let response = client.exchange_api_token(request).await?.into_inner();
+        Ok(response.token.expect("token").value)
+    }
+}
+
+impl TestApp {
+    /// Calls `AddCiIdentity` as `actor` with a request.
+    pub async fn add_ci_identity(
+        &self,
+        actor: ActorId,
+        request: AddCiIdentityRequest,
+    ) -> Result<CiIdentity, Status> {
+        let request = self.authed(actor, request).await;
+        let mut client = AppServiceClient::new(self.channel.clone());
+        let response = client.add_ci_identity(request).await?.into_inner();
+        Ok(response.identity.expect("identity"))
+    }
+
+    /// Calls `ListCiIdentities` as `actor`.
+    pub async fn list_ci_identities(
+        &self,
+        actor: ActorId,
+        app: &str,
+    ) -> Result<Vec<CiIdentity>, Status> {
+        let request = ListCiIdentitiesRequest {
+            app_id: Some(id(app)),
+        };
+        let request = self.authed(actor, request).await;
+        let mut client = AppServiceClient::new(self.channel.clone());
+        Ok(client
+            .list_ci_identities(request)
+            .await?
+            .into_inner()
+            .identities)
+    }
+
+    /// Calls `RemoveCiIdentity` as `actor`.
+    pub async fn remove_ci_identity(
+        &self,
+        actor: ActorId,
+        app: &str,
+        identity: &str,
+    ) -> Result<(), Status> {
+        let request = RemoveCiIdentityRequest {
+            app_id: Some(id(app)),
+            identity_id: Some(id(identity)),
+        };
+        let request = self.authed(actor, request).await;
+        let mut client = AppServiceClient::new(self.channel.clone());
+        client.remove_ci_identity(request).await?;
+        Ok(())
+    }
+
+    /// Calls `ExchangeCiToken` with the ID token of a CI job, and returns the short token.
+    pub async fn exchange_ci_token(&self, app: &str, id_token: &str) -> Result<String, Status> {
+        let request = ExchangeCiTokenRequest {
+            app_id: Some(id(app)),
+            id_token: id_token.to_owned(),
+        };
+        let mut client = TokenServiceClient::new(self.channel.clone());
+        let response = client.exchange_ci_token(request).await?.into_inner();
         Ok(response.token.expect("token").value)
     }
 }

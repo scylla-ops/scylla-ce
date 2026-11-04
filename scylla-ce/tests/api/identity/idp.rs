@@ -116,6 +116,16 @@ impl Idp {
         self.sign(person, audience, seconds, None)
     }
 
+    /// Signs a token of the provider with these claims, and its issuer if they have none.
+    pub(crate) fn sign_claims(&self, mut claims: serde_json::Value) -> String {
+        if claims.get("iss").is_none() {
+            claims["iss"] = json!(self.0.url);
+        }
+        let mut header = Header::new(Algorithm::EdDSA);
+        header.kid = Some(KID.to_owned());
+        encode(&header, &claims, &self.0.key).unwrap()
+    }
+
     /// Signs an ID token.
     fn sign(&self, person: &Person, audience: &str, seconds: i64, nonce: Option<&str>) -> String {
         let now = SystemTime::now()
