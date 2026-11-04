@@ -40,6 +40,8 @@ pub struct App {
     pub last_seen_at: Option<OffsetDateTime>,
     /// The host of the last stream, or `None` before the first stream.
     pub host: Option<Host>,
+    /// The time when an admin disabled the App, or `None` while it is enabled.
+    pub disabled_at: Option<OffsetDateTime>,
 }
 
 impl App {
@@ -180,6 +182,10 @@ crate::authz! {
         permission get_app = nil;
         /// The route `DeleteApp`.
         permission delete_app = nil;
+        /// The route `DisableApp`.
+        permission disable_app = nil;
+        /// The route `EnableApp`.
+        permission enable_app = nil;
         /// The route `CreateJoinCode`.
         permission create_join_code = nil;
         /// The route `AddAppKey`.
@@ -198,6 +204,10 @@ crate::authz! {
         permission list_apps = read;
         /// The route `DeleteApp`, on each App of this workspace.
         permission delete_app = manage;
+        /// The route `DisableApp`, on each App of this workspace.
+        permission disable_app = manage;
+        /// The route `EnableApp`, on each App of this workspace.
+        permission enable_app = manage;
         /// The route `CreateJoinCode`, on each App of this workspace.
         permission create_join_code = manage;
         /// The route `AddAppKey`, on each App of this workspace.

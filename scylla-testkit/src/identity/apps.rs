@@ -12,9 +12,9 @@ use scylla_proto::agents::v1::agent_service_client::AgentServiceClient;
 use scylla_proto::agents::v1::{OpenStreamRequest, OpenStreamResponse};
 use scylla_proto::apps::v1::app_service_client::AppServiceClient;
 use scylla_proto::apps::v1::{
-    AddAppKeyRequest, AppAssertion, AppKey, CreateAppRequest, CreateAppResponse,
-    CreateJoinCodeRequest, DeleteAppRequest, GetAppRequest, GetAppResponse, ListAppsRequest,
-    ListAppsResponse, RevokeAppKeyRequest,
+    AddAppKeyRequest, App, AppAssertion, AppKey, CreateAppRequest, CreateAppResponse,
+    CreateJoinCodeRequest, DeleteAppRequest, DisableAppRequest, EnableAppRequest, GetAppRequest,
+    GetAppResponse, ListAppsRequest, ListAppsResponse, RevokeAppKeyRequest,
 };
 use scylla_proto::auth::v1::{ExchangeAppAssertionRequest, JoinAppRequest};
 use tokio::sync::mpsc;
@@ -135,6 +135,26 @@ impl TestApp {
         let request = self.authed(actor, request).await;
         self.apps().delete_app(request).await?;
         Ok(())
+    }
+
+    /// Calls `DisableApp` as `actor`, and returns the App.
+    pub async fn disable_app(&self, actor: ActorId, app: &str) -> Result<App, Status> {
+        let request = DisableAppRequest {
+            app_id: Some(id(app)),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.apps().disable_app(request).await?.into_inner();
+        Ok(response.app.expect("the app"))
+    }
+
+    /// Calls `EnableApp` as `actor`, and returns the App.
+    pub async fn enable_app(&self, actor: ActorId, app: &str) -> Result<App, Status> {
+        let request = EnableAppRequest {
+            app_id: Some(id(app)),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.apps().enable_app(request).await?.into_inner();
+        Ok(response.app.expect("the app"))
     }
 
     /// Calls `CreateJoinCode` as `actor`, and returns the code.

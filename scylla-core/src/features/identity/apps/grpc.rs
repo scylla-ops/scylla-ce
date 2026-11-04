@@ -70,6 +70,20 @@ impl AppService for AppsGrpc {
         Ok(Response::new(self.delete(request).await?))
     }
 
+    async fn disable_app(
+        &self,
+        request: Request<pb::DisableAppRequest>,
+    ) -> Result<Response<pb::DisableAppResponse>, Status> {
+        Ok(Response::new(self.disable(request).await?))
+    }
+
+    async fn enable_app(
+        &self,
+        request: Request<pb::EnableAppRequest>,
+    ) -> Result<Response<pb::EnableAppResponse>, Status> {
+        Ok(Response::new(self.enable(request).await?))
+    }
+
     async fn create_join_code(
         &self,
         request: Request<pb::CreateJoinCodeRequest>,
@@ -178,6 +192,34 @@ impl AppsGrpc {
         let gate = self.gate.as_ref();
         service::delete(&self.pool, gate, &self.registry, id).await?;
         Ok(pb::DeleteAppResponse {})
+    }
+
+    /// Handles `DisableApp`: its tokens, its stream and its jobs stop.
+    async fn disable(
+        &self,
+        request: Request<pb::DisableAppRequest>,
+    ) -> Result<pb::DisableAppResponse, Error> {
+        let caller = self.gate.caller(&request).await?;
+        let id: AppId = parse::required(request.into_inner().app_id, "app_id")?;
+        self.authorize(&caller, App::DISABLE_APP, id).await?;
+        let app = service::disable(&self.pool, &self.registry, id).await?;
+        Ok(pb::DisableAppResponse {
+            app: Some(convert::app(app, false)),
+        })
+    }
+
+    /// Handles `EnableApp`: the App gets tokens again.
+    async fn enable(
+        &self,
+        request: Request<pb::EnableAppRequest>,
+    ) -> Result<pb::EnableAppResponse, Error> {
+        let caller = self.gate.caller(&request).await?;
+        let id: AppId = parse::required(request.into_inner().app_id, "app_id")?;
+        self.authorize(&caller, App::ENABLE_APP, id).await?;
+        let app = service::enable(&self.pool, id).await?;
+        Ok(pb::EnableAppResponse {
+            app: Some(convert::app(app, self.registry.is_connected(id))),
+        })
     }
 
     /// Checks a route permission on an App and on its workspace, and returns the workspace. An

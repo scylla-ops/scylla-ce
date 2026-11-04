@@ -2,6 +2,7 @@
 //! the jobs on the agents, and the roles that reach them.
 
 mod cast;
+mod disabled;
 mod jobs;
 mod lifecycle;
 mod pipelines;

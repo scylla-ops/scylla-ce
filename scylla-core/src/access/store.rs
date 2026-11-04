@@ -24,8 +24,8 @@ pub(super) struct TokenFacts<'a> {
 }
 
 /// Returns `true` if a token cannot pass: one of its revocation ids is revoked, its session is
-/// revoked or expired, its user is disabled or deleted, its App is deleted, or its key is
-/// revoked.
+/// revoked or expired, its user is disabled or deleted, its App is deleted or disabled, or
+/// its key is revoked.
 pub(super) async fn is_refused(
     tx: &mut Tx<'_>,
     facts: &TokenFacts<'_>,
@@ -38,7 +38,7 @@ pub(super) async fn is_refused(
                OR ($4::uuid IS NOT NULL AND NOT EXISTS (
                    SELECT 1 FROM sessions
                    WHERE id = $4 AND revoked_at IS NULL AND expires_at > now()))
-               OR ($5 AND NOT EXISTS (SELECT 1 FROM apps WHERE id = $2))
+               OR ($5 AND NOT EXISTS (SELECT 1 FROM apps WHERE id = $2 AND disabled_at IS NULL))
                OR ($6::uuid IS NOT NULL AND NOT EXISTS (
                    SELECT 1 FROM app_keys
                    WHERE id = $6 AND app_id = $2 AND revoked_at IS NULL))

@@ -58,6 +58,8 @@ definition workspace {
     permission get_app = read
     permission list_apps = read
     permission delete_app = manage
+    permission disable_app = manage
+    permission enable_app = manage
     permission create_join_code = manage
     permission add_app_key = manage
     permission revoke_app_key = manage
@@ -97,6 +99,8 @@ definition workspace {
 definition app {
     permission get_app = nil
     permission delete_app = nil
+    permission disable_app = nil
+    permission enable_app = nil
     permission create_join_code = nil
     permission add_app_key = nil
     permission revoke_app_key = nil

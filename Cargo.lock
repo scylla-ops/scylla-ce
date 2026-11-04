@@ -2753,6 +2753,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tonic",
+ "tonic-types",
  "tracing",
  "tracing-subscriber",
  "windows",

@@ -17,6 +17,7 @@ pub(super) fn app(app: App, connected: bool) -> pb::App {
         connected,
         last_seen_at: app.last_seen_at.map(parse::timestamp),
         host: app.host.map(host),
+        disabled_at: app.disabled_at.map(parse::timestamp),
     }
 }
 

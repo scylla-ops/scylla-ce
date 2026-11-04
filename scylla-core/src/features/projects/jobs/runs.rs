@@ -212,6 +212,20 @@ pub(crate) async fn reconcile(
     Ok((stop, released))
 }
 
+/// Releases each job that an agent holds, in the transaction of the caller. Returns `true` if a
+/// job went back to the pool.
+pub(crate) async fn release_all(
+    tx: &mut scylla_extension::Tx<'_>,
+    agent: AppId,
+    reason: &str,
+) -> Result<bool, Error> {
+    let mut pooled = false;
+    for id in holds::held_by(tx, agent).await? {
+        pooled |= release(tx, id, reason).await?;
+    }
+    Ok(pooled)
+}
+
 /// Ends a running job as orphaned, or gives a pending job back to the pool. Returns `true` if
 /// the job went back to the pool.
 pub(crate) async fn release(

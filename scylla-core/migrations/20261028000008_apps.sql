@@ -13,7 +13,8 @@ CREATE TABLE apps (
     cpu_count integer CHECK (cpu_count >= 0),
     memory_bytes bigint CHECK (memory_bytes >= 0),
     capacity integer NOT NULL DEFAULT 1 CHECK (capacity >= 1),
-    container_runtime text
+    container_runtime text,
+    disabled_at timestamptz
 );
 
 CREATE INDEX apps_workspace_id_idx ON apps (workspace_id);

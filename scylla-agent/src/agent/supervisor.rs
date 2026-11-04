@@ -61,6 +61,10 @@ pub async fn run(
         }
         match ended {
             Err(AgentError::Refused(reason)) => break Err(AgentError::Refused(reason)),
+            Err(AgentError::Disabled(reason)) => {
+                tracing::warn!(%reason, "the app is disabled: the agent waits");
+                shared.jobs.cancel_all();
+            }
             Err(error) => tracing::warn!(%error, "the stream ended"),
             Ok(()) => {}
         }

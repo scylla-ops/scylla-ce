@@ -9,6 +9,7 @@ mod apps;
 mod browser;
 mod console;
 mod deletion;
+mod disable;
 mod handles;
 mod idp;
 mod mails;

@@ -19,7 +19,7 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, id: AppId, new: &NewApp) -> Result<A
         Row,
         "INSERT INTO apps (id, workspace_id, name, runner, created_by) VALUES ($1, $2, $3, $4, $5)
          RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
-                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime",
+                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, disabled_at",
         id.to_db(),
         new.workspace_id.to_db(),
         new.name.as_str(),
@@ -42,7 +42,7 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: AppId) -> Result<Option<App>, sqlx
     let row = sqlx::query_as!(
         Row,
         "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,
-                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime
+                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, disabled_at
          FROM apps WHERE id = $1",
         id.to_db(),
     )
@@ -61,7 +61,7 @@ pub(crate) async fn list(
     let rows = sqlx::query_as!(
         Row,
         "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,
-                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime
+                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, disabled_at
          FROM apps
          WHERE workspace_id = $1
            AND ($2::boolean IS NULL OR runner = $2)
@@ -95,6 +95,28 @@ pub(crate) async fn delete(tx: &mut Tx<'_>, id: AppId) -> Result<bool, sqlx::Err
         .execute(&mut **tx)
         .await?;
     Ok(result.rows_affected() == 1)
+}
+
+/// Disables an App, or enables it again, and returns it. A second disable keeps the first time.
+/// Returns `None` if no App has this id.
+pub(crate) async fn set_disabled(
+    tx: &mut Tx<'_>,
+    id: AppId,
+    disabled: bool,
+) -> Result<Option<App>, sqlx::Error> {
+    let row = sqlx::query_as!(
+        Row,
+        "UPDATE apps
+         SET disabled_at = CASE WHEN $2 THEN coalesce(disabled_at, now()) END
+         WHERE id = $1
+         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
+                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, disabled_at",
+        id.to_db(),
+        disabled,
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(row.map(Row::into_app))
 }
 
 /// Stores the host of the hello of an agent, and its last seen time.
@@ -161,6 +183,8 @@ struct Row {
     capacity: i32,
     /// The container runtime.
     container_runtime: Option<String>,
+    /// The time of the disable.
+    disabled_at: Option<OffsetDateTime>,
 }
 
 impl Row {
@@ -185,6 +209,7 @@ impl Row {
             created_at: self.created_at,
             last_seen_at: self.last_seen_at,
             host,
+            disabled_at: self.disabled_at,
         }
     }
 }

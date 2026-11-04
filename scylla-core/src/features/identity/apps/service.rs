@@ -16,6 +16,7 @@ use super::assertion;
 use super::store::{apps, codes, keys};
 use crate::features::identity::actors;
 use crate::features::identity::agents::Registry;
+use crate::features::projects::jobs::runs;
 use crate::infra::secret;
 use crate::Error;
 
@@ -89,6 +90,34 @@ pub(crate) async fn delete(
     }
     tracing::info!(event = "app.deleted", app = %id);
     Ok(())
+}
+
+/// Disables an App and releases the jobs of its agent in one transaction, then closes its
+/// stream. A second call keeps the first time. An unknown App gives `NotFound("app")`.
+pub(crate) async fn disable(pool: &PgPool, registry: &Registry, id: AppId) -> Result<App, Error> {
+    let mut tx = pool.begin().await?;
+    let app = apps::set_disabled(&mut tx, id, true)
+        .await?
+        .ok_or(Error::NotFound("app"))?;
+    let pooled = runs::release_all(&mut tx, id, "the agent was disabled").await?;
+    tx.commit().await?;
+    registry.stop(id, "the app was disabled");
+    if pooled {
+        registry.wake_all();
+    }
+    tracing::info!(event = "app.disabled", app = %id);
+    Ok(app)
+}
+
+/// Enables a disabled App again. An unknown App gives `NotFound("app")`.
+pub(crate) async fn enable(pool: &PgPool, id: AppId) -> Result<App, Error> {
+    let mut tx = pool.begin().await?;
+    let app = apps::set_disabled(&mut tx, id, false)
+        .await?
+        .ok_or(Error::NotFound("app"))?;
+    tx.commit().await?;
+    tracing::info!(event = "app.enabled", app = %id);
+    Ok(app)
 }
 
 /// Gives a new join code for an App. The previous open codes of the App stop.

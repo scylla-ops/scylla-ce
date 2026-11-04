@@ -4,12 +4,12 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use prost::Message;
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::identity::apps::{App, AppId, AppKeyId, KIND};
-use scylla_extension::AccessError;
+use scylla_extension::{AccessError, Rejection};
 use scylla_proto::apps::v1::AppAssertion;
 use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
 
-use super::store::{keys, nonces};
+use super::store::{apps, keys, nonces};
 use crate::api::parse;
 use crate::Error;
 
@@ -30,7 +30,8 @@ pub(crate) fn check_public_key(public_key: &[u8]) -> Result<(), Error> {
     Ok(())
 }
 
-/// Checks an assertion that an App signed, and returns the App and the key that signed.
+/// Checks an assertion that an App signed, and returns the App and the key that signed. A
+/// disabled App gets `APP_DISABLED`.
 pub async fn verify(
     pool: &PgPool,
     assertion: &[u8],
@@ -67,6 +68,15 @@ pub async fn verify(
     public_key
         .verify_strict(assertion, &signature)
         .map_err(|_| refused())?;
+
+    // Refuse a disabled App.
+    let disabled = apps::find(&mut tx, app_id)
+        .await?
+        .is_some_and(|app| app.disabled_at.is_some());
+    if disabled {
+        let message = "the app is disabled";
+        return Err(Error::Rejected(Rejection::new("APP_DISABLED", message)));
+    }
 
     // Use the nonce one time: a replay of the assertion fails here.
     if !nonces::use_nonce(&mut tx, &claims.nonce, expires_at).await? {

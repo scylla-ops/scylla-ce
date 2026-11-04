@@ -24,7 +24,7 @@ use crate::app;
 /// An agent of a test, with its open stream.
 pub(super) struct Agent {
     /// The machine of the agent.
-    key: TestKey,
+    pub(super) key: TestKey,
     /// The sender of the messages of the agent.
     up: Sender<OpenStreamRequest>,
     /// The messages of the server.
@@ -50,7 +50,7 @@ impl Agent {
     }
 
     /// Sends an event of a job.
-    async fn event(&self, job: &str, kind: EventKind, node: &str) {
+    pub(super) async fn event(&self, job: &str, kind: EventKind, node: &str) {
         let event = JobEvent {
             job_id: Some(id(job)),
             kind: kind.into(),

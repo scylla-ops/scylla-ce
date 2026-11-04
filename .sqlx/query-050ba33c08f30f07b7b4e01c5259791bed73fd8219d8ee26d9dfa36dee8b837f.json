@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime\n         FROM apps\n         WHERE workspace_id = $1\n           AND ($2::boolean IS NULL OR runner = $2)\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
+  "query": "UPDATE apps\n         SET disabled_at = CASE WHEN $2 THEN coalesce(disabled_at, now()) END\n         WHERE id = $1\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, disabled_at",
   "describe": {
     "columns": [
       {
@@ -167,14 +167,23 @@
             "name": "container_runtime"
           }
         }
+      },
+      {
+        "ordinal": 15,
+        "name": "disabled_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "disabled_at"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Bool",
-        "Uuid",
-        "Int8"
+        "Bool"
       ]
     },
     "nullable": [
@@ -192,8 +201,9 @@
       true,
       true,
       false,
+      true,
       true
     ]
   },
-  "hash": "d5bce2cddab270342e75721840b2fd926b35ce3d1f848488a76ac2fb43c4fb3c"
+  "hash": "050ba33c08f30f07b7b4e01c5259791bed73fd8219d8ee26d9dfa36dee8b837f"
 }
