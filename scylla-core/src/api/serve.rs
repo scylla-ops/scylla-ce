@@ -21,7 +21,8 @@ use crate::features::identity::accounts::{self, AccountContext, AccountSettings}
 use crate::features::identity::agents::{self, Registry};
 use crate::features::identity::providers::{self, Providers};
 use crate::features::identity::tokens;
-use crate::features::identity::{admins, apps};
+use crate::features::identity::{admins, apps, personal_tokens};
+use crate::features::platform::settings;
 use crate::features::projects::jobs::{self, housekeeping};
 use crate::features::projects::triggers::webhook::{self, Webhooks};
 use crate::features::projects::triggers::{self, schedule};
@@ -181,6 +182,8 @@ pub async fn serve(
     routes.add_service(accounts::account_server(ctx.clone()));
     routes.add_service(accounts::profile_server(ctx.clone()));
     routes.add_service(admins::server(ctx.clone()));
+    routes.add_service(personal_tokens::server(pool.clone(), Arc::clone(&gate)));
+    routes.add_service(settings::server(pool.clone(), Arc::clone(&gate)));
     routes.add_service(invitations::server(ctx));
     routes.add_service(secrets::server(
         pool.clone(),

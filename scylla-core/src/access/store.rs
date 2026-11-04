@@ -28,7 +28,8 @@ pub(super) struct TokenFacts<'a> {
 
 /// Returns `true` if a token cannot pass: one of its revocation ids is revoked, its session is
 /// revoked or expired, its user is disabled or deleted, its App is deleted or disabled, its
-/// key is revoked, or its API token is revoked or expired.
+/// key is revoked, its API token is revoked or expired, or it is a personal token and the
+/// instance refuses them.
 pub(super) async fn is_refused(
     tx: &mut Tx<'_>,
     facts: &TokenFacts<'_>,
@@ -48,6 +49,8 @@ pub(super) async fn is_refused(
                OR ($7::uuid IS NOT NULL AND NOT EXISTS (
                    SELECT 1 FROM api_tokens
                    WHERE id = $7 AND actor_id = $2 AND revoked_at IS NULL AND expires_at > now()))
+               OR ($7::uuid IS NOT NULL AND $3
+                   AND NOT (SELECT personal_tokens_enabled FROM instance_settings))
            ) AS "refused!""#,
         facts.ids,
         facts.actor.to_db(),
@@ -104,4 +107,19 @@ pub(super) async fn is_admin(tx: &mut Tx<'_>, actor: ActorId) -> Result<bool, sq
 pub(super) fn failed(error: sqlx::Error) -> AccessError {
     tracing::error!(%error, "the access store failed");
     AccessError::Unavailable("access check unavailable".to_owned())
+}
+
+/// Returns `true` if a workspace refuses the personal tokens. An unknown workspace refuses none.
+pub(super) async fn refuses_personal_tokens(
+    tx: &mut Tx<'_>,
+    workspace: WorkspaceId,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT EXISTS (
+               SELECT 1 FROM workspaces WHERE id = $1 AND NOT personal_tokens_enabled
+           ) AS "refused!""#,
+        workspace.to_db(),
+    )
+    .fetch_one(&mut **tx)
+    .await
 }

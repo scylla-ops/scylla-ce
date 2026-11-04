@@ -6,7 +6,6 @@ use std::time::Duration;
 use biscuit_auth::Biscuit;
 use scylla_domain::authz::{Check, Object, Relationship, Schema};
 use scylla_domain::identity::actors::{Actor, ActorId};
-use scylla_domain::identity::{apps, users};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{
     async_trait, AccessError, Binding, Gate, IssuedToken, Operation, Principal, RolePage,
@@ -16,7 +15,7 @@ use sqlx::PgPool;
 use time::OffsetDateTime;
 use tonic::metadata::MetadataMap;
 
-use super::claims::{allows, claims, sign, unauthenticated, Claims};
+use super::claims::{allows, claims, sign, unauthenticated};
 use super::rights::Rights;
 use super::{store, SpiceDb, TokenKeys};
 use crate::{Config, Error};
@@ -39,7 +38,7 @@ pub struct AccessConfig {
 /// The gate of the server.
 pub struct Access {
     /// The database pool, for the revocations.
-    pool: PgPool,
+    pub(super) pool: PgPool,
     /// The keys of the tokens.
     keys: TokenKeys,
     /// The lifetime of a token.
@@ -131,28 +130,6 @@ impl Access {
         let value = sign(&self.keys, actor, expires_at, binding)?;
         Ok(IssuedToken { value, expires_at })
     }
-
-    /// Returns `true` if a token cannot pass: a revocation id of it is revoked, its session, its
-    /// key or its API token is revoked, its session or its API token is expired, or its user or
-    /// App is gone or disabled.
-    async fn is_refused(&self, token: &Biscuit, claims: &Claims) -> Result<bool, AccessError> {
-        let ids = token.revocation_identifiers();
-        let facts = store::TokenFacts {
-            ids: &ids,
-            actor: claims.actor.id,
-            user: claims.actor.kind == users::KIND,
-            app: claims.actor.kind == apps::KIND,
-            session: claims.session(),
-            key: claims.key(),
-            api_token: claims.api_token(),
-        };
-        let mut tx = self.pool.begin().await.map_err(store::failed)?;
-        let refused = store::is_refused(&mut tx, &facts)
-            .await
-            .map_err(store::failed)?;
-        tx.commit().await.map_err(store::failed)?;
-        Ok(refused)
-    }
 }
 
 #[async_trait]
@@ -218,6 +195,18 @@ impl Gate for Access {
             .ok_or_else(|| unauthenticated("unknown token type"))?;
         if !allows(token, operation, &check) {
             let reason = "the token does not allow this operation".to_owned();
+            let object = check.object();
+            return Err(AccessError::refused(
+                principal,
+                check.permission(),
+                object,
+                reason,
+            ));
+        }
+
+        // Refuse a personal token in a workspace that refuses them.
+        if self.refuses_personal_token(principal, &check).await? {
+            let reason = "the workspace refuses the personal tokens".to_owned();
             let object = check.object();
             return Err(AccessError::refused(
                 principal,

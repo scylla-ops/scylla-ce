@@ -81,12 +81,21 @@ pub mod workspaces {
     }
 }
 
-/// The accounts API: sign-up, sign-in with a password, the profile of the caller, and the
-/// console of the users.
+/// The accounts API: sign-up, sign-in with a password, the profile and the personal tokens of
+/// the caller, and the console of the users.
 pub mod accounts {
     /// Version 1.
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
     pub mod v1 {
         tonic::include_proto!("scylla.accounts.v1");
+    }
+}
+
+/// The platform API: the settings of the instance.
+pub mod platform {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.platform.v1");
     }
 }

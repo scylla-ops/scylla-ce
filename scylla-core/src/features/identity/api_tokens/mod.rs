@@ -5,5 +5,5 @@ mod convert;
 mod service;
 mod store;
 
-pub(crate) use convert::limits;
-pub(crate) use service::{create, delete_all, list, revoke, take};
+pub(crate) use convert::{expiry, limits};
+pub(crate) use service::{check_maker, count_active, create, delete_all, list, revoke, take};

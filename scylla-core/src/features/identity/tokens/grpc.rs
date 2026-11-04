@@ -1,6 +1,7 @@
 //! The gRPC handler of `TokenService`. Its RPCs need no token: they give one.
 
 use scylla_domain::identity::actors::Actor;
+use scylla_domain::identity::api_tokens::PERSONAL_TOKEN_PREFIX;
 use scylla_domain::identity::users::KIND;
 use scylla_extension::{AccessError, Binding};
 use scylla_proto::auth::v1 as pb;
@@ -11,9 +12,9 @@ use tonic::{Request, Response, Status};
 use crate::access::attenuate;
 use crate::api::parse::ToProto;
 use crate::features::identity::accounts::{deliver, to_proto, AccountContext};
-use crate::features::identity::apps;
 use crate::features::identity::providers::Providers;
 use crate::features::identity::sessions::{self, cookie, Client};
+use crate::features::identity::{apps, personal_tokens};
 use crate::Error;
 
 /// Makes the service.
@@ -53,13 +54,17 @@ impl TokenService for TokensGrpc {
     ) -> Result<Response<pb::ExchangeApiTokenResponse>, Status> {
         let ctx = self.ctx();
         let secret = request.into_inner().api_token;
-        let (app, token, limits) = apps::exchange_token(&ctx.pool, &secret).await?;
+        let exchanged = match secret.starts_with(PERSONAL_TOKEN_PREFIX) {
+            true => personal_tokens::exchange(&ctx.pool, &secret).await?,
+            false => apps::exchange_token(&ctx.pool, &secret).await?,
+        };
+        let (actor, token, limits) = exchanged;
         let gate = &ctx.gate;
         let mut issued = gate
-            .issue(&app, Binding::ApiToken(token))
+            .issue(&actor, Binding::ApiToken(token))
             .map_err(Error::from)?;
         issued.value = attenuate(&issued.value, &limits).map_err(Error::from)?;
-        tracing::info!(event = "app.signed_in", app = %app.id, %token);
+        tracing::info!(event = "api_token.exchanged", actor = %actor.id, %token);
         Ok(Response::new(pb::ExchangeApiTokenResponse {
             token: Some(to_proto(issued)),
         }))

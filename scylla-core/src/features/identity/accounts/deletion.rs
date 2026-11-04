@@ -1,5 +1,5 @@
-//! The deletion of a user: its account rows and its workspace ownerships in one transaction,
-//! then its roles in SpiceDB. Its actor stays, so each `created_by` stays valid.
+//! The deletion of a user: its account rows, its workspace ownerships and its personal tokens in
+//! one transaction, then its roles in SpiceDB. Its actor stays, so each `created_by` stays valid.
 
 use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::ActorId;
@@ -8,6 +8,7 @@ use scylla_extension::{Rejection, Tx};
 
 use super::{store, AccountContext};
 use crate::features::identity::admins;
+use crate::features::identity::api_tokens;
 use crate::features::tenancy::workspaces;
 use crate::Error;
 
@@ -37,9 +38,10 @@ pub(crate) async fn delete_user(ctx: &AccountContext, user: ActorId) -> Result<(
         return Err(Error::Rejected(rejection));
     }
 
-    // Delete the empty workspaces, the ownerships and the user.
+    // Delete the empty workspaces, the ownerships, the personal tokens and the user.
     workspaces::delete_all(&mut tx, &sole).await?;
     workspaces::leave_all(&mut tx, user).await?;
+    api_tokens::delete_all(&mut tx, user).await?;
     store::delete_user(&mut tx, user).await?;
     tx.commit().await?;
     tracing::info!(event = "user.deleted", %user, workspaces = sole.len());

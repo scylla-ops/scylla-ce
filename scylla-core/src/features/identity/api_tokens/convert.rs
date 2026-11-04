@@ -1,6 +1,6 @@
 //! The conversions between the proto messages and the domain types of the API tokens.
 
-use scylla_domain::identity::api_tokens::{ApiTokenInfo, TokenLimits, TokenPreset};
+use scylla_domain::identity::api_tokens::{ApiTokenInfo, TokenExpiry, TokenLimits, TokenPreset};
 use scylla_domain::projects::ProjectId;
 use scylla_proto::auth::v1 as pb;
 
@@ -57,4 +57,15 @@ pub(crate) fn limits(message: Option<pb::TokenLimits>) -> Result<TokenLimits, Er
         .collect::<Result<Vec<_>, _>>()?;
     TokenLimits::new(preset, message.actions, projects)
         .map_err(|(field, error)| Error::invalid(format!("limits.{field}"), error.to_string()))
+}
+
+/// Reads the life of a new token. No value gives 90 days.
+pub(crate) fn expiry(value: i32) -> Result<TokenExpiry, Error> {
+    match pb::TokenExpiry::try_from(value) {
+        Ok(pb::TokenExpiry::Unspecified | pb::TokenExpiry::Days90) => Ok(TokenExpiry::Days90),
+        Ok(pb::TokenExpiry::Days7) => Ok(TokenExpiry::Days7),
+        Ok(pb::TokenExpiry::Days30) => Ok(TokenExpiry::Days30),
+        Ok(pb::TokenExpiry::Days365) => Ok(TokenExpiry::Days365),
+        Err(_) => Err(Error::invalid("expiry", "must be a known value")),
+    }
 }

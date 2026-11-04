@@ -172,3 +172,14 @@ pub(super) async fn owners(pool: &PgPool, query: ListOwners) -> Result<OwnerPage
         owner.user_id
     }))
 }
+
+/// Returns the workspaces that a caller can read and that refuse the personal tokens.
+pub(crate) async fn refusing_personal_tokens(
+    pool: &PgPool,
+    visible: VisibleWorkspaces,
+) -> Result<Vec<WorkspaceId>, Error> {
+    let mut tx = pool.begin().await?;
+    let ids = store::refusing_personal_tokens(&mut tx, &visible).await?;
+    tx.commit().await?;
+    Ok(ids)
+}

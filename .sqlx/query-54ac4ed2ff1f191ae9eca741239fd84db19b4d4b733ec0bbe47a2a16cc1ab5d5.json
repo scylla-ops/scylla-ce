@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE workspaces SET name = coalesce($2, name), slug = coalesce($3, slug)\n         WHERE id = $1\n         RETURNING id, name, slug, created_at",
+  "query": "SELECT id, name, slug, created_at, personal_tokens_enabled FROM workspaces\n         WHERE (id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)\n                OR id = ANY($2))\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
   "describe": {
     "columns": [
       {
@@ -46,21 +46,34 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "personal_tokens_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "personal_tokens_enabled"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
-        "Text"
+        "UuidArray",
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "caaabc50895e4ffcacd8f08f3b9fbfe69ef457f5f0a3ca3a3fa13e39078dbfce"
+  "hash": "54ac4ed2ff1f191ae9eca741239fd84db19b4d4b733ec0bbe47a2a16cc1ab5d5"
 }

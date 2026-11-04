@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, slug, created_at FROM workspaces WHERE slug = $1",
+  "query": "UPDATE workspaces SET name = coalesce($2, name), slug = coalesce($3, slug),\n             personal_tokens_enabled = coalesce($4, personal_tokens_enabled)\n         WHERE id = $1\n         RETURNING id, name, slug, created_at, personal_tokens_enabled",
   "describe": {
     "columns": [
       {
@@ -46,19 +46,34 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "personal_tokens_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "personal_tokens_enabled"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Uuid",
+        "Text",
+        "Text",
+        "Bool"
       ]
     },
     "nullable": [
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "5163792e67b0021cc278bcabb44bcb79f7c2119c59678292f7c59413243ffc15"
+  "hash": "6fa6ab5d2f25f0d293e955aa86cbb59dfa8752da9803fe910530ddfae609ee17"
 }

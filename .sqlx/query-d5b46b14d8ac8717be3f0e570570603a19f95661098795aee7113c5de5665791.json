@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, slug, created_at FROM workspaces WHERE id = $1",
+  "query": "SELECT id, name, slug, created_at, personal_tokens_enabled FROM workspaces WHERE slug = $1",
   "describe": {
     "columns": [
       {
@@ -46,19 +46,31 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "personal_tokens_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "personal_tokens_enabled"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "c9e80ef67edab563c64ad5949c188c5ded98d749579a1a1085605ab42cfa722b"
+  "hash": "d5b46b14d8ac8717be3f0e570570603a19f95661098795aee7113c5de5665791"
 }

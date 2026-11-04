@@ -2,8 +2,9 @@
 
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::identity::admins::UserAdminHolder;
+use scylla_domain::identity::api_tokens::TokenOwner;
 use scylla_domain::identity::users::AccountCaller;
-use scylla_domain::platform::Platform;
+use scylla_domain::platform::{Platform, SettingsHolder};
 use scylla_extension::{Edition, EditionBuilder};
 
 use crate::features::identity::apps::Apps;
@@ -24,6 +25,8 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .authz::<AccountCaller>()
         .authz::<Platform>()
         .authz::<UserAdminHolder>()
+        .authz::<SettingsHolder>()
+        .authz::<TokenOwner>()
         .plugin(Workspaces)
         .plugin(Apps)
         .plugin(Projects)

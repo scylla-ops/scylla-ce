@@ -221,6 +221,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | API tokens of the Apps: the secret one time and its hint, the exchange, the revocation and the expiry that stop the short tokens at once, a disabled or deleted App, the routes and their checks | `scylla-ce/tests/api/identity/app_tokens.rs` |
 | The limits of the API tokens: the read-only, deploy and full presets, a custom list of methods, a list of projects, the check of new limits | `scylla-ce/tests/api/identity/token_limits.rs` |
 | App creators: the role `app_creator` creates Apps and manages its own only, and `CheckPermissions` tells `create_app` | `scylla-ce/tests/api/identity/app_creators.rs` |
+| Personal tokens: the user as actor, no token from a token, the switch of the instance at once, the switch of a workspace on that workspace only | `scylla-ce/tests/api/identity/personal_tokens.rs` |
 | Streams of the agents: the hello and the host, the presence, only an agent, the renewal of the token, the end at the expiry, a second stream, a revoked key, a deleted App | `scylla-ce/tests/api/identity/agents.rs` |
 | Projects: creation, reads, the list and its pages, deletion | `scylla-ce/tests/api/projects/lifecycle.rs` |
 | Change of a project: the name and the description, their limits (100 and 101, 1024 and 1025), one line for a name, an empty description, each role | `scylla-ce/tests/api/projects/updates.rs` |

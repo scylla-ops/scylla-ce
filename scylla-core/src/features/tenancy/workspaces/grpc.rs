@@ -250,6 +250,7 @@ impl WorkspacesGrpc {
                 .slug
                 .map(|slug| parse::field(slug, "slug"))
                 .transpose()?,
+            personal_tokens_enabled: request.personal_tokens_enabled,
         };
 
         // Check the route permission on a workspace that exists, then change it.

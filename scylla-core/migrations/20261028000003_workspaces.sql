@@ -2,7 +2,8 @@ CREATE TABLE workspaces (
     id uuid PRIMARY KEY,
     name text NOT NULL,
     slug text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9-]{0,37}[a-z0-9]$'),
-    created_at timestamptz NOT NULL DEFAULT now()
+    created_at timestamptz NOT NULL DEFAULT now(),
+    personal_tokens_enabled boolean NOT NULL DEFAULT true
 );
 
 CREATE TABLE workspace_owners (

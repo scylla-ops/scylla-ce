@@ -70,6 +70,7 @@ impl TestApp {
             workspace_id: Some(id(workspace)),
             name: name.map(str::to_owned),
             slug: slug.map(str::to_owned),
+            personal_tokens_enabled: None,
         };
         let request = self.authed(actor, request).await;
         let response = self.workspaces().update_workspace(request).await?;

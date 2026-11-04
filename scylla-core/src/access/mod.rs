@@ -5,6 +5,7 @@ mod gate;
 mod keys;
 mod limits;
 mod operation;
+mod refusals;
 mod relationships;
 mod rights;
 mod spicedb;

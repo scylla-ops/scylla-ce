@@ -7,6 +7,7 @@ use std::path::PathBuf;
 const PROTOS: &[&str] = &[
     "scylla/access/v1/access_service.proto",
     "scylla/accounts/v1/account_service.proto",
+    "scylla/accounts/v1/personal_token_service.proto",
     "scylla/accounts/v1/profile_service.proto",
     "scylla/accounts/v1/user.proto",
     "scylla/accounts/v1/user_admin_service.proto",
@@ -26,6 +27,7 @@ const PROTOS: &[&str] = &[
     "scylla/pipelines/v1/pipeline_service.proto",
     "scylla/pipelines/v1/trigger.proto",
     "scylla/pipelines/v1/trigger_service.proto",
+    "scylla/platform/v1/settings_service.proto",
     "scylla/projects/v1/project.proto",
     "scylla/projects/v1/project_service.proto",
     "scylla/projects/v1/secret.proto",

@@ -43,6 +43,7 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewWorkspace) -> Result<Worksp
         name: new.name.as_str().to_owned(),
         slug: slug.as_str().to_owned(),
         created_at,
+        personal_tokens_enabled: true,
     })
 }
 
@@ -108,7 +109,7 @@ async fn try_insert(
 pub(crate) async fn find(tx: &mut Tx<'_>, id: WorkspaceId) -> Result<Option<Workspace>, Error> {
     let row = sqlx::query_as!(
         Row,
-        "SELECT id, name, slug, created_at FROM workspaces WHERE id = $1",
+        "SELECT id, name, slug, created_at, personal_tokens_enabled FROM workspaces WHERE id = $1",
         id.to_db()
     )
     .fetch_optional(&mut **tx)
@@ -120,7 +121,7 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: WorkspaceId) -> Result<Option<Work
 pub(crate) async fn find_by_slug(tx: &mut Tx<'_>, slug: &Slug) -> Result<Option<Workspace>, Error> {
     let row = sqlx::query_as!(
         Row,
-        "SELECT id, name, slug, created_at FROM workspaces WHERE slug = $1",
+        "SELECT id, name, slug, created_at, personal_tokens_enabled FROM workspaces WHERE slug = $1",
         slug.as_str()
     )
     .fetch_optional(&mut **tx)
@@ -149,7 +150,7 @@ pub(crate) async fn list_visible(
     let granted: Vec<_> = visible.granted.iter().map(|id| id.to_db()).collect();
     let rows = sqlx::query_as!(
         Row,
-        "SELECT id, name, slug, created_at FROM workspaces
+        "SELECT id, name, slug, created_at, personal_tokens_enabled FROM workspaces
          WHERE (id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)
                 OR id = ANY($2))
            AND ($3::uuid IS NULL OR id > $3)
@@ -165,7 +166,7 @@ pub(crate) async fn list_visible(
     Ok(rows.into_iter().map(Row::into_workspace).collect())
 }
 
-/// Changes the name or the slug of a workspace, and returns it, or `None` if no workspace has
+/// Changes the name, the slug or the personal token switch of a workspace, and returns it, or `None` if no workspace has
 /// this id. A slug in use gives `SLUG_IN_USE`.
 pub(crate) async fn update(
     tx: &mut Tx<'_>,
@@ -174,12 +175,14 @@ pub(crate) async fn update(
 ) -> Result<Option<Workspace>, Error> {
     let row = sqlx::query_as!(
         Row,
-        "UPDATE workspaces SET name = coalesce($2, name), slug = coalesce($3, slug)
+        "UPDATE workspaces SET name = coalesce($2, name), slug = coalesce($3, slug),
+             personal_tokens_enabled = coalesce($4, personal_tokens_enabled)
          WHERE id = $1
-         RETURNING id, name, slug, created_at",
+         RETURNING id, name, slug, created_at, personal_tokens_enabled",
         id.to_db(),
         change.name.as_ref().map(WorkspaceName::as_str),
         change.slug.as_ref().map(Slug::as_str),
+        change.personal_tokens_enabled,
     )
     .fetch_optional(&mut **tx)
     .await
@@ -223,6 +226,27 @@ pub(crate) async fn delete_all(tx: &mut Tx<'_>, ids: &[WorkspaceId]) -> Result<(
     Ok(())
 }
 
+/// Returns the workspaces that a caller can read and that refuse the personal tokens, in id
+/// order.
+pub(crate) async fn refusing_personal_tokens(
+    tx: &mut Tx<'_>,
+    visible: &VisibleWorkspaces,
+) -> Result<Vec<WorkspaceId>, sqlx::Error> {
+    let granted: Vec<_> = visible.granted.iter().map(|id| id.to_db()).collect();
+    let ids = sqlx::query_scalar!(
+        "SELECT id FROM workspaces
+         WHERE NOT personal_tokens_enabled
+           AND (id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)
+                OR id = ANY($2))
+         ORDER BY id",
+        visible.caller.to_db(),
+        &granted,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(ids.into_iter().map(WorkspaceId::from_db).collect())
+}
+
 /// A row of the `workspaces` table.
 struct Row {
     /// The id.
@@ -233,6 +257,8 @@ struct Row {
     slug: String,
     /// The creation time.
     created_at: OffsetDateTime,
+    /// The personal token switch.
+    personal_tokens_enabled: bool,
 }
 
 impl Row {
@@ -243,6 +269,7 @@ impl Row {
             name: self.name,
             slug: self.slug,
             created_at: self.created_at,
+            personal_tokens_enabled: self.personal_tokens_enabled,
         }
     }
 }

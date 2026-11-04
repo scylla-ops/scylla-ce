@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM workspaces\n         WHERE NOT personal_tokens_enabled\n           AND (id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)\n                OR id = ANY($2))\n         ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "212df9d23da3fc94413099a99c16e3b7351052b038bca11fd160312b9de67278"
+}

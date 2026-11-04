@@ -27,6 +27,8 @@ pub struct Workspace {
     pub slug: String,
     /// The creation time, set by the database.
     pub created_at: OffsetDateTime,
+    /// `true` when the personal tokens of the users act in this workspace.
+    pub personal_tokens_enabled: bool,
 }
 
 /// How a new workspace gets its slug.
@@ -56,6 +58,8 @@ pub struct WorkspaceChange {
     pub name: Option<WorkspaceName>,
     /// The new slug. A slug in use is refused.
     pub slug: Option<Slug>,
+    /// The new personal token switch.
+    pub personal_tokens_enabled: Option<bool>,
 }
 
 /// What a caller can read: the workspaces that it owns, and the workspaces where it has a role.

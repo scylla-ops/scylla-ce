@@ -5,11 +5,12 @@ use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::api_tokens::{
     self, ApiTokenId, ApiTokenInfo, TokenExpiry, TokenLimits, TokenName,
 };
-use scylla_extension::Tx;
+use scylla_extension::{AccessError, Principal, Tx};
 use time::OffsetDateTime;
 
 use super::store::{self, NewToken, Taken};
 use crate::infra::secret;
+use crate::Error;
 
 /// Creates an API token of an actor with a new secret that starts with `prefix`, and returns
 /// the token and its secret. Only the hash of the secret goes to the database.
@@ -70,4 +71,20 @@ pub(crate) async fn take(
 /// Deletes each API token of an actor.
 pub(crate) async fn delete_all(tx: &mut Tx<'_>, actor: ActorId) -> Result<(), sqlx::Error> {
     store::delete_all(tx, actor).await
+}
+
+/// Returns the number of tokens whose secret starts with `prefix`, not revoked and not expired.
+pub(crate) async fn count_active(tx: &mut Tx<'_>, prefix: &str) -> Result<u32, sqlx::Error> {
+    store::count_active(tx, prefix).await
+}
+
+/// Refuses a caller whose token came from an API token: an API token cannot make another one.
+pub(crate) fn check_maker(caller: &Principal) -> Result<(), Error> {
+    match caller.api_token() {
+        Some(_) => {
+            let reason = "a token of an API token cannot create an API token".to_owned();
+            Err(AccessError::Denied(reason).into())
+        }
+        None => Ok(()),
+    }
 }

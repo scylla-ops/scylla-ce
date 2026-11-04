@@ -129,6 +129,18 @@ pub(super) async fn delete_all(tx: &mut Tx<'_>, actor: ActorId) -> Result<(), sq
     Ok(())
 }
 
+/// Returns the number of tokens whose secret starts with `prefix`, not revoked and not expired.
+pub(super) async fn count_active(tx: &mut Tx<'_>, prefix: &str) -> Result<u32, sqlx::Error> {
+    let count = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "count!" FROM api_tokens
+           WHERE starts_with(hint, $1) AND revoked_at IS NULL AND expires_at > now()"#,
+        prefix,
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(u32::try_from(count).unwrap_or(u32::MAX))
+}
+
 /// Makes the limits of the columns of a row.
 fn limits(preset: &str, actions: Vec<String>, projects: Vec<uuid::Uuid>) -> TokenLimits {
     TokenLimits {

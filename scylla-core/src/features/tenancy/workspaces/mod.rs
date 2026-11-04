@@ -10,4 +10,5 @@ mod store;
 
 pub(crate) use plugin::Workspaces;
 pub use service::create;
+pub(crate) use service::refusing_personal_tokens;
 pub(crate) use store::{add_owner, delete_all, has_content, insert, leave_all, lock_sole_owned};

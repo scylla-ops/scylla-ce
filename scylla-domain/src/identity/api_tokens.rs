@@ -3,12 +3,15 @@
 
 use time::{Duration, OffsetDateTime};
 
-use crate::identity::actors::ActorId;
+use crate::identity::actors::{Actor, ActorId};
 use crate::projects::ProjectId;
 use crate::{DomainError, Id, Name};
 
 /// The start of the secret of an API token of an App.
 pub const APP_TOKEN_PREFIX: &str = "scya_";
+
+/// The start of the secret of a personal token of a user.
+pub const PERSONAL_TOKEN_PREFIX: &str = "scyp_";
 
 /// The number of last characters of a secret that its hint shows.
 pub const HINT_LEN: usize = 4;
@@ -191,6 +194,18 @@ pub fn hint(prefix: &str, secret: &str) -> String {
     let start = secret.len().saturating_sub(HINT_LEN);
     let end = secret.get(start..).unwrap_or_default();
     format!("{prefix}...{end}")
+}
+
+crate::authz! {
+    /// The routes of a user on its own personal tokens.
+    extend Actor as TokenOwner {
+        /// The route `CreatePersonalToken`.
+        permission create_personal_token = nil;
+        /// The route `ListPersonalTokens`.
+        permission list_personal_tokens = nil;
+        /// The route `RevokePersonalToken`.
+        permission revoke_personal_token = nil;
+    }
 }
 
 #[cfg(test)]

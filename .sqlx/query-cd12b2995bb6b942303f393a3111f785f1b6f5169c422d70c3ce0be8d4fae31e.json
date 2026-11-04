@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (\n               EXISTS (SELECT 1 FROM revoked_tokens WHERE revocation_id = ANY($1))\n               OR EXISTS (SELECT 1 FROM users WHERE id = $2 AND status = 'disabled')\n               OR ($3 AND NOT EXISTS (SELECT 1 FROM users WHERE id = $2))\n               OR ($4::uuid IS NOT NULL AND NOT EXISTS (\n                   SELECT 1 FROM sessions\n                   WHERE id = $4 AND revoked_at IS NULL AND expires_at > now()))\n               OR ($5 AND NOT EXISTS (SELECT 1 FROM apps WHERE id = $2 AND disabled_at IS NULL))\n               OR ($6::uuid IS NOT NULL AND NOT EXISTS (\n                   SELECT 1 FROM app_keys\n                   WHERE id = $6 AND app_id = $2 AND revoked_at IS NULL))\n               OR ($7::uuid IS NOT NULL AND NOT EXISTS (\n                   SELECT 1 FROM api_tokens\n                   WHERE id = $7 AND actor_id = $2 AND revoked_at IS NULL AND expires_at > now()))\n               OR ($7::uuid IS NOT NULL AND $3\n                   AND NOT (SELECT personal_tokens_enabled FROM instance_settings))\n           ) AS \"refused!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "refused!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "ByteaArray",
+        "Uuid",
+        "Bool",
+        "Uuid",
+        "Bool",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "cd12b2995bb6b942303f393a3111f785f1b6f5169c422d70c3ce0be8d4fae31e"
+}

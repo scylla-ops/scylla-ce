@@ -59,6 +59,14 @@ impl Principal {
         }
     }
 
+    /// Returns the API token that gave the token, if the actor exchanged one.
+    pub fn api_token(&self) -> Option<ApiTokenId> {
+        match self.binding {
+            Binding::ApiToken(token) => Some(token),
+            _ => None,
+        }
+    }
+
     /// Returns the end of the validity of the token.
     pub fn expires_at(&self) -> OffsetDateTime {
         self.expires_at

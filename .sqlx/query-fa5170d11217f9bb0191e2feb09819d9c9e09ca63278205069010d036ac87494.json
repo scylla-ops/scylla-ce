@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n               SELECT 1 FROM workspaces WHERE id = $1 AND NOT personal_tokens_enabled\n           ) AS \"refused!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "refused!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fa5170d11217f9bb0191e2feb09819d9c9e09ca63278205069010d036ac87494"
+}
