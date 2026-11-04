@@ -9,6 +9,7 @@ use tonic::Request;
 use super::grpc::AppsGrpc;
 use super::token_service;
 use crate::api::parse::{self, ToProto};
+use crate::features::identity::api_tokens;
 use crate::Error;
 
 impl AppsGrpc {
@@ -22,8 +23,10 @@ impl AppsGrpc {
         let id: AppId = parse::required(request.app_id, "app_id")?;
         let name: TokenName = parse::field(request.name, "name")?;
         let expiry = expiry(request.expiry)?;
+        let limits = api_tokens::limits(request.limits)?;
         self.authorize(&caller, App::CREATE_APP_TOKEN, id).await?;
-        let created = token_service::create(&self.pool, id, &name, expiry, caller.actor.id);
+        let by = caller.actor.id;
+        let created = token_service::create(&self.pool, id, &name, expiry, &limits, by);
         let (token, secret) = created.await?;
         Ok(pb::CreateAppTokenResponse {
             token: Some(token.to_proto()),

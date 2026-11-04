@@ -98,4 +98,10 @@ pub enum DomainError {
     /// The path is not a relative path inside the work folder.
     #[error("must be a relative path with no .. part")]
     NotRelative,
+    /// The text is not the name of a gRPC method.
+    #[error("must be <package>.<Service>/<Method>")]
+    NotAMethod,
+    /// The value is only for the custom preset.
+    #[error("must be empty for a preset that is not custom")]
+    NotCustom,
 }

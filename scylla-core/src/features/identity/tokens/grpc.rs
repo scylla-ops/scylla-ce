@@ -8,6 +8,7 @@ use scylla_proto::auth::v1::token_service_server::{TokenService, TokenServiceSer
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Request, Response, Status};
 
+use crate::access::attenuate;
 use crate::api::parse::ToProto;
 use crate::features::identity::accounts::{deliver, to_proto, AccountContext};
 use crate::features::identity::apps;
@@ -52,11 +53,12 @@ impl TokenService for TokensGrpc {
     ) -> Result<Response<pb::ExchangeApiTokenResponse>, Status> {
         let ctx = self.ctx();
         let secret = request.into_inner().api_token;
-        let (app, token) = apps::exchange_token(&ctx.pool, &secret).await?;
-        let issued = ctx
-            .gate
+        let (app, token, limits) = apps::exchange_token(&ctx.pool, &secret).await?;
+        let gate = &ctx.gate;
+        let mut issued = gate
             .issue(&app, Binding::ApiToken(token))
             .map_err(Error::from)?;
+        issued.value = attenuate(&issued.value, &limits).map_err(Error::from)?;
         tracing::info!(event = "app.signed_in", app = %app.id, %token);
         Ok(Response::new(pb::ExchangeApiTokenResponse {
             token: Some(to_proto(issued)),

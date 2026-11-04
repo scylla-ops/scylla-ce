@@ -6,13 +6,14 @@ use scylla_proto::apps::v1::{
     CreateAppTokenRequest, CreateAppTokenResponse, ListAppTokensRequest, RevokeAppTokenRequest,
 };
 use scylla_proto::auth::v1::token_service_client::TokenServiceClient;
-use scylla_proto::auth::v1::{ApiToken, ExchangeApiTokenRequest};
+use scylla_proto::auth::v1::{ApiToken, ExchangeApiTokenRequest, TokenLimits};
 use tonic::Status;
 
 use crate::{id, TestApp};
 
 impl TestApp {
-    /// Calls `CreateAppToken` as `actor` with a name and an expiry (a `TokenExpiry` value).
+    /// Calls `CreateAppToken` as `actor` with a name and an expiry (a `TokenExpiry` value), and the
+    /// default limits.
     pub async fn create_app_token(
         &self,
         actor: ActorId,
@@ -20,10 +21,24 @@ impl TestApp {
         name: &str,
         expiry: i32,
     ) -> Result<CreateAppTokenResponse, Status> {
+        self.create_limited_app_token(actor, app, name, expiry, None)
+            .await
+    }
+
+    /// Calls `CreateAppToken` as `actor` with a name, an expiry and limits.
+    pub async fn create_limited_app_token(
+        &self,
+        actor: ActorId,
+        app: &str,
+        name: &str,
+        expiry: i32,
+        limits: Option<TokenLimits>,
+    ) -> Result<CreateAppTokenResponse, Status> {
         let request = CreateAppTokenRequest {
             app_id: Some(id(app)),
             name: name.to_owned(),
             expiry,
+            limits,
         };
         let request = self.authed(actor, request).await;
         let mut client = AppServiceClient::new(self.channel.clone());

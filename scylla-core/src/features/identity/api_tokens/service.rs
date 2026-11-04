@@ -2,11 +2,13 @@
 //! checks the actor and commits.
 
 use scylla_domain::identity::actors::ActorId;
-use scylla_domain::identity::api_tokens::{self, ApiTokenId, ApiTokenInfo, TokenExpiry, TokenName};
+use scylla_domain::identity::api_tokens::{
+    self, ApiTokenId, ApiTokenInfo, TokenExpiry, TokenLimits, TokenName,
+};
 use scylla_extension::Tx;
 use time::OffsetDateTime;
 
-use super::store::{self, NewToken};
+use super::store::{self, NewToken, Taken};
 use crate::infra::secret;
 
 /// Creates an API token of an actor with a new secret that starts with `prefix`, and returns
@@ -17,6 +19,7 @@ pub(crate) async fn create(
     prefix: &str,
     name: &TokenName,
     expiry: TokenExpiry,
+    limits: &TokenLimits,
     created_by: ActorId,
 ) -> Result<(ApiTokenInfo, String), sqlx::Error> {
     let secret = format!("{prefix}{}", secret::token());
@@ -27,6 +30,7 @@ pub(crate) async fn create(
         hint: &api_tokens::hint(prefix, &secret),
         created_by,
         expires_at: OffsetDateTime::now_utc() + expiry.duration(),
+        limits,
     };
     let token = store::insert(tx, new).await?;
     Ok((token, secret))
@@ -50,12 +54,13 @@ pub(crate) async fn revoke(
 }
 
 /// Finds the active token of a secret that starts with `prefix`, records its use, and returns
-/// it with its actor. Another prefix, or an unknown, revoked or expired secret, gives `None`.
+/// it with its actor and its limits. Another prefix, or an unknown, revoked or expired secret,
+/// gives `None`.
 pub(crate) async fn take(
     tx: &mut Tx<'_>,
     prefix: &str,
     secret: &str,
-) -> Result<Option<(ApiTokenId, ActorId)>, sqlx::Error> {
+) -> Result<Option<Taken>, sqlx::Error> {
     if !secret.starts_with(prefix) {
         return Ok(None);
     }

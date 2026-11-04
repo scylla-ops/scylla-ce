@@ -9,6 +9,9 @@ CREATE TABLE api_tokens (
     expires_at timestamptz NOT NULL,
     last_used_at timestamptz,
     revoked_at timestamptz,
+    preset text NOT NULL CHECK (preset IN ('read_only', 'deploy', 'full', 'custom')),
+    actions text[] NOT NULL,
+    project_ids uuid[] NOT NULL,
     CHECK (expires_at > created_at)
 );
 

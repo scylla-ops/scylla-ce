@@ -1,7 +1,10 @@
 //! The SQL of the `api_tokens` table.
 
 use scylla_domain::identity::actors::ActorId;
-use scylla_domain::identity::api_tokens::{ApiTokenId, ApiTokenInfo, TokenName};
+use scylla_domain::identity::api_tokens::{
+    ApiTokenId, ApiTokenInfo, TokenLimits, TokenName, TokenPreset,
+};
+use scylla_domain::projects::ProjectId;
 use scylla_extension::Tx;
 use time::OffsetDateTime;
 
@@ -19,6 +22,18 @@ pub(super) struct NewToken<'a> {
     pub(super) created_by: ActorId,
     /// The end of its validity.
     pub(super) expires_at: OffsetDateTime,
+    /// What its short tokens can do.
+    pub(super) limits: &'a TokenLimits,
+}
+
+/// The active token of a secret, with what its short tokens can do.
+pub(crate) struct Taken {
+    /// The token.
+    pub(crate) id: ApiTokenId,
+    /// The actor of the token.
+    pub(crate) actor: ActorId,
+    /// What its short tokens can do.
+    pub(crate) limits: TokenLimits,
 }
 
 /// Inserts an API token, and returns it.
@@ -26,12 +41,14 @@ pub(super) async fn insert(
     tx: &mut Tx<'_>,
     new: NewToken<'_>,
 ) -> Result<ApiTokenInfo, sqlx::Error> {
+    let projects: Vec<uuid::Uuid> = new.limits.projects.iter().map(|id| id.to_db()).collect();
     let row = sqlx::query_as!(
         Row,
-        "INSERT INTO api_tokens (id, actor_id, name, secret_hash, hint, created_by, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        "INSERT INTO api_tokens (id, actor_id, name, secret_hash, hint, created_by, expires_at,
+                                 preset, actions, project_ids)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id, actor_id, name, hint, created_by, created_at, expires_at, last_used_at,
-                   revoked_at",
+                   revoked_at, preset, actions, project_ids",
         ApiTokenId::generate().to_db(),
         new.actor.to_db(),
         new.name.as_str(),
@@ -39,6 +56,9 @@ pub(super) async fn insert(
         new.hint,
         new.created_by.to_db(),
         new.expires_at,
+        new.limits.preset.as_str(),
+        &new.limits.actions,
+        &projects,
     )
     .fetch_one(&mut **tx)
     .await?;
@@ -53,7 +73,7 @@ pub(super) async fn list(
     let rows = sqlx::query_as!(
         Row,
         "SELECT id, actor_id, name, hint, created_by, created_at, expires_at, last_used_at,
-                revoked_at
+                revoked_at, preset, actions, project_ids
          FROM api_tokens WHERE actor_id = $1 ORDER BY created_at DESC, id DESC",
         actor.to_db(),
     )
@@ -80,21 +100,25 @@ pub(super) async fn revoke(
     Ok(done.rows_affected() == 1)
 }
 
-/// Finds the active token of a secret hash, sets its last use to now, and returns it with its
-/// actor. A revoked or expired token gives `None`.
+/// Finds the active token of a secret hash and sets its last use to now. A revoked or expired
+/// token gives `None`.
 pub(super) async fn take(
     tx: &mut Tx<'_>,
     secret_hash: &[u8],
-) -> Result<Option<(ApiTokenId, ActorId)>, sqlx::Error> {
+) -> Result<Option<Taken>, sqlx::Error> {
     let row = sqlx::query!(
         "UPDATE api_tokens SET last_used_at = now()
          WHERE secret_hash = $1 AND revoked_at IS NULL AND expires_at > now()
-         RETURNING id, actor_id",
+         RETURNING id, actor_id, preset, actions, project_ids",
         secret_hash,
     )
     .fetch_optional(&mut **tx)
     .await?;
-    Ok(row.map(|row| (ApiTokenId::from_db(row.id), ActorId::from_db(row.actor_id))))
+    Ok(row.map(|row| Taken {
+        id: ApiTokenId::from_db(row.id),
+        actor: ActorId::from_db(row.actor_id),
+        limits: limits(&row.preset, row.actions, row.project_ids),
+    }))
 }
 
 /// Deletes each API token of an actor.
@@ -103,6 +127,15 @@ pub(super) async fn delete_all(tx: &mut Tx<'_>, actor: ActorId) -> Result<(), sq
         .execute(&mut **tx)
         .await?;
     Ok(())
+}
+
+/// Makes the limits of the columns of a row.
+fn limits(preset: &str, actions: Vec<String>, projects: Vec<uuid::Uuid>) -> TokenLimits {
+    TokenLimits {
+        preset: TokenPreset::from_name(preset),
+        actions,
+        projects: projects.into_iter().map(ProjectId::from_db).collect(),
+    }
 }
 
 /// A row of the `api_tokens` table, with no hash.
@@ -125,6 +158,12 @@ struct Row {
     last_used_at: Option<OffsetDateTime>,
     /// The revocation time.
     revoked_at: Option<OffsetDateTime>,
+    /// The name of the preset.
+    preset: String,
+    /// The methods of a custom preset.
+    actions: Vec<String>,
+    /// The projects.
+    project_ids: Vec<uuid::Uuid>,
 }
 
 impl Row {
@@ -140,6 +179,7 @@ impl Row {
             expires_at: self.expires_at,
             last_used_at: self.last_used_at,
             revoked_at: self.revoked_at,
+            limits: limits(&self.preset, self.actions, self.project_ids),
         }
     }
 }

@@ -2,7 +2,7 @@
 
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::api_tokens::{
-    ApiTokenId, ApiTokenInfo, TokenExpiry, TokenName, APP_TOKEN_PREFIX,
+    ApiTokenId, ApiTokenInfo, TokenExpiry, TokenLimits, TokenName, APP_TOKEN_PREFIX,
 };
 use scylla_domain::identity::apps::{App, AppId, KIND};
 use scylla_extension::{AccessError, Rejection};
@@ -18,11 +18,13 @@ pub(crate) async fn create(
     id: AppId,
     name: &TokenName,
     expiry: TokenExpiry,
+    limits: &TokenLimits,
     created_by: ActorId,
 ) -> Result<(ApiTokenInfo, String), Error> {
     let mut tx = pool.begin().await?;
     let actor = App::actor(id);
-    let created = api_tokens::create(&mut tx, actor, APP_TOKEN_PREFIX, name, expiry, created_by);
+    let prefix = APP_TOKEN_PREFIX;
+    let created = api_tokens::create(&mut tx, actor, prefix, name, expiry, limits, created_by);
     let (token, secret) = created.await?;
     tx.commit().await?;
     tracing::info!(event = "app.token_created", app = %id, token = %token.id);
@@ -49,12 +51,15 @@ pub(crate) async fn revoke(pool: &PgPool, id: AppId, token: ApiTokenId) -> Resul
 }
 
 /// Checks the secret of an API token of an App, records its use and the last sight of the App,
-/// and returns the App and the token. A disabled App gets `APP_DISABLED`.
-pub(crate) async fn exchange(pool: &PgPool, secret: &str) -> Result<(Actor, ApiTokenId), Error> {
+/// and returns the App, the token and its limits. A disabled App gets `APP_DISABLED`.
+pub(crate) async fn exchange(
+    pool: &PgPool,
+    secret: &str,
+) -> Result<(Actor, ApiTokenId, TokenLimits), Error> {
     let mut tx = pool.begin().await?;
     let found = api_tokens::take(&mut tx, APP_TOKEN_PREFIX, secret).await?;
-    let (token, actor) = found.ok_or_else(refused)?;
-    let id = App::of_actor(actor);
+    let taken = found.ok_or_else(refused)?;
+    let id = App::of_actor(taken.actor);
     let app = apps::find(&mut tx, id).await?.ok_or_else(refused)?;
     if app.disabled_at.is_some() {
         let message = "the app is disabled";
@@ -62,13 +67,11 @@ pub(crate) async fn exchange(pool: &PgPool, secret: &str) -> Result<(Actor, ApiT
     }
     apps::touch(&mut tx, id).await?;
     tx.commit().await?;
-    Ok((
-        Actor {
-            id: actor,
-            kind: KIND,
-        },
-        token,
-    ))
+    let app = Actor {
+        id: taken.actor,
+        kind: KIND,
+    };
+    Ok((app, taken.id, taken.limits))
 }
 
 /// The error of a secret that does not pass. It gives no detail to the client.
