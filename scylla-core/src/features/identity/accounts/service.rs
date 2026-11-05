@@ -3,16 +3,16 @@
 
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::{
-    Email, Handle, Identifier, NewUser, Password, SessionId, UserStatus, KIND,
+    Email, Handle, NewUser, Password, SessionId, UserStatus, KIND,
 };
 use scylla_domain::tenancy::invitations::Invitation;
 use scylla_domain::tenancy::slugs::Slug;
 use scylla_domain::tenancy::workspaces::{NewSlug, NewWorkspace};
 use scylla_domain::Name;
-use scylla_extension::{AccessError, Rejection, Tx};
+use scylla_extension::{Rejection, Tx};
 use sqlx::PgPool;
-use time::OffsetDateTime;
 
+use super::credentials::verify_password;
 use super::one_time::{self, Purpose};
 use super::{mails, password, store, AccountContext};
 use crate::features::identity::sessions::{self, Client, Opened};
@@ -187,74 +187,24 @@ pub(super) async fn verify_email(ctx: &AccountContext, token: &str) -> Result<()
     Ok(())
 }
 
-/// Checks an email or a handle and a password, and opens a session. Each refusal has the same
-/// answer: an identifier that is not valid, an unknown one, and a wrong password. A locked
-/// account is not checked.
+/// Checks an email or a handle and a password, and opens a session.
 pub(super) async fn sign_in(
     ctx: &AccountContext,
     identifier: String,
     password: String,
     client: &Client,
 ) -> Result<(Actor, Opened), Error> {
-    // Read the credentials, and check the password even for an unknown identifier.
     let masked = mask_identifier(&identifier);
-    let credentials = match Identifier::parse(identifier) {
-        Ok(identifier) => {
-            let mut tx = ctx.pool.begin().await?;
-            let credentials = store::credentials(&mut tx, &identifier).await?;
-            tx.commit().await?;
-            credentials
-        }
-        Err(_) => None,
-    };
-    let locked = credentials
-        .as_ref()
-        .and_then(|credentials| credentials.locked_until)
-        .is_some_and(|until| until > OffsetDateTime::now_utc());
-    let hash = credentials
-        .as_ref()
-        .and_then(|credentials| credentials.hash.clone());
-    let matches = password::verify(password, hash.filter(|_| !locked)).await;
-
-    // Count a failure, then refuse.
+    let user = verify_password(ctx, identifier, &masked, password).await?;
     let mut tx = ctx.pool.begin().await?;
-    let credentials = match credentials {
-        Some(credentials) if matches => credentials,
-        Some(credentials) => {
-            let now_locked = store::record_failure(&mut tx, credentials.user).await?;
-            tx.commit().await?;
-            failed(&masked, if locked { "locked" } else { "password" });
-            if now_locked {
-                tracing::info!(event = "account.locked", user = %credentials.user);
-            }
-            return Err(invalid());
-        }
-        None => {
-            failed(&masked, "unknown");
-            return Err(invalid());
-        }
-    };
-
-    // Refuse an account that is not active, then open a session.
-    match credentials.status {
-        UserStatus::Active => {}
-        UserStatus::Pending => {
-            failed(&masked, "not_verified");
-            return Err(refused("EMAIL_NOT_VERIFIED", "verify your email first"));
-        }
-        UserStatus::Disabled => {
-            failed(&masked, "disabled");
-            return Err(invalid());
-        }
-    }
-    store::record_sign_in(&mut tx, credentials.user).await?;
+    store::record_sign_in(&mut tx, user).await?;
     let methods = ["password".to_owned()];
     let ttl = ctx.settings.session_ttl;
-    let opened = sessions::open(&mut tx, credentials.user, &methods, client, ttl).await?;
+    let opened = sessions::open(&mut tx, user, &methods, client, ttl).await?;
     tx.commit().await?;
-    signed_in(credentials.user, "password", opened.session);
+    signed_in(user, "password", opened.session);
     let actor = Actor {
-        id: credentials.user,
+        id: user,
         kind: KIND,
     };
     Ok((actor, opened))
@@ -285,14 +235,4 @@ pub(crate) fn refused(code: &'static str, message: &str) -> Error {
 /// Logs the event `account.signed_in`, with the method and the session.
 pub(crate) fn signed_in(user: ActorId, method: &str, session: SessionId) {
     tracing::info!(event = "account.signed_in", %user, method, %session);
-}
-
-/// Logs the event `account.signin_failed`, with the masked identifier and the reason.
-fn failed(identifier: &str, reason: &'static str) {
-    tracing::info!(event = "account.signin_failed", identifier, reason);
-}
-
-/// The answer of each refused password sign-in.
-fn invalid() -> Error {
-    AccessError::Unauthenticated("invalid identifier or password".to_owned()).into()
 }

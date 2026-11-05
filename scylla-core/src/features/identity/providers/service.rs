@@ -11,6 +11,7 @@ use scylla_extension::AccessError;
 use sqlx::PgPool;
 
 use super::github::{self, GitHubSettings};
+use super::join::Joined;
 use super::oidc::{OidcClients, OidcSettings};
 use super::store::{self, FlowRow, ProviderRow};
 use super::{join, ExternalIdentity};
@@ -33,6 +34,8 @@ pub(crate) enum Outcome {
     SignedIn(Opened),
     /// A link to the signed-in user.
     Linked,
+    /// The link waits for the password of the account, with the token of its cookie.
+    Waits(String),
 }
 
 /// The clients of the identity providers, with what the account routes share.
@@ -157,8 +160,12 @@ impl Providers {
             join::link(&self.ctx, &provider, identity, user).await?;
             return Ok(Outcome::Linked);
         }
-        let (_, opened) = join::sign_in(&self.ctx, &provider, identity, client).await?;
-        Ok(Outcome::SignedIn(opened))
+        let return_to = &flow.return_to;
+        let joined = join::browser_sign_in(&self.ctx, &provider, identity, return_to, client);
+        Ok(match joined.await? {
+            Joined::SignedIn(opened) => Outcome::SignedIn(opened),
+            Joined::Waits(token) => Outcome::Waits(token),
+        })
     }
 
     /// Signs in with an ID token of an OIDC provider, for a native client. The issuer of the

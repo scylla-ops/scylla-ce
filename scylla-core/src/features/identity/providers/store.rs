@@ -254,3 +254,21 @@ pub(super) async fn take_flow(
         return_to: row.return_to,
     }))
 }
+
+/// Returns `true` if a user has an identity of a provider.
+pub(super) async fn has_identity_of(
+    tx: &mut Tx<'_>,
+    user: ActorId,
+    provider: ProviderId,
+) -> Result<bool, Error> {
+    let found = sqlx::query_scalar!(
+        r#"SELECT EXISTS (
+               SELECT 1 FROM external_identities WHERE user_id = $1 AND provider_id = $2
+           ) AS "found!""#,
+        user.to_db(),
+        provider.to_db(),
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(found)
+}

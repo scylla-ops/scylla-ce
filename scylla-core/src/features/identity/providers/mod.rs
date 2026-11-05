@@ -8,6 +8,8 @@ mod http;
 mod identity;
 mod join;
 mod oidc;
+pub(crate) mod pending;
+mod pending_store;
 mod service;
 mod store;
 

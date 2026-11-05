@@ -40,6 +40,7 @@ fn code_of(error: &Error) -> &'static str {
             "NO_ACCOUNT" | "SIGN_UP_CLOSED" | "INVITATION_REQUIRED" => "signup_disabled",
             "EMAIL_IN_USE" => "email_in_use",
             "IDENTITY_IN_USE" => "identity_in_use",
+            "ALREADY_LINKED" => "already_linked",
             "ACCOUNT_INACTIVE" => "account_inactive",
             "SESSION_REQUIRED" => "session_required",
             "REDIRECT_URI_MISMATCH" => "redirect_uri_mismatch",

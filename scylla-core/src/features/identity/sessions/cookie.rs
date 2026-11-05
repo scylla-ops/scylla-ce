@@ -9,6 +9,9 @@ pub const SESSION: &str = "scylla_session";
 /// The name of the cookie of a sign-in that goes through an identity provider.
 pub const FLOW: &str = "scylla_flow";
 
+/// The name of the cookie of a link that waits for the password of an account.
+pub const PENDING: &str = "scylla_pending";
+
 /// Reads a cookie from the values of the `cookie` headers.
 pub fn read<'a>(headers: impl IntoIterator<Item = &'a str>, name: &str) -> Option<String> {
     headers

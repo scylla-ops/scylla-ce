@@ -6,7 +6,8 @@ mod passwords;
 mod users;
 
 pub(crate) use emails::{
-    email_in_use, insert_email, replace_email, user_of_email, verified_emails, verify_email,
+    account_of_email, email_in_use, insert_email, replace_email, user_of_email, verified_emails,
+    verify_email, EmailAccount,
 };
 pub(crate) use passwords::{credentials, password_hash, record_failure, set_password};
 pub(crate) use users::{

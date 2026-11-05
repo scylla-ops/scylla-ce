@@ -5,14 +5,14 @@ use scylla_extension::{Binding, IssuedToken};
 use scylla_proto::accounts::v1 as pb;
 use scylla_proto::accounts::v1::account_service_server::{AccountService, AccountServiceServer};
 use scylla_proto::auth::v1::IssuedToken as PbToken;
-use tonic::metadata::MetadataValue;
+use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Request, Response, Status};
 
 use super::reset;
 use super::service::{self, SignUp};
 use super::AccountContext;
 use crate::api::parse;
-use crate::features::identity::providers;
+use crate::features::identity::providers::{self, pending};
 use crate::features::identity::sessions::{cookie, Client, Opened};
 use crate::Error;
 
@@ -115,6 +115,51 @@ impl AccountService for AccountsGrpc {
             sign_up_mode: self.ctx.settings.sign_up_mode.as_str().to_owned(),
         }))
     }
+
+    async fn get_pending_link(
+        &self,
+        request: Request<pb::GetPendingLinkRequest>,
+    ) -> Result<Response<pb::GetPendingLinkResponse>, Status> {
+        let token = pending::token_of(&self.ctx, request.metadata())?;
+        let view = pending::read(&self.ctx, &token).await?;
+        Ok(Response::new(pb::GetPendingLinkResponse {
+            provider_name: view.provider_name,
+            email: view.email,
+            display_name: view.display_name,
+        }))
+    }
+
+    async fn link_pending_identity(
+        &self,
+        request: Request<pb::LinkPendingIdentityRequest>,
+    ) -> Result<Response<pb::LinkPendingIdentityResponse>, Status> {
+        // Read the token of the cookie, then link with the password.
+        let token = pending::token_of(&self.ctx, request.metadata())?;
+        let client = Client::of_grpc(&request, self.ctx.settings.trust_forwarded);
+        let password = request.into_inner().password;
+        let done = pending::link_with_password(&self.ctx, &token, password, &client).await?;
+
+        // The session goes in its cookie, and the cookie of the link ends.
+        let (_, session) = deliver(&self.ctx, done.opened, true);
+        let clear = cookie::clear(cookie::PENDING, self.ctx.settings.secure_cookies());
+        let mut response = Response::new(pb::LinkPendingIdentityResponse {
+            return_to: done.return_to,
+        });
+        let cookies = session
+            .into_iter()
+            .chain(MetadataValue::try_from(clear).ok());
+        for value in cookies {
+            response.metadata_mut().append("set-cookie", value);
+        }
+        Ok(response)
+    }
+}
+
+/// Returns `true` if the origin of a request is a web origin of the settings. A route that reads a
+/// cookie needs it, so another site cannot use the cookie.
+pub(crate) fn cookie_origin_is_allowed(ctx: &AccountContext, metadata: &MetadataMap) -> bool {
+    let origin = metadata.get("origin").and_then(|value| value.to_str().ok());
+    origin.is_some_and(|origin| ctx.settings.is_web_origin(origin))
 }
 
 /// Gives a refresh token to a client: in the response, or in the session cookie of a browser.

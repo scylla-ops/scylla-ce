@@ -66,8 +66,8 @@ async fn a_sign_in_goes_back_to_the_web_app_only(pool: PgPool) {
     assert_eq!(outside.location, APP_URL);
 }
 
-/// A known email is never linked automatically. The person signs in, then links the provider,
-/// and the provider then signs in the same user.
+/// A known email is never linked automatically: the sign-in waits for the password. A person can
+/// also sign in, then link the provider, and the provider then signs in the same user.
 #[sqlx::test(migrations = false)]
 async fn a_known_email_is_linked_only_by_its_user(pool: PgPool) {
     // given
@@ -90,10 +90,7 @@ async fn a_known_email_is_linked_only_by_its_user(pool: PgPool) {
 
     // then
     assert_eq!(refused.status, 303);
-    assert_eq!(
-        refused.location,
-        format!("{APP_URL}/sign-in-error?code=email_in_use&provider=idp")
-    );
+    assert_eq!(refused.location, format!("{APP_URL}/sign-in-link"));
     assert_eq!(linked.status, 303);
     assert_eq!(again.status, 303);
     let me = app.get_me(&token_of(&app, &later).await).await.unwrap();

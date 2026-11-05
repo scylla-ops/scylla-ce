@@ -1,10 +1,12 @@
-//! What an identity of a provider does: sign in its user, make a new user, or link to the
-//! signed-in user. A known email is never linked automatically.
+//! What an identity of a provider does: sign in its user, make a new user, wait for the password
+//! of the account with its email, or link to the signed-in user. A known email is never linked
+//! automatically.
 
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::{Email, NewUser, UserStatus, KIND};
 use scylla_domain::Name;
 
+use super::pending::{self, KnownEmail};
 use super::store::{self, ProviderRow};
 use super::ExternalIdentity;
 use crate::features::identity::accounts::{self, refused, AccountContext};
@@ -12,14 +14,61 @@ use crate::features::identity::sessions::{self, Client, Opened};
 use crate::features::tenancy::invitations::{self, Pick};
 use crate::{Error, SignUpMode};
 
-/// Signs in the user of an identity, or makes a user as the provider and the sign-up mode
-/// allow. A new user needs a verified email that no account has.
+/// The end of a sign-in in a browser.
+pub(super) enum Joined {
+    /// A session is open.
+    SignedIn(Opened),
+    /// The link waits for the password of the account, with the token of its cookie.
+    Waits(String),
+}
+
+/// What an identity gives before a page can ask for a password.
+enum Found {
+    /// A session is open.
+    SignedIn(Actor, Opened),
+    /// An account has the verified email of the identity.
+    KnownEmail(KnownEmail),
+}
+
+/// Ends a sign-in in a browser: a known email waits for the password of its account.
+pub(super) async fn browser_sign_in(
+    ctx: &AccountContext,
+    provider: &ProviderRow,
+    identity: ExternalIdentity,
+    return_to: &str,
+    client: &Client,
+) -> Result<Joined, Error> {
+    match find(ctx, provider, identity, client).await? {
+        Found::SignedIn(_, opened) => Ok(Joined::SignedIn(opened)),
+        Found::KnownEmail(known) => {
+            let token = pending::start(ctx, provider, known, return_to).await?;
+            Ok(Joined::Waits(token))
+        }
+    }
+}
+
+/// Signs in the user of an identity for a native client, or makes a user as the provider and the
+/// sign-up mode allow. It has no page for a password, so a known email stays refused.
 pub(super) async fn sign_in(
     ctx: &AccountContext,
     provider: &ProviderRow,
     identity: ExternalIdentity,
     client: &Client,
 ) -> Result<(Actor, Opened), Error> {
+    match find(ctx, provider, identity, client).await? {
+        Found::SignedIn(actor, opened) => Ok((actor, opened)),
+        Found::KnownEmail(_) => Err(pending::email_in_use()),
+    }
+}
+
+/// Signs in the user of an identity, or makes a user as the provider and the sign-up mode allow. A
+/// new user needs a verified email that no account has.
+async fn find(
+    ctx: &AccountContext,
+    provider: &ProviderRow,
+    identity: ExternalIdentity,
+    client: &Client,
+) -> Result<Found, Error> {
     // Sign in the user of a known identity, if its account is active.
     let (methods, ttl) = ([provider.slug.clone()], ctx.settings.session_ttl);
     let mut tx = ctx.pool.begin().await?;
@@ -34,13 +83,11 @@ pub(super) async fn sign_in(
         let opened = sessions::open(&mut tx, user, &methods, client, ttl).await?;
         tx.commit().await?;
         accounts::signed_in(user, &provider.slug, opened.session);
-        return Ok((
-            Actor {
-                id: user,
-                kind: KIND,
-            },
-            opened,
-        ));
+        let actor = Actor {
+            id: user,
+            kind: KIND,
+        };
+        return Ok(Found::SignedIn(actor, opened));
     }
 
     // Check that a new user can come from this identity.
@@ -52,9 +99,13 @@ pub(super) async fn sign_in(
         .filter(|_| identity.email_verified)
         .and_then(|email| Email::parse(email).ok())
         .ok_or_else(|| refused("EMAIL_REQUIRED", "the provider gave no verified email"))?;
-    if accounts::user_of_email(&mut tx, &email).await?.is_some() {
-        let message = "an account uses this email: sign in to it, then link this provider";
-        return Err(refused("EMAIL_IN_USE", message));
+    if let Some(account) = accounts::account_of_email(&mut tx, &email).await? {
+        return Ok(Found::KnownEmail(KnownEmail {
+            account,
+            email,
+            subject: identity.subject,
+            name: identity.name,
+        }));
     }
     let invitation = match ctx.settings.sign_up_mode {
         SignUpMode::Closed => return Err(refused("SIGN_UP_CLOSED", "sign-up is closed")),
@@ -87,7 +138,7 @@ pub(super) async fn sign_in(
     if let Some(invitation) = invitation {
         invitations::accept(ctx, Pick::Id(invitation.id), actor.id).await?;
     }
-    Ok((actor, opened))
+    Ok(Found::SignedIn(actor, opened))
 }
 
 /// Links an identity to a signed-in user. The identity of another user is refused.

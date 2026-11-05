@@ -132,6 +132,11 @@ async fn callback(
             redirect(&flow.return_to, [clear, session])
         }
         Ok(Outcome::Linked) => redirect(&flow.return_to, [clear]),
+        Ok(Outcome::Waits(token)) => {
+            let secure = settings.secure_cookies();
+            let pending = cookie::set(cookie::PENDING, &token, FLOW_TTL, secure);
+            redirect(&format!("{web}/sign-in-link"), [clear, pending])
+        }
         Err(error) => error_page(web, report(&error), &slug, link, [clear]),
     }
 }

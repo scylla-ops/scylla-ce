@@ -1,7 +1,7 @@
 //! The SQL of the `user_emails` table. Each function runs in the transaction of the caller.
 
 use scylla_domain::identity::actors::ActorId;
-use scylla_domain::identity::users::Email;
+use scylla_domain::identity::users::{Email, UserStatus};
 use scylla_extension::{Rejection, Tx};
 
 use crate::Error;
@@ -40,6 +40,38 @@ pub(crate) async fn user_of_email(
     .fetch_optional(&mut **tx)
     .await?;
     Ok(user.map(ActorId::from_db))
+}
+
+/// The account that has an email, as a sign-in with a provider reads it.
+pub(crate) struct EmailAccount {
+    /// The user.
+    pub(crate) user: ActorId,
+    /// The state of the account.
+    pub(crate) status: UserStatus,
+    /// `true` if the account has a password.
+    pub(crate) has_password: bool,
+}
+
+/// Returns the account that has an email, or `None`.
+pub(crate) async fn account_of_email(
+    tx: &mut Tx<'_>,
+    email: &Email,
+) -> Result<Option<EmailAccount>, Error> {
+    let row = sqlx::query!(
+        r#"SELECT e.user_id, u.status,
+                  EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = e.user_id)
+                      AS "has_password!"
+           FROM user_emails e JOIN users u ON u.id = e.user_id
+           WHERE e.email = $1"#,
+        email.as_str()
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(row.map(|row| EmailAccount {
+        user: ActorId::from_db(row.user_id),
+        status: UserStatus::from_name(&row.status),
+        has_password: row.has_password,
+    }))
 }
 
 /// Replaces the emails of a user with one primary email, verified. An email of another user

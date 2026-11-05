@@ -84,6 +84,24 @@ pub(super) fn account_exists(ctx: &AccountContext, to: &str) -> Mail {
     .compose()
 }
 
+/// The mail to the owner of an account that got a new way to sign in.
+pub(crate) fn identity_linked(ctx: &AccountContext, to: &str, provider: &str) -> Mail {
+    Letter {
+        to,
+        subject: format!("A new sign-in method on your Scylla account: {provider}"),
+        intro: vec![format!(
+            "You can now sign in to your Scylla account with {provider}."
+        )],
+        action: Some(("Open Scylla", ctx.settings.app_url.clone())),
+        outro: vec![
+            "If it was not you, sign in, change your password, remove this method on the \
+             Security page of your account, and tell an admin."
+                .to_owned(),
+        ],
+    }
+    .compose()
+}
+
 /// The mail with the link of an invitation into a workspace.
 pub(crate) fn invitation(ctx: &AccountContext, to: &str, workspace: &str, token: &str) -> Mail {
     Letter {
