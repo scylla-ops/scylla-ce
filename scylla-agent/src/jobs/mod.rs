@@ -1,6 +1,7 @@
 //! The jobs of the agent: the set of the running jobs, the order of their nodes, the attempts of
 //! each node, and their output.
 
+mod command;
 mod dag;
 mod events;
 mod output;
