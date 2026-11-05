@@ -111,9 +111,9 @@ impl GrantsGrpc {
         let object = request.into_inner().object;
         let target = self.membered(&caller, object, MemberRoute::List).await?;
 
-        // Read the roles on the scopes that the caller can read, then the instance admins.
+        // Read the roles on the scopes that the caller can read.
         let gate = self.gate.as_ref();
-        let mut roles = match target.project {
+        let roles = match target.project {
             Some(project) => {
                 let with_workspace = self.reads_workspace(&caller, target.workspace).await?;
                 held::on_project(&self.pool, gate, target.workspace, project, with_workspace)
@@ -121,7 +121,6 @@ impl GrantsGrpc {
             }
             None => held::in_workspace(&self.pool, gate, target.workspace).await?,
         };
-        roles.extend(held::instance_admins(&self.pool).await?);
         let members = held::members(&self.pool, roles).await?;
         Ok(pb::ListMembersResponse {
             members: members.into_iter().map(ToProto::to_proto).collect(),
@@ -170,7 +169,7 @@ impl GrantsGrpc {
         } else {
             roles
                 .into_iter()
-                .filter(|role| role.scope.id == target.id || role.scope.level == Level::Platform)
+                .filter(|role| role.scope.id == target.id)
                 .collect()
         };
         let member = held::members(&self.pool, visible).await?.into_iter().next();

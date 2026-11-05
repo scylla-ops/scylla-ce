@@ -7,7 +7,6 @@ use scylla_domain::authz::{Resource, Schema};
 use scylla_domain::projects::Project;
 use scylla_domain::tenancy::catalog::{self, Level};
 use scylla_domain::tenancy::grants::{HeldRole, OWNER};
-use scylla_domain::tenancy::roles::INSTANCE_ADMIN;
 use scylla_domain::tenancy::workspaces::Workspace;
 use uuid::Uuid;
 
@@ -19,20 +18,15 @@ pub(super) struct Effective {
     pub(super) sources: Vec<HeldRole>,
 }
 
-/// Returns `true` if a role reaches the object: on the instance, on the workspace, or on the
-/// project itself.
+/// Returns `true` if a role reaches the object: on the workspace, or on the project itself.
 fn reaches(role: &HeldRole, level: Level, object: &str) -> bool {
-    match role.scope.level {
-        Level::Platform => true,
-        Level::Workspace => true,
-        Level::Project => level == Level::Project && role.scope.id == object,
-    }
+    role.scope.level == Level::Workspace || (level == Level::Project && role.scope.id == object)
 }
 
 /// Returns the ids of the permissions that a role gives. `rows` holds the permissions of the roles
 /// that are rows.
 fn given(schema: &Schema, role: &HeldRole, rows: &HashMap<Uuid, Vec<String>>) -> Vec<&'static str> {
-    if role.key == OWNER || role.key == INSTANCE_ADMIN {
+    if role.key == OWNER {
         return catalog::areas()
             .filter(|area| !area.machine)
             .flat_map(|area| area.permissions)

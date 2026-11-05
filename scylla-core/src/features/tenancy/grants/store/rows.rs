@@ -71,22 +71,6 @@ pub(crate) async fn rows_of(
     Ok(rows.into_iter().map(|row| row_grant!(row)).collect())
 }
 
-/// Returns the grants of the roles of the platform level of one actor.
-pub(crate) async fn platform_rows_of(
-    tx: &mut Tx<'_>,
-    actor: ActorId,
-) -> Result<Vec<RowGrant>, Error> {
-    let rows = sqlx::query!(
-        "SELECT g.actor_id, g.role_id, r.name, g.scope_id, g.created_at, g.created_by
-         FROM role_grants g JOIN roles r ON r.id = g.role_id
-         WHERE g.actor_id = $1 AND g.scope_kind = 'platform'",
-        actor.to_db(),
-    )
-    .fetch_all(&mut **tx)
-    .await?;
-    Ok(rows.into_iter().map(|row| row_grant!(row)).collect())
-}
-
 /// Returns at most `limit` grants of the roles that are rows on one object, after a grant, in the
 /// order of the actor and of the role.
 pub(crate) async fn rows_on(

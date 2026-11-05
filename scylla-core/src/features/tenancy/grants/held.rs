@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 use scylla_domain::authz::{Object, Resource};
 use scylla_domain::identity::actors::ActorId;
-use scylla_domain::platform::Platform;
 use scylla_domain::projects::{Project, ProjectId};
 use scylla_domain::tenancy::catalog::Level;
 use scylla_domain::tenancy::grants::{AccessEntry, GrantScope, HeldRole, Member};
@@ -134,7 +133,7 @@ async fn read(
     Ok(held)
 }
 
-/// Returns the instance admins.
+/// Returns the instance admins, for a read of the holders of the role on the instance.
 pub(crate) async fn instance_admins(pool: &PgPool) -> Result<Vec<HeldRole>, Error> {
     let mut tx = pool.begin().await?;
     let admins = store::admins_since(&mut tx).await?;
@@ -145,7 +144,8 @@ pub(crate) async fn instance_admins(pool: &PgPool) -> Result<Vec<HeldRole>, Erro
         .collect())
 }
 
-/// Returns each role of one actor in a workspace and on the instance, with no lists of the others.
+/// Returns each role of one actor on a workspace and on its projects, with no lists of the others.
+/// The roles of the instance are not in the answer.
 pub(crate) async fn of_actor(
     pool: &PgPool,
     gate: &dyn Gate,
@@ -157,25 +157,12 @@ pub(crate) async fn of_actor(
     let scopes = scopes(&mut tx, workspace).await?;
     let ids = scopes.ids();
     let owner_since = store::owner_since(&mut tx, workspace, actor).await?;
-    let admin_since = store::admin_since(&mut tx, actor).await?;
     let rows = store::rows_of(&mut tx, actor, &ids).await?;
-    let on_platform = store::platform_rows_of(&mut tx, actor).await?;
     let times = store::relation_times(&mut tx, &ids).await?;
     tx.commit().await?;
 
-    // Add the roles of the instance.
-    let platform = scope(Level::Platform, Platform::ID.to_string(), String::new());
-    let mut held = Vec::new();
-    if let Some(since) = admin_since {
-        held.push(admin_role(actor, since));
-    }
-    held.extend(
-        on_platform
-            .into_iter()
-            .map(|grant| row_role(grant, &platform)),
-    );
-
     // Add the owner and the roles on the workspace and on its projects.
+    let mut held = Vec::new();
     if let Some(since) = owner_since {
         held.push(owner_role(&scopes.workspace, actor, since));
     }

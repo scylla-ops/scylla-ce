@@ -25,13 +25,12 @@ fn roles_of(members: &[Member], actor: &str) -> Vec<String> {
     roles
 }
 
-/// A workspace shows its owners, its roles, the roles on its projects, and the instance admins. A
-/// grant tells its time and its author.
+/// A workspace shows its owners, its roles and the roles on its projects. A grant tells its time
+/// and its author.
 #[sqlx::test(migrations = false)]
 async fn list_members_shows_each_role_of_a_workspace(pool: PgPool) {
     // given
     let app = app(pool).await;
-    let admin = app.admin().await;
     let (owner, bob) = (app.user().await, app.user().await);
     let workspace = app.workspace_of(owner).await.to_string();
     let project = app.create_project(owner, "alpha").await.unwrap();
@@ -54,10 +53,6 @@ async fn list_members_shows_each_role_of_a_workspace(pool: PgPool) {
     assert_eq!(
         roles_of(&members, &to),
         ["project:project-admin", "workspace:workspace-member"]
-    );
-    assert_eq!(
-        roles_of(&members, &admin.to_string()),
-        ["platform:instance-admin"]
     );
     let bob = members
         .iter()

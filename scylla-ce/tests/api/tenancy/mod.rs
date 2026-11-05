@@ -7,6 +7,7 @@ mod checks;
 mod deletion;
 mod escalation;
 mod grants;
+mod hidden_instance_roles;
 mod invitation_races;
 mod invitations;
 mod members;

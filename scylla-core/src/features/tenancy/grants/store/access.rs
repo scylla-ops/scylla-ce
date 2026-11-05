@@ -117,20 +117,6 @@ pub(crate) async fn admins_since(tx: &mut Tx<'_>) -> Result<Vec<(ActorId, Offset
         .collect())
 }
 
-/// Returns the time that an actor became an instance admin, if it is one.
-pub(crate) async fn admin_since(
-    tx: &mut Tx<'_>,
-    actor: ActorId,
-) -> Result<Option<OffsetDateTime>, Error> {
-    let since = sqlx::query_scalar!(
-        "SELECT created_at FROM instance_admins WHERE user_id = $1",
-        actor.to_db(),
-    )
-    .fetch_optional(&mut **tx)
-    .await?;
-    Ok(since)
-}
-
 /// Returns `true` if an actor other than the user has a role that is a row on a scope.
 pub(crate) async fn others_on_scope(
     tx: &mut Tx<'_>,
