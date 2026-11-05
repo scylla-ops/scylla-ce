@@ -22,6 +22,7 @@ scylla-testkit (tests only) ──▶ scylla-core
 | `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, the platform, actors, users and handles, slugs, instance admins, workspaces, Apps and agents, projects and their secrets, pages |
 | `scylla-extension` | the contract: `Edition`, `Plugin`, hooks, `Gate` |
 | `scylla-proto` | generated code of `proto/`, the submodule `scylla-protos` |
+| `scylla-ce` | the binary. It holds the build of `web/`, the submodule `scylla-web` |
 | `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, Apps, agents, tokens, projects, secrets, grants, capabilities), mails, logs, the guard against the public dev keys, server, CLI |
 | `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC, a capture of the log lines |
 | `scylla-ce` | the Community edition binary |
@@ -87,6 +88,12 @@ cargo install sqlx-cli --locked --features sqlx-toml
 ```
 
 Also Docker, Rust 1.94 or later, `just` and `protoc`. `grpcurl` is optional.
+
+## One port
+
+The server has one port for everything: the web app, gRPC, gRPC-Web, the JSON API, the browser routes and the webhooks. `just web` builds the web app in `web/dist`, and the next build of the binary holds it. Set `SCYLLA_WEB_DIR` to serve another build from a folder. A build with no `web/dist` serves the API only and tells it in a warning.
+
+To change the web app with hot reload, run the server with `just run` and Vite in `web/`, with `VITE_API_URL=http://127.0.0.1:3000` and `SCYLLA_CORS_ORIGINS`. This is for development only.
 
 ## Run
 
@@ -183,10 +190,10 @@ A JSON line has `ts`, `level`, `event` (`rpc` or the name of a business event), 
 
 1. Store `SCYLLA_TOKEN_PRIVATE_KEY`, `SCYLLA_SPICEDB_KEY` and `SCYLLA_SECRET_KEY` in a secret store. Make the keys with `token keygen` and `secret keygen`. A key of a `.env` file stops the start. With no `SCYLLA_SECRET_KEY`, the server starts but refuses the secrets of the projects (`SECRET_KEY_MISSING`).
 2. Run SpiceDB with a Postgres datastore, and set `SCYLLA_SPICEDB_ENDPOINT`.
-3. Set `SCYLLA_API_URL` (the public URL of the server), `SCYLLA_APP_URL` (the web app), `SCYLLA_SMTP_URL` and `SCYLLA_MAIL_FROM`, and choose `SCYLLA_SIGN_UP_MODE`.
+3. Set `SCYLLA_API_URL` and `SCYLLA_APP_URL` to the public URL of the server, `SCYLLA_SMTP_URL` and `SCYLLA_MAIL_FROM`, and choose `SCYLLA_SIGN_UP_MODE`.
 4. Run `scylla-ce migrate` one time, as a job. Add the first instance admin with `user create --admin`, and the identity providers with `provider add-oidc` or `provider add-github`.
 5. Start one server with `scylla-ce serve`: the open streams of the agents are in its memory. A server stops at start if a migration is missing. `SCYLLA_LOG_RETENTION_DAYS` (30) sets the life of the logs of the jobs. With `SCYLLA_WEB_DIR`, the server also serves the built web app on its address (one domain: set `SCYLLA_APP_URL` to the URL of the server); a path that is not a file gives `index.html`.
-6. For TLS, set `SCYLLA_TLS_CERT` and `SCYLLA_TLS_KEY`. For browsers, set `SCYLLA_CORS_ORIGINS`: a cookie refresh needs one of these origins. Behind one proxy that adds the client address to `X-Forwarded-For`, set `SCYLLA_TRUST_FORWARDED_HEADERS=true`: a session then keeps the last address of this header, not the address of the proxy.
+6. For TLS, set `SCYLLA_TLS_CERT` and `SCYLLA_TLS_KEY`. The web app on the address of the server needs no CORS. For a web app on another origin, set `SCYLLA_CORS_ORIGINS`: a cookie refresh needs one of these origins. Behind one proxy that adds the client address to `X-Forwarded-For`, set `SCYLLA_TRUST_FORWARDED_HEADERS=true`: a session then keeps the last address of this header, not the address of the proxy.
 7. Probe `grpc.health.v1.Health/Check`. Stop with SIGTERM: the server ends the running requests. With no terminal, the logs are JSON lines on stderr.
 8. To rotate the signing key: set a new key and a new `SCYLLA_TOKEN_KEY_ID`, and keep the old public key in `SCYLLA_TOKEN_PUBLIC_KEYS` for one token lifetime. Never keep the public key of the dev signing key: the server does not start with it.
 
@@ -215,7 +222,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Jobs: the cancel, the rerun, the delete, the lists newest first, who can call them | `scylla-ce/tests/api/projects/jobs.rs` |
 | Agent: the join, the order of the nodes, a script with a secret masked in the logs, a retry, the skip after a failure, a cancel that stops the process and its children and deletes the work folder, on Unix and Windows, the name of the machine on the key, the join at a first start | `scylla-agent/tests/agent.rs` |
 | Import of the old product: its real schema, the users and their passwords, a disabled user, a user with no email, the workspaces and their owners, the roles, the project ids, the secrets sealed again, the pipelines and a pipeline with a cycle, a second import | `scylla-ce/tests/api/platform/import.rs` |
-| Web app: a file, a route of the web app gives `index.html`, the API on the same address | `scylla-ce/tests/api/platform/web.rs` |
+| Web app: a file, a route of the web app gives `index.html`, the API on the same address, the files in the binary and a folder that comes first, the cache, the compression, an unknown gRPC call | `scylla-ce/tests/api/platform/web.rs` |
 | Triggers: the schedules, the inputs, a fire now as the runner, the signature of a webhook, a second delivery, a body with no value, a ping, a stopped trigger, the rate limit, the roles, the key of the secrets | `scylla-ce/tests/api/projects/triggers.rs` |
 | Jobs on the agents: the dispatch with the secrets, the events, the logs and their tail, the role and the capacity, the containers, the cancel, an agent of some projects, the jobs of a disabled agent, the number of jobs of each agent, the stats of the jobs of each agent and who reads them | `scylla-ce/tests/api/projects/runs.rs`, `scopes.rs`, `disabled.rs`, `held.rs`, `stats.rs` |
 | Apps: the join code and its one use, the exchange of an assertion, each refused assertion, the keys, their names, their last use and their revocation, the delete, the disable and the enable, who can create, read and change them | `scylla-ce/tests/api/identity/apps.rs`, `disable.rs`, `keys.rs` |

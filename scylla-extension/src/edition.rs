@@ -15,8 +15,13 @@ use crate::{AfterDelete, BeforeCreate, Gate, Hooks};
 /// A function that adds the gRPC services of one plugin.
 type AddServices = Box<dyn Fn(&mut RoutesBuilder, &ServiceContext<'_>) + Send + Sync>;
 
+/// Returns one file of the built web app that a binary holds.
+pub type WebFiles = fn(&str) -> Option<rust_embed::EmbeddedFile>;
+
 /// What a binary runs: its name, capabilities, migrations, permission schema, hooks and services.
 pub struct Edition {
+    /// The files of the built web app that the binary holds.
+    web_files: Option<WebFiles>,
     /// The name that `GetCapabilities` reports.
     name: &'static str,
     /// The optional features, in registration order.
@@ -40,6 +45,7 @@ impl Edition {
     pub fn builder(name: &'static str) -> EditionBuilder {
         EditionBuilder {
             edition: Edition {
+                web_files: None,
                 name,
                 capabilities: Vec::new(),
                 migrators: Vec::new(),
@@ -57,6 +63,11 @@ impl Edition {
     /// Returns the encoded descriptor sets of the protos that the edition adds to the core.
     pub fn descriptor_sets(&self) -> &[&'static [u8]] {
         &self.descriptors
+    }
+
+    /// Returns the files of the built web app that the binary holds.
+    pub fn web_files(&self) -> Option<WebFiles> {
+        self.web_files
     }
 
     /// Returns the name of the edition.
@@ -252,6 +263,12 @@ impl EditionBuilder {
         F: Fn(&mut RoutesBuilder, &ServiceContext<'_>) + Send + Sync + 'static,
     {
         self.edition.services.push(Box::new(add));
+        self
+    }
+
+    /// Sets the files of the built web app that the binary holds.
+    pub fn web_files(mut self, files: WebFiles) -> Self {
+        self.edition.web_files = Some(files);
         self
     }
 

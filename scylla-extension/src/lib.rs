@@ -15,7 +15,7 @@ mod tx;
 
 pub use async_trait::async_trait;
 pub use context::{CreateContext, DeleteContext};
-pub use edition::{Edition, EditionBuilder, Plugin, ServiceContext};
+pub use edition::{Edition, EditionBuilder, Plugin, ServiceContext, WebFiles};
 pub use error::{HookError, Rejection};
 pub use gate::{AccessError, Gate, ObjectRole, RoleHolder, RolePage};
 pub use grants::{AccessRoutes, FindWorkspace, Grantable, Grants, WorkspaceFuture};

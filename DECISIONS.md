@@ -570,3 +570,10 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 - **Why:** the user asked for it: a person in a workspace or in a project must not see the instance admins at all. The server leaves out the data, so a filter in the web app is not necessary. The rights do not change: an instance admin still passes each route (see 86), and `LAST_ADMIN` reads the rows of `instance_admins`, not these lists.
 - **Not kept:** a filter in the web app (the data still goes to the browser); a filter for each caller (the user chose one rule for each caller); the instance admins in `GetMemberAccess` for a person with a role here (it is a sign of the role of the instance, so the page understates the rights of this person).
 - **Changes:** decision 87: the instance admins are not in `ListMembers`, and `GetMemberAccess` has no source on the instance.
+
+## 93. The web app is in the binary
+
+- **Decision:** the binary holds the built web app (`rust-embed`, from `web/dist`, with the submodule `web`), and serves it on its address with no setting. So one port has the web app, gRPC, gRPC-Web, the JSON API, the browser routes and the webhooks, as in the old product. `SCYLLA_WEB_DIR` replaces the files with a folder. A file in `assets/` has a cache of one year, and a page has `no-cache`. The files go out compressed. A gRPC call of an unknown service gets `UNIMPLEMENTED`, and not a page.
+- **Why:** the user asked for it: one server and one port, as before. One binary needs no other service and no volume. The submodule ties one version of the web app to one version of the server.
+- **Not kept:** a folder as the only way (a deploy must then copy the build by hand); the setting of the old product that turns off the web app (nothing needs it: an ingress can send only the API to the server); the compression on the whole router (the gRPC answers must not change).
+- **Changes:** decision 66: the server serves the web app with no setting, and it has a cache policy.

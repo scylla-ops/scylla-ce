@@ -23,6 +23,11 @@ prepare: migrate
 schema: migrate
     cargo run -q -p scylla-ce -- migrate
 
+# Builds the web app of the submodule `web`. The next build of the binary holds it.
+web:
+    git submodule update --init --recursive web
+    cd web && pnpm install --frozen-lockfile && pnpm build
+
 # Serves the Community edition with the dev keys of .env.
 run: schema
     cargo run -p scylla-ce -- serve

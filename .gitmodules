@@ -2,3 +2,7 @@
 	path = proto
 	url = https://github.com/scylla-ops/scylla-protos.git
 	branch = main
+[submodule "web"]
+	path = web
+	url = https://github.com/scylla-ops/scylla-web.git
+	branch = main

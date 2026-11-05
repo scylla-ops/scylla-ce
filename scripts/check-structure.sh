@@ -69,7 +69,7 @@ checks() {
       { previous = step }' "$file"
   done | report "a step comment has more than one line"
 
-  grep -rln $'\xe2\x80\x94' --exclude-dir=target --exclude-dir=.idea --exclude-dir=.sqlx --exclude=Cargo.lock . \
+  grep -rln $'\xe2\x80\x94' --exclude-dir=target --exclude-dir=.idea --exclude-dir=.sqlx --exclude-dir=web --exclude=Cargo.lock . \
     | report "a file has an em dash"
 }
 

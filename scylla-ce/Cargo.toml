@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 clap.workspace = true
+rust-embed.workspace = true
 scylla-core.workspace = true
 scylla-extension.workspace = true
 tokio.workspace = true

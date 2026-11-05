@@ -81,8 +81,8 @@ pub struct Config {
     #[arg(long, env = "SCYLLA_SESSION_TTL_DAYS", default_value = "30", value_parser = days)]
     pub session_ttl: Duration,
 
-    /// The folder of the built web app. With it, the server also serves the web app on its
-    /// address: a path that is not a file gives `index.html`.
+    /// A folder of a built web app, in place of the web app in the binary. The server serves the
+    /// web app on its address: a path that is not a file gives `index.html`.
     #[arg(long, env = "SCYLLA_WEB_DIR")]
     pub web_dir: Option<std::path::PathBuf>,
 
