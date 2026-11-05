@@ -71,6 +71,14 @@ pub(crate) async fn create(
     Ok(invitation)
 }
 
+/// Returns `true` if a workspace exists.
+pub(super) async fn workspace_exists(pool: &PgPool, workspace: WorkspaceId) -> Result<bool, Error> {
+    let mut tx = pool.begin().await?;
+    let name = store::workspace_name(&mut tx, workspace).await?;
+    tx.commit().await?;
+    Ok(name.is_some())
+}
+
 /// Returns one page of the invitations of a workspace that nobody accepted, oldest first.
 pub(super) async fn list(pool: &PgPool, query: ListInvitations) -> Result<InvitationPage, Error> {
     let mut tx = pool.begin().await?;

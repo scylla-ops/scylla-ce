@@ -239,3 +239,41 @@ async fn delete_of_a_project_takes_its_grants(pool: PgPool) {
     assert_eq!(after.total, 0);
     assert!(delete.is_ok(), "{delete:?}");
 }
+
+/// A holder of `members.manage` invites only with a role that it holds: a built-in admin gives
+/// `ESCALATION`.
+#[sqlx::test(migrations = false)]
+async fn an_invitation_refuses_a_role_above_the_caller(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let (owner, manager) = (app.user().await, app.user().await);
+    let id = app.workspace_of(owner).await;
+    let workspace = id.to_string();
+    let input = RoleInput {
+        name: "Manager",
+        level: "workspace",
+        holder: "people",
+        permissions: &["members.manage", "workspace.view"],
+        workspace: Some(&workspace),
+    };
+    let role = app.create_role(owner, input).await.unwrap();
+    app.grant_role(
+        owner,
+        Role::on("workspace", &workspace, &role.grant_name),
+        &manager.to_string(),
+    )
+    .await
+    .unwrap();
+
+    // when
+    let refused = app
+        .create_invitation(manager, id, "new@example.com", "admin")
+        .await;
+    let by_owner = app
+        .create_invitation(owner, id, "new@example.com", "admin")
+        .await;
+
+    // then
+    assert_refused(refused, "ESCALATION");
+    assert!(by_owner.is_ok(), "{by_owner:?}");
+}

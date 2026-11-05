@@ -1,7 +1,9 @@
 //! The gRPC handler of `InvitationService`: an invitation and its acceptance. The routes of the
 //! open invitations are in `manage.rs`.
 
+use scylla_domain::authz::{Object, Resource};
 use scylla_domain::identity::users::{Email, KIND};
+use scylla_domain::tenancy::catalog::{self, Level};
 use scylla_domain::tenancy::invitations::Invitation;
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceCaller, WorkspaceId};
 use scylla_extension::AccessError;
@@ -14,6 +16,7 @@ use tonic::{Request, Response, Status};
 use super::service::{self, Pick};
 use crate::api::parse::{self, ToProto};
 use crate::features::identity::accounts::AccountContext;
+use crate::features::tenancy::roles;
 use crate::Error;
 
 /// Makes the service.
@@ -82,6 +85,29 @@ impl InvitationsGrpc {
             .gate
             .authorize(&caller, Workspace::CREATE_INVITATION.on(workspace))
             .await?;
+
+        // A caller invites only with a role that it could give: `ESCALATION`.
+        let schema = &self.ctx.schema;
+        let permissions =
+            catalog::given_by(schema, Workspace::NAME, &request.role, Level::Workspace);
+        let refused = roles::service::check_escalation(
+            self.ctx.gate.as_ref(),
+            &caller,
+            &Object::of(workspace),
+            Some(workspace),
+            &permissions,
+        )
+        .await;
+
+        // A delete of the workspace at the same time takes the rights of the caller.
+        if let Err(error) = refused {
+            let found = service::workspace_exists(&self.ctx.pool, workspace).await?;
+            return Err(if found {
+                error
+            } else {
+                Error::NotFound("workspace")
+            });
+        }
         let invitation = service::create(
             &self.ctx,
             caller.actor.clone(),

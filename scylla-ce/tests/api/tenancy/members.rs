@@ -255,3 +255,36 @@ async fn holders_count_for_one_workspace(pool: PgPool) {
     assert_code(unknown, Code::PermissionDenied);
     assert_code(instance, Code::PermissionDenied);
 }
+
+/// A reader of a workspace lists the roles and sees their holders, and only an admin changes a role.
+#[sqlx::test(migrations = false)]
+async fn a_reader_sees_the_roles_of_the_workspace(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let (owner, viewer, stranger) = (app.user().await, app.user().await, app.user().await);
+    let workspace = app.workspace_of(owner).await.to_string();
+    app.grant_role(
+        owner,
+        Role::on("workspace", &workspace, "viewer"),
+        &viewer.to_string(),
+    )
+    .await
+    .unwrap();
+    let names = ["list_roles", "create_role"];
+
+    // when
+    let listed = app.list_roles(viewer, Some(&workspace)).await;
+    let holders = app
+        .role_holders(viewer, "workspace-viewer", Some(&workspace))
+        .await;
+    let refused = app.list_roles(stranger, Some(&workspace)).await;
+    let answers = app
+        .check_permissions(viewer, "workspace", &workspace, &names)
+        .await;
+
+    // then
+    assert!(listed.is_ok(), "{listed:?}");
+    assert!(holders.is_ok(), "{holders:?}");
+    assert_code(refused, Code::PermissionDenied);
+    assert_eq!(answers.unwrap(), [true, false]);
+}

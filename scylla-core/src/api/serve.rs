@@ -164,6 +164,7 @@ pub async fn serve(
     let install = agents::install_router(&options.accounts.api_url, &options.agent_downloads);
     let gate: Arc<dyn Gate> = access;
     let ctx = AccountContext {
+        schema: edition.authz_model().clone(),
         pool: pool.clone(),
         gate: Arc::clone(&gate),
         mailer: options.mailer,

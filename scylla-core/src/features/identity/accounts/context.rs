@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use scylla_domain::authz::Schema;
 use scylla_extension::{Gate, Grants, Hooks, Mailer};
 use sqlx::PgPool;
 
@@ -78,6 +79,8 @@ fn origin_of(url: &str) -> &str {
 /// What the account routes share.
 #[derive(Clone)]
 pub struct AccountContext {
+    /// The permission model: what the roles of the schema give.
+    pub schema: Schema,
     /// The database pool.
     pub pool: PgPool,
     /// The access gate, which signs the tokens and writes the roles.
