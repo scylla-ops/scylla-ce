@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT r.id, r.workspace_id, r.name, r.description, r.level, r.holder, r.builtin,\n                  coalesce((SELECT array_agg(p.permission) FROM role_permissions p\n                            WHERE p.role_id = r.id), '{}') AS \"permissions!\",\n                  (SELECT count(*) FROM role_grants g WHERE g.role_id = r.id) AS \"holder_count!\"\n           FROM roles r\n           WHERE NOT r.builtin\n             AND (($1::uuid IS NULL AND r.workspace_id IS NULL)\n                  OR r.workspace_id = $1\n                  OR ($1::uuid IS NOT NULL AND r.workspace_id IS NULL AND r.level <> 'platform'))\n           ORDER BY lower(r.name)",
+  "query": "SELECT r.id, r.workspace_id, r.name, r.description, r.level, r.holder,\n                  coalesce((SELECT array_agg(p.permission) FROM role_permissions p\n                            WHERE p.role_id = r.id), '{}') AS \"permissions!\",\n                  (SELECT count(*) FROM role_grants g WHERE g.role_id = r.id) AS \"holder_count!\"\n           FROM roles r\n           WHERE ($1::uuid IS NULL AND r.workspace_id IS NULL)\n              OR r.workspace_id = $1\n              OR ($1::uuid IS NOT NULL AND r.workspace_id IS NULL AND r.level <> 'platform')\n           ORDER BY lower(r.name)",
   "describe": {
     "columns": [
       {
@@ -71,23 +71,12 @@
       },
       {
         "ordinal": 6,
-        "name": "builtin",
-        "type_info": "Bool",
-        "origin": {
-          "Table": {
-            "table": "roles",
-            "name": "builtin"
-          }
-        }
-      },
-      {
-        "ordinal": 7,
         "name": "permissions!",
         "type_info": "TextArray",
         "origin": "Expression"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "holder_count!",
         "type_info": "Int8",
         "origin": "Expression"
@@ -105,10 +94,9 @@
       false,
       false,
       false,
-      false,
       null,
       null
     ]
   },
-  "hash": "a1f80d788e2fd09ca90f4f106d3df5646c168160d1afc4823d9e2bdea5b530eb"
+  "hash": "e8134c8caa31d41531adb4a2957dc5e8eff0df518bb0c6e8cc706322b0a5428e"
 }

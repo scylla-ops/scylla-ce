@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::admins::InstanceRole;
-use scylla_domain::tenancy::roles::{RoleId, WORKSPACE_CREATOR, WORKSPACE_CREATOR_ROW};
+use scylla_domain::tenancy::roles::RoleId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::Tx;
 use time::OffsetDateTime;
@@ -79,14 +79,14 @@ pub(super) async fn revoke(tx: &mut Tx<'_>, user: ActorId) -> Result<(), Error> 
     Ok(())
 }
 
-/// Returns the instance roles that are rows of each user, in name order.
+/// Returns the custom instance roles of each user, in name order.
 pub(super) async fn platform_roles(
     tx: &mut Tx<'_>,
     users: &[ActorId],
 ) -> Result<Vec<(ActorId, InstanceRole)>, Error> {
     let ids: Vec<_> = users.iter().map(|user| user.to_db()).collect();
     let rows = sqlx::query!(
-        "SELECT g.actor_id, r.id, r.name, r.builtin
+        "SELECT g.actor_id, r.id, r.name
          FROM role_grants g JOIN roles r ON r.id = g.role_id
          WHERE g.actor_id = ANY($1) AND g.scope_kind = 'platform'
          ORDER BY r.name",
@@ -97,16 +97,10 @@ pub(super) async fn platform_roles(
     Ok(rows
         .into_iter()
         .map(|row| {
-            let id = RoleId::from_db(row.id);
-            let key = if id == WORKSPACE_CREATOR_ROW {
-                WORKSPACE_CREATOR.to_owned()
-            } else {
-                id.to_string()
-            };
             let role = InstanceRole {
-                key,
+                key: RoleId::from_db(row.id).to_string(),
                 name: row.name,
-                builtin: row.builtin,
+                builtin: false,
             };
             (ActorId::from_db(row.actor_id), role)
         })

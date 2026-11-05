@@ -19,7 +19,6 @@ use tonic::{Request, Response, Status};
 use super::convert;
 use super::service::{self, RoleFields};
 use crate::api::parse::{self, ToProto};
-use crate::features::identity::accounts::refused;
 use crate::Error;
 
 /// Makes the service.
@@ -207,9 +206,6 @@ impl RolesGrpc {
             return Err(AccessError::denied(&caller, &platform_check).into());
         };
         self.gate.authorize(&caller, check).await?;
-        if row.builtin {
-            return Err(refused("BUILTIN_ROLE", "a built-in role does not change"));
-        }
 
         // Check the permissions of the role, then change it.
         let permissions = service::complete(row.level, row.holder, &fields.permissions)?;
@@ -238,13 +234,10 @@ impl RolesGrpc {
             Some(workspace) => RoleHolder::DELETE_ROLE.on(workspace),
             None => platform_check.clone(),
         };
-        let Some(row) = row else {
+        if row.is_none() {
             return Err(AccessError::denied(&caller, &platform_check).into());
-        };
-        self.gate.authorize(&caller, check).await?;
-        if row.builtin {
-            return Err(refused("BUILTIN_ROLE", "a built-in role does not change"));
         }
+        self.gate.authorize(&caller, check).await?;
         service::delete(&self.pool, id).await?;
         Ok(pb::DeleteRoleResponse {})
     }

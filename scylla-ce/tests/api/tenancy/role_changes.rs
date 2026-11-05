@@ -9,23 +9,22 @@ use tonic::Code;
 use crate::identity::accounts::assert_refused;
 use crate::{app, assert_code, UNKNOWN_ID};
 
-/// A built-in role and an unknown role do not change.
+/// A built-in role has no id, so it does not change, and an unknown role gets a refusal.
 #[sqlx::test(migrations = false)]
 async fn update_and_delete_refuse_a_built_in_or_unknown_role(pool: PgPool) {
     // given
     let app = app(pool).await;
     let admin = app.admin().await;
-    let creator = scylla_domain::tenancy::roles::WORKSPACE_CREATOR_ROW.to_string();
 
     // when
-    let update = app.update_role(admin, &creator, "Other", &[]).await;
-    let delete = app.delete_role(admin, &creator).await;
+    let update = app.update_role(admin, "instance-admin", "Other", &[]).await;
+    let delete = app.delete_role(admin, "instance-admin").await;
     let unknown_update = app.update_role(admin, UNKNOWN_ID, "Other", &[]).await;
     let unknown_delete = app.delete_role(admin, UNKNOWN_ID).await;
 
     // then
-    assert_refused(update, "BUILTIN_ROLE");
-    assert_refused(delete, "BUILTIN_ROLE");
+    assert_code(update, Code::InvalidArgument);
+    assert_code(delete, Code::InvalidArgument);
     assert_code(unknown_update, Code::PermissionDenied);
     assert_code(unknown_delete, Code::PermissionDenied);
 }

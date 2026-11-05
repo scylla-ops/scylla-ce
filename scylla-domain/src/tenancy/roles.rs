@@ -9,10 +9,7 @@ use crate::{Id, Name};
 
 mod builtin;
 
-pub use builtin::{
-    builtin, BuiltinRole, BuiltinSource, BUILTIN_ROLES, INSTANCE_ADMIN, WORKSPACE_CREATOR,
-    WORKSPACE_CREATOR_ROW,
-};
+pub use builtin::{builtin, BuiltinRole, BuiltinSource, BUILTIN_ROLES, INSTANCE_ADMIN};
 
 /// The id of a role that is a row.
 pub type RoleId = Id<Role>;
@@ -96,7 +93,7 @@ pub struct NewRole {
     pub created_by: ActorId,
 }
 
-/// A role that is a row, as the store returns it.
+/// A custom role, as the store returns it.
 #[derive(Clone, Debug)]
 pub struct RoleRow {
     /// The id.
@@ -111,8 +108,6 @@ pub struct RoleRow {
     pub level: Level,
     /// Who can hold the role.
     pub holder: Holder,
-    /// `true` if the role comes from the server.
-    pub builtin: bool,
     /// The ids of the permissions.
     pub permissions: Vec<String>,
     /// The number of grants of the role.

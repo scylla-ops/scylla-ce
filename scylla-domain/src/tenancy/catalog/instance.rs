@@ -4,7 +4,6 @@ use super::{Area, CatalogPermission, Level, Route};
 use crate::identity::admins::UserAdminHolder;
 use crate::platform::SettingsHolder;
 use crate::tenancy::roles::RoleAdmin;
-use crate::tenancy::workspaces::WorkspaceCreation;
 
 /// The areas of this level.
 pub(super) const AREAS: &[Area] = &[
@@ -56,22 +55,13 @@ pub(super) const AREAS: &[Area] = &[
         id: "workspaces",
         level: Level::Platform,
         machine: false,
-        permissions: &[
-            CatalogPermission {
-                id: "workspaces.view",
-                action: "view",
-                depends_on: &["workspace.view"],
-                implicit: false,
-                routes: &[],
-            },
-            CatalogPermission {
-                id: "workspaces.create",
-                action: "create",
-                depends_on: &[],
-                implicit: false,
-                routes: &[Route::of(WorkspaceCreation::CREATE_WORKSPACE)],
-            },
-        ],
+        permissions: &[CatalogPermission {
+            id: "workspaces.view",
+            action: "view",
+            depends_on: &["workspace.view"],
+            implicit: false,
+            routes: &[],
+        }],
     },
     Area {
         id: "instance_roles",

@@ -1,21 +1,18 @@
 //! The built-in roles: they come from the server and do not change.
 
-use super::{Holder, RoleId};
+use super::Holder;
 use crate::authz::Resource;
 use crate::identity::apps::AppHolder;
 use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
 use crate::projects::Project;
 use crate::tenancy::catalog::Level;
 use crate::tenancy::workspaces::Workspace;
-use crate::Id;
 
 /// Where a built-in role gets its permissions and its holders.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuiltinSource {
     /// The rows of `instance_admins`. It has each permission.
     InstanceAdmins,
-    /// A row of `roles` with its grants.
-    Row(RoleId),
     /// A relation of the SpiceDB schema: the definition and the relation.
     Relation(&'static str, &'static str),
 }
@@ -51,14 +48,8 @@ impl BuiltinRole {
 /// The key of the role of the instance admins.
 pub const INSTANCE_ADMIN: &str = "instance-admin";
 
-/// The key of the role that creates workspaces.
-pub const WORKSPACE_CREATOR: &str = "workspace-creator";
-
-/// The row of the role that creates workspaces. The migration of the roles adds it.
-pub const WORKSPACE_CREATOR_ROW: RoleId = Id::from_bits(1);
-
 /// The built-in roles, in the order of the API.
-pub const BUILTIN_ROLES: [BuiltinRole; 11] = [
+pub const BUILTIN_ROLES: [BuiltinRole; 10] = [
     BuiltinRole {
         key: INSTANCE_ADMIN,
         name: "Instance admin",
@@ -66,14 +57,6 @@ pub const BUILTIN_ROLES: [BuiltinRole; 11] = [
         level: Level::Platform,
         holder: Holder::People,
         source: BuiltinSource::InstanceAdmins,
-    },
-    BuiltinRole {
-        key: WORKSPACE_CREATOR,
-        name: "Workspace creator",
-        description: "Creates workspaces. Becomes owner of each workspace that it creates.",
-        level: Level::Platform,
-        holder: Holder::People,
-        source: BuiltinSource::Row(WORKSPACE_CREATOR_ROW),
     },
     BuiltinRole {
         key: "workspace-admin",

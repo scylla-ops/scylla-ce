@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT personal_tokens_enabled, workspace_limit FROM instance_settings",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "personal_tokens_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "instance_settings",
+            "name": "personal_tokens_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_limit",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "instance_settings",
+            "name": "workspace_limit"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "869eca1495260dc17d54974689ea4947723a012cbc80f77b778f34f619a393a5"
+}

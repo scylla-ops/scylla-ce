@@ -87,13 +87,6 @@ async fn built_in(
                 .collect();
             (all, store::admin_count(tx).await?)
         }
-        BuiltinSource::Row(id) => {
-            let row = store::find(tx, id).await?.ok_or(Error::NotFound("role"))?;
-            (
-                in_catalog_order(role.level, &row.permissions),
-                row.holder_count,
-            )
-        }
         BuiltinSource::Relation(definition, relation) => {
             let given = catalog::given_by(schema, definition, relation, role.level);
             let count = counts

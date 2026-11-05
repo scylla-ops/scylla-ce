@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT g.actor_id, r.id, r.name, r.builtin\n         FROM role_grants g JOIN roles r ON r.id = g.role_id\n         WHERE g.actor_id = ANY($1) AND g.scope_kind = 'platform'\n         ORDER BY r.name",
+  "query": "SELECT g.actor_id, r.id, r.name\n         FROM role_grants g JOIN roles r ON r.id = g.role_id\n         WHERE g.actor_id = ANY($1) AND g.scope_kind = 'platform'\n         ORDER BY r.name",
   "describe": {
     "columns": [
       {
@@ -35,17 +35,6 @@
             "name": "name"
           }
         }
-      },
-      {
-        "ordinal": 3,
-        "name": "builtin",
-        "type_info": "Bool",
-        "origin": {
-          "Table": {
-            "table": "roles",
-            "name": "builtin"
-          }
-        }
       }
     ],
     "parameters": {
@@ -56,9 +45,8 @@
     "nullable": [
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "5f2594dde5fe598f25198d9986d2ffce08776fa34be5aeefbd7904741c18f43a"
+  "hash": "dbddc8a8d23ce5ce1e4622d07556e302eaa85fc517e2f40f6df07f395907739a"
 }

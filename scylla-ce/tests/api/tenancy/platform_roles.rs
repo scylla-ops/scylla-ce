@@ -1,5 +1,5 @@
 //! The tests of the roles of the whole instance: `Grant` and `Revoke` on the platform, what these
-//! roles reach, the workspace creators, and the console of the users.
+//! roles reach, and the console of the users.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_proto::common::v1::PageRequest;
@@ -40,11 +40,13 @@ async fn grant_on_platform_refuses_a_bad_request(pool: PgPool) {
     let machine = ActorId::parse(text(&machine.id)).unwrap();
 
     // when
-    let no_right = app.grant_on_platform(user, "workspace-creator", user).await;
+    let role = RoleInput::on_platform("Auditor", &["users.view"]);
+    let role = app.create_role(admin, role).await.unwrap();
+    let no_right = app.grant_on_platform(user, &role.grant_name, user).await;
     let not_a_role = app.grant_on_platform(admin, "pilot", user).await;
     let of_a_workspace = app.grant_on_platform(admin, "workspace-member", user).await;
     let an_app = app
-        .grant_on_platform(admin, "workspace-creator", machine)
+        .grant_on_platform(admin, &role.grant_name, machine)
         .await;
 
     // then
@@ -106,30 +108,6 @@ async fn grant_on_platform_refuses_an_escalation(pool: PgPool) {
     assert_refused(refused, "ESCALATION");
     assert_refused(admin_role, "ESCALATION");
     assert_refused(take_back, "ESCALATION");
-    assert!(accepted.is_ok());
-}
-
-/// Only a workspace creator or an instance admin makes a workspace, and a new user has its
-/// personal workspace with no role.
-#[sqlx::test(migrations = false)]
-async fn create_workspace_needs_the_role(pool: PgPool) {
-    // given
-    let app = app(pool).await;
-    let (admin, user) = (app.admin().await, app.user().await);
-
-    // when
-    let refused = app.create_workspace_as_is(user, "team", None).await;
-    let by_admin = app
-        .create_workspace_as_is(admin, "of the admin", None)
-        .await;
-    app.grant_on_platform(admin, "workspace-creator", user)
-        .await
-        .unwrap();
-    let accepted = app.create_workspace_as_is(user, "team", None).await;
-
-    // then
-    assert_code(refused, Code::PermissionDenied);
-    assert!(by_admin.is_ok());
     assert!(accepted.is_ok());
 }
 

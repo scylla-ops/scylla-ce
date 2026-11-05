@@ -10,17 +10,38 @@ use scylla_domain::tenancy::workspaces::{
     WorkspacePage,
 };
 use scylla_domain::Page;
-use scylla_extension::{CreateContext, Gate, Hooks, Rejection, WorkspaceFuture};
+use scylla_extension::{CreateContext, Gate, Hooks, Rejection, Tx, WorkspaceFuture};
 use sqlx::PgPool;
 
 use super::store;
+use crate::features::platform::settings;
 use crate::Error;
 
-/// Creates a workspace and makes its creator the first owner, in one transaction. The owners
-/// are in Postgres, so the creation writes nothing to SpiceDB.
+/// Refuses a new workspace over the limit of its creator: `WORKSPACE_LIMIT`. It locks the user until
+/// the end of the transaction, so two creations at the same time count one after the other. An
+/// instance admin has no limit.
+async fn keep_the_limit(tx: &mut Tx<'_>, user: ActorId) -> Result<(), Error> {
+    store::lock_creator(tx, user).await?;
+    if store::has_no_limit(tx, user).await? {
+        return Ok(());
+    }
+    let limit = settings::workspace_limit(tx).await?;
+    if store::counted_for(tx, user).await? < i64::from(limit) {
+        return Ok(());
+    }
+    let message = format!("you have reached the limit of workspaces for one user: {limit}");
+    let refusal = Rejection::new("WORKSPACE_LIMIT", message).detail("limit", limit);
+    Err(Error::Rejected(refusal))
+}
+
+/// Creates a workspace and makes its creator the first owner, in one transaction. The workspace
+/// counts for the limit of its creator. The owners are in Postgres, so the creation writes nothing
+/// to SpiceDB.
 pub async fn create(pool: &PgPool, new: NewWorkspace) -> Result<Workspace, Error> {
     let mut tx = pool.begin().await?;
+    keep_the_limit(&mut tx, new.creator).await?;
     let workspace = store::insert(&mut tx, &new).await?;
+    store::count_for(&mut tx, workspace.id, new.creator).await?;
     tx.commit().await?;
     let (id, slug) = (workspace.id, &workspace.slug);
     tracing::info!(event = "workspace.created", workspace = %id, slug);

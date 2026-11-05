@@ -1,7 +1,7 @@
 //! The logic of the settings of the instance.
 
 use scylla_domain::identity::api_tokens::PERSONAL_TOKEN_PREFIX;
-use scylla_domain::platform::InstanceSettings;
+use scylla_domain::platform::{InstanceSettings, InstanceSettingsChange};
 use scylla_extension::Tx;
 use sqlx::PgPool;
 
@@ -22,17 +22,23 @@ pub(super) async fn get(pool: &PgPool) -> Result<(InstanceSettings, u32), Error>
 /// tokens.
 pub(super) async fn update(
     pool: &PgPool,
-    personal_tokens_enabled: Option<bool>,
+    change: InstanceSettingsChange,
 ) -> Result<(InstanceSettings, u32), Error> {
     let mut tx = pool.begin().await?;
-    let settings = store::update(&mut tx, personal_tokens_enabled).await?;
+    let settings = store::update(&mut tx, change).await?;
     let active = api_tokens::count_active(&mut tx, PERSONAL_TOKEN_PREFIX).await?;
     tx.commit().await?;
     tracing::info!(
         event = "instance.settings_changed",
-        personal_tokens = settings.personal_tokens_enabled
+        personal_tokens = settings.personal_tokens_enabled,
+        workspace_limit = settings.workspace_limit
     );
     Ok((settings, active))
+}
+
+/// Returns the number of workspaces that one user can create, in the transaction of the caller.
+pub(crate) async fn workspace_limit(tx: &mut Tx<'_>) -> Result<u32, sqlx::Error> {
+    Ok(store::get(tx).await?.workspace_limit)
 }
 
 /// Returns `true` when the users can create and use personal tokens, in the transaction of the

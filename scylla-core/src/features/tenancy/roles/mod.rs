@@ -8,6 +8,6 @@ mod plugin;
 mod service;
 mod store;
 
-pub(crate) use platform::{give_on_platform, make_workspace_creator, take_back_on_platform};
+pub(crate) use platform::{give_on_platform, take_back_on_platform};
 pub(crate) use plugin::Roles;
 pub(crate) use store::delete_grants_of;

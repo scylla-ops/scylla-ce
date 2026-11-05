@@ -4,7 +4,6 @@ use time::OffsetDateTime;
 
 use crate::authz::Resource;
 use crate::identity::actors::{Actor, ActorId};
-use crate::platform::Platform;
 use crate::tenancy::slugs::Slug;
 use crate::{Id, Name, Page, PageRequest, ResourceKind};
 
@@ -135,14 +134,10 @@ crate::authz! {
         permission resend_invitation = manage;
     }
 
-    /// The route that makes a new workspace: an instance admin passes it, and a role gives it.
-    extend Platform as WorkspaceCreation {
-        /// The route `CreateWorkspace`: a user creates a workspace and becomes its first owner.
-        permission create_workspace = nil;
-    }
-
     /// The routes of the workspaces on the caller itself.
     extend Actor as WorkspaceCaller {
+        /// The route `CreateWorkspace`: a user creates a workspace and becomes its first owner.
+        permission create_workspace = nil;
         /// The route `ListWorkspaces`: each caller lists the workspaces that it can read.
         permission list_workspaces = nil;
         /// The route `AcceptInvitation` of `InvitationService`: a user accepts an invitation for

@@ -2,7 +2,7 @@
 
 use super::{areas, complete, covering, find, permissions_of, Level, PermissionError};
 
-/// A role holds at most 39, 30 or 18 permissions, and the machine area is apart.
+/// A role holds at most 38, 30 or 18 permissions, and the machine area is apart.
 #[test]
 fn the_catalog_has_the_counts_of_the_model() {
     // given
@@ -17,7 +17,7 @@ fn the_catalog_has_the_counts_of_the_model() {
     let counts = [Level::Platform, Level::Workspace, Level::Project].map(human);
 
     // then
-    assert_eq!(counts, [39, 30, 18]);
+    assert_eq!(counts, [38, 30, 18]);
 }
 
 /// Each dependency names a permission of the catalog, and each id has its area in front.

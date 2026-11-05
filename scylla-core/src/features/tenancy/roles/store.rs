@@ -1,4 +1,4 @@
-//! The SQL of the roles that are rows, their permissions and their grants. Each function runs in
+//! The SQL of the custom roles, their permissions and their grants. Each function runs in
 //! the transaction of the caller.
 
 use scylla_domain::authz::Resource;
@@ -29,8 +29,6 @@ struct Row {
     level: String,
     /// Who can hold the role.
     holder: String,
-    /// `true` if the role comes from the server.
-    builtin: bool,
     /// The ids of the permissions.
     permissions: Vec<String>,
     /// The number of grants.
@@ -47,7 +45,6 @@ impl Row {
             description: self.description,
             level: Level::parse(&self.level).unwrap_or(Level::Project),
             holder: Holder::parse(&self.holder).unwrap_or(Holder::People),
-            builtin: self.builtin,
             permissions: self.permissions,
             holder_count: u32::try_from(self.holder_count).unwrap_or(u32::MAX),
         }
@@ -109,7 +106,7 @@ async fn replace_permissions(
 pub(super) async fn find(tx: &mut Tx<'_>, id: RoleId) -> Result<Option<RoleRow>, Error> {
     let row = sqlx::query_as!(
         Row,
-        r#"SELECT r.id, r.workspace_id, r.name, r.description, r.level, r.holder, r.builtin,
+        r#"SELECT r.id, r.workspace_id, r.name, r.description, r.level, r.holder,
                   coalesce((SELECT array_agg(p.permission) FROM role_permissions p
                             WHERE p.role_id = r.id), '{}') AS "permissions!",
                   (SELECT count(*) FROM role_grants g WHERE g.role_id = r.id) AS "holder_count!"
@@ -129,15 +126,14 @@ pub(super) async fn list_custom(
 ) -> Result<Vec<RoleRow>, Error> {
     let rows = sqlx::query_as!(
         Row,
-        r#"SELECT r.id, r.workspace_id, r.name, r.description, r.level, r.holder, r.builtin,
+        r#"SELECT r.id, r.workspace_id, r.name, r.description, r.level, r.holder,
                   coalesce((SELECT array_agg(p.permission) FROM role_permissions p
                             WHERE p.role_id = r.id), '{}') AS "permissions!",
                   (SELECT count(*) FROM role_grants g WHERE g.role_id = r.id) AS "holder_count!"
            FROM roles r
-           WHERE NOT r.builtin
-             AND (($1::uuid IS NULL AND r.workspace_id IS NULL)
-                  OR r.workspace_id = $1
-                  OR ($1::uuid IS NOT NULL AND r.workspace_id IS NULL AND r.level <> 'platform'))
+           WHERE ($1::uuid IS NULL AND r.workspace_id IS NULL)
+              OR r.workspace_id = $1
+              OR ($1::uuid IS NOT NULL AND r.workspace_id IS NULL AND r.level <> 'platform')
            ORDER BY lower(r.name)"#,
         workspace.map(WorkspaceId::to_db),
     )
@@ -198,7 +194,7 @@ pub(super) async fn grant_on_platform(
     tx: &mut Tx<'_>,
     actor: ActorId,
     role: RoleId,
-    created_by: Option<ActorId>,
+    created_by: ActorId,
 ) -> Result<(), Error> {
     sqlx::query!(
         "INSERT INTO role_grants (actor_id, role_id, scope_kind, scope_id, created_by)
@@ -208,7 +204,7 @@ pub(super) async fn grant_on_platform(
         role.to_db(),
         Platform::NAME,
         Platform::ID.to_db(),
-        created_by.map(ActorId::to_db),
+        created_by.to_db(),
     )
     .execute(&mut **tx)
     .await?;

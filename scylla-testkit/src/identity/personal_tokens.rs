@@ -85,6 +85,23 @@ impl TestApp {
     ) -> Result<InstanceSettings, Status> {
         let request = UpdateInstanceSettingsRequest {
             personal_tokens_enabled: Some(enabled),
+            workspace_limit: None,
+        };
+        let request = self.authed(actor, request).await;
+        let mut client = SettingsServiceClient::new(self.channel.clone());
+        let response = client.update_instance_settings(request).await?.into_inner();
+        Ok(response.settings.expect("settings"))
+    }
+
+    /// Calls `UpdateInstanceSettings` as `actor`, with a limit of the workspaces.
+    pub async fn set_workspace_limit(
+        &self,
+        actor: ActorId,
+        limit: u32,
+    ) -> Result<InstanceSettings, Status> {
+        let request = UpdateInstanceSettingsRequest {
+            personal_tokens_enabled: None,
+            workspace_limit: Some(limit),
         };
         let request = self.authed(actor, request).await;
         let mut client = SettingsServiceClient::new(self.channel.clone());

@@ -15,4 +15,5 @@ mod platform_roles;
 mod role_changes;
 mod roles;
 mod slugs;
+mod workspace_limit;
 mod workspaces;

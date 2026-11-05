@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use scylla_domain::authz::Permission;
-use scylla_domain::platform::{InstanceSettings, Platform, SettingsHolder};
+use scylla_domain::platform::{InstanceSettings, InstanceSettingsChange, Platform, SettingsHolder};
 use scylla_extension::Gate;
 use scylla_proto::platform::v1 as pb;
 use scylla_proto::platform::v1::settings_service_server::{SettingsService, SettingsServiceServer};
@@ -46,8 +46,18 @@ impl SettingsService for SettingsGrpc {
     ) -> Result<Response<pb::UpdateInstanceSettingsResponse>, Status> {
         self.admin(&request, SettingsHolder::UPDATE_INSTANCE_SETTINGS)
             .await?;
-        let enabled = request.into_inner().personal_tokens_enabled;
-        let (settings, active) = service::update(&self.pool, enabled).await?;
+        let request = request.into_inner();
+        if request
+            .workspace_limit
+            .is_some_and(|limit| i32::try_from(limit).is_err())
+        {
+            return Err(Error::invalid("workspace_limit", "is too large").into());
+        }
+        let change = InstanceSettingsChange {
+            personal_tokens_enabled: request.personal_tokens_enabled,
+            workspace_limit: request.workspace_limit,
+        };
+        let (settings, active) = service::update(&self.pool, change).await?;
         Ok(Response::new(pb::UpdateInstanceSettingsResponse {
             settings: Some(message(settings, active)),
         }))
@@ -74,5 +84,6 @@ fn message(settings: InstanceSettings, active: u32) -> pb::InstanceSettings {
     pb::InstanceSettings {
         personal_tokens_enabled: settings.personal_tokens_enabled,
         active_personal_tokens: active,
+        workspace_limit: settings.workspace_limit,
     }
 }

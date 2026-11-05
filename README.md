@@ -239,7 +239,8 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Deletion of a workspace: owners only, an empty workspace only, its invitations and roles go, a project creation, a new owner or an invitation at the same time | `scylla-ce/tests/api/tenancy/deletion.rs` |
 | Permissions of a caller: owner, admin, member, viewer, another user, instance admin, a project, the platform, unknown names | `scylla-ce/tests/api/tenancy/checks.rs` |
 | Roles: the catalog, the built-in roles, a custom role of the instance or of a workspace, escalation, a used name, a role in use, a change that is live at once | `scylla-ce/tests/api/tenancy/roles.rs`, `role_changes.rs` |
-| Roles of the instance: `Grant` and `Revoke` on the platform, the last admin, what these roles reach, the workspace creators, `ListUsers` with the roles, the workspaces and the last sign-in | `scylla-ce/tests/api/tenancy/platform_roles.rs` |
+| The limit of the workspaces: the default, the personal workspace, an instance admin, the instance settings, a delete, two creations at the same time | `scylla-ce/tests/api/tenancy/workspace_limit.rs` |
+| Roles of the instance: `Grant` and `Revoke` on the platform, the last admin, what these roles reach, `ListUsers` with the roles, the workspaces and the last sign-in | `scylla-ce/tests/api/tenancy/platform_roles.rs` |
 | List of the access: owners and roles of a workspace, roles of a project, the pages, who can read it | `scylla-ce/tests/api/tenancy/access_lists.rs` |
 | Accounts: sign-up and its link, the modes, the length of a password (8 and 128), the same answer for each refusal, the lock and 50 failures, the reset, the change of a password | `scylla-ce/tests/api/identity/accounts.rs` |
 | Handles: the limits and the characters, one user for each handle, the sign-in with a handle | `scylla-ce/tests/api/identity/handles.rs` |

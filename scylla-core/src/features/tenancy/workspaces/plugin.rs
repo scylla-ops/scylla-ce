@@ -1,6 +1,6 @@
 //! The plugin of the workspaces feature.
 
-use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceCaller, WorkspaceCreation};
+use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceCaller};
 use scylla_extension::{AccessRoutes, EditionBuilder, Plugin};
 
 use super::{grpc, service};
@@ -19,7 +19,6 @@ impl Plugin for Workspaces {
         edition
             .authz::<Workspace>()
             .authz::<WorkspaceCaller>()
-            .authz::<WorkspaceCreation>()
             .grants(routes, service::find_workspace)
             .role(Workspace::ADMIN)
             .role(Workspace::MEMBER)

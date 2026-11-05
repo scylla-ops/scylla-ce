@@ -26,6 +26,17 @@ crate::authz! {
 pub struct InstanceSettings {
     /// `true` when the users can create and use personal tokens.
     pub personal_tokens_enabled: bool,
+    /// The number of workspaces that one user can create.
+    pub workspace_limit: u32,
+}
+
+/// A change of the settings of the instance. A field that is `None` does not change.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct InstanceSettingsChange {
+    /// `true` when the users can create and use personal tokens.
+    pub personal_tokens_enabled: Option<bool>,
+    /// The number of workspaces that one user can create.
+    pub workspace_limit: Option<u32>,
 }
 
 crate::authz! {

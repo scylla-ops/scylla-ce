@@ -5,4 +5,4 @@ mod service;
 mod store;
 
 pub(crate) use grpc::server;
-pub(crate) use service::personal_tokens_enabled;
+pub(crate) use service::{personal_tokens_enabled, workspace_limit};

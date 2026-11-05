@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT r.id, r.workspace_id, r.name, r.description, r.level, r.holder, r.builtin,\n                  coalesce((SELECT array_agg(p.permission) FROM role_permissions p\n                            WHERE p.role_id = r.id), '{}') AS \"permissions!\",\n                  (SELECT count(*) FROM role_grants g WHERE g.role_id = r.id) AS \"holder_count!\"\n           FROM roles r WHERE r.id = $1",
+  "query": "SELECT r.id, r.workspace_id, r.name, r.description, r.level, r.holder,\n                  coalesce((SELECT array_agg(p.permission) FROM role_permissions p\n                            WHERE p.role_id = r.id), '{}') AS \"permissions!\",\n                  (SELECT count(*) FROM role_grants g WHERE g.role_id = r.id) AS \"holder_count!\"\n           FROM roles r WHERE r.id = $1",
   "describe": {
     "columns": [
       {
@@ -71,23 +71,12 @@
       },
       {
         "ordinal": 6,
-        "name": "builtin",
-        "type_info": "Bool",
-        "origin": {
-          "Table": {
-            "table": "roles",
-            "name": "builtin"
-          }
-        }
-      },
-      {
-        "ordinal": 7,
         "name": "permissions!",
         "type_info": "TextArray",
         "origin": "Expression"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "holder_count!",
         "type_info": "Int8",
         "origin": "Expression"
@@ -105,10 +94,9 @@
       false,
       false,
       false,
-      false,
       null,
       null
     ]
   },
-  "hash": "e41ff0ef54cc19db6ddd6986dbf450e7c87e11a2c6e80a5c6b56b911650561b0"
+  "hash": "e4fcd0f990e1ccbded7a8059e4f0c5ed93befa6d14ba6bf83c8bfa3edbf82d4e"
 }

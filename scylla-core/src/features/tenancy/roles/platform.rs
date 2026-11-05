@@ -6,8 +6,8 @@ use scylla_domain::identity::admins::UserAdminHolder;
 use scylla_domain::identity::users;
 use scylla_domain::platform::Platform;
 use scylla_domain::tenancy::catalog::{self, Level};
-use scylla_domain::tenancy::roles::{self, RoleId, INSTANCE_ADMIN, WORKSPACE_CREATOR_ROW};
-use scylla_extension::{Gate, Principal, Tx};
+use scylla_domain::tenancy::roles::{RoleId, INSTANCE_ADMIN};
+use scylla_extension::{Gate, Principal};
 use sqlx::PgPool;
 
 use super::service::{check_escalation, owner};
@@ -20,7 +20,7 @@ use crate::Error;
 enum PlatformRole {
     /// The role of the instance admins.
     Admins,
-    /// A role that is a row, with its permissions.
+    /// A custom role, with its permissions.
     Row(RoleId, Vec<&'static str>),
 }
 
@@ -30,11 +30,7 @@ async fn platform_role(pool: &PgPool, name: &str) -> Result<PlatformRole, Error>
     if name == INSTANCE_ADMIN {
         return Ok(PlatformRole::Admins);
     }
-    let id = match roles::builtin(name) {
-        Some(_) if name == roles::WORKSPACE_CREATOR => WORKSPACE_CREATOR_ROW,
-        Some(_) => return Err(not_a_role()),
-        None => RoleId::parse(name).map_err(|_| not_a_role())?,
-    };
+    let id = RoleId::parse(name).map_err(|_| not_a_role())?;
     let row = owner(pool, id).await?.ok_or_else(not_a_role)?;
     if row.level != Level::Platform {
         return Err(not_a_role());
@@ -98,7 +94,7 @@ pub(crate) async fn give_on_platform(
         PlatformRole::Admins => admins::grant(pool, actor).await?,
         PlatformRole::Row(id, _) => {
             let mut tx = pool.begin().await?;
-            store::grant_on_platform(&mut tx, actor, id, Some(caller.actor.id)).await?;
+            store::grant_on_platform(&mut tx, actor, id, caller.actor.id).await?;
             tx.commit().await?;
         }
     }
@@ -126,9 +122,4 @@ pub(crate) async fn take_back_on_platform(
     }
     tracing::info!(event = "role.revoked", role = name, object = Platform::NAME, grantee = %actor);
     Ok(())
-}
-
-/// Gives the role that creates workspaces to a user, in the transaction of the caller.
-pub(crate) async fn make_workspace_creator(tx: &mut Tx<'_>, user: ActorId) -> Result<(), Error> {
-    store::grant_on_platform(tx, user, WORKSPACE_CREATOR_ROW, None).await
 }

@@ -1,4 +1,5 @@
 definition actor {
+    permission create_workspace = nil
     permission list_workspaces = nil
     permission accept_invitation = nil
     permission open_stream = nil
