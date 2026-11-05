@@ -1,4 +1,4 @@
 [submodule "proto"]
 	path = proto
 	url = https://github.com/scylla-ops/scylla-protos.git
-	branch = migration
+	branch = main
