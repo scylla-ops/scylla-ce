@@ -9,6 +9,7 @@ use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::users;
 use scylla_domain::platform::Platform;
 use scylla_domain::projects::Project;
+use scylla_domain::tenancy::grants::OWNER;
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
 use scylla_extension::{AccessError, Gate, Grantable, Grants, Hooks, Principal};
 use scylla_proto::access::v1 as pb;
@@ -118,6 +119,9 @@ impl GrantsGrpc {
             return self.give_on_platform(&caller, object, role, actor_id).await;
         }
         let (kind, name, id) = self.target(object)?;
+        if name == Workspace::NAME && role == OWNER {
+            return self.give_owner(caller, kind, &id, actor_id).await;
+        }
         let check = kind.grant(&id).ok_or_else(not_an_id)?;
         let actor: ActorId = parse::required(actor_id, "actor_id")?;
         let given = give::read_name(kind, &name, &id, &role, actor)?;
@@ -175,6 +179,9 @@ impl GrantsGrpc {
                 .await;
         }
         let (kind, name, id) = self.target(object)?;
+        if name == Workspace::NAME && role == OWNER {
+            return self.take_back_owner(caller, kind, &id, actor_id).await;
+        }
         let check = kind.revoke(&id).ok_or_else(not_an_id)?;
         let actor: ActorId = parse::required(actor_id, "actor_id")?;
         let given = give::read_name(kind, &name, &id, &role, actor)?;

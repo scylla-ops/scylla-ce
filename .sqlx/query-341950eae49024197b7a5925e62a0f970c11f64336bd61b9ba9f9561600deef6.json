@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT o.user_id, u.display_name, o.created_at FROM workspace_owners o\n         JOIN users u ON u.id = o.user_id\n         WHERE o.workspace_id = $1 AND ($2::uuid IS NULL OR o.user_id > $2)\n         ORDER BY o.user_id\n         LIMIT $3",
+  "query": "SELECT o.user_id, o.workspace_id, w.name, o.created_at FROM workspace_owners o\n         JOIN workspaces w ON w.id = o.workspace_id",
   "describe": {
     "columns": [
       {
@@ -16,17 +16,28 @@
       },
       {
         "ordinal": 1,
-        "name": "display_name",
-        "type_info": "Text",
+        "name": "workspace_id",
+        "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "users",
-            "name": "display_name"
+            "table": "workspace_owners",
+            "name": "workspace_id"
           }
         }
       },
       {
         "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -38,17 +49,14 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Uuid",
-        "Uuid",
-        "Int8"
-      ]
+      "Left": []
     },
     "nullable": [
+      false,
       false,
       false,
       false
     ]
   },
-  "hash": "24651642f8894671048030d7c811db0f824cde64af713b74ea2430054a74c85f"
+  "hash": "341950eae49024197b7a5925e62a0f970c11f64336bd61b9ba9f9561600deef6"
 }

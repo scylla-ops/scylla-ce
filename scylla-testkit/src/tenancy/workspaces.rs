@@ -1,18 +1,17 @@
-//! The `TestApp` helpers of `WorkspaceService`: the workspaces and their owners.
+//! The `TestApp` helpers of `WorkspaceService`.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_proto::workspaces::v1::get_workspace_request::Workspace as Named;
 use scylla_proto::workspaces::v1::workspace_service_client::WorkspaceServiceClient;
 use scylla_proto::workspaces::v1::{
-    AddOwnerRequest, CreateWorkspaceRequest, DeleteWorkspaceRequest, GetWorkspaceRequest,
-    ListOwnersRequest, ListWorkspacesRequest, RemoveOwnerRequest, UpdateWorkspaceRequest,
-    Workspace,
+    CreateWorkspaceRequest, DeleteWorkspaceRequest, GetWorkspaceRequest, ListWorkspacesRequest,
+    UpdateWorkspaceRequest, Workspace,
 };
 use tonic::transport::Channel;
 use tonic::Status;
 
 use crate::rpc::page;
-use crate::{id, text, TestApp};
+use crate::{id, TestApp};
 
 impl TestApp {
     /// Calls `CreateWorkspace` as `actor`, with a slug from the name.
@@ -117,54 +116,6 @@ impl TestApp {
         Ok(workspaces
             .into_iter()
             .map(|workspace| workspace.name)
-            .collect())
-    }
-
-    /// Calls `AddOwner` as `actor`. The ids are text, so a test can send a bad id.
-    pub async fn add_owner(
-        &self,
-        actor: ActorId,
-        workspace: &str,
-        user: &str,
-    ) -> Result<(), Status> {
-        let request = AddOwnerRequest {
-            workspace_id: Some(id(workspace)),
-            user_id: Some(id(user)),
-        };
-        let request = self.authed(actor, request).await;
-        self.workspaces().add_owner(request).await?;
-        Ok(())
-    }
-
-    /// Calls `RemoveOwner` as `actor`. The ids are text, so a test can send a bad id.
-    pub async fn remove_owner(
-        &self,
-        actor: ActorId,
-        workspace: &str,
-        user: &str,
-    ) -> Result<(), Status> {
-        let request = RemoveOwnerRequest {
-            workspace_id: Some(id(workspace)),
-            user_id: Some(id(user)),
-        };
-        let request = self.authed(actor, request).await;
-        self.workspaces().remove_owner(request).await?;
-        Ok(())
-    }
-
-    /// Calls `ListOwners` as `actor` for one page of 100, and returns the user ids in list
-    /// order.
-    pub async fn owners(&self, actor: ActorId, workspace: &str) -> Result<Vec<String>, Status> {
-        let request = ListOwnersRequest {
-            workspace_id: Some(id(workspace)),
-            page: Some(page(100, "")),
-        };
-        let request = self.authed(actor, request).await;
-        let response = self.workspaces().list_owners(request).await?;
-        let owners = response.into_inner().owners;
-        Ok(owners
-            .iter()
-            .map(|owner| text(&owner.user_id).to_owned())
             .collect())
     }
 

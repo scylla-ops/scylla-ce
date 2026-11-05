@@ -93,6 +93,10 @@ async fn built_in(
                 .collect();
             (all, store::admin_count(tx).await?)
         }
+        BuiltinSource::WorkspaceOwners => {
+            let all = catalog::of_people(role.level).map(str::to_owned).collect();
+            (all, store::owner_count(tx).await?)
+        }
         BuiltinSource::Relation(definition, relation) => {
             let given = catalog::given_by(schema, definition, relation, role.level);
             let count = counts

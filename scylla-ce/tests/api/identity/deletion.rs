@@ -4,7 +4,7 @@
 use scylla_domain::authz::Object;
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
 use scylla_extension::Gate;
-use scylla_testkit::{text, TestApp};
+use scylla_testkit::{text, Role, TestApp};
 use sqlx::PgPool;
 use tonic::{Code, Status};
 use tonic_types::StatusExt;
@@ -116,7 +116,8 @@ async fn delete_account_leaves_a_shared_workspace(pool: PgPool) {
     let user = app.user_with(email, Some(PASSWORD)).await;
     let owner = app.user().await;
     let team = app.workspace_of(owner).await;
-    app.add_owner(owner, &team.to_string(), &user.to_string())
+    let team_id = team.to_string();
+    app.grant_role(owner, Role::owner_of(&team_id), &user.to_string())
         .await
         .unwrap();
     let project = app.create_project_in(user, team, "beta").await.unwrap();
@@ -179,7 +180,8 @@ async fn delete_user_keeps_a_workspace_that_the_user_left(pool: PgPool) {
     let (admin, user, owner) = (app.admin().await, app.user().await, app.user().await);
     let team = app.create_workspace(owner, "team").await.unwrap();
     let team = WorkspaceId::parse(text(&team.id)).unwrap();
-    app.add_owner(owner, &team.to_string(), &user.to_string())
+    let team_id = team.to_string();
+    app.grant_role(owner, Role::owner_of(&team_id), &user.to_string())
         .await
         .unwrap();
     let mut removal = app.pool.begin().await.unwrap();

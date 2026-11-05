@@ -1,5 +1,6 @@
 //! The tests of `WorkspaceService`: data, validation and permissions.
 
+use scylla_domain::tenancy::grants::OWNER;
 use scylla_domain::tenancy::workspaces::Workspace;
 use scylla_proto::workspaces::v1::workspace_service_client::WorkspaceServiceClient;
 use scylla_proto::workspaces::v1::CreateWorkspaceRequest;
@@ -18,11 +19,14 @@ async fn create_workspace_returns_the_workspace(pool: PgPool) {
 
     // when
     let workspace = app.create_workspace(user, "  team  ").await.unwrap();
-    let owners = app.owners(user, text(&workspace.id)).await.unwrap();
+    let holders = app
+        .role_holders(user, OWNER, Some(text(&workspace.id)))
+        .await
+        .unwrap();
 
     // then
     assert_eq!(workspace.name, "team");
-    assert_eq!(owners, [user.to_string()]);
+    assert_eq!(holders.total, 1);
 }
 
 /// Only a user owns a workspace: an agent cannot create one.

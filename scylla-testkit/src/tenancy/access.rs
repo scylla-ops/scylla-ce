@@ -2,6 +2,7 @@
 //! permissions of a caller.
 
 use scylla_domain::identity::actors::ActorId;
+use scylla_domain::tenancy::grants::OWNER;
 use scylla_proto::access::v1::access_service_client::AccessServiceClient;
 use scylla_proto::access::v1::{
     CheckPermissionsRequest, GetMemberAccessRequest, GetMemberAccessResponse, GrantRequest,
@@ -30,6 +31,11 @@ impl<'a> Role<'a> {
     /// Names a role on an object.
     pub fn on(kind: &'a str, id: &'a str, name: &'a str) -> Self {
         Self { kind, id, name }
+    }
+
+    /// Names the role owner of a workspace.
+    pub fn owner_of(id: &'a str) -> Self {
+        Self::on("workspace", id, OWNER)
     }
 }
 

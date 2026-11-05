@@ -208,6 +208,14 @@ pub(crate) async fn admin_count(tx: &mut Tx<'_>) -> Result<u32, Error> {
     Ok(u32::try_from(count).unwrap_or(u32::MAX))
 }
 
+/// Returns the number of owners of all the workspaces.
+pub(crate) async fn owner_count(tx: &mut Tx<'_>) -> Result<u32, Error> {
+    let count = sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM workspace_owners"#)
+        .fetch_one(&mut **tx)
+        .await?;
+    Ok(u32::try_from(count).unwrap_or(u32::MAX))
+}
+
 /// Returns the names of the objects of a level, by the text of their id. The platform has none.
 pub(crate) async fn scope_names(
     tx: &mut Tx<'_>,

@@ -14,21 +14,20 @@ use crate::identity::accounts::assert_refused;
 use crate::{app, assert_code};
 
 /// Each route permission of the schema is in the catalog. The list names the groups, and the
-/// routes that only an owner or an instance admin passes.
+/// permissions that only an owner or an instance admin passes.
 #[test]
 fn each_route_of_a_role_is_in_the_catalog() {
     // given
     let edition = scylla_ce::edition();
     let schema = edition.authz_model();
-    const OUT: [&str; 10] = [
+    const OUT: [&str; 9] = [
         "manage",
         "work",
         "read",
         "delete",
         "edit",
         "view",
-        "add_owner",
-        "remove_owner",
+        "manage_owners",
         "grant_instance_admin",
         "revoke_instance_admin",
     ];

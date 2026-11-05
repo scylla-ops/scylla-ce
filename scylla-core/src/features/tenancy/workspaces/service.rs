@@ -3,7 +3,6 @@
 use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::tenancy::grants::{MEMBER_KIND, OWNER};
-use scylla_domain::tenancy::owners::{ListOwners, OwnerPage};
 use scylla_domain::tenancy::slugs::Slug;
 use scylla_domain::tenancy::workspaces::{
     ListWorkspaces, NewWorkspace, VisibleWorkspaces, Workspace, WorkspaceChange, WorkspaceId,
@@ -135,8 +134,9 @@ pub(super) async fn delete(pool: &PgPool, gate: &dyn Gate, id: WorkspaceId) -> R
     Ok(())
 }
 
-/// Makes a user an owner of a workspace. An owner stays an owner.
-pub(super) async fn add_owner(
+/// Gives the role owner to a user, in one transaction with the hooks of a new member. An owner stays
+/// an owner.
+pub(crate) async fn give_owner(
     pool: &PgPool,
     hooks: &Hooks,
     actor: Actor,
@@ -148,12 +148,11 @@ pub(super) async fn add_owner(
     hooks.before_create(&mut tx, &hook).await?;
     store::add_owner(&mut tx, workspace, user).await?;
     tx.commit().await?;
-    tracing::info!(event = "owner.added", %workspace, %user);
     Ok(())
 }
 
-/// Takes a user out of the owners of a workspace. The last owner stays: a workspace always has
-/// one owner or more.
+/// Takes back the role owner from a user. The last owner stays: a workspace always has one owner or
+/// more.
 ///
 /// This holds when removals run at the same time. Each removal locks the row of the workspace
 /// first, so the removals in one workspace run one after the other. In READ COMMITTED each
@@ -161,7 +160,7 @@ pub(super) async fn add_owner(
 /// holder of the lock committed: two owners that take each other out at the same time leave
 /// one owner. An addition does not take the lock. It can only make the count too low, so it can
 /// cause a refusal, but never a workspace with no owner.
-pub(super) async fn remove_owner(
+pub(crate) async fn take_owner(
     pool: &PgPool,
     workspace: WorkspaceId,
     user: ActorId,
@@ -180,18 +179,7 @@ pub(super) async fn remove_owner(
         return Err(Error::Rejected(Rejection::new("LAST_OWNER", message)));
     }
     tx.commit().await?;
-    tracing::info!(event = "owner.removed", %workspace, %user);
     Ok(())
-}
-
-/// Returns one page of the owners of a workspace, in user id order.
-pub(super) async fn owners(pool: &PgPool, query: ListOwners) -> Result<OwnerPage, Error> {
-    let mut tx = pool.begin().await?;
-    let owners = store::owners(&mut tx, query.workspace_id, query.page).await?;
-    tx.commit().await?;
-    Ok(Page::from_overfetch(owners, query.page.size, |owner| {
-        owner.user_id
-    }))
 }
 
 /// Returns the workspaces that a caller can read and that refuse the personal tokens.

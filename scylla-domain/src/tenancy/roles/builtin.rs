@@ -6,6 +6,7 @@ use crate::identity::apps::AppHolder;
 use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
 use crate::projects::Project;
 use crate::tenancy::catalog::Level;
+use crate::tenancy::grants::OWNER;
 use crate::tenancy::workspaces::Workspace;
 
 /// Where a built-in role gets its permissions and its holders.
@@ -13,6 +14,8 @@ use crate::tenancy::workspaces::Workspace;
 pub enum BuiltinSource {
     /// The rows of `instance_admins`. It has each permission.
     InstanceAdmins,
+    /// The rows of `workspace_owners`. It has each permission of a workspace.
+    WorkspaceOwners,
     /// A relation of the SpiceDB schema: the definition and the relation.
     Relation(&'static str, &'static str),
 }
@@ -49,7 +52,7 @@ impl BuiltinRole {
 pub const INSTANCE_ADMIN: &str = "instance-admin";
 
 /// The built-in roles, in the order of the API.
-pub const BUILTIN_ROLES: [BuiltinRole; 10] = [
+pub const BUILTIN_ROLES: [BuiltinRole; 11] = [
     BuiltinRole {
         key: INSTANCE_ADMIN,
         name: "Instance admin",
@@ -57,6 +60,14 @@ pub const BUILTIN_ROLES: [BuiltinRole; 10] = [
         level: Level::Platform,
         holder: Holder::People,
         source: BuiltinSource::InstanceAdmins,
+    },
+    BuiltinRole {
+        key: OWNER,
+        name: "Workspace owner",
+        description: "Full control of one workspace, also its deletion and its owners.",
+        level: Level::Workspace,
+        holder: Holder::People,
+        source: BuiltinSource::WorkspaceOwners,
     },
     BuiltinRole {
         key: "workspace-admin",

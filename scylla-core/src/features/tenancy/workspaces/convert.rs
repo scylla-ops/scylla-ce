@@ -1,6 +1,5 @@
-//! The proto messages of the workspaces and of their owners.
+//! The proto messages of the workspaces.
 
-use scylla_domain::tenancy::owners::WorkspaceOwner;
 use scylla_domain::tenancy::workspaces::Workspace;
 use scylla_proto::workspaces::v1 as pb;
 
@@ -14,16 +13,6 @@ impl ToProto<pb::Workspace> for Workspace {
             slug: self.slug,
             created_at: Some(parse::timestamp(self.created_at)),
             personal_tokens_enabled: self.personal_tokens_enabled,
-        }
-    }
-}
-
-impl ToProto<pb::WorkspaceOwner> for WorkspaceOwner {
-    fn to_proto(self) -> pb::WorkspaceOwner {
-        pb::WorkspaceOwner {
-            user_id: Some(self.user_id.to_proto()),
-            display_name: self.display_name,
-            since: Some(parse::timestamp(self.since)),
         }
     }
 }

@@ -1,5 +1,4 @@
-//! The access to an object: the owners of its workspace, the roles on it, and the permissions
-//! of a caller.
+//! The access to an object: the roles on it, and the permissions of a caller.
 
 use time::OffsetDateTime;
 
@@ -9,18 +8,17 @@ use crate::tenancy::catalog::Level;
 use crate::tenancy::roles::RoleId;
 use crate::tenancy::workspaces::Workspace;
 
-/// The role of an owner of a workspace in a list of the access. No role of the model has this
-/// name.
+/// The key of the built-in role of the owners of a workspace, and its name in `Grant` and `Revoke`.
 pub const OWNER: &str = "owner";
 
 /// The kind of a membership, for the hooks: a user gets a role in a workspace or on one of its
-/// objects, accepts an invitation, or becomes an owner.
+/// objects, or accepts an invitation.
 pub const MEMBER_KIND: crate::ResourceKind = crate::ResourceKind::new("member");
 
 /// The largest number of permissions in one `CheckPermissions`.
 pub const MAX_CHECKS: usize = 50;
 
-/// One access to an object: an owner of the workspace, or an actor with a role.
+/// One access to an object: an actor with a role.
 #[derive(Clone, Debug)]
 pub struct AccessEntry {
     /// The actor.
@@ -31,14 +29,14 @@ pub struct AccessEntry {
     pub display_name: String,
     /// The handle of a user, if it has one.
     pub handle: Option<String>,
-    /// The role, or `owner`.
+    /// The role.
     pub role: String,
 }
 
 /// Where a page of a list of the access starts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AccessCursor {
-    /// The owners of the workspace after this user.
+    /// The holders of the role owner after this user.
     Owners(ActorId),
     /// The roles after this cursor of the permission system, or from the first role.
     Roles(Option<String>),
@@ -47,7 +45,7 @@ pub enum AccessCursor {
 }
 
 impl AccessCursor {
-    /// The prefix of a token of the owners.
+    /// The prefix of a token of the holders of the role owner.
     const OWNERS: &'static str = "owners.";
     /// The prefix of a token of the roles.
     const ROLES: &'static str = "roles.";
@@ -82,7 +80,7 @@ impl AccessCursor {
     }
 }
 
-/// One page of a list of the access: the owners first, then the roles.
+/// One page of a list of the access: the holders of the role owner first, then the other roles.
 #[derive(Clone, Debug)]
 pub struct AccessPage {
     /// The entries of the page.
@@ -111,7 +109,7 @@ pub struct HeldRole {
     pub actor: ActorId,
     /// The role in `Grant` and `Revoke`.
     pub role: String,
-    /// The key of the role, or `owner`.
+    /// The key of the role.
     pub key: String,
     /// The name of the role.
     pub name: String,

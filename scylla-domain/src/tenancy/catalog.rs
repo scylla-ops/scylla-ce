@@ -122,6 +122,14 @@ pub fn permissions_of(level: Level) -> impl Iterator<Item = &'static CatalogPerm
         .flat_map(|area| area.permissions)
 }
 
+/// Returns the ids of the permissions of a level that a person can hold.
+pub fn of_people(level: Level) -> impl Iterator<Item = &'static str> {
+    areas()
+        .filter(move |area| !area.machine && level.covers(area.level))
+        .flat_map(|area| area.permissions)
+        .map(|permission| permission.id)
+}
+
 /// Returns a permission of the catalog and its area, by id.
 pub fn find(id: &str) -> Option<(&'static Area, &'static CatalogPermission)> {
     areas().find_map(|area| {

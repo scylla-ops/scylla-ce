@@ -100,7 +100,7 @@ fn event(name: &str, line: &Line) -> Parts {
         "app" | "agent" => "APP",
         "job" | "pipeline" | "trigger" => "JOB",
         "user" | "admin" => "ADMIN",
-        "access" | "role" | "invitation" | "owner" => "ACCESS",
+        "access" | "role" | "invitation" => "ACCESS",
         "workspace" => "WORKSPACE",
         "secret" => "SECRET",
         _ => "EVENT",

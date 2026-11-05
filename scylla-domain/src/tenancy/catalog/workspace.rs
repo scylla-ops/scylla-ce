@@ -54,7 +54,6 @@ pub(super) const AREAS: &[Area] = &[
                 depends_on: &[],
                 implicit: false,
                 routes: &[
-                    Route::of(Workspace::LIST_OWNERS),
                     Route::of(Workspace::LIST_ACCESS),
                     Route::of(WorkspaceMembers::LIST_MEMBERS),
                     Route::of(WorkspaceMembers::GET_MEMBER_ACCESS),

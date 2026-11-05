@@ -81,12 +81,13 @@ pub(super) fn owner_role(
     actor: ActorId,
     since: OffsetDateTime,
 ) -> HeldRole {
+    let role = builtin(OWNER);
     HeldRole {
         scope: workspace.clone(),
         actor,
         role: OWNER.to_owned(),
         key: OWNER.to_owned(),
-        name: "Owner".to_owned(),
+        name: role.map_or_else(String::new, |role| role.name.to_owned()),
         granted_at: Some(since),
         granted_by: None,
     }

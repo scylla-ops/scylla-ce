@@ -4,7 +4,7 @@
 use scylla_domain::authz::Object;
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
 use scylla_extension::Gate;
-use scylla_testkit::{text, TestApp};
+use scylla_testkit::{text, Role, TestApp};
 use sqlx::PgPool;
 use tonic::Code;
 
@@ -159,7 +159,7 @@ async fn a_change_that_races_a_delete_finds_no_workspace(pool: PgPool) {
         let email = format!("race{round}@example.com");
         let (deleted, added, invited) = tokio::join!(
             app.delete_workspace(owner, &id),
-            app.add_owner(owner, &id, &partner_id),
+            app.grant_role(owner, Role::owner_of(&id), &partner_id),
             app.create_invitation(owner, *workspace, &email, "viewer"),
         );
         assert!(deleted.is_ok(), "{deleted:?}");

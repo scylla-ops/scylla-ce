@@ -16,9 +16,9 @@ pub struct CreateContext {
     pub workspace_id: WorkspaceId,
     /// The member of a membership: the user that joins the workspace.
     pub subject: Option<ActorId>,
-    /// The object of the role of a membership, as `kind:id`. `None` for an owner.
+    /// The object of the role of a membership, as `kind:id`. `None` for the role owner.
     pub object: Option<String>,
-    /// The role of a membership, or `owner`.
+    /// The role of a membership.
     pub role: Option<String>,
 }
 

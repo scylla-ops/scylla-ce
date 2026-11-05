@@ -106,6 +106,30 @@ pub(crate) async fn owner_since(
     Ok(since)
 }
 
+/// Returns the owners of all the workspaces, with each workspace and the time.
+pub(crate) async fn all_owners(
+    tx: &mut Tx<'_>,
+) -> Result<Vec<(ActorId, WorkspaceId, String, OffsetDateTime)>, Error> {
+    let rows = sqlx::query!(
+        "SELECT o.user_id, o.workspace_id, w.name, o.created_at FROM workspace_owners o
+         JOIN workspaces w ON w.id = o.workspace_id",
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let workspace = WorkspaceId::from_db(row.workspace_id);
+            (
+                ActorId::from_db(row.user_id),
+                workspace,
+                row.name,
+                row.created_at,
+            )
+        })
+        .collect())
+}
+
 /// Returns the instance admins, with the time that each one became an admin.
 pub(crate) async fn admins_since(tx: &mut Tx<'_>) -> Result<Vec<(ActorId, OffsetDateTime)>, Error> {
     let rows = sqlx::query!("SELECT user_id, created_at FROM instance_admins")

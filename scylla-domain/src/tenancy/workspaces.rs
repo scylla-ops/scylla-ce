@@ -16,7 +16,7 @@ pub type WorkspaceId = Id<Workspace>;
 /// The display name of a workspace.
 pub type WorkspaceName = Name;
 
-/// A workspace, as the store returns it. Its owners are rows of their own.
+/// A workspace, as the store returns it.
 #[derive(Clone, Debug)]
 pub struct Workspace {
     /// The id of the workspace.
@@ -43,7 +43,7 @@ pub enum NewSlug {
 /// The input of a workspace creation.
 #[derive(Clone, Debug)]
 pub struct NewWorkspace {
-    /// The user that creates the workspace. It becomes its first owner.
+    /// The user that creates the workspace. It gets the role owner.
     pub creator: ActorId,
     /// The display name.
     pub name: WorkspaceName,
@@ -84,8 +84,9 @@ pub struct ListWorkspaces {
 }
 
 crate::authz! {
-    /// The roles in a workspace. Its owners are rows of `workspace_owners` in Postgres, not
-    /// here. `manage`, `work` and `read` are groups, and each route has its own permission.
+    /// The roles in a workspace. The holders of the role owner are rows of `workspace_owners` in
+    /// Postgres, not here. `manage`, `work` and `read` are groups, and each route has its own
+    /// permission.
     definition workspace for Workspace {
         /// An actor that manages the workspace: its roles and its settings.
         relation admin: Actor;
@@ -105,23 +106,17 @@ crate::authz! {
         permission list_workspaces = read;
         /// The route `UpdateWorkspace`: change the name and the slug.
         permission update_workspace = manage;
-        /// The route `DeleteWorkspace`: delete an empty workspace. Only its owners: no role
-        /// gives it.
+        /// The route `DeleteWorkspace`: delete an empty workspace. No relation gives it.
         permission delete_workspace = nil;
-        /// The route `AddOwner`: make a user an owner of this workspace. Only its owners: no
-        /// role gives it.
-        permission add_owner = nil;
-        /// The route `RemoveOwner`: take an owner out of this workspace. Only its owners.
-        permission remove_owner = nil;
-        /// The route `ListOwners`: the owners of this workspace.
-        permission list_owners = read;
+        /// `Grant` and `Revoke` of the role owner: only its holders and an instance admin.
+        permission manage_owners = nil;
         /// The route `Grant` of `AccessService`: give a role in this workspace. Only its
         /// admins.
         permission grant = admin;
         /// The route `Revoke` of `AccessService`: take back a role in this workspace.
         permission revoke = admin;
-        /// The route `ListAccess` of `AccessService`: the owners and the roles of this
-        /// workspace, and the roles on each object in it.
+        /// The route `ListAccess` of `AccessService`: the roles of this workspace, and the roles
+        /// on each object in it.
         permission list_access = read;
         /// The route `CreateInvitation` of `InvitationService`: invite a person into this
         /// workspace.
@@ -136,7 +131,7 @@ crate::authz! {
 
     /// The routes of the workspaces on the caller itself.
     extend Actor as WorkspaceCaller {
-        /// The route `CreateWorkspace`: a user creates a workspace and becomes its first owner.
+        /// The route `CreateWorkspace`: a user creates a workspace and gets the role owner.
         permission create_workspace = nil;
         /// The route `ListWorkspaces`: each caller lists the workspaces that it can read.
         permission list_workspaces = nil;

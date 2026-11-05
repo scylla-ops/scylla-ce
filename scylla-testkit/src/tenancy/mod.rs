@@ -1,4 +1,4 @@
-//! The `TestApp` helpers of the tenancy RPCs: the workspaces and their owners, the roles and
+//! The `TestApp` helpers of the tenancy RPCs: the workspaces, the roles and
 //! the permissions of `AccessService`, and the invitations.
 
 mod access;

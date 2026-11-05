@@ -1,5 +1,5 @@
 //! The gRPC handler of `WorkspaceService`: authenticate, authorize, parse, call the service,
-//! answer. The routes of the owners are in `owners.rs`.
+//! answer.
 
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use scylla_domain::tenancy::workspaces::{
     WorkspaceChange, WorkspaceId,
 };
 use scylla_domain::Name;
-use scylla_extension::{AccessError, Gate, Grants, Hooks, Principal};
+use scylla_extension::{AccessError, Gate, Principal};
 use scylla_proto::workspaces::v1 as pb;
 use scylla_proto::workspaces::v1::get_workspace_request::Workspace as Named;
 use scylla_proto::workspaces::v1::workspace_service_server::{
@@ -25,18 +25,8 @@ use crate::api::parse::{self, ToProto};
 use crate::Error;
 
 /// Makes the service.
-pub(super) fn server(
-    pool: PgPool,
-    gate: Arc<dyn Gate>,
-    hooks: Arc<Hooks>,
-    grants: Arc<Grants>,
-) -> WorkspaceServiceServer<WorkspacesGrpc> {
-    WorkspaceServiceServer::new(WorkspacesGrpc {
-        pool,
-        gate,
-        hooks,
-        grants,
-    })
+pub(super) fn server(pool: PgPool, gate: Arc<dyn Gate>) -> WorkspaceServiceServer<WorkspacesGrpc> {
+    WorkspaceServiceServer::new(WorkspacesGrpc { pool, gate })
 }
 
 /// The handler.
@@ -45,10 +35,6 @@ pub(super) struct WorkspacesGrpc {
     pub(super) pool: PgPool,
     /// The access gate.
     pub(super) gate: Arc<dyn Gate>,
-    /// The hooks of the edition, for a new owner.
-    pub(super) hooks: Arc<Hooks>,
-    /// The kinds of objects with roles, for an owner that leaves.
-    pub(super) grants: Arc<Grants>,
 }
 
 #[tonic::async_trait]
@@ -87,32 +73,11 @@ impl WorkspaceService for WorkspacesGrpc {
     ) -> Result<Response<pb::DeleteWorkspaceResponse>, Status> {
         Ok(Response::new(self.delete(request).await?))
     }
-
-    async fn add_owner(
-        &self,
-        request: Request<pb::AddOwnerRequest>,
-    ) -> Result<Response<pb::AddOwnerResponse>, Status> {
-        Ok(Response::new(self.add(request).await?))
-    }
-
-    async fn remove_owner(
-        &self,
-        request: Request<pb::RemoveOwnerRequest>,
-    ) -> Result<Response<pb::RemoveOwnerResponse>, Status> {
-        Ok(Response::new(self.remove(request).await?))
-    }
-
-    async fn list_owners(
-        &self,
-        request: Request<pb::ListOwnersRequest>,
-    ) -> Result<Response<pb::ListOwnersResponse>, Status> {
-        Ok(Response::new(self.owners(request).await?))
-    }
 }
 
 impl WorkspacesGrpc {
-    /// Handles `CreateWorkspace`. The caller becomes the first owner, so it must be a user. With
-    /// no slug, the slug comes from the name.
+    /// Handles `CreateWorkspace`. The caller gets the role owner, so it must be a user. With no
+    /// slug, the slug comes from the name.
     async fn create(
         &self,
         request: Request<pb::CreateWorkspaceRequest>,
@@ -131,7 +96,7 @@ impl WorkspacesGrpc {
             slug,
         };
 
-        // Check the route permission on the caller. Only a user can own a workspace.
+        // Check the route permission on the caller. Only a user can hold the role owner.
         let check = WorkspaceCaller::CREATE_WORKSPACE.on(caller.actor.id);
         self.gate.authorize(&caller, check.clone()).await?;
         if caller.actor.kind != users::KIND {
@@ -279,8 +244,8 @@ impl WorkspacesGrpc {
         })
     }
 
-    /// Handles `DeleteWorkspace`. Only an owner passes: no role gives this permission. An
-    /// unknown workspace has no owner, so it gets the answer of a refusal.
+    /// Handles `DeleteWorkspace`. No relation gives this permission. An unknown workspace has no
+    /// owner, so it gets the answer of a refusal.
     async fn delete(
         &self,
         request: Request<pb::DeleteWorkspaceRequest>,

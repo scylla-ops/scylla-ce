@@ -1,4 +1,4 @@
-//! Where the resources live: the workspaces and their owners, the invitations, and the roles that
+//! Where the resources live: the workspaces, the invitations, and the roles that
 //! `AccessService` gives.
 
 pub(crate) mod grants;

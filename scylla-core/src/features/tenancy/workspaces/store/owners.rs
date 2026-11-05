@@ -1,9 +1,7 @@
 //! The SQL of the `workspace_owners` table.
 
 use scylla_domain::identity::actors::ActorId;
-use scylla_domain::tenancy::owners::WorkspaceOwner;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_domain::PageRequest;
 use scylla_extension::Tx;
 
 use crate::Error;
@@ -68,36 +66,8 @@ pub(crate) async fn count_owners(tx: &mut Tx<'_>, workspace: WorkspaceId) -> Res
     Ok(count)
 }
 
-/// Returns the owners of a workspace, after the page id, in user id order, with one extra row.
-pub(crate) async fn owners(
-    tx: &mut Tx<'_>,
-    workspace: WorkspaceId,
-    page: PageRequest<ActorId>,
-) -> Result<Vec<WorkspaceOwner>, Error> {
-    let rows = sqlx::query!(
-        "SELECT o.user_id, u.display_name, o.created_at FROM workspace_owners o
-         JOIN users u ON u.id = o.user_id
-         WHERE o.workspace_id = $1 AND ($2::uuid IS NULL OR o.user_id > $2)
-         ORDER BY o.user_id
-         LIMIT $3",
-        workspace.to_db(),
-        page.after.map(ActorId::to_db),
-        page.size.get() as i64 + 1,
-    )
-    .fetch_all(&mut **tx)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| WorkspaceOwner {
-            user_id: ActorId::from_db(row.user_id),
-            display_name: row.display_name,
-            since: row.created_at,
-        })
-        .collect())
-}
-
 /// Locks the workspaces that a user owns, in id order, then returns those where the user is the
-/// only owner. The lock is the lock of `RemoveOwner`, so a removal at the same time waits.
+/// only owner. The lock is the lock of a removal, so a removal at the same time waits.
 pub(crate) async fn lock_sole_owned(
     tx: &mut Tx<'_>,
     user: ActorId,

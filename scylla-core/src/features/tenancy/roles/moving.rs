@@ -54,7 +54,9 @@ impl Mover<'_> {
                 BuiltinSource::Relation(definition, relation) => {
                     Ok(Target::Relation(definition, relation))
                 }
-                BuiltinSource::InstanceAdmins => Err(not_a_target()),
+                BuiltinSource::InstanceAdmins | BuiltinSource::WorkspaceOwners => {
+                    Err(not_a_target())
+                }
             };
         }
         let id = RoleId::parse(name).map_err(|_| not_a_target())?;

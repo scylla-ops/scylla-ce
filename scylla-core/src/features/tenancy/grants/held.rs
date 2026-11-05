@@ -1,5 +1,5 @@
-//! Who holds which role in a workspace or on a project: the owners, the instance admins, the roles
-//! of the schema from the gate, and the roles that are rows.
+//! Who holds which role in a workspace or on a project: the holders of the role owner, the instance
+//! admins, the roles of the schema from the gate, and the roles that are rows.
 
 use std::collections::HashMap;
 
@@ -53,8 +53,7 @@ pub(crate) async fn scopes(tx: &mut Tx<'_>, workspace: WorkspaceId) -> Result<Sc
     })
 }
 
-/// Returns the roles on a workspace and on its projects, with the owners. The instance admins are
-/// not in the answer.
+/// Returns the roles on a workspace and on its projects. The instance admins are not in the answer.
 pub(crate) async fn in_workspace(
     pool: &PgPool,
     gate: &dyn Gate,
@@ -63,8 +62,7 @@ pub(crate) async fn in_workspace(
     read(pool, gate, workspace, None, true).await
 }
 
-/// Returns the roles on one project. With `with_workspace`, also the roles on its workspace, with
-/// the owners.
+/// Returns the roles on one project. With `with_workspace`, also the roles on its workspace.
 pub(crate) async fn on_project(
     pool: &PgPool,
     gate: &dyn Gate,
@@ -141,6 +139,20 @@ pub(crate) async fn instance_admins(pool: &PgPool) -> Result<Vec<HeldRole>, Erro
     Ok(admins
         .into_iter()
         .map(|(actor, since)| admin_role(actor, since))
+        .collect())
+}
+
+/// Returns the owners of all the workspaces, for a read of the holders of the role on the instance.
+pub(crate) async fn all_owners(pool: &PgPool) -> Result<Vec<HeldRole>, Error> {
+    let mut tx = pool.begin().await?;
+    let owners = store::all_owners(&mut tx).await?;
+    tx.commit().await?;
+    Ok(owners
+        .into_iter()
+        .map(|(actor, workspace, name, since)| {
+            let scope = scope(Level::Workspace, workspace.to_string(), name);
+            owner_role(&scope, actor, since)
+        })
         .collect())
 }
 

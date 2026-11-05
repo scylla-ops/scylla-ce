@@ -21,9 +21,7 @@ definition workspace {
     permission list_workspaces = read
     permission update_workspace = manage
     permission delete_workspace = nil
-    permission add_owner = nil
-    permission remove_owner = nil
-    permission list_owners = read
+    permission manage_owners = nil
     permission grant = admin
     permission revoke = admin
     permission list_access = read

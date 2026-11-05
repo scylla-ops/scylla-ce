@@ -17,6 +17,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   from the submodule `web` (`scylla-web`). Clone with `--recursive`.
 - The code is grouped by subject, ids are opaque, and lists use keyset pages. There is no
   compatibility code: a change deletes the old form.
+- **Breaking:** the owners of a workspace hold the built-in role Workspace owner. `Grant` and
+  `Revoke` change it, and they also check the new permission `manage_owners`. `AddOwner`, `RemoveOwner`,
+  `ListOwners` and `WorkspaceOwner` are gone from the API, and the events `owner.added` and
+  `owner.removed` are gone from the log. The rows of `workspace_owners` stay, with no migration.
 
 ### Added
 
@@ -58,7 +62,7 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 **Workspaces and projects**
 
-- Workspaces with a slug, owners in Postgres, and invitations. Each user can create workspaces up
+- Workspaces with a slug, the role Workspace owner with rows in Postgres, and invitations. Each user can create workspaces up
   to a limit of the instance.
 - Hooks of the memberships, which an edition uses to limit the seats.
 - The change of a project, and the encrypted secrets of a project.

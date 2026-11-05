@@ -27,7 +27,7 @@ async fn list_access_shows_the_owners_and_the_roles(pool: PgPool) {
     let workspace = app.workspace_of(owner).await;
     let id = workspace.to_string();
     let agent = app.app_in(owner, workspace, true).await.0.actor();
-    app.add_owner(owner, &id, &partner.to_string())
+    app.grant_role(owner, Role::owner_of(&id), &partner.to_string())
         .await
         .unwrap();
     for (role, to) in [("admin", carol_id.clone()), ("member", member.to_string())] {
@@ -96,7 +96,8 @@ async fn list_access_gives_each_entry_in_pages(pool: PgPool) {
     let owner = app.user().await;
     let workspace = app.workspace_of(owner).await;
     let id = workspace.to_string();
-    app.add_owner(owner, &id, &app.user().await.to_string())
+    let partner = app.user().await.to_string();
+    app.grant_role(owner, Role::owner_of(&id), &partner)
         .await
         .unwrap();
     for role in ["admin", "member", "viewer"] {

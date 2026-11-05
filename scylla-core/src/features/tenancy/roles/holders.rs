@@ -47,6 +47,7 @@ async fn on_instance(pool: &PgPool, gate: &dyn Gate, key: &str) -> Result<Vec<He
     if let Some(role) = builtin(key) {
         return match role.source {
             BuiltinSource::InstanceAdmins => held::instance_admins(pool).await,
+            BuiltinSource::WorkspaceOwners => held::all_owners(pool).await,
             BuiltinSource::Relation(definition, relation) => {
                 let level = role.level;
                 let grants = gate.holders_of(definition, relation).await?;

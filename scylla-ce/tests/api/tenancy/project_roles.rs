@@ -86,7 +86,8 @@ async fn an_owner_that_leaves_loses_the_project_roles(pool: PgPool) {
     let (owner, second) = (app.user().await, app.user().await);
     let id = app.workspace_of(owner).await;
     let project = app.create_project(owner, "alpha").await.unwrap();
-    app.add_owner(owner, &id.to_string(), &second.to_string())
+    let workspace = id.to_string();
+    app.grant_role(owner, Role::owner_of(&workspace), &second.to_string())
         .await
         .unwrap();
     let editor = Role::on("project", text(&project.id), "editor");
@@ -95,7 +96,7 @@ async fn an_owner_that_leaves_loses_the_project_roles(pool: PgPool) {
         .unwrap();
 
     // when
-    app.remove_owner(owner, &id.to_string(), &second.to_string())
+    app.revoke_role(owner, Role::owner_of(&workspace), &second.to_string())
         .await
         .unwrap();
     let left = app
