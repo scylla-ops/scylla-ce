@@ -5,6 +5,7 @@ mod access_lists;
 mod authz;
 mod checks;
 mod deletion;
+mod escalation;
 mod grants;
 mod invitation_races;
 mod invitations;

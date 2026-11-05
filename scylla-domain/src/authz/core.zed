@@ -5,6 +5,7 @@ definition actor {
     permission open_stream = nil
     permission list_projects = nil
     permission check_permissions = nil
+    permission list_held_permissions = nil
 }
 
 definition workspace {

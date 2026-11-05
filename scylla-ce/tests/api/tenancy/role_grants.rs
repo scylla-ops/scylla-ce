@@ -5,7 +5,6 @@ use scylla_testkit::{text, Role, RoleInput};
 use sqlx::PgPool;
 use tonic::Code;
 
-use crate::identity::accounts::assert_refused;
 use crate::{app, assert_code};
 
 /// A role of a workspace gives its permissions on the workspace and on its projects, until
@@ -141,56 +140,6 @@ async fn grant_keeps_each_role_with_its_holders(pool: PgPool) {
     assert_code(to_app, Code::InvalidArgument);
 }
 
-/// A holder of `members.manage` gives only the roles that it holds: a built-in admin gives
-/// `ESCALATION`, and a role in its own permissions passes.
-#[sqlx::test(migrations = false)]
-async fn grant_refuses_a_role_above_the_caller(pool: PgPool) {
-    // given
-    let app = app(pool).await;
-    let (owner, manager, bob) = (app.user().await, app.user().await, app.user().await);
-    let workspace = app.workspace_of(owner).await.to_string();
-    let input = RoleInput {
-        name: "Manager",
-        level: "workspace",
-        holder: "people",
-        permissions: &["members.manage", "workspace.view", "project.view"],
-        workspace: Some(&workspace),
-    };
-    let role = app.create_role(owner, input).await.unwrap();
-    let small = RoleInput {
-        name: "Small",
-        level: "workspace",
-        holder: "people",
-        permissions: &["project.view"],
-        workspace: Some(&workspace),
-    };
-    let small = app.create_role(owner, small).await.unwrap();
-    app.grant_role(
-        owner,
-        Role::on("workspace", &workspace, &role.grant_name),
-        &manager.to_string(),
-    )
-    .await
-    .unwrap();
-    let to = bob.to_string();
-
-    // when
-    let admin = app
-        .grant_role(manager, Role::on("workspace", &workspace, "admin"), &to)
-        .await;
-    let allowed = app
-        .grant_role(
-            manager,
-            Role::on("workspace", &workspace, &small.grant_name),
-            &to,
-        )
-        .await;
-
-    // then
-    assert_refused(admin, "ESCALATION");
-    assert!(allowed.is_ok(), "{allowed:?}");
-}
-
 /// The delete of a project takes its grants that are rows, so the id does not count as a holder.
 #[sqlx::test(migrations = false)]
 async fn delete_of_a_project_takes_its_grants(pool: PgPool) {
@@ -238,42 +187,4 @@ async fn delete_of_a_project_takes_its_grants(pool: PgPool) {
     assert_eq!(before.total, 1);
     assert_eq!(after.total, 0);
     assert!(delete.is_ok(), "{delete:?}");
-}
-
-/// A holder of `members.manage` invites only with a role that it holds: a built-in admin gives
-/// `ESCALATION`.
-#[sqlx::test(migrations = false)]
-async fn an_invitation_refuses_a_role_above_the_caller(pool: PgPool) {
-    // given
-    let app = app(pool).await;
-    let (owner, manager) = (app.user().await, app.user().await);
-    let id = app.workspace_of(owner).await;
-    let workspace = id.to_string();
-    let input = RoleInput {
-        name: "Manager",
-        level: "workspace",
-        holder: "people",
-        permissions: &["members.manage", "workspace.view"],
-        workspace: Some(&workspace),
-    };
-    let role = app.create_role(owner, input).await.unwrap();
-    app.grant_role(
-        owner,
-        Role::on("workspace", &workspace, &role.grant_name),
-        &manager.to_string(),
-    )
-    .await
-    .unwrap();
-
-    // when
-    let refused = app
-        .create_invitation(manager, id, "new@example.com", "admin")
-        .await;
-    let by_owner = app
-        .create_invitation(owner, id, "new@example.com", "admin")
-        .await;
-
-    // then
-    assert_refused(refused, "ESCALATION");
-    assert!(by_owner.is_ok(), "{by_owner:?}");
 }

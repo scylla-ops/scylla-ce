@@ -179,7 +179,8 @@ pub(super) fn complete(
 }
 
 /// Refuses a permission of a role that the caller does not hold on the object of the role:
-/// `ESCALATION`. An implicit permission needs no check.
+/// `ESCALATION`. An implicit permission needs no check, and so does a permission of a machine: no
+/// person holds it.
 pub(crate) async fn check_escalation(
     gate: &dyn Gate,
     caller: &Principal,
@@ -190,7 +191,10 @@ pub(crate) async fn check_escalation(
     let asked: Vec<&'static str> = permissions
         .iter()
         .copied()
-        .filter(|id| catalog::find(id).is_some_and(|(_, permission)| !permission.implicit))
+        .filter(|id| {
+            catalog::find(id)
+                .is_some_and(|(area, permission)| !area.machine && !permission.implicit)
+        })
         .collect();
     let answers = gate.holds(caller, object, workspace, &asked).await?;
     let missing: Vec<&str> = asked
