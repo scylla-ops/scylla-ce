@@ -69,6 +69,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   An App can be disabled and enabled. Keys have names, and record their last use.
 - The `scylla-agent` binary, on Linux, macOS and Windows. It runs as a Windows service, joins at its
   first start, and installs in one command (`GET /install.sh`, `GET /install.ps1`).
+- The version of the workspace is the version of the release, so the server asks for archives that
+  exist. The release workflow stops when the tag is not this version, and checks the version of the
+  binary. It adds a build attestation to the archives and signs the image. A tag with a `-` is a
+  pre-release, and it does not change `latest`.
 - An agent can run the jobs of some projects only. The server counts the jobs of each agent and
   gives its job stats.
 - The agent writes a failed attempt in the logs of the node. It names a program that it did not
