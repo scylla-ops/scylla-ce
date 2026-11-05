@@ -56,7 +56,15 @@ async fn each_answer_carries_a_request_id(pool: PgPool) {
         .send()
         .await
         .unwrap();
-    let browser = http.get(url("/auth/unknown/start")).send().await.unwrap();
+    let no_redirect = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let browser = no_redirect
+        .get(url("/auth/unknown/start"))
+        .send()
+        .await
+        .unwrap();
 
     // then
     assert_eq!(error.code(), Code::Unauthenticated);

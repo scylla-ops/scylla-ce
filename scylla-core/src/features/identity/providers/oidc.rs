@@ -7,11 +7,11 @@ use std::sync::Arc;
 use jsonwebtoken::jwk::JwkSet;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use scylla_extension::AccessError;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use url::Url;
 
+use super::calls::{send, send_exchange, unavailable};
 use super::ExternalIdentity;
 use crate::Error;
 
@@ -152,7 +152,7 @@ impl OidcClients {
             .header("content-type", "application/x-www-form-urlencoded")
             .header("accept", "application/json")
             .body(body);
-        let response: TokenResponse = send(request).await?;
+        let response: TokenResponse = send_exchange(request).await?;
         Ok(response.id_token)
     }
 
@@ -252,26 +252,6 @@ impl OidcClients {
         *issuer.keys.write().await = fresh;
         key.ok_or_else(invalid)?.map_err(|_| invalid())
     }
-}
-
-/// Sends a request and reads its JSON answer. A failure is `UNAVAILABLE`.
-pub(super) async fn send<T: DeserializeOwned>(
-    request: reqwest::RequestBuilder,
-) -> Result<T, Error> {
-    let response = request
-        .send()
-        .await
-        .and_then(reqwest::Response::error_for_status)
-        .map_err(|error| unavailable(&format!("the identity provider failed: {error}")))?;
-    response
-        .json()
-        .await
-        .map_err(|error| unavailable(&format!("the identity provider answered badly: {error}")))
-}
-
-/// The error of an identity provider that does not answer well.
-fn unavailable(reason: &str) -> Error {
-    AccessError::Unavailable(reason.to_owned()).into()
 }
 
 /// The error of a token that does not pass. It gives no detail to the client.

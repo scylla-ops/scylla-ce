@@ -58,6 +58,15 @@ impl AccountSettings {
             || self.web_origins.iter().any(|allowed| allowed == origin)
     }
 
+    /// Returns the root of the web app of an address: the origin of `web_origins` that has it,
+    /// or `app_url`. It never returns text of the address.
+    pub fn web_root_of(&self, url: &str) -> &str {
+        self.web_origins
+            .iter()
+            .find(|origin| url == *origin || url.starts_with(&format!("{origin}/")))
+            .map_or(&self.app_url, String::as_str)
+    }
+
     /// Returns `true` if a browser can go back to this address after a sign-in: the web app,
     /// or one of its origins.
     pub fn can_return_to(&self, url: &str) -> bool {

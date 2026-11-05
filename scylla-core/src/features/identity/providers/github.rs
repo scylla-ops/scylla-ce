@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use super::oidc::send;
+use super::calls::{send, send_exchange};
 use super::ExternalIdentity;
 use crate::Error;
 
@@ -108,7 +108,7 @@ pub(super) async fn identity(
         .header("content-type", "application/x-www-form-urlencoded")
         .header("accept", "application/json")
         .body(body);
-    let token: TokenResponse = send(request).await?;
+    let token: TokenResponse = send_exchange(request).await?;
 
     // Read the user and its emails with the access token.
     let api = settings.api_url.trim_end_matches('/');

@@ -14,7 +14,7 @@ use super::github::{self, GitHubSettings};
 use super::oidc::{OidcClients, OidcSettings};
 use super::store::{self, FlowRow, ProviderRow};
 use super::{join, ExternalIdentity};
-use crate::features::identity::accounts::AccountContext;
+use crate::features::identity::accounts::{refused, AccountContext};
 use crate::features::identity::sessions::{Client, Opened};
 use crate::infra::secret;
 use crate::Error;
@@ -29,18 +29,10 @@ enum Kind {
 
 /// The end of a callback.
 pub(crate) enum Outcome {
-    /// A sign-in: the new session, and the page to go back to.
-    SignedIn {
-        /// The session.
-        opened: Opened,
-        /// The page of the web app.
-        return_to: String,
-    },
-    /// A link to the signed-in user: the page to go back to.
-    Linked {
-        /// The page of the web app.
-        return_to: String,
-    },
+    /// A sign-in: the new session.
+    SignedIn(Opened),
+    /// A link to the signed-in user.
+    Linked,
 }
 
 /// The clients of the identity providers, with what the account routes share.
@@ -123,46 +115,50 @@ impl Providers {
         Ok((url, browser))
     }
 
-    /// Ends a sign-in or a link at the callback of the provider. The browser must be the one
-    /// that started it, and a link needs the session of the same user.
-    pub(crate) async fn callback(
+    /// Takes the sign-in of a state, one time. The browser must be the one that started it.
+    pub(super) async fn take_flow(
         &self,
-        slug: &str,
-        code: &str,
-        state: &str,
+        state: Option<&str>,
         browser: Option<&str>,
-        signed_in: Option<ActorId>,
-        client: &Client,
-    ) -> Result<Outcome, Error> {
-        // Take the sign-in of the state, for this browser and this provider.
+    ) -> Result<FlowRow, Error> {
+        let state = state.ok_or_else(expired)?;
         let mut tx = self.ctx.pool.begin().await?;
         let flow = store::take_flow(&mut tx, &secret::hash(state)).await?;
         tx.commit().await?;
-        let flow = flow.ok_or_else(expired)?;
+        flow.filter(|flow| {
+            browser.is_some_and(|browser| secret::hash(browser) == flow.browser_hash)
+        })
+        .ok_or_else(expired)
+    }
+
+    /// Ends a sign-in or a link with the code of the provider. A link needs the session of the
+    /// same user.
+    pub(super) async fn finish(
+        &self,
+        slug: &str,
+        code: &str,
+        flow: &FlowRow,
+        signed_in: Option<ActorId>,
+        client: &Client,
+    ) -> Result<Outcome, Error> {
+        // The state must be of this provider.
         let provider = self.provider(slug).await?;
-        let same_browser =
-            browser.is_some_and(|browser| secret::hash(browser) == flow.browser_hash);
-        if flow.provider_id != provider.id || !same_browser {
+        if flow.provider_id != provider.id {
             return Err(expired());
         }
 
         // Get the identity, then link it to the signed-in user, or sign in.
-        let identity = self.identity(&provider, code, &flow).await?;
+        let identity = self.identity(&provider, code, flow).await?;
         if let Some(user) = flow.link_user {
             if signed_in != Some(user) {
-                let reason = "sign in again to link this provider".to_owned();
-                return Err(AccessError::Unauthenticated(reason).into());
+                let message = "sign in again to link this provider";
+                return Err(refused("SESSION_REQUIRED", message));
             }
             join::link(&self.ctx, &provider, identity, user).await?;
-            return Ok(Outcome::Linked {
-                return_to: flow.return_to,
-            });
+            return Ok(Outcome::Linked);
         }
         let (_, opened) = join::sign_in(&self.ctx, &provider, identity, client).await?;
-        Ok(Outcome::SignedIn {
-            opened,
-            return_to: flow.return_to,
-        })
+        Ok(Outcome::SignedIn(opened))
     }
 
     /// Signs in with an ID token of an OIDC provider, for a native client. The issuer of the
@@ -291,6 +287,6 @@ fn invalid_id_token() -> Error {
 
 /// The error of a callback with an unknown or expired sign-in, or from another browser.
 fn expired() -> Error {
-    let reason = "the sign-in expired or comes from another browser: start again".to_owned();
-    AccessError::Unauthenticated(reason).into()
+    let message = "the sign-in expired or comes from another browser: start again";
+    refused("STATE_EXPIRED", message)
 }

@@ -64,6 +64,10 @@ struct Inner {
     person: Mutex<Person>,
     /// The codes, by their value.
     grants: Mutex<HashMap<String, Grant>>,
+    /// The error of the next sign-in at the provider.
+    refusal: Mutex<Option<String>>,
+    /// The error of the next code exchange.
+    exchange_refusal: Mutex<Option<String>>,
 }
 
 /// A fake identity provider on a free port.
@@ -86,6 +90,8 @@ impl Idp {
             keys: JwkSet { keys: vec![jwk] },
             person: Mutex::new(person),
             grants: Mutex::new(HashMap::new()),
+            refusal: Mutex::new(None),
+            exchange_refusal: Mutex::new(None),
         }));
         let router = Router::new()
             .route("/.well-known/openid-configuration", get(discovery))
@@ -109,6 +115,17 @@ impl Idp {
     /// Sets the person of the next sign-in.
     pub(crate) fn sign_in_as(&self, person: Person) {
         *self.0.person.lock().unwrap() = person;
+    }
+
+    /// Makes the next sign-in at the provider end with this error.
+    pub(crate) fn refuse_sign_in(&self, error: &str) {
+        *self.0.refusal.lock().unwrap() = Some(error.to_owned());
+    }
+
+    /// Makes the next code exchange end with this error, with a status of success, as GitHub
+    /// does.
+    pub(crate) fn refuse_exchange(&self, error: &str) {
+        *self.0.exchange_refusal.lock().unwrap() = Some(error.to_owned());
     }
 
     /// Signs an ID token for a person and an audience, valid `seconds`.
@@ -180,6 +197,13 @@ async fn authorize(
     State(idp): State<Idp>,
     Query(query): Query<HashMap<String, String>>,
 ) -> Response {
+    if let Some(error) = idp.0.refusal.lock().unwrap().take() {
+        let location = format!(
+            "{}?error={error}&state={}",
+            query["redirect_uri"], query["state"]
+        );
+        return (StatusCode::SEE_OTHER, [(header::LOCATION, location)]).into_response();
+    }
     let code = format!("code-{}", idp.0.grants.lock().unwrap().len());
     let grant = Grant {
         nonce: query.get("nonce").cloned(),
@@ -203,6 +227,9 @@ fn redeem(idp: &Idp, form: &HashMap<String, String>) -> Option<Grant> {
 
 /// Exchanges an OIDC code for an ID token.
 async fn token(State(idp): State<Idp>, Form(form): Form<HashMap<String, String>>) -> Response {
+    if let Some(error) = idp.0.exchange_refusal.lock().unwrap().take() {
+        return Json(json!({ "error": error })).into_response();
+    }
     let Some(grant) = redeem(&idp, &form) else {
         return StatusCode::BAD_REQUEST.into_response();
     };

@@ -4,7 +4,6 @@
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::{Email, NewUser, UserStatus, KIND};
 use scylla_domain::Name;
-use scylla_extension::AccessError;
 
 use super::store::{self, ProviderRow};
 use super::ExternalIdentity;
@@ -29,8 +28,7 @@ pub(super) async fn sign_in(
             .await?
             .map(|user| user.status);
         if status != Some(UserStatus::Active) {
-            let reason = "the account is not active".to_owned();
-            return Err(AccessError::Unauthenticated(reason).into());
+            return Err(refused("ACCOUNT_INACTIVE", "the account is not active"));
         }
         accounts::record_sign_in(&mut tx, user).await?;
         let opened = sessions::open(&mut tx, user, &methods, client, ttl).await?;

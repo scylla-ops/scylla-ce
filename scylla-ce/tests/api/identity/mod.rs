@@ -25,5 +25,6 @@ mod personal_tokens;
 mod profile;
 mod sessions;
 mod sign_in;
+mod sign_in_errors;
 mod token_limits;
 mod tokens;

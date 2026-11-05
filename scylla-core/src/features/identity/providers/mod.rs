@@ -1,6 +1,8 @@
 //! The providers feature: the identity providers of the sign-in (OIDC and GitHub), the
 //! identities of the users, and the browser routes of a sign-in.
 
+mod calls;
+mod failure;
 mod github;
 mod http;
 mod identity;

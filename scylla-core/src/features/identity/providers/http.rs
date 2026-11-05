@@ -1,5 +1,6 @@
 //! The browser routes of a sign-in with an identity provider: `/auth/<slug>/start` sends the
-//! browser to the provider, and `/auth/<slug>/callback` opens the session in a cookie.
+//! browser to the provider, and `/auth/<slug>/callback` opens the session in a cookie. A failure
+//! sends the browser to the page `sign-in-error` of the web app, with a code.
 
 use std::time::Duration;
 
@@ -9,12 +10,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use scylla_domain::identity::actors::ActorId;
-use scylla_extension::AccessError;
 use serde::Deserialize;
 
+use super::failure::{code_of_provider, report};
 use super::service::{Outcome, Providers};
 use crate::features::identity::sessions::{self, cookie, Client};
-use crate::Error;
 
 /// The lifetime of the cookie of a sign-in.
 const FLOW_TTL: Duration = Duration::from_secs(10 * 60);
@@ -56,14 +56,16 @@ async fn start(
     Query(query): Query<StartQuery>,
     headers: HeaderMap,
 ) -> Response {
+    let settings = &providers.ctx.settings;
+    let web = settings.web_root_of(query.return_to.as_deref().unwrap_or_default());
     let link_user = match query.link {
         true => match signed_in(&providers, &headers).await {
             Some(user) => Some(user),
-            None => return failure(&unauthenticated("sign in first to link a provider")),
+            None => return error_page(web, "session_required", &slug, true, []),
         },
         false => None,
     };
-    let secure = providers.ctx.settings.secure_cookies();
+    let secure = settings.secure_cookies();
     match providers
         .start(&slug, query.return_to.as_deref(), link_user)
         .await
@@ -72,7 +74,7 @@ async fn start(
             &url,
             [cookie::set(cookie::FLOW, &browser, FLOW_TTL, secure)],
         ),
-        Err(error) => failure(&error),
+        Err(error) => error_page(web, report(&error), &slug, query.link, []),
     }
 }
 
@@ -85,39 +87,52 @@ async fn callback(
     headers: HeaderMap,
     extensions: Extensions,
 ) -> Response {
-    // Refuse a callback with an error or with no code.
-    if query.error.is_some() {
-        return failure(&unauthenticated(
-            "the identity provider refused the sign-in",
-        ));
-    }
-    let (Some(code), Some(state)) = (query.code, query.state) else {
-        return failure(&Error::invalid("code", "is required"));
-    };
-
-    // End the sign-in for this browser.
-    let browser = cookie::read(cookies(&headers), cookie::FLOW);
-    let signed_in = signed_in(&providers, &headers).await;
-    let client = Client::of_http(
-        &headers,
-        &extensions,
-        providers.ctx.settings.trust_forwarded,
-    );
-    let callback = providers.callback(&slug, &code, &state, browser.as_deref(), signed_in, &client);
+    // Take the sign-in of the state, for this browser.
     let settings = &providers.ctx.settings;
     let clear = cookie::clear(cookie::FLOW, settings.secure_cookies());
-    match callback.await {
-        Ok(Outcome::SignedIn { opened, return_to }) => {
+    let browser = cookie::read(cookies(&headers), cookie::FLOW);
+    let flow = match providers
+        .take_flow(query.state.as_deref(), browser.as_deref())
+        .await
+    {
+        Ok(flow) => flow,
+        Err(error) => return error_page(&settings.app_url, report(&error), &slug, false, [clear]),
+    };
+    let web = settings.web_root_of(&flow.return_to);
+    let link = flow.link_user.is_some();
+
+    // Refuse a callback with an error of the provider, or with no code.
+    if let Some(error) = &query.error {
+        let code = code_of_provider(error);
+        tracing::info!(
+            event = "request.refused",
+            code,
+            "the provider refused a sign-in"
+        );
+        return error_page(web, code, &slug, link, [clear]);
+    }
+    let Some(code) = query.code else {
+        return error_page(web, "provider_refused", &slug, link, [clear]);
+    };
+
+    // End the sign-in.
+    let signed_in = signed_in(&providers, &headers).await;
+    let client = Client::of_http(&headers, &extensions, settings.trust_forwarded);
+    match providers
+        .finish(&slug, &code, &flow, signed_in, &client)
+        .await
+    {
+        Ok(Outcome::SignedIn(opened)) => {
             let session = cookie::set(
                 cookie::SESSION,
                 &opened.refresh,
                 settings.session_ttl,
                 settings.secure_cookies(),
             );
-            redirect(&return_to, [clear, session])
+            redirect(&flow.return_to, [clear, session])
         }
-        Ok(Outcome::Linked { return_to }) => redirect(&return_to, [clear]),
-        Err(error) => failure(&error),
+        Ok(Outcome::Linked) => redirect(&flow.return_to, [clear]),
+        Err(error) => error_page(web, report(&error), &slug, link, [clear]),
     }
 }
 
@@ -153,29 +168,21 @@ fn redirect(to: &str, cookies: impl IntoIterator<Item = String>) -> Response {
     response
 }
 
-/// Answers a refusal with its HTTP status and a short text. A server failure goes to the log.
-fn failure(error: &Error) -> Response {
-    let status = match error {
-        Error::InvalidArgument { .. } => StatusCode::BAD_REQUEST,
-        Error::Access(AccessError::Unauthenticated(_)) => StatusCode::UNAUTHORIZED,
-        Error::Access(AccessError::Denied(_)) => StatusCode::FORBIDDEN,
-        Error::Access(AccessError::Unavailable(_)) => StatusCode::SERVICE_UNAVAILABLE,
-        Error::NotFound(_) => StatusCode::NOT_FOUND,
-        Error::Rejected(_) => StatusCode::CONFLICT,
-        error => {
-            tracing::error!(event = "request.failed", %error, "a sign-in failed");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
-        }
-    };
-    let text = match error {
-        Error::Rejected(rejection) => format!("{}: {}", rejection.code, rejection.message),
-        error => error.to_string(),
-    };
-    tracing::info!(event = "request.refused", message = %text);
-    (status, text).into_response()
-}
-
-/// Makes an `Unauthenticated` error.
-fn unauthenticated(reason: &str) -> Error {
-    AccessError::Unauthenticated(reason.to_owned()).into()
+/// Sends the browser to the page of the web app for a failed sign-in. The URL has the code and the
+/// slug only: a person's data never goes in it.
+fn error_page(
+    web: &str,
+    code: &str,
+    slug: &str,
+    link: bool,
+    cookies: impl IntoIterator<Item = String>,
+) -> Response {
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    query
+        .append_pair("code", code)
+        .append_pair("provider", slug);
+    if link {
+        query.append_pair("link", "true");
+    }
+    redirect(&format!("{web}/sign-in-error?{}", query.finish()), cookies)
 }

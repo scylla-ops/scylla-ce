@@ -89,8 +89,11 @@ async fn a_known_email_is_linked_only_by_its_user(pool: PgPool) {
     let again = later.sign_in(&app, "idp", "").await;
 
     // then
-    assert_eq!(refused.status, 409);
-    assert!(refused.body.starts_with("EMAIL_IN_USE"), "{}", refused.body);
+    assert_eq!(refused.status, 303);
+    assert_eq!(
+        refused.location,
+        format!("{APP_URL}/sign-in-error?code=email_in_use&provider=idp")
+    );
     assert_eq!(linked.status, 303);
     assert_eq!(again.status, 303);
     let me = app.get_me(&token_of(&app, &later).await).await.unwrap();
@@ -116,7 +119,10 @@ async fn the_callback_needs_the_same_browser(pool: PgPool) {
     let callback = other.get(&provider.location).await;
 
     // then
-    assert_eq!(callback.status, 401);
+    assert_eq!(
+        callback.location,
+        format!("{APP_URL}/sign-in-error?code=state_expired&provider=idp")
+    );
     assert!(!other.cookies.contains_key("scylla_session"));
 }
 
@@ -141,10 +147,9 @@ async fn a_provider_sign_up_needs_an_invitation_when_invite_only(pool: PgPool) {
     let accepted = browser.sign_in(&app, "idp", "").await;
 
     // then
-    assert!(
-        refused.body.starts_with("INVITATION_REQUIRED"),
-        "{}",
-        refused.body
+    assert_eq!(
+        refused.location,
+        format!("{APP_URL}/sign-in-error?code=signup_disabled&provider=idp")
     );
     assert_eq!(accepted.status, 303);
     let me = app.get_me(&token_of(&app, &browser).await).await.unwrap();
