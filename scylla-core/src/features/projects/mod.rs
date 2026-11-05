@@ -12,6 +12,8 @@ mod store;
 pub(crate) mod triggers;
 
 #[cfg(test)]
+mod no_gate;
+#[cfg(test)]
 mod tests;
 
 pub(crate) use plugin::Projects;

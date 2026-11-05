@@ -2,6 +2,7 @@
 //! admin, and `UserAdminService`, the console of the users.
 
 mod grpc;
+mod listing;
 mod service;
 mod store;
 

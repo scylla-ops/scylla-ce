@@ -1,110 +1,18 @@
 //! Access control: each request proves its actor with a token, then passes permission checks.
 
-use std::any::Any;
+use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use scylla_domain::authz::{Check, Object, Permission, Relationship, Resource};
 use scylla_domain::identity::actors::{Actor, ActorId};
-use scylla_domain::identity::api_tokens::ApiTokenId;
-use scylla_domain::identity::apps::AppKeyId;
-use scylla_domain::identity::users::SessionId;
+use scylla_domain::platform::Platform;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Id;
-use time::OffsetDateTime;
 use tonic::metadata::MetadataMap;
 use tonic::Request;
 
-use crate::Operation;
-
-/// The actor of a request, proven by a token, and the operation of the request.
-#[derive(Clone)]
-pub struct Principal {
-    /// The actor.
-    pub actor: Actor,
-    /// The operation of the request.
-    operation: Operation,
-    /// The verified token, opaque for the plugins.
-    token: Arc<dyn Any + Send + Sync>,
-    /// What the token is bound to.
-    binding: Binding,
-    /// The end of the validity of the token.
-    expires_at: OffsetDateTime,
-}
-
-impl Principal {
-    /// Makes a principal. Only a gate makes one.
-    pub fn new(
-        actor: Actor,
-        operation: Operation,
-        token: Arc<dyn Any + Send + Sync>,
-        binding: Binding,
-        expires_at: OffsetDateTime,
-    ) -> Self {
-        Self {
-            actor,
-            operation,
-            token,
-            binding,
-            expires_at,
-        }
-    }
-
-    /// Returns the session of the token, if the actor signed in as a user.
-    pub fn session(&self) -> Option<SessionId> {
-        match self.binding {
-            Binding::Session(session) => Some(session),
-            _ => None,
-        }
-    }
-
-    /// Returns the API token that gave the token, if the actor exchanged one.
-    pub fn api_token(&self) -> Option<ApiTokenId> {
-        match self.binding {
-            Binding::ApiToken(token) => Some(token),
-            _ => None,
-        }
-    }
-
-    /// Returns the end of the validity of the token.
-    pub fn expires_at(&self) -> OffsetDateTime {
-        self.expires_at
-    }
-
-    /// Returns the operation of the request.
-    pub fn operation(&self) -> &Operation {
-        &self.operation
-    }
-
-    /// Returns the verified token, for the gate that made it.
-    pub fn token(&self) -> &(dyn Any + Send + Sync) {
-        self.token.as_ref()
-    }
-}
-
-/// What a token is bound to. The token stops when its session closes, or its key or its API
-/// token is revoked.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Binding {
-    /// Nothing: a token of the command line.
-    None,
-    /// The session of a user that signed in.
-    Session(SessionId),
-    /// The key of an App that signed an assertion.
-    Key(AppKeyId),
-    /// The API token that the actor exchanged.
-    ApiToken(ApiTokenId),
-}
-
-/// A short-lived token for an actor.
-#[derive(Clone, Debug)]
-pub struct IssuedToken {
-    /// The token text.
-    pub value: String,
-    /// The end of its validity.
-    pub expires_at: OffsetDateTime,
-}
+use crate::{Binding, IssuedToken, Operation, Principal};
 
 /// Why a request does not pass the gate.
 #[derive(Debug, thiserror::Error)]
@@ -238,15 +146,33 @@ pub trait Gate: Send + Sync + 'static {
         permissions: &[&'static str],
     ) -> Result<Vec<bool>, AccessError>;
 
-    /// Returns the ids of the objects of a definition on which the actor of the principal has a
-    /// role that gives a permission. The workspaces that the actor owns are not in the answer:
-    /// the route adds them from Postgres.
-    async fn lookup(
+    /// Returns, for each permission of the catalog, `true` if the actor of the principal holds it
+    /// on an object: an instance admin, an owner of the workspace of the object, a role that is a
+    /// row on the object or above it, or a role of the schema that gives all its routes. It
+    /// records nothing on the operation.
+    async fn holds(
         &self,
         principal: &Principal,
+        object: &Object,
+        workspace: Option<WorkspaceId>,
+        permissions: &[&'static str],
+    ) -> Result<Vec<bool>, AccessError>;
+
+    /// Returns the ids of the objects of a definition on which an actor has a role that gives a
+    /// permission. The workspaces that the actor owns are not in the answer: the route adds
+    /// them from Postgres.
+    async fn lookup(
+        &self,
+        actor: ActorId,
         definition: &'static str,
         permission: &'static str,
     ) -> Result<Vec<String>, AccessError>;
+
+    /// Returns the number of grants of each relation of a definition, on all its objects.
+    async fn role_counts(
+        &self,
+        definition: &'static str,
+    ) -> Result<BTreeMap<String, u32>, AccessError>;
 }
 
 impl dyn Gate {
@@ -260,13 +186,35 @@ impl dyn Gate {
     }
 
     /// Returns the objects of `R` on which the caller has a grant of the permission, from a
-    /// reverse lookup in SpiceDB: `gate.granted(&caller, Project::LIST_PROJECTS)`.
+    /// reverse lookup: `gate.granted(&caller, Project::LIST_PROJECTS)`.
     pub async fn granted<R: Resource>(
         &self,
         principal: &Principal,
         permission: Permission<R>,
     ) -> Result<Vec<Id<R>>, AccessError> {
-        let ids = self.lookup(principal, R::NAME, permission.name()).await?;
+        self.granted_to(principal.actor.id, permission).await
+    }
+
+    /// Returns the objects of `R` on which an actor has a grant of the permission.
+    pub async fn granted_to<R: Resource>(
+        &self,
+        actor: ActorId,
+        permission: Permission<R>,
+    ) -> Result<Vec<Id<R>>, AccessError> {
+        let ids = self.lookup(actor, R::NAME, permission.name()).await?;
         Ok(ids.iter().filter_map(|id| Id::parse(id).ok()).collect())
+    }
+
+    /// Returns `true` if the caller holds a permission of the catalog on the whole instance.
+    pub async fn holds_on_instance(
+        &self,
+        principal: &Principal,
+        permission: &'static str,
+    ) -> Result<bool, AccessError> {
+        let platform = Object::of(Platform::ID);
+        let answers = self
+            .holds(principal, &platform, None, &[permission])
+            .await?;
+        Ok(answers.first().copied().unwrap_or(false))
     }
 }

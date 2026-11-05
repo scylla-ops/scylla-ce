@@ -1,6 +1,8 @@
 //! The `TestApp` helpers of `WorkspaceService`: the workspaces and their owners.
 
 use scylla_domain::identity::actors::ActorId;
+use scylla_domain::platform::Platform;
+use scylla_domain::tenancy::roles::WORKSPACE_CREATOR_ROW;
 use scylla_proto::workspaces::v1::get_workspace_request::Workspace as Named;
 use scylla_proto::workspaces::v1::workspace_service_client::WorkspaceServiceClient;
 use scylla_proto::workspaces::v1::{
@@ -22,6 +24,28 @@ impl TestApp {
 
     /// Calls `CreateWorkspace` as `actor`, with a slug if one is given.
     pub async fn create_workspace_with(
+        &self,
+        actor: ActorId,
+        name: &str,
+        slug: Option<&str>,
+    ) -> Result<Workspace, Status> {
+        // Give the role that creates workspaces, with no route: most tests do not test it.
+        sqlx::query(
+            "INSERT INTO role_grants (actor_id, role_id, scope_kind, scope_id)
+             VALUES ($1, $2, 'platform', $3)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(actor.to_db())
+        .bind(WORKSPACE_CREATOR_ROW.to_db())
+        .bind(Platform::ID.to_db())
+        .execute(&self.pool)
+        .await
+        .expect("give the role that creates workspaces");
+        self.create_workspace_as_is(actor, name, slug).await
+    }
+
+    /// Calls `CreateWorkspace` as `actor`, with the roles that it has.
+    pub async fn create_workspace_as_is(
         &self,
         actor: ActorId,
         name: &str,

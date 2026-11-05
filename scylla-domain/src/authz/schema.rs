@@ -109,6 +109,37 @@ impl Schema {
             .find(|permission| *permission == name)
     }
 
+    /// Returns the names of the permissions of a definition.
+    pub fn permissions(&self, definition: &str) -> Vec<&'static str> {
+        self.definitions
+            .iter()
+            .filter(|part| part.definition == definition)
+            .flat_map(|part| &part.permissions)
+            .map(|(permission, _)| *permission)
+            .collect()
+    }
+
+    /// Returns `true` if a relation gives a permission of a definition: the permission is the
+    /// relation, or one term of its sum gives it. A relation that is not in a sum gives nothing.
+    pub fn gives(&self, definition: &str, permission: &str, relation: &str) -> bool {
+        if permission == relation {
+            return true;
+        }
+        let expression = self
+            .definitions
+            .iter()
+            .filter(|part| part.definition == definition)
+            .flat_map(|part| &part.permissions)
+            .find(|(name, _)| *name == permission)
+            .map(|(_, expression)| *expression);
+        expression.is_some_and(|expression| {
+            expression
+                .split('+')
+                .map(str::trim)
+                .any(|term| self.gives(definition, term, relation))
+        })
+    }
+
     /// Adds a part. A definition comes one time, before its extensions, and a name comes one
     /// time in its definition. A part that does not fit changes nothing.
     pub fn add(&mut self, part: Part) -> Result<(), SchemaError> {

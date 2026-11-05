@@ -105,6 +105,7 @@ impl PersonalTokensGrpc {
         let visible = VisibleWorkspaces {
             caller: caller.actor.id,
             granted,
+            all: false,
         };
         let refused = workspaces::refusing_personal_tokens(&self.pool, visible).await?;
         Ok(pb::ListPersonalTokensResponse {

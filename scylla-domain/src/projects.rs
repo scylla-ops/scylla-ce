@@ -181,6 +181,8 @@ pub struct Visible {
     pub workspaces: Vec<WorkspaceId>,
     /// The projects shared with the caller.
     pub projects: Vec<ProjectId>,
+    /// `true` if a role on the instance shows each project to the caller.
+    pub all: bool,
 }
 
 /// One page of projects.

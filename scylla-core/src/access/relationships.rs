@@ -1,5 +1,7 @@
 //! The relationship calls of the SpiceDB client: writes, deletes, and the roles on an object.
 
+use std::collections::BTreeMap;
+
 use scylla_domain::authz::{self, Object, Resource};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::PageSize;
@@ -180,6 +182,53 @@ impl SpiceDb {
             }
         }
         Ok(Some(page))
+    }
+
+    /// Returns the number of relationships of each relation of a definition, on all its objects.
+    pub(super) async fn role_counts(
+        &self,
+        definition: &str,
+    ) -> Result<BTreeMap<String, u32>, AccessError> {
+        let mut counts = BTreeMap::new();
+        let mut cursor = None;
+        loop {
+            // Read one page of the relationships of the definition.
+            let request = ReadRelationshipsRequest {
+                consistency: Some(Consistency {
+                    requirement: Some(Requirement::FullyConsistent(true)),
+                }),
+                relationship_filter: Some(RelationshipFilter {
+                    resource_type: definition.to_owned(),
+                    optional_subject_filter: Some(SubjectFilter {
+                        subject_type: Actor::NAME.to_owned(),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                optional_limit: READ_LIMIT,
+                optional_cursor: cursor.take(),
+            };
+            let mut answers = self
+                .permissions
+                .clone()
+                .read_relationships(request)
+                .await
+                .map_err(unavailable)?
+                .into_inner();
+
+            // Count them, and stop after a page that is not full.
+            let mut read = 0;
+            while let Some(answer) = answers.message().await.map_err(unavailable)? {
+                read += 1;
+                cursor = answer.after_result_cursor;
+                if let Some(relationship) = answer.relationship {
+                    *counts.entry(relationship.relation).or_insert(0) += 1;
+                }
+            }
+            if read < READ_LIMIT {
+                return Ok(counts);
+            }
+        }
     }
 
     /// Sends a delete of relationships.

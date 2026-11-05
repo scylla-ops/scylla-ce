@@ -9,7 +9,7 @@ use scylla_extension::{Rejection, Tx};
 use super::{store, AccountContext};
 use crate::features::identity::admins;
 use crate::features::identity::api_tokens;
-use crate::features::tenancy::workspaces;
+use crate::features::tenancy::{roles, workspaces};
 use crate::Error;
 
 /// Deletes a user. A workspace where the user is the only owner goes with the user if it is
@@ -42,6 +42,7 @@ pub(crate) async fn delete_user(ctx: &AccountContext, user: ActorId) -> Result<(
     workspaces::delete_all(&mut tx, &sole).await?;
     workspaces::leave_all(&mut tx, user).await?;
     api_tokens::delete_all(&mut tx, user).await?;
+    roles::delete_grants_of(&mut tx, user).await?;
     store::delete_user(&mut tx, user).await?;
     tx.commit().await?;
     tracing::info!(event = "user.deleted", %user, workspaces = sole.len());

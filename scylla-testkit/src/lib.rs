@@ -18,5 +18,5 @@ pub use logs::Logs;
 pub use mail::Mailbox;
 pub use pipelines::exec_node;
 pub use rpc::{id, text, with_token};
-pub use tenancy::Role;
+pub use tenancy::{Role, RoleInput};
 pub use triggers::{literal_input, pointer_input};

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, slug, created_at, personal_tokens_enabled FROM workspaces\n         WHERE (id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)\n                OR id = ANY($2))\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
+  "query": "SELECT id, name, slug, created_at, personal_tokens_enabled FROM workspaces\n         WHERE ($5\n                OR id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)\n                OR id = ANY($2))\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
   "describe": {
     "columns": [
       {
@@ -64,7 +64,8 @@
         "Uuid",
         "UuidArray",
         "Uuid",
-        "Int8"
+        "Int8",
+        "Bool"
       ]
     },
     "nullable": [
@@ -75,5 +76,5 @@
       false
     ]
   },
-  "hash": "54ac4ed2ff1f191ae9eca741239fd84db19b4d4b733ec0bbe47a2a16cc1ab5d5"
+  "hash": "d4f388dcc1163f361f5d505ffd83dd9562513f5b19cd268b81623ffbe04357e0"
 }

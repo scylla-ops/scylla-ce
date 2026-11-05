@@ -8,6 +8,7 @@ mod operation;
 mod refusals;
 mod relationships;
 mod rights;
+mod setup;
 mod spicedb;
 mod store;
 

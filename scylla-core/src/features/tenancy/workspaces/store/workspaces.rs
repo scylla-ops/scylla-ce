@@ -151,7 +151,8 @@ pub(crate) async fn list_visible(
     let rows = sqlx::query_as!(
         Row,
         "SELECT id, name, slug, created_at, personal_tokens_enabled FROM workspaces
-         WHERE (id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)
+         WHERE ($5
+                OR id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)
                 OR id = ANY($2))
            AND ($3::uuid IS NULL OR id > $3)
          ORDER BY id
@@ -160,6 +161,7 @@ pub(crate) async fn list_visible(
         &granted,
         page.after.map(WorkspaceId::to_db),
         page.size.get() as i64 + 1,
+        visible.all,
     )
     .fetch_all(&mut **tx)
     .await?;

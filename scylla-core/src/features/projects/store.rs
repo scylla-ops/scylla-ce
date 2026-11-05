@@ -62,7 +62,8 @@ pub(super) async fn list_visible(
         Row,
         "SELECT p.id, p.workspace_id, p.created_by, p.name, p.description, p.created_at
          FROM projects p
-         WHERE (p.workspace_id IN (SELECT o.workspace_id FROM workspace_owners o WHERE o.user_id = $1)
+         WHERE ($7
+                OR p.workspace_id IN (SELECT o.workspace_id FROM workspace_owners o WHERE o.user_id = $1)
                 OR p.workspace_id = ANY($2)
                 OR p.id = ANY($3))
            AND ($4::uuid IS NULL OR p.workspace_id = $4)
@@ -75,6 +76,7 @@ pub(super) async fn list_visible(
         workspace.map(WorkspaceId::to_db),
         page.after.map(ProjectId::to_db),
         page.size.get() as i64 + 1,
+        visible.all,
     )
     .fetch_all(&mut **tx)
     .await?;

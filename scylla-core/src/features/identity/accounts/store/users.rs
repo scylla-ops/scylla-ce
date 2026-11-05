@@ -99,12 +99,17 @@ pub(crate) async fn list_users(tx: &mut Tx<'_>, query: &ListUsers) -> Result<Vec
                   OR strpos(lower(u.display_name), lower($1)) > 0
                   OR strpos(coalesce(u.handle, ''), lower($1)) > 0
                   OR strpos(coalesce(e.email, ''), lower($1)) > 0)
+             AND (NOT $4
+                  OR EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)
+                  OR EXISTS (SELECT 1 FROM role_grants g
+                             WHERE g.actor_id = u.id AND g.scope_kind = 'platform'))
              AND ($2::uuid IS NULL OR u.id > $2)
            ORDER BY u.id
            LIMIT $3"#,
         query.query.trim(),
         query.page.after.map(ActorId::to_db),
         query.page.size.get() as i64 + 1,
+        query.with_instance_role,
     )
     .fetch_all(&mut **tx)
     .await?;

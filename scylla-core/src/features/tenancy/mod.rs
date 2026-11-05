@@ -3,4 +3,5 @@
 
 pub(crate) mod grants;
 pub(crate) mod invitations;
+pub(crate) mod roles;
 pub mod workspaces;

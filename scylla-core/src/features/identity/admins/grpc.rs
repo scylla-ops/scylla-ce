@@ -1,9 +1,8 @@
-//! The gRPC handler of `UserAdminService`: each route checks its permission on the platform,
-//! where only the instance admins pass.
+//! The gRPC handler of `UserAdminService`: each route checks its permission on the platform.
 
 use scylla_domain::authz::Permission;
 use scylla_domain::identity::actors::ActorId;
-use scylla_domain::identity::admins::{ListUsers, UserAdminHolder};
+use scylla_domain::identity::admins::{ListUsers, UserAdminHolder, UserEntry};
 use scylla_domain::identity::users::{NewUser, UserStatus};
 use scylla_domain::platform::Platform;
 use scylla_proto::accounts::v1 as pb;
@@ -13,7 +12,7 @@ use scylla_proto::accounts::v1::user_admin_service_server::{
 use scylla_proto::common::v1 as common;
 use tonic::{Request, Response, Status};
 
-use super::service;
+use super::{listing, service};
 use crate::api::parse::{self, ToProto};
 use crate::features::identity::accounts::{self, AccountContext};
 use crate::Error;
@@ -42,12 +41,20 @@ impl UserAdminService for UserAdminGrpc {
         let request = request.into_inner();
         let query = ListUsers {
             query: request.query,
+            with_instance_role: request.with_instance_role,
             page: parse::optional(request.page, "page")?,
         };
-        let page = accounts::list_users(&self.ctx.pool, query).await?;
+        let entries = listing::list(&self.ctx, query).await?;
         Ok(Response::new(pb::ListUsersResponse {
-            users: page.items.into_iter().map(ToProto::to_proto).collect(),
-            page: Some(page.next_after.to_proto()),
+            users: entries
+                .page
+                .items
+                .into_iter()
+                .map(ToProto::to_proto)
+                .collect(),
+            page: Some(entries.page.next_after.to_proto()),
+            total: entries.total,
+            total_with_instance_role: entries.total_with_instance_role,
         }))
     }
 
@@ -221,4 +228,23 @@ impl UserAdminGrpc {
 /// Reads the required user of a request.
 fn user_id(value: Option<common::Id>) -> Result<ActorId, Error> {
     parse::required(value, "user_id")
+}
+
+impl ToProto<pb::UserEntry> for UserEntry {
+    fn to_proto(self) -> pb::UserEntry {
+        pb::UserEntry {
+            user: Some(self.user.to_proto()),
+            instance_roles: self
+                .instance_roles
+                .into_iter()
+                .map(|role| pb::InstanceRole {
+                    key: role.key,
+                    name: role.name,
+                    builtin: role.builtin,
+                })
+                .collect(),
+            workspaces: self.workspaces,
+            last_sign_in_at: self.last_sign_in_at.map(parse::timestamp),
+        }
+    }
 }

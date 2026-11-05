@@ -2,7 +2,6 @@
 
 use std::sync::{Arc, Mutex};
 
-use scylla_domain::authz::{Check, Object, Relationship};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::{Email, NewUser};
 use scylla_domain::projects::{NewProject, ProjectDescription, ProjectName, KIND};
@@ -10,13 +9,12 @@ use scylla_domain::tenancy::slugs::Slug;
 use scylla_domain::tenancy::workspaces::{NewSlug, NewWorkspace, WorkspaceId};
 use scylla_domain::{Name, ResourceKind};
 use scylla_extension::{
-    async_trait, AccessError, AfterDelete, BeforeCreate, Binding, CreateContext, DeleteContext,
-    Edition, EditionBuilder, Gate, HookError, Hooks, IssuedToken, Operation, Principal, Rejection,
-    RolePage, Tx,
+    async_trait, AfterDelete, BeforeCreate, CreateContext, DeleteContext, Edition, EditionBuilder,
+    HookError, Hooks, Rejection, Tx,
 };
 use sqlx::PgPool;
-use tonic::metadata::MetadataMap;
 
+use super::no_gate::NoGate;
 use super::service;
 use crate::features::identity::accounts;
 use crate::features::tenancy::workspaces;
@@ -24,78 +22,6 @@ use crate::Error;
 
 /// The log of the `Record` hooks: hook name, kind, actor and workspace of each call.
 type Log = Arc<Mutex<Vec<(&'static str, ResourceKind, ActorId, WorkspaceId)>>>;
-
-/// A gate that allows each check and keeps no relationship: these tests check only the hooks.
-struct NoGate;
-
-#[async_trait]
-impl Gate for NoGate {
-    async fn authenticate(
-        &self,
-        _metadata: &MetadataMap,
-        _operation: &Operation,
-    ) -> Result<Principal, AccessError> {
-        Err(AccessError::Unauthenticated(
-            "no gate in unit tests".to_owned(),
-        ))
-    }
-
-    async fn authorize(&self, _principal: &Principal, _check: Check) -> Result<(), AccessError> {
-        Ok(())
-    }
-
-    fn issue(&self, _actor: &Actor, _binding: Binding) -> Result<IssuedToken, AccessError> {
-        Err(AccessError::Unavailable("no gate in unit tests".to_owned()))
-    }
-
-    async fn write(&self, _relationships: &[Relationship]) -> Result<String, AccessError> {
-        Ok(String::new())
-    }
-
-    async fn delete(&self, _relationships: &[Relationship]) -> Result<(), AccessError> {
-        Ok(())
-    }
-
-    async fn delete_object(&self, _object: &Object) -> Result<(), AccessError> {
-        Ok(())
-    }
-
-    async fn delete_subject(&self, _subject: &Object) -> Result<(), AccessError> {
-        Ok(())
-    }
-
-    async fn subjects(&self, _object: &Object) -> Result<Vec<ActorId>, AccessError> {
-        Ok(Vec::new())
-    }
-
-    async fn roles(
-        &self,
-        _object: &Object,
-        _cursor: Option<&str>,
-        _count: usize,
-    ) -> Result<Option<RolePage>, AccessError> {
-        Ok(Some(RolePage::default()))
-    }
-
-    async fn permissions(
-        &self,
-        _principal: &Principal,
-        _object: &Object,
-        _workspace: Option<WorkspaceId>,
-        permissions: &[&'static str],
-    ) -> Result<Vec<bool>, AccessError> {
-        Ok(vec![true; permissions.len()])
-    }
-
-    async fn lookup(
-        &self,
-        _principal: &Principal,
-        _definition: &'static str,
-        _permission: &'static str,
-    ) -> Result<Vec<String>, AccessError> {
-        Ok(Vec::new())
-    }
-}
 
 /// A hook that inserts an actor, then refuses.
 struct WriteThenReject;

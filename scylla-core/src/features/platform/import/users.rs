@@ -7,10 +7,14 @@ use scylla_domain::Name;
 use super::legacy::Legacy;
 use super::service::Run;
 use crate::features::identity::{accounts, admins};
+use crate::features::tenancy::roles;
 use crate::Error;
 
 /// The key of the role of an instance admin in the old product.
 const SYSTEM_ADMIN: &str = "system-admin";
+
+/// The key of the role of the old product that creates organizations.
+const ORGANIZATION_CREATOR: &str = "organization-creator";
 
 /// Imports each user with an email, and the instance admins.
 pub(super) async fn import(run: &mut Run<'_>, legacy: &Legacy) -> Result<(), Error> {
@@ -73,19 +77,24 @@ pub(super) async fn import(run: &mut Run<'_>, legacy: &Legacy) -> Result<(), Err
         run.report.users += 1;
     }
 
-    // Make the instance admins.
+    // Make the instance admins and the workspace creators.
     for grant in &legacy.grants {
-        let user = run.users.get(&grant.principal_id).copied();
-        if let (Some(SYSTEM_ADMIN), "user", Some(user)) = (
-            grant.role_key.as_deref(),
-            grant.principal_kind.as_str(),
-            user,
-        ) {
-            let mut tx = run.pool.begin().await?;
-            admins::grant_in(&mut tx, user).await?;
-            tx.commit().await?;
-            run.report.admins += 1;
+        let Some(user) = run.users.get(&grant.principal_id).copied() else {
+            continue;
+        };
+        if grant.principal_kind != "user" {
+            continue;
         }
+        let mut tx = run.pool.begin().await?;
+        match grant.role_key.as_deref() {
+            Some(SYSTEM_ADMIN) => {
+                admins::grant_in(&mut tx, user).await?;
+                run.report.admins += 1;
+            }
+            Some(ORGANIZATION_CREATOR) => roles::make_workspace_creator(&mut tx, user).await?,
+            _ => {}
+        }
+        tx.commit().await?;
     }
     Ok(())
 }

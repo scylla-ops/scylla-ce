@@ -13,6 +13,7 @@ use crate::features::projects::pipelines::Pipelines;
 use crate::features::projects::triggers::Triggers;
 use crate::features::projects::Projects;
 use crate::features::tenancy::grants::Grants;
+use crate::features::tenancy::roles::Roles;
 use crate::features::tenancy::workspaces::Workspaces;
 use crate::infra::db::MIGRATOR;
 
@@ -34,4 +35,5 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .plugin(Triggers)
         .plugin(Capabilities)
         .plugin(Grants)
+        .plugin(Roles)
 }

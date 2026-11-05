@@ -4,10 +4,12 @@
 use std::sync::Arc;
 
 use scylla_domain::identity::users;
+use scylla_domain::platform::Platform;
+use scylla_domain::tenancy::catalog;
 use scylla_domain::tenancy::slugs::Slug;
 use scylla_domain::tenancy::workspaces::{
     ListWorkspaces, NewSlug, NewWorkspace, VisibleWorkspaces, Workspace, WorkspaceCaller,
-    WorkspaceChange, WorkspaceId,
+    WorkspaceChange, WorkspaceCreation, WorkspaceId,
 };
 use scylla_domain::Name;
 use scylla_extension::{AccessError, Gate, Hooks, Principal};
@@ -122,8 +124,8 @@ impl WorkspacesGrpc {
             slug,
         };
 
-        // Check the route permission on the caller. Only a user can own a workspace.
-        let check = WorkspaceCaller::CREATE_WORKSPACE.on(caller.actor.id);
+        // Check the route permission on the platform. Only a user can own a workspace.
+        let check = WorkspaceCreation::CREATE_WORKSPACE.on(Platform::ID);
         self.gate.authorize(&caller, check.clone()).await?;
         if caller.actor.kind != users::KIND {
             let reason = "only a user can own a workspace".to_owned();
@@ -220,9 +222,14 @@ impl WorkspacesGrpc {
             });
 
         // Read one page of these workspaces and of the workspaces that the caller owns.
+        let all = self
+            .gate
+            .holds_on_instance(&caller, catalog::VIEW_ALL_WORKSPACES)
+            .await?;
         let visible = VisibleWorkspaces {
             caller: caller.actor.id,
             granted,
+            all,
         };
         let page = service::list(&self.pool, query, visible).await?;
         Ok(pb::ListWorkspacesResponse {

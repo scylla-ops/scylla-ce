@@ -57,7 +57,7 @@ impl<T: ?Sized> Id<T> {
     }
 
     /// Makes an id from its bits.
-    const fn from_bits(bits: u128) -> Self {
+    pub(crate) const fn from_bits(bits: u128) -> Self {
         Self {
             bits,
             kind: PhantomData,

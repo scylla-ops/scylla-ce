@@ -39,6 +39,22 @@ impl TestApp {
     ) -> Result<pb::ListUsersResponse, Status> {
         let request = pb::ListUsersRequest {
             query: query.to_owned(),
+            with_instance_role: false,
+            page: Some(page),
+        };
+        let request = self.authed(actor, request).await;
+        Ok(self.user_admin().list_users(request).await?.into_inner())
+    }
+
+    /// Calls `ListUsers` as `actor`, for the users with an instance role.
+    pub async fn list_users_with_role(
+        &self,
+        actor: ActorId,
+        page: common::PageRequest,
+    ) -> Result<pb::ListUsersResponse, Status> {
+        let request = pb::ListUsersRequest {
+            query: String::new(),
+            with_instance_role: true,
             page: Some(page),
         };
         let request = self.authed(actor, request).await;

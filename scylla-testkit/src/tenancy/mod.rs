@@ -3,6 +3,8 @@
 
 mod access;
 mod invitations;
+mod roles;
 mod workspaces;
 
 pub use access::Role;
+pub use roles::RoleInput;

@@ -1,0 +1,114 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT r.id, r.workspace_id, r.name, r.description, r.level, r.holder, r.builtin,\n                  coalesce((SELECT array_agg(p.permission) FROM role_permissions p\n                            WHERE p.role_id = r.id), '{}') AS \"permissions!\",\n                  (SELECT count(*) FROM role_grants g WHERE g.role_id = r.id) AS \"holder_count!\"\n           FROM roles r\n           WHERE NOT r.builtin\n             AND (($1::uuid IS NULL AND r.workspace_id IS NULL)\n                  OR r.workspace_id = $1\n                  OR ($1::uuid IS NOT NULL AND r.workspace_id IS NULL AND r.level <> 'platform'))\n           ORDER BY lower(r.name)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "roles",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "roles",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "roles",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "roles",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "level",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "roles",
+            "name": "level"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "holder",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "roles",
+            "name": "holder"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "builtin",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "roles",
+            "name": "builtin"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "permissions!",
+        "type_info": "TextArray",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "holder_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "a1f80d788e2fd09ca90f4f106d3df5646c168160d1afc4823d9e2bdea5b530eb"
+}

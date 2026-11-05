@@ -4,9 +4,10 @@
 
 use std::sync::Arc;
 
-use scylla_domain::authz::{Check, Schema};
+use scylla_domain::authz::{Check, Resource, Schema};
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::users;
+use scylla_domain::platform::Platform;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Gate, Grantable, Grants, Hooks, Principal};
 use scylla_proto::access::v1 as pb;
@@ -91,6 +92,9 @@ impl GrantsGrpc {
             role,
             actor_id,
         } = request.into_inner();
+        if let Some(object) = on_platform(&object) {
+            return self.give_on_platform(&caller, object, role, actor_id).await;
+        }
         let (kind, name, id) = self.target(object)?;
         let check = kind.grant(&id).ok_or_else(not_an_id)?;
         let actor: ActorId = parse::required(actor_id, "actor_id")?;
@@ -126,6 +130,11 @@ impl GrantsGrpc {
             role,
             actor_id,
         } = request.into_inner();
+        if let Some(object) = on_platform(&object) {
+            return self
+                .take_back_on_platform(&caller, object, role, actor_id)
+                .await;
+        }
         let (kind, name, id) = self.target(object)?;
         let check = kind.revoke(&id).ok_or_else(not_an_id)?;
         let actor: ActorId = parse::required(actor_id, "actor_id")?;
@@ -178,6 +187,14 @@ impl GrantsGrpc {
             None => Err(AccessError::denied(caller, &check).into()),
         }
     }
+}
+
+/// Returns the object of a request if it is the platform.
+fn on_platform(object: &Option<pb::ObjectRef>) -> Option<pb::ObjectRef> {
+    object
+        .as_ref()
+        .filter(|object| object.kind == Platform::NAME)
+        .cloned()
 }
 
 /// The error of an object id that is not an id.

@@ -45,10 +45,13 @@ async fn list_users_filters_and_pages(pool: PgPool) {
 
     // then
     assert_eq!(by_email.unwrap().users.len(), 2);
-    assert_eq!(by_handle.unwrap().users[0].email, "bo@corp.example");
+    assert_eq!(
+        by_handle.unwrap().users[0].user.as_ref().unwrap().email,
+        "bo@corp.example"
+    );
     assert_eq!(by_name.unwrap().users.len(), 2);
-    assert_eq!(first.users[0].handle, "amy");
-    assert_eq!(second.users[0].handle, "builder");
+    assert_eq!(first.users[0].user.as_ref().unwrap().handle, "amy");
+    assert_eq!(second.users[0].user.as_ref().unwrap().handle, "builder");
     assert!(second.page.unwrap().next_token.is_empty());
 }
 

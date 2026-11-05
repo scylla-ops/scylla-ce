@@ -1,10 +1,11 @@
-//! The SQL of the gate: the token revocations, the owners of the workspaces and the instance
-//! admins.
+//! The SQL of the gate: the token revocations, the owners of the workspaces, the instance admins
+//! and the roles that are rows.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::api_tokens::ApiTokenId;
 use scylla_domain::identity::apps::AppKeyId;
 use scylla_domain::identity::users::SessionId;
+use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Tx};
 
@@ -101,6 +102,56 @@ pub(super) async fn is_admin(tx: &mut Tx<'_>, actor: ActorId) -> Result<bool, sq
     )
     .fetch_one(&mut **tx)
     .await
+}
+
+/// Returns the ids of the permissions that the roles that are rows give to an actor on the
+/// instance, on a workspace and on a project.
+pub(super) async fn held_in_rows(
+    tx: &mut Tx<'_>,
+    actor: ActorId,
+    workspace: Option<WorkspaceId>,
+    project: Option<ProjectId>,
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar!(
+        "SELECT DISTINCT p.permission
+         FROM role_grants g
+         JOIN role_permissions p ON p.role_id = g.role_id
+         WHERE g.actor_id = $1
+           AND (g.scope_kind = 'platform'
+                OR (g.scope_kind = 'workspace' AND g.scope_id = $2)
+                OR (g.scope_kind = 'project' AND g.scope_id = $3))",
+        actor.to_db(),
+        workspace.map(WorkspaceId::to_db),
+        project.map(ProjectId::to_db),
+    )
+    .fetch_all(&mut **tx)
+    .await
+}
+
+/// Returns the ids of the objects of a kind where a role that is a row gives an actor one of the
+/// permissions of the catalog.
+pub(super) async fn objects_in_rows(
+    tx: &mut Tx<'_>,
+    actor: ActorId,
+    kind: &str,
+    permissions: &[&str],
+) -> Result<Vec<String>, sqlx::Error> {
+    let permissions: Vec<String> = permissions.iter().map(|id| (*id).to_owned()).collect();
+    let rows = sqlx::query_scalar!(
+        "SELECT DISTINCT g.scope_id
+         FROM role_grants g
+         JOIN role_permissions p ON p.role_id = g.role_id
+         WHERE g.actor_id = $1 AND g.scope_kind = $2 AND p.permission = ANY($3)",
+        actor.to_db(),
+        kind,
+        &permissions,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|id| ProjectId::from_db(id).to_string())
+        .collect())
 }
 
 /// Logs a database failure of the gate, and hides its details from the client.

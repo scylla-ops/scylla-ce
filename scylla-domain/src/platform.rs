@@ -7,7 +7,7 @@ use crate::Id;
 pub type PlatformId = Id<Platform>;
 
 /// The instance. It has one object only, with a fixed id. The instance admins pass each route
-/// on it, from Postgres, and no role gives a route on it.
+/// on it, from Postgres, and a role of the platform level gives a route on it.
 #[derive(Clone, Copy, Debug)]
 pub struct Platform;
 
@@ -29,7 +29,7 @@ pub struct InstanceSettings {
 }
 
 crate::authz! {
-    /// The routes on the settings of the instance: the instance admins only.
+    /// The routes on the settings of the instance.
     extend Platform as SettingsHolder {
         /// The route `GetInstanceSettings`.
         permission get_instance_settings = nil;

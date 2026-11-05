@@ -4,6 +4,7 @@
 mod check;
 mod grpc;
 mod list;
+mod platform;
 mod plugin;
 mod service;
 mod store;

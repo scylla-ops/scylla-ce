@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT p.id, p.workspace_id, p.created_by, p.name, p.description, p.created_at\n         FROM projects p\n         WHERE (p.workspace_id IN (SELECT o.workspace_id FROM workspace_owners o WHERE o.user_id = $1)\n                OR p.workspace_id = ANY($2)\n                OR p.id = ANY($3))\n           AND ($4::uuid IS NULL OR p.workspace_id = $4)\n           AND ($5::uuid IS NULL OR p.id > $5)\n         ORDER BY p.id\n         LIMIT $6",
+  "query": "SELECT p.id, p.workspace_id, p.created_by, p.name, p.description, p.created_at\n         FROM projects p\n         WHERE ($7\n                OR p.workspace_id IN (SELECT o.workspace_id FROM workspace_owners o WHERE o.user_id = $1)\n                OR p.workspace_id = ANY($2)\n                OR p.id = ANY($3))\n           AND ($4::uuid IS NULL OR p.workspace_id = $4)\n           AND ($5::uuid IS NULL OR p.id > $5)\n         ORDER BY p.id\n         LIMIT $6",
   "describe": {
     "columns": [
       {
@@ -77,7 +77,8 @@
         "UuidArray",
         "Uuid",
         "Uuid",
-        "Int8"
+        "Int8",
+        "Bool"
       ]
     },
     "nullable": [
@@ -89,5 +90,5 @@
       false
     ]
   },
-  "hash": "eaa0c64f9e2c70bd4f918c006e52a4933e6217da91046d33af3425d3de1bfb9d"
+  "hash": "8ad8ea31d476723787da407229ead98a8b9011398a05a3444580268d266e8320"
 }

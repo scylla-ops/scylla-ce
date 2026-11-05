@@ -50,7 +50,7 @@ async fn check_permissions_answers_for_each_role(pool: PgPool) {
         [true, true, false, false],
         [true, false, false, false],
         [false, false, false, false],
-        [false, false, false, false],
+        [true, true, true, true],
     ];
     assert_eq!(answers, expected);
 }

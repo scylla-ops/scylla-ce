@@ -11,5 +11,8 @@ mod invitations;
 mod open_invitations;
 mod owners;
 mod ownership;
+mod platform_roles;
+mod role_changes;
+mod roles;
 mod slugs;
 mod workspaces;

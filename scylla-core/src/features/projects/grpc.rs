@@ -6,6 +6,7 @@ use scylla_domain::projects::{
     ListProjects, NewProject, Project, ProjectCaller, ProjectChange, ProjectHolder, ProjectId,
     Visible,
 };
+use scylla_domain::tenancy::catalog;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Gate, Hooks};
 use scylla_proto::projects::v1 as pb;
@@ -152,10 +153,15 @@ impl ProjectsGrpc {
             self.gate.granted(&caller, ProjectHolder::LIST_PROJECTS),
             self.gate.granted(&caller, Project::LIST_PROJECTS),
         );
+        let all = self
+            .gate
+            .holds_on_instance(&caller, catalog::VIEW_PROJECT)
+            .await?;
         let visible = Visible {
             caller: caller.actor.id,
             workspaces: or_owned_only(workspaces),
             projects: or_owned_only(shared),
+            all,
         };
 
         // Read one page of these projects and of the projects of the workspaces of the caller.
