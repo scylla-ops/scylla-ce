@@ -250,7 +250,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Instance admins: only they pass each route of the console, grant and revoke, the last active admin, two admins that disable each other at the same time | `scylla-ce/tests/api/identity/admins.rs` |
 | Console of the users: list and filter, create, change, a new email stops the old links, disable, delete, reset link, sessions of a user | `scylla-ce/tests/api/identity/console.rs` |
 | Sessions: rotation and reuse, sign-out, list and revoke, a disabled user, the cookie and its origin, the IP address with and without a trusted proxy | `scylla-ce/tests/api/identity/sessions.rs` |
-| Identity providers: browser sign-in with OIDC and GitHub, return address, no automatic link, same browser, invitations; `ExchangeIdToken` | `scylla-ce/tests/api/identity/sign_in.rs`, `sign_in_errors.rs`, `sign_in_link.rs`, `sign_in_link_refusals.rs`, `oidc.rs` |
+| Identity providers: browser sign-in with OIDC and GitHub, return address, no automatic link, same browser, invitations; `ExchangeIdToken` | `scylla-ce/tests/api/identity/sign_in.rs`, `sign_in_errors.rs`, `sign_in_link.rs`, `sign_in_link_refusals.rs`, `sign_in_mails.rs`, `oidc.rs` |
 | Invitations: the role of the link, admins only, the email of the invitation, sign-up with a link | `scylla-ce/tests/api/tenancy/invitations.rs` |
 | Open invitations: the list, the revoke, the resend and its cooldown, one open invitation for each email | `scylla-ce/tests/api/tenancy/open_invitations.rs` |
 | An acceptance at the same time as a revoke or a resend | `scylla-ce/tests/api/tenancy/invitation_races.rs` |

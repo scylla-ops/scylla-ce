@@ -126,8 +126,8 @@ impl ProfileService for ProfileGrpc {
     ) -> Answer<pb::UnlinkIdentityResponse> {
         let (_, user) = self.user(&request, AccountCaller::UNLINK_IDENTITY).await?;
         let request = request.into_inner();
-        let pool = &self.ctx.pool;
-        manage::unlink_identity(pool, user, &request.provider, &request.subject).await?;
+        let ctx = &self.ctx;
+        manage::unlink_identity(ctx, user, &request.provider, &request.subject).await?;
         Ok(Response::new(pb::UnlinkIdentityResponse {}))
     }
 

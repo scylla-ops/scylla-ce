@@ -2,7 +2,6 @@
 //! expired link, another browser, an account with no password, an unverified email, and an account
 //! that has an identity of the provider.
 
-use scylla_core::SignUpMode;
 use scylla_proto::accounts::v1::account_service_client::AccountServiceClient;
 use scylla_proto::accounts::v1::GetPendingLinkRequest;
 use scylla_proto::auth::v1::token_service_client::TokenServiceClient;
@@ -12,9 +11,9 @@ use tonic::{Code, Request};
 
 use super::sign_in_link::{app_with_idp, identities, link, pending, APP_URL, EMAIL};
 use crate::assert_code;
-use crate::identity::accounts::{app_in, assert_refused, PASSWORD};
+use crate::identity::accounts::{assert_refused, PASSWORD};
 use crate::identity::browser::Browser;
-use crate::identity::idp::{person, Idp, CLIENT_ID};
+use crate::identity::idp::{person, CLIENT_ID};
 
 /// The failures before a lockout, as for `SignIn`.
 const FAILURES: usize = 5;
@@ -255,25 +254,6 @@ async fn a_disabled_account_gets_its_page(pool: PgPool) {
 
     // then
     assert_eq!(step.location, page("account_inactive"));
-    assert_eq!(waiting(&pool).await, 0);
-}
-
-/// A provider that does not allow sign-up keeps its answer, as before the link: the person can link
-/// from the page of the account.
-#[sqlx::test(migrations = false)]
-async fn a_provider_with_no_sign_up_keeps_its_answer(pool: PgPool) {
-    // given
-    let app = app_in(pool.clone(), SignUpMode::Open).await;
-    let idp = Idp::start().await;
-    app.add_oidc_provider("idp", idp.url(), CLIENT_ID, None, false)
-        .await;
-    app.user_with(EMAIL, Some(PASSWORD)).await;
-
-    // when
-    let step = Browser::new().sign_in(&app, "idp", "").await;
-
-    // then
-    assert_eq!(step.location, page("signup_disabled"));
     assert_eq!(waiting(&pool).await, 0);
 }
 

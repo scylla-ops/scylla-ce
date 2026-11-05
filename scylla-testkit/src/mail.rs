@@ -1,5 +1,6 @@
 //! A mailer that keeps the mails, with their text and HTML bodies, so a test reads their links.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -13,9 +14,16 @@ const WAIT: Duration = Duration::from_secs(5);
 pub struct Mailbox {
     /// The mails.
     mails: Mutex<Vec<Mail>>,
+    /// `true` if each send fails.
+    failing: AtomicBool,
 }
 
 impl Mailbox {
+    /// Makes each next send fail, as an SMTP server that is down does.
+    pub fn fail_sends(&self) {
+        self.failing.store(true, Ordering::SeqCst);
+    }
+
     /// Returns the mails to an address, oldest first.
     pub fn to(&self, address: &str) -> Vec<Mail> {
         let mails = self.mails.lock().expect("mailbox");
@@ -71,6 +79,9 @@ impl Mailbox {
 #[async_trait]
 impl Mailer for Mailbox {
     async fn send(&self, mail: Mail) -> Result<(), MailError> {
+        if self.failing.load(Ordering::SeqCst) {
+            return Err(MailError("the test mail server is down".to_owned()));
+        }
         self.mails.lock().expect("mailbox").push(mail);
         Ok(())
     }

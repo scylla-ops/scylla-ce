@@ -9,7 +9,7 @@ use scylla_domain::Name;
 use super::pending::{self, KnownEmail};
 use super::store::{self, ProviderRow};
 use super::ExternalIdentity;
-use crate::features::identity::accounts::{self, refused, AccountContext};
+use crate::features::identity::accounts::{self, mails, refused, AccountContext};
 use crate::features::identity::sessions::{self, Client, Opened};
 use crate::features::tenancy::invitations::{self, Pick};
 use crate::{Error, SignUpMode};
@@ -90,23 +90,28 @@ async fn find(
         return Ok(Found::SignedIn(actor, opened));
     }
 
+    // An account with the verified email waits for its password: this makes no new account.
+    let verified = identity
+        .email
+        .filter(|_| identity.email_verified)
+        .and_then(|email| Email::parse(email).ok());
+    if let Some(email) = &verified {
+        if let Some(account) = accounts::account_of_email(&mut tx, email).await? {
+            return Ok(Found::KnownEmail(KnownEmail {
+                account,
+                email: email.clone(),
+                subject: identity.subject,
+                name: identity.name,
+            }));
+        }
+    }
+
     // Check that a new user can come from this identity.
     if !provider.allow_sign_up {
         return Err(refused("NO_ACCOUNT", "no account uses this identity"));
     }
-    let email = identity
-        .email
-        .filter(|_| identity.email_verified)
-        .and_then(|email| Email::parse(email).ok())
-        .ok_or_else(|| refused("EMAIL_REQUIRED", "the provider gave no verified email"))?;
-    if let Some(account) = accounts::account_of_email(&mut tx, &email).await? {
-        return Ok(Found::KnownEmail(KnownEmail {
-            account,
-            email,
-            subject: identity.subject,
-            name: identity.name,
-        }));
-    }
+    let email =
+        verified.ok_or_else(|| refused("EMAIL_REQUIRED", "the provider gave no verified email"))?;
     let invitation = match ctx.settings.sign_up_mode {
         SignUpMode::Closed => return Err(refused("SIGN_UP_CLOSED", "sign-up is closed")),
         SignUpMode::InviteOnly => Some(
@@ -141,13 +146,15 @@ async fn find(
     Ok(Found::SignedIn(actor, opened))
 }
 
-/// Links an identity to a signed-in user. The identity of another user is refused.
+/// Links an identity to a signed-in user, and tells the user by mail. The identity of another user
+/// is refused. The same link again adds nothing, and sends no mail.
 pub(super) async fn link(
     ctx: &AccountContext,
     provider: &ProviderRow,
     identity: ExternalIdentity,
     user: ActorId,
 ) -> Result<(), Error> {
+    let mut added = false;
     let mut tx = ctx.pool.begin().await?;
     match store::user_of(&mut tx, provider.id, &identity.subject).await? {
         Some(owner) if owner == user => {}
@@ -160,9 +167,20 @@ pub(super) async fn link(
         None => {
             let email = identity.email.as_deref();
             store::link(&mut tx, provider.id, &identity.subject, user, email).await?;
+            added = true;
         }
     }
+    let to = accounts::find_user(&mut tx, user)
+        .await?
+        .and_then(|user| user.email);
     tx.commit().await?;
+    if added {
+        tracing::info!(event = "account.identity_linked", %user, provider = provider.slug);
+        if let Some(to) = to {
+            let mail = mails::identity_linked(ctx, &to, &provider.display_name);
+            mails::send(ctx, "identity-linked", mail).await;
+        }
+    }
     Ok(())
 }
 

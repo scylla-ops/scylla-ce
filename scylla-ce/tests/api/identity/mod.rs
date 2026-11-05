@@ -28,5 +28,6 @@ mod sign_in;
 mod sign_in_errors;
 mod sign_in_link;
 mod sign_in_link_refusals;
+mod sign_in_mails;
 mod token_limits;
 mod tokens;

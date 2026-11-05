@@ -102,6 +102,22 @@ pub(crate) fn identity_linked(ctx: &AccountContext, to: &str, provider: &str) ->
     .compose()
 }
 
+/// The mail to the owner of an account that lost a way to sign in.
+pub(super) fn identity_unlinked(ctx: &AccountContext, to: &str, provider: &str) -> Mail {
+    Letter {
+        to,
+        subject: format!("A sign-in method left your Scylla account: {provider}"),
+        intro: vec![format!(
+            "You can no longer sign in to your Scylla account with {provider}."
+        )],
+        action: Some(("Open Scylla", ctx.settings.app_url.clone())),
+        outro: vec![
+            "If it was not you, sign in, change your password, and tell an admin.".to_owned(),
+        ],
+    }
+    .compose()
+}
+
 /// The mail with the link of an invitation into a workspace.
 pub(crate) fn invitation(ctx: &AccountContext, to: &str, workspace: &str, token: &str) -> Mail {
     Letter {

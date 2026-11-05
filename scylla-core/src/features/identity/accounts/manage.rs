@@ -97,15 +97,15 @@ pub(crate) async fn sign_in_ways(
     Ok((identities, has_password))
 }
 
-/// Removes an identity of a user. The last way to sign in stays.
+/// Removes an identity of a user, and tells the user by mail. The last way to sign in stays.
 pub(crate) async fn unlink_identity(
-    pool: &PgPool,
+    ctx: &AccountContext,
     user: ActorId,
     provider: &str,
     subject: &str,
 ) -> Result<(), Error> {
     // Refuse to remove the last way to sign in.
-    let mut tx = pool.begin().await?;
+    let mut tx = ctx.pool.begin().await?;
     let identities = providers::identities_of(&mut tx, user).await?;
     let has_password = store::password_hash(&mut tx, user).await?.is_some();
     if identities.len() <= 1 && !has_password {
@@ -117,7 +117,20 @@ pub(crate) async fn unlink_identity(
     if !providers::unlink(&mut tx, user, provider, subject).await? {
         return Err(Error::NotFound("identity"));
     }
+    let name = providers::by_slug(&mut tx, provider)
+        .await?
+        .map_or_else(|| provider.to_owned(), |row| row.display_name);
+    let to = store::find_user(&mut tx, user)
+        .await?
+        .and_then(|user| user.email);
     tx.commit().await?;
+    tracing::info!(event = "account.identity_unlinked", %user, provider);
+
+    // Tell the owner. A mail that fails does not stop the unlink.
+    if let Some(to) = to {
+        let mail = mails::identity_unlinked(ctx, &to, &name);
+        mails::send(ctx, "identity-unlinked", mail).await;
+    }
     Ok(())
 }
 

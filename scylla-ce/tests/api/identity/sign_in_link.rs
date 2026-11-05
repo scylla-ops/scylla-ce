@@ -13,7 +13,7 @@ use tonic::{Code, Request, Response, Status};
 
 use crate::identity::accounts::{app_in, assert_refused, PASSWORD};
 use crate::identity::browser::Browser;
-use crate::identity::idp::{Idp, CLIENT_ID};
+use crate::identity::idp::{person, Idp, CLIENT_ID};
 
 /// The web app of the tests, the default of the settings.
 pub(super) const APP_URL: &str = "http://127.0.0.1:3000";
@@ -205,4 +205,52 @@ async fn a_link_works_one_time(pool: PgPool) {
     assert_eq!(second.unwrap_err().code(), Code::NotFound);
     assert_eq!(read.unwrap_err().code(), Code::NotFound);
     assert_eq!(identities(&pool).await, 1);
+}
+
+/// A provider that does not allow new accounts still offers the link: it makes no account, and it
+/// always needs the password. A person with no account keeps the refusal, and an account with no
+/// password too.
+#[sqlx::test(migrations = false)]
+async fn a_provider_with_no_sign_up_offers_the_link_only(pool: PgPool) {
+    // given
+    let app = app_in(pool.clone(), SignUpMode::Open).await;
+    let idp = Idp::start().await;
+    app.add_oidc_provider("idp", idp.url(), CLIENT_ID, None, false)
+        .await;
+    let users = "SELECT count(*) FROM users";
+    let (nobody, no_password) = ("nobody@idp.example", "nopass@idp.example");
+    app.user_with(no_password, None).await;
+    app.user_with(EMAIL, Some(PASSWORD)).await;
+    let before: i64 = sqlx::query_scalar(users).fetch_one(&pool).await.unwrap();
+
+    // when
+    idp.sign_in_as(person("nobody", nobody, true));
+    let no_account = Browser::new().sign_in(&app, "idp", "").await;
+    idp.sign_in_as(person("unverified", nobody, false));
+    let unverified = Browser::new().sign_in(&app, "idp", "").await;
+    idp.sign_in_as(person("nopass", no_password, true));
+    let without_password = Browser::new().sign_in(&app, "idp", "").await;
+    idp.sign_in_as(person("alice", EMAIL, true));
+    let mut browser = Browser::new();
+    let step = browser.sign_in(&app, "idp", "").await;
+    let linked = link(&app, &browser, PASSWORD).await;
+
+    // then
+    assert_eq!(
+        no_account.location,
+        format!("{APP_URL}/sign-in-error?code=signup_disabled&provider=idp")
+    );
+    assert_eq!(
+        unverified.location,
+        format!("{APP_URL}/sign-in-error?code=signup_disabled&provider=idp")
+    );
+    assert_eq!(
+        without_password.location,
+        format!("{APP_URL}/sign-in-error?code=email_in_use&provider=idp")
+    );
+    assert_eq!(step.location, format!("{APP_URL}/sign-in-link"));
+    assert!(linked.is_ok(), "{linked:?}");
+    assert_eq!(identities(&pool).await, 1);
+    let after: i64 = sqlx::query_scalar(users).fetch_one(&pool).await.unwrap();
+    assert_eq!(before, after);
 }
