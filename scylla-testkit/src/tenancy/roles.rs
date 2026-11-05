@@ -5,7 +5,8 @@ use scylla_domain::platform::Platform;
 use scylla_proto::access::v1::role_service_client::RoleServiceClient;
 use scylla_proto::access::v1::{
     CatalogArea, CreateRoleRequest, DeleteRoleRequest, GetRoleRequest,
-    ListPermissionCatalogRequest, ListRolesRequest, Role as RoleMessage, UpdateRoleRequest,
+    ListPermissionCatalogRequest, ListRoleHoldersRequest, ListRoleHoldersResponse,
+    ListRolesRequest, Role as RoleMessage, UpdateRoleRequest,
 };
 use tonic::transport::Channel;
 use tonic::Status;
@@ -50,6 +51,25 @@ impl TestApp {
     /// A client of `RoleService`.
     fn roles(&self) -> RoleServiceClient<Channel> {
         RoleServiceClient::new(self.channel.clone())
+    }
+
+    /// Gives a user a role that only shows the workspace of `owner`, so it can get a role on a
+    /// project of that workspace. It reads no project.
+    pub async fn join_workspace(&self, owner: ActorId, user: ActorId) {
+        let workspace = self.workspace_of(owner).await.to_string();
+        let name = format!("Joined {user}");
+        let input = RoleInput {
+            name: &name,
+            level: "workspace",
+            holder: "people",
+            permissions: &["workspace.view"],
+            workspace: Some(&workspace),
+        };
+        let role = self.create_role(owner, input).await.expect("a new role");
+        let grant = Role::on("workspace", &workspace, &role.grant_name);
+        self.grant_role(owner, grant, &user.to_string())
+            .await
+            .expect("a grant");
     }
 
     /// Calls `ListPermissionCatalog` as `actor`.
@@ -128,12 +148,38 @@ impl TestApp {
 
     /// Calls `DeleteRole` as `actor`.
     pub async fn delete_role(&self, actor: ActorId, role: &str) -> Result<(), Status> {
+        self.delete_role_moving(actor, role, "").await
+    }
+
+    /// Calls `DeleteRole` as `actor`, with the role that the holders get.
+    pub async fn delete_role_moving(
+        &self,
+        actor: ActorId,
+        role: &str,
+        move_to: &str,
+    ) -> Result<(), Status> {
         let request = DeleteRoleRequest {
             role_id: Some(id(role)),
+            move_to: move_to.to_owned(),
         };
         let request = self.authed(actor, request).await;
         self.roles().delete_role(request).await?;
         Ok(())
+    }
+
+    /// Calls `ListRoleHolders` as `actor`.
+    pub async fn role_holders(
+        &self,
+        actor: ActorId,
+        key: &str,
+        workspace: Option<&str>,
+    ) -> Result<ListRoleHoldersResponse, Status> {
+        let request = ListRoleHoldersRequest {
+            key: key.to_owned(),
+            workspace_id: workspace.map(id),
+        };
+        let request = self.authed(actor, request).await;
+        Ok(self.roles().list_role_holders(request).await?.into_inner())
     }
 
     /// Calls `Grant` on the platform as `actor`: gives a role of the platform level.

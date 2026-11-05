@@ -41,6 +41,15 @@ pub struct Role {
     pub workspace: Option<WorkspaceId>,
 }
 
+impl BuiltinRole {
+    /// Returns the built-in role of a relation of the schema.
+    pub fn of_relation(definition: &str, relation: &str) -> Option<&'static Self> {
+        BUILTIN_ROLES.iter().find(|role| {
+            matches!(role.source, BuiltinSource::Relation(d, r) if d == definition && r == relation)
+        })
+    }
+}
+
 /// Who can hold a role.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Holder {
@@ -122,6 +131,8 @@ crate::authz! {
         permission list_roles = nil;
         /// The route `GetRole` with no workspace.
         permission get_role = nil;
+        /// The route `ListRoleHolders` with no workspace.
+        permission list_role_holders = nil;
         /// The route `CreateRole` for the instance.
         permission create_role = nil;
         /// The route `UpdateRole` of a role of the instance.
@@ -139,9 +150,11 @@ crate::authz! {
     /// The routes on the roles of a workspace.
     extend Workspace as RoleHolder {
         /// The route `ListRoles` with a workspace.
-        permission list_roles = manage;
+        permission list_roles = read;
         /// The route `GetRole` with a workspace.
-        permission get_role = manage;
+        permission get_role = read;
+        /// The route `ListRoleHolders` with a workspace.
+        permission list_role_holders = read;
         /// The route `CreateRole` for a workspace.
         permission create_role = manage;
         /// The route `UpdateRole` of a role of a workspace.

@@ -4,6 +4,7 @@ use super::{Area, CatalogPermission, Level, Route};
 use crate::identity::apps::{App, AppHolder};
 use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
 use crate::projects::ProjectHolder;
+use crate::tenancy::grants::WorkspaceMembers;
 use crate::tenancy::roles::RoleHolder;
 use crate::tenancy::workspaces::Workspace;
 
@@ -22,6 +23,8 @@ pub(super) const AREAS: &[Area] = &[
                 routes: &[
                     Route::of(Workspace::GET_WORKSPACE),
                     Route::of(Workspace::LIST_WORKSPACES),
+                    Route::of(RoleHolder::LIST_ROLES),
+                    Route::of(RoleHolder::GET_ROLE),
                 ],
             },
             CatalogPermission {
@@ -53,6 +56,9 @@ pub(super) const AREAS: &[Area] = &[
                 routes: &[
                     Route::of(Workspace::LIST_OWNERS),
                     Route::of(Workspace::LIST_ACCESS),
+                    Route::of(WorkspaceMembers::LIST_MEMBERS),
+                    Route::of(WorkspaceMembers::GET_MEMBER_ACCESS),
+                    Route::of(RoleHolder::LIST_ROLE_HOLDERS),
                 ],
             },
             CatalogPermission {
@@ -81,8 +87,6 @@ pub(super) const AREAS: &[Area] = &[
             depends_on: &[],
             implicit: false,
             routes: &[
-                Route::of(RoleHolder::LIST_ROLES),
-                Route::of(RoleHolder::GET_ROLE),
                 Route::of(RoleHolder::CREATE_ROLE),
                 Route::of(RoleHolder::UPDATE_ROLE),
                 Route::of(RoleHolder::DELETE_ROLE),

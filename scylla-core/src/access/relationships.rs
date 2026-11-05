@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use scylla_domain::authz::{self, Object, Resource};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::PageSize;
-use scylla_extension::{AccessError, RoleHolder, RolePage};
+use scylla_extension::{AccessError, ObjectRole, RoleHolder, RolePage};
 use spicedb_grpc_tonic::v1::consistency::Requirement;
 use spicedb_grpc_tonic::v1::relationship_update::Operation;
 use spicedb_grpc_tonic::v1::{
@@ -189,22 +189,67 @@ impl SpiceDb {
         &self,
         definition: &str,
     ) -> Result<BTreeMap<String, u32>, AccessError> {
+        let filter = RelationshipFilter {
+            resource_type: definition.to_owned(),
+            optional_subject_filter: Some(SubjectFilter {
+                subject_type: Actor::NAME.to_owned(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
         let mut counts = BTreeMap::new();
+        for role in self.read_all(filter).await? {
+            *counts.entry(role.role).or_insert(0) += 1;
+        }
+        Ok(counts)
+    }
+
+    /// Returns the roles of an actor on all the objects of a definition.
+    pub(super) async fn roles_of(
+        &self,
+        actor: ActorId,
+        definition: &str,
+    ) -> Result<Vec<ObjectRole>, AccessError> {
+        self.read_all(RelationshipFilter {
+            resource_type: definition.to_owned(),
+            optional_subject_filter: Some(SubjectFilter {
+                subject_type: Actor::NAME.to_owned(),
+                optional_subject_id: actor.to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .await
+    }
+
+    /// Returns each grant of a relation, on all the objects of a definition.
+    pub(super) async fn holders_of(
+        &self,
+        definition: &str,
+        relation: &str,
+    ) -> Result<Vec<ObjectRole>, AccessError> {
+        self.read_all(RelationshipFilter {
+            resource_type: definition.to_owned(),
+            optional_relation: relation.to_owned(),
+            optional_subject_filter: Some(SubjectFilter {
+                subject_type: Actor::NAME.to_owned(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .await
+    }
+
+    /// Reads each relationship of a filter with an actor as its subject, page after page.
+    async fn read_all(&self, filter: RelationshipFilter) -> Result<Vec<ObjectRole>, AccessError> {
+        let mut roles = Vec::new();
         let mut cursor = None;
         loop {
-            // Read one page of the relationships of the definition.
             let request = ReadRelationshipsRequest {
                 consistency: Some(Consistency {
                     requirement: Some(Requirement::FullyConsistent(true)),
                 }),
-                relationship_filter: Some(RelationshipFilter {
-                    resource_type: definition.to_owned(),
-                    optional_subject_filter: Some(SubjectFilter {
-                        subject_type: Actor::NAME.to_owned(),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                }),
+                relationship_filter: Some(filter.clone()),
                 optional_limit: READ_LIMIT,
                 optional_cursor: cursor.take(),
             };
@@ -216,17 +261,27 @@ impl SpiceDb {
                 .map_err(unavailable)?
                 .into_inner();
 
-            // Count them, and stop after a page that is not full.
+            // Keep the page, and stop after a page that is not full.
             let mut read = 0;
             while let Some(answer) = answers.message().await.map_err(unavailable)? {
                 read += 1;
                 cursor = answer.after_result_cursor;
-                if let Some(relationship) = answer.relationship {
-                    *counts.entry(relationship.relation).or_insert(0) += 1;
+                let Some(relationship) = answer.relationship else {
+                    continue;
+                };
+                let object = relationship.resource.map(|object| object.object_id);
+                let subject = relationship.subject.and_then(|subject| subject.object);
+                let actor = subject.and_then(|found| ActorId::parse(&found.object_id).ok());
+                if let (Some(object), Some(actor)) = (object, actor) {
+                    roles.push(ObjectRole {
+                        object,
+                        role: relationship.relation,
+                        actor,
+                    });
                 }
             }
             if read < READ_LIMIT {
-                return Ok(counts);
+                return Ok(roles);
             }
         }
     }

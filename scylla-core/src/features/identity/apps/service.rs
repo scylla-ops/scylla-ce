@@ -18,6 +18,7 @@ use crate::features::identity::actors;
 use crate::features::identity::agents::Registry;
 use crate::features::identity::api_tokens;
 use crate::features::projects::jobs::runs;
+use crate::features::tenancy::roles;
 use crate::infra::secret;
 use crate::Error;
 
@@ -84,6 +85,7 @@ pub(crate) async fn delete(
         return Err(Error::NotFound("app"));
     }
     api_tokens::delete_all(&mut tx, App::actor(id)).await?;
+    roles::delete_grants_of(&mut tx, App::actor(id)).await?;
     tx.commit().await?;
 
     // Close the stream, then remove the roles of the App and the relation of its creator.

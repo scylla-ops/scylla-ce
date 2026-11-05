@@ -9,6 +9,7 @@ use tonic::Request;
 use super::grpc::WorkspacesGrpc;
 use super::service;
 use crate::api::parse::{self, ToProto};
+use crate::features::tenancy::grants::membership::{end_membership, Leaving};
 use crate::Error;
 
 impl WorkspacesGrpc {
@@ -48,6 +49,13 @@ impl WorkspacesGrpc {
             .authorize(&caller, Workspace::REMOVE_OWNER.on(workspace))
             .await?;
         service::remove_owner(&self.pool, workspace, user).await?;
+        let leaving = Leaving {
+            pool: &self.pool,
+            gate: self.gate.as_ref(),
+            grants: &self.grants,
+            hooks: &self.hooks,
+        };
+        end_membership(&leaving, caller.actor, user, workspace).await?;
         Ok(pb::RemoveOwnerResponse {})
     }
 

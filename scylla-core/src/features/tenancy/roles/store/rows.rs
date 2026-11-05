@@ -1,9 +1,8 @@
 //! The SQL of the custom roles, their permissions and their grants. Each function runs in
 //! the transaction of the caller.
 
-use scylla_domain::authz::Resource;
-use scylla_domain::identity::actors::ActorId;
-use scylla_domain::platform::Platform;
+use std::collections::HashMap;
+
 use scylla_domain::tenancy::catalog::Level;
 use scylla_domain::tenancy::roles::{Holder, NewRole, RoleId, RoleRow};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -57,7 +56,7 @@ fn name_in_use() -> Error {
 }
 
 /// Adds a role and its permissions.
-pub(super) async fn insert(tx: &mut Tx<'_>, role: &NewRole) -> Result<(), Error> {
+pub(crate) async fn insert(tx: &mut Tx<'_>, role: &NewRole) -> Result<(), Error> {
     sqlx::query!(
         "INSERT INTO roles (id, workspace_id, level, holder, name, description, created_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7)",
@@ -103,7 +102,7 @@ async fn replace_permissions(
 }
 
 /// Returns a role, or `None` for an unknown id.
-pub(super) async fn find(tx: &mut Tx<'_>, id: RoleId) -> Result<Option<RoleRow>, Error> {
+pub(crate) async fn find(tx: &mut Tx<'_>, id: RoleId) -> Result<Option<RoleRow>, Error> {
     let row = sqlx::query_as!(
         Row,
         r#"SELECT r.id, r.workspace_id, r.name, r.description, r.level, r.holder,
@@ -120,7 +119,7 @@ pub(super) async fn find(tx: &mut Tx<'_>, id: RoleId) -> Result<Option<RoleRow>,
 
 /// Returns the custom roles of the instance, or the custom roles for a workspace: those of the
 /// workspace, and those of the lower levels that the instance owns. In name order.
-pub(super) async fn list_custom(
+pub(crate) async fn list_custom(
     tx: &mut Tx<'_>,
     workspace: Option<WorkspaceId>,
 ) -> Result<Vec<RoleRow>, Error> {
@@ -144,7 +143,7 @@ pub(super) async fn list_custom(
 
 /// Changes the name, the description and the permissions of a role. Returns `false` for an
 /// unknown id.
-pub(super) async fn update(
+pub(crate) async fn update(
     tx: &mut Tx<'_>,
     id: RoleId,
     (name, description): (&str, &str),
@@ -170,7 +169,7 @@ pub(super) async fn update(
 }
 
 /// Deletes a role with no grant. Returns `false` if the role has a grant or does not exist.
-pub(super) async fn delete_unused(tx: &mut Tx<'_>, id: RoleId) -> Result<bool, Error> {
+pub(crate) async fn delete_unused(tx: &mut Tx<'_>, id: RoleId) -> Result<bool, Error> {
     let deleted = sqlx::query!(
         "DELETE FROM roles r WHERE r.id = $1
          AND NOT EXISTS (SELECT 1 FROM role_grants g WHERE g.role_id = r.id)",
@@ -182,58 +181,39 @@ pub(super) async fn delete_unused(tx: &mut Tx<'_>, id: RoleId) -> Result<bool, E
 }
 
 /// Returns the number of instance admins.
-pub(super) async fn admin_count(tx: &mut Tx<'_>) -> Result<u32, Error> {
+pub(crate) async fn admin_count(tx: &mut Tx<'_>) -> Result<u32, Error> {
     let count = sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM instance_admins"#)
         .fetch_one(&mut **tx)
         .await?;
     Ok(u32::try_from(count).unwrap_or(u32::MAX))
 }
 
-/// Gives a role on the instance to an actor. A role that the actor has stays.
-pub(super) async fn grant_on_platform(
+/// Returns the names of the objects of a level, by the text of their id. The platform has none.
+pub(crate) async fn scope_names(
     tx: &mut Tx<'_>,
-    actor: ActorId,
-    role: RoleId,
-    created_by: ActorId,
-) -> Result<(), Error> {
-    sqlx::query!(
-        "INSERT INTO role_grants (actor_id, role_id, scope_kind, scope_id, created_by)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT DO NOTHING",
-        actor.to_db(),
-        role.to_db(),
-        Platform::NAME,
-        Platform::ID.to_db(),
-        created_by.to_db(),
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
+    level: &str,
+) -> Result<HashMap<String, String>, Error> {
+    let rows = match level {
+        "workspace" => sqlx::query!(r#"SELECT id, name FROM workspaces"#)
+            .fetch_all(&mut **tx)
+            .await?
+            .into_iter()
+            .map(|row| (row.id.to_string(), row.name))
+            .collect(),
+        "project" => sqlx::query!(r#"SELECT id, name FROM projects"#)
+            .fetch_all(&mut **tx)
+            .await?
+            .into_iter()
+            .map(|row| (row.id.to_string(), row.name))
+            .collect(),
+        _ => HashMap::new(),
+    };
+    Ok(rows)
 }
 
-/// Takes back a role on the instance from an actor. A role that the actor does not have is not
-/// an error.
-pub(super) async fn revoke_on_platform(
-    tx: &mut Tx<'_>,
-    actor: ActorId,
-    role: RoleId,
-) -> Result<(), Error> {
-    sqlx::query!(
-        "DELETE FROM role_grants
-         WHERE actor_id = $1 AND role_id = $2 AND scope_kind = $3 AND scope_id = $4",
-        actor.to_db(),
-        role.to_db(),
-        Platform::NAME,
-        Platform::ID.to_db(),
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
-}
-
-/// Deletes each grant of a role that is a row of an actor.
-pub(crate) async fn delete_grants_of(tx: &mut Tx<'_>, actor: ActorId) -> Result<(), Error> {
-    sqlx::query!("DELETE FROM role_grants WHERE actor_id = $1", actor.to_db())
+/// Deletes a role with its grants.
+pub(crate) async fn delete_with_grants(tx: &mut Tx<'_>, role: RoleId) -> Result<(), Error> {
+    sqlx::query!("DELETE FROM roles WHERE id = $1", role.to_db())
         .execute(&mut **tx)
         .await?;
     Ok(())

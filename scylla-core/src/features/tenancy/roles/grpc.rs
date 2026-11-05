@@ -3,22 +3,19 @@
 
 use std::sync::Arc;
 
-use scylla_domain::authz::{Check, Object, Schema};
+use scylla_domain::authz::Schema;
 use scylla_domain::platform::Platform;
-use scylla_domain::tenancy::catalog::{self, Level};
-use scylla_domain::tenancy::roles::{
-    Holder, NewRole, RoleAdmin, RoleCaller, RoleHolder, RoleId, MAX_DESCRIPTION,
-};
+use scylla_domain::tenancy::catalog;
+use scylla_domain::tenancy::roles::{RoleAdmin, RoleCaller, RoleHolder};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_extension::{AccessError, Gate};
+use scylla_extension::{AccessError, Gate, Grants, Hooks};
 use scylla_proto::access::v1 as pb;
 use scylla_proto::access::v1::role_service_server::{RoleService, RoleServiceServer};
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
-use super::convert;
-use super::service::{self, RoleFields};
-use crate::api::parse::{self, ToProto};
+use super::{convert, holders, service};
+use crate::api::parse::{self, timestamp, ToProto};
 use crate::Error;
 
 /// Makes the service.
@@ -26,18 +23,30 @@ pub(super) fn server(
     pool: PgPool,
     gate: Arc<dyn Gate>,
     schema: Schema,
+    grants: Arc<Grants>,
+    hooks: Arc<Hooks>,
 ) -> RoleServiceServer<RolesGrpc> {
-    RoleServiceServer::new(RolesGrpc { pool, gate, schema })
+    RoleServiceServer::new(RolesGrpc {
+        pool,
+        gate,
+        schema,
+        grants,
+        hooks,
+    })
 }
 
 /// The handler.
 pub(super) struct RolesGrpc {
     /// The database pool.
-    pool: PgPool,
+    pub(super) pool: PgPool,
     /// The access gate.
-    gate: Arc<dyn Gate>,
+    pub(super) gate: Arc<dyn Gate>,
     /// The permission model: what the roles of the schema give.
-    schema: Schema,
+    pub(super) schema: Schema,
+    /// The kinds of objects with roles, for a move of the holders.
+    pub(super) grants: Arc<Grants>,
+    /// The hooks of the edition, for a membership.
+    pub(super) hooks: Arc<Hooks>,
 }
 
 /// The answer of a route.
@@ -85,6 +94,13 @@ impl RoleService for RolesGrpc {
         request: Request<pb::UpdateRoleRequest>,
     ) -> Answer<pb::UpdateRoleResponse> {
         Ok(Response::new(self.update(request).await?))
+    }
+
+    async fn list_role_holders(
+        &self,
+        request: Request<pb::ListRoleHoldersRequest>,
+    ) -> Answer<pb::ListRoleHoldersResponse> {
+        Ok(Response::new(self.holders(request).await?))
     }
 
     async fn delete_role(
@@ -137,141 +153,48 @@ impl RolesGrpc {
         })
     }
 
-    /// Handles `CreateRole`.
-    async fn create(
+    /// Handles `ListRoleHolders`. An unknown key gets the answer of a refusal.
+    async fn holders(
         &self,
-        request: Request<pb::CreateRoleRequest>,
-    ) -> Result<pb::CreateRoleResponse, Error> {
-        // Authenticate the caller, then read the request.
+        request: Request<pb::ListRoleHoldersRequest>,
+    ) -> Result<pb::ListRoleHoldersResponse, Error> {
         let caller = self.gate.caller(&request).await?;
         let request = request.into_inner();
         let workspace = optional_workspace(request.workspace_id)?;
-        let level = Level::parse(&request.level)
-            .ok_or_else(|| Error::invalid("level", "is not a level"))?;
-        let holder = Holder::parse(&request.holder)
-            .ok_or_else(|| Error::invalid("holder", "is not a kind of holder"))?;
-        if level == Level::Platform && (workspace.is_some() || holder == Holder::Apps) {
-            let reason = "of a role of the platform level is the instance and people";
-            return Err(Error::invalid("level", reason));
-        }
-        let fields = fields(request.name, request.description, request.permissions)?;
-
-        // Check the route permission on the owner, then the permissions of the role.
         let check = match workspace {
-            Some(workspace) => RoleHolder::CREATE_ROLE.on(workspace),
-            None => RoleAdmin::CREATE_ROLE.on(Platform::ID),
+            Some(workspace) => RoleHolder::LIST_ROLE_HOLDERS.on(workspace),
+            None => RoleAdmin::LIST_ROLE_HOLDERS.on(Platform::ID),
         };
-        self.gate.authorize(&caller, check).await?;
-        let permissions = service::complete(level, holder, &fields.permissions)?;
-        let object = owner_object(workspace);
-        let gate = self.gate.as_ref();
-        service::check_escalation(gate, &caller, &object, workspace, &permissions).await?;
-
-        // Make the role.
-        let new = NewRole {
-            id: RoleId::generate(),
-            workspace,
-            name: fields.name,
-            description: fields.description,
-            level,
-            holder,
-            permissions,
-            created_by: caller.actor.id,
-        };
-        let role = service::create(&self.pool, new).await?;
-        Ok(pb::CreateRoleResponse {
-            role: Some(role.to_proto()),
-        })
-    }
-
-    /// Handles `UpdateRole`.
-    async fn update(
-        &self,
-        request: Request<pb::UpdateRoleRequest>,
-    ) -> Result<pb::UpdateRoleResponse, Error> {
-        // Authenticate the caller, then read the request.
-        let caller = self.gate.caller(&request).await?;
-        let request = request.into_inner();
-        let id: RoleId = parse::required(request.role_id, "role_id")?;
-        let fields = fields(request.name, request.description, request.permissions)?;
-
-        // Check the route permission on the owner. An unknown role gets the answer of a refusal.
-        let platform_check = RoleAdmin::UPDATE_ROLE.on(Platform::ID);
-        let row = service::owner(&self.pool, id).await?;
-        let check = match row.as_ref().and_then(|row| row.workspace) {
-            Some(workspace) => RoleHolder::UPDATE_ROLE.on(workspace),
-            None => platform_check.clone(),
-        };
-        let Some(row) = row else {
-            return Err(AccessError::denied(&caller, &platform_check).into());
-        };
-        self.gate.authorize(&caller, check).await?;
-
-        // Check the permissions of the role, then change it.
-        let permissions = service::complete(row.level, row.holder, &fields.permissions)?;
-        let object = owner_object(row.workspace);
-        let gate = self.gate.as_ref();
-        service::check_escalation(gate, &caller, &object, row.workspace, &permissions).await?;
-        let role = service::update(&self.pool, id, &fields, &permissions).await?;
-        Ok(pb::UpdateRoleResponse {
-            role: Some(role.to_proto()),
-        })
-    }
-
-    /// Handles `DeleteRole`.
-    async fn delete(
-        &self,
-        request: Request<pb::DeleteRoleRequest>,
-    ) -> Result<pb::DeleteRoleResponse, Error> {
-        // Authenticate the caller, then read the role.
-        let caller = self.gate.caller(&request).await?;
-        let id: RoleId = parse::required(request.into_inner().role_id, "role_id")?;
-
-        // Check the route permission on the owner. An unknown role gets the answer of a refusal.
-        let platform_check: Check = RoleAdmin::DELETE_ROLE.on(Platform::ID);
-        let row = service::owner(&self.pool, id).await?;
-        let check = match row.as_ref().and_then(|row| row.workspace) {
-            Some(workspace) => RoleHolder::DELETE_ROLE.on(workspace),
-            None => platform_check.clone(),
-        };
-        if row.is_none() {
-            return Err(AccessError::denied(&caller, &platform_check).into());
+        self.gate.authorize(&caller, check.clone()).await?;
+        if !holders::known(&self.pool, &request.key, workspace).await? {
+            return Err(AccessError::denied(&caller, &check).into());
         }
-        self.gate.authorize(&caller, check).await?;
-        service::delete(&self.pool, id).await?;
-        Ok(pb::DeleteRoleResponse {})
+        let gate = self.gate.as_ref();
+        let (entries, total) = holders::list(&self.pool, gate, &request.key, workspace).await?;
+        Ok(pb::ListRoleHoldersResponse {
+            holders: entries
+                .into_iter()
+                .map(|(profile, role)| pb::RoleHolderEntry {
+                    actor_id: Some(profile.actor_id.to_proto()),
+                    actor_kind: profile.actor_kind.as_str().to_owned(),
+                    display_name: profile.display_name,
+                    handle: profile.handle.unwrap_or_default(),
+                    scope_kind: role.scope.level.as_str().to_owned(),
+                    scope_id: Some(scylla_proto::common::v1::Id {
+                        value: role.scope.id,
+                    }),
+                    scope_name: role.scope.name,
+                    granted_at: role.granted_at.map(timestamp),
+                })
+                .collect(),
+            total: u32::try_from(total).unwrap_or(u32::MAX),
+        })
     }
 }
 
 /// Reads an optional workspace of a request.
-fn optional_workspace(
+pub(super) fn optional_workspace(
     id: Option<scylla_proto::common::v1::Id>,
 ) -> Result<Option<WorkspaceId>, Error> {
     id.map(|id| parse::field(id, "workspace_id")).transpose()
-}
-
-/// Returns the object of the owner of a role.
-fn owner_object(workspace: Option<WorkspaceId>) -> Object {
-    match workspace {
-        Some(workspace) => Object::of(workspace),
-        None => Object::of(Platform::ID),
-    }
-}
-
-/// Reads the fields of a custom role.
-fn fields(
-    name: String,
-    description: String,
-    permissions: Vec<String>,
-) -> Result<RoleFields, Error> {
-    let description = description.trim().to_owned();
-    if description.chars().count() > MAX_DESCRIPTION {
-        let reason = format!("must have at most {MAX_DESCRIPTION} characters");
-        return Err(Error::invalid("description", reason));
-    }
-    Ok(RoleFields {
-        name: parse::field(name, "name")?,
-        description,
-        permissions,
-    })
 }

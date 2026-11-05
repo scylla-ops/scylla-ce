@@ -6,7 +6,8 @@ use scylla_domain::authz::{Check, Object, Relationship};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{
-    async_trait, AccessError, Binding, Gate, IssuedToken, Operation, Principal, RolePage,
+    async_trait, AccessError, Binding, Gate, IssuedToken, ObjectRole, Operation, Principal,
+    RolePage,
 };
 use tonic::metadata::MetadataMap;
 
@@ -70,6 +71,22 @@ impl Gate for NoGate {
         permissions: &[&'static str],
     ) -> Result<Vec<bool>, AccessError> {
         Ok(vec![true; permissions.len()])
+    }
+
+    async fn roles_of(
+        &self,
+        _actor: ActorId,
+        _definition: &'static str,
+    ) -> Result<Vec<ObjectRole>, AccessError> {
+        Ok(Vec::new())
+    }
+
+    async fn holders_of(
+        &self,
+        _definition: &'static str,
+        _relation: &str,
+    ) -> Result<Vec<ObjectRole>, AccessError> {
+        Ok(Vec::new())
     }
 
     async fn holds(

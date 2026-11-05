@@ -8,14 +8,15 @@ use scylla_domain::authz::{Check, Resource, Schema};
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::users;
 use scylla_domain::platform::Platform;
-use scylla_domain::tenancy::workspaces::WorkspaceId;
+use scylla_domain::projects::Project;
+use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
 use scylla_extension::{AccessError, Gate, Grantable, Grants, Hooks, Principal};
 use scylla_proto::access::v1 as pb;
 use scylla_proto::access::v1::access_service_server::{AccessService, AccessServiceServer};
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
-use super::service;
+use super::{give, membership, service};
 use crate::api::parse;
 use crate::Error;
 
@@ -73,6 +74,27 @@ impl AccessService for GrantsGrpc {
         Ok(Response::new(self.list(request).await?))
     }
 
+    async fn list_members(
+        &self,
+        request: Request<pb::ListMembersRequest>,
+    ) -> Result<Response<pb::ListMembersResponse>, Status> {
+        Ok(Response::new(self.members(request).await?))
+    }
+
+    async fn get_member_access(
+        &self,
+        request: Request<pb::GetMemberAccessRequest>,
+    ) -> Result<Response<pb::GetMemberAccessResponse>, Status> {
+        Ok(Response::new(self.member_access(request).await?))
+    }
+
+    async fn list_held_permissions(
+        &self,
+        request: Request<pb::ListHeldPermissionsRequest>,
+    ) -> Result<Response<pb::ListHeldPermissionsResponse>, Status> {
+        Ok(Response::new(self.held_permissions(request).await?))
+    }
+
     async fn check_permissions(
         &self,
         request: Request<pb::CheckPermissionsRequest>,
@@ -98,22 +120,39 @@ impl GrantsGrpc {
         let (kind, name, id) = self.target(object)?;
         let check = kind.grant(&id).ok_or_else(not_an_id)?;
         let actor: ActorId = parse::required(actor_id, "actor_id")?;
-        let relationship = kind
-            .relationship(&role, &id, actor)
-            .ok_or_else(|| Error::invalid("role", format!("is not a role of {name}")))?;
+        let given = give::read_name(kind, &name, &id, &role, actor)?;
 
         // Check the route permission on the object, with its workspace.
         let (check, workspace) = self.within(&caller, kind, &id, check).await?;
         self.gate.authorize(&caller, check).await?;
 
-        // Give the role to an actor that exists, after the hooks of a user that joins.
+        // Check who gets the role and who gives it.
+        let given = self.resolve(given, &name, workspace).await?;
         let grantee = service::check_actor(&self.pool, actor, workspace).await?;
+        give::check_holder(&given, &name, &role, &grantee.kind)?;
+        if name == Project::NAME && grantee.kind == users::KIND {
+            membership::check_in_workspace(&self.pool, self.gate.as_ref(), actor, workspace)
+                .await?;
+        }
+        self.check_can_give(&caller, &given, (&name, &id), workspace, &role)
+            .await?;
+
+        // Give the role, after the hooks of a user that joins.
+        let by = caller.actor.id;
         let object = format!("{name}:{id}");
         if grantee.kind == users::KIND {
             let member = (actor, object.clone(), role.as_str());
             service::join(&self.pool, &self.hooks, caller.actor, workspace, member).await?;
         }
-        self.gate.write(&[relationship]).await?;
+        give::write(
+            &self.pool,
+            self.gate.as_ref(),
+            given,
+            (&name, &id),
+            actor,
+            by,
+        )
+        .await?;
         tracing::info!(event = "role.granted", role, object, grantee = %actor);
         Ok(pb::GrantResponse {})
     }
@@ -138,18 +177,29 @@ impl GrantsGrpc {
         let (kind, name, id) = self.target(object)?;
         let check = kind.revoke(&id).ok_or_else(not_an_id)?;
         let actor: ActorId = parse::required(actor_id, "actor_id")?;
-        let relationship = kind
-            .relationship(&role, &id, actor)
-            .ok_or_else(|| Error::invalid("role", format!("is not a role of {name}")))?;
+        let given = give::read_name(kind, &name, &id, &role, actor)?;
 
         // Check the route permission on the object with its workspace, then take back the role.
         let (check, workspace) = self.within(&caller, kind, &id, check).await?;
         self.gate.authorize(&caller, check).await?;
-        self.gate.delete(&[relationship]).await?;
+        let given = self.resolve(given, &name, workspace).await?;
+        give::erase(&self.pool, self.gate.as_ref(), given, (&name, &id), actor).await?;
         let object = format!("{name}:{id}");
         let member = (actor, object.clone(), role.as_str());
-        service::leave(&self.pool, &self.hooks, caller.actor, workspace, member).await?;
+        let by = caller.actor;
+        service::leave(&self.pool, &self.hooks, by.clone(), workspace, member).await?;
         tracing::info!(event = "role.revoked", role, object, grantee = %actor);
+
+        // A user with no role left in the workspace loses the roles on its projects.
+        if name == Workspace::NAME {
+            let leaving = membership::Leaving {
+                pool: &self.pool,
+                gate: self.gate.as_ref(),
+                grants: &self.grants,
+                hooks: &self.hooks,
+            };
+            membership::end_membership(&leaving, by, actor, workspace).await?;
+        }
         Ok(pb::RevokeResponse {})
     }
 

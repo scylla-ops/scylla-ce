@@ -5,10 +5,12 @@ use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::apps;
 use scylla_domain::tenancy::grants::{AccessCursor, AccessEntry, AccessPage, MEMBER_KIND};
+use scylla_domain::tenancy::roles::RoleId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::PageSize;
 use scylla_extension::{CreateContext, DeleteContext, Gate, Hooks, Rejection};
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use super::store;
 use crate::features::identity::{actors, apps as app_feature};
@@ -37,7 +39,7 @@ pub(super) async fn check_actor(
 
 /// Runs the `BeforeCreate` hooks of a user that gets a role in a workspace or on one of its
 /// objects: `(user, object, role)`. A hook can refuse, for example over a limit of members.
-pub(super) async fn join(
+pub(crate) async fn join(
     pool: &PgPool,
     hooks: &Hooks,
     actor: Actor,
@@ -53,7 +55,7 @@ pub(super) async fn join(
 }
 
 /// Runs the `AfterDelete` hooks of an actor that loses a role: `(actor, object, role)`.
-pub(super) async fn leave(
+pub(crate) async fn leave(
     pool: &PgPool,
     hooks: &Hooks,
     actor: Actor,
@@ -87,6 +89,12 @@ pub(super) async fn list_access(
         }
         (Some(AccessCursor::Owners(_)), None) => return Ok(None),
         (Some(AccessCursor::Roles(cursor)), _) => (None, cursor),
+        (Some(AccessCursor::Rows(after)), _) => {
+            let mut tx = pool.begin().await?;
+            let page = rows_page(&mut tx, object, Vec::new(), after, size).await?;
+            tx.commit().await?;
+            return Ok(Some(page));
+        }
     };
 
     // Read the owners. A full page of owners ends the page.
@@ -110,7 +118,6 @@ pub(super) async fn list_access(
     };
     let ids: Vec<_> = roles.holders.iter().map(|holder| holder.actor).collect();
     let profiles = store::profiles(&mut tx, &ids).await?;
-    tx.commit().await?;
     for holder in roles.holders {
         let profile = profiles
             .iter()
@@ -122,8 +129,50 @@ pub(super) async fn list_access(
             });
         }
     }
-    let next = roles
-        .more
-        .then(|| AccessCursor::Roles(roles.cursor.or(cursor)));
-    Ok(Some(AccessPage { entries, next }))
+    if roles.more {
+        tx.commit().await?;
+        let next = Some(AccessCursor::Roles(roles.cursor.or(cursor)));
+        return Ok(Some(AccessPage { entries, next }));
+    }
+
+    // Fill the page with the roles that are rows.
+    let page = rows_page(&mut tx, object, entries, None, size).await?;
+    tx.commit().await?;
+    Ok(Some(page))
+}
+
+/// Fills a page with the roles that are rows on an object, after a grant.
+async fn rows_page(
+    tx: &mut scylla_extension::Tx<'_>,
+    object: &Object,
+    mut entries: Vec<AccessEntry>,
+    after: Option<(ActorId, RoleId)>,
+    size: PageSize,
+) -> Result<AccessPage, Error> {
+    let Ok(scope) = Uuid::parse_str(object.id()) else {
+        return Ok(AccessPage {
+            entries,
+            next: None,
+        });
+    };
+    let room = size.get().saturating_sub(entries.len());
+    let mut rows = store::rows_on(tx, object.kind(), scope, after, room + 1).await?;
+    let more = rows.len() > room;
+    rows.truncate(room);
+    let next = more
+        .then(|| AccessCursor::Rows(rows.last().map(|grant| (grant.actor, grant.role)).or(after)));
+    let ids: Vec<_> = rows.iter().map(|grant| grant.actor).collect();
+    let profiles = store::profiles(tx, &ids).await?;
+    for grant in rows {
+        let profile = profiles
+            .iter()
+            .find(|profile| profile.actor_id == grant.actor);
+        if let Some(profile) = profile {
+            entries.push(AccessEntry {
+                role: grant.role.to_string(),
+                ..profile.clone()
+            });
+        }
+    }
+    Ok(AccessPage { entries, next })
 }

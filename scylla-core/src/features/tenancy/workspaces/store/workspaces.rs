@@ -222,6 +222,12 @@ pub(crate) async fn has_content(tx: &mut Tx<'_>, workspace: WorkspaceId) -> Resu
 /// Deletes workspaces, with their owners and their invitations.
 pub(crate) async fn delete_all(tx: &mut Tx<'_>, ids: &[WorkspaceId]) -> Result<(), Error> {
     let ids: Vec<_> = ids.iter().map(|id| id.to_db()).collect();
+    crate::features::tenancy::grants::store::delete_on_scopes(tx, &ids)
+        .await
+        .map_err(|error| match error {
+            crate::Error::Database(error) => error,
+            error => sqlx::Error::Protocol(error.to_string()),
+        })?;
     sqlx::query!("DELETE FROM workspaces WHERE id = ANY($1)", &ids)
         .execute(&mut **tx)
         .await?;

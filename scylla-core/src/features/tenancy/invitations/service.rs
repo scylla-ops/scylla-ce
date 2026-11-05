@@ -15,6 +15,7 @@ use sqlx::PgPool;
 
 use super::store;
 use crate::features::identity::accounts::{mails, refused, verified_emails, AccountContext};
+use crate::features::tenancy::grants;
 use crate::infra::logs::mask_email;
 use crate::infra::secret;
 use crate::Error;
@@ -194,6 +195,9 @@ pub(crate) async fn accept(
     );
     ctx.hooks.before_create(&mut tx, &hook).await?;
     ctx.gate.write(&[role]).await?;
+    let scope = (Workspace::NAME, invitation.workspace_id.to_db());
+    let by = invitation.invited_by;
+    grants::store::note_relation(&mut tx, user, scope, &invitation.role, by).await?;
     tx.commit().await?;
     let (id, workspace, role) = (invitation.id, invitation.workspace_id, &invitation.role);
     tracing::info!(event = "invitation.accepted", invitation = %id, %workspace, %user, role);

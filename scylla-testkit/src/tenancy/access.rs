@@ -4,8 +4,9 @@
 use scylla_domain::identity::actors::ActorId;
 use scylla_proto::access::v1::access_service_client::AccessServiceClient;
 use scylla_proto::access::v1::{
-    CheckPermissionsRequest, GrantRequest, ListAccessRequest, ListAccessResponse, ObjectRef,
-    RevokeRequest,
+    CheckPermissionsRequest, GetMemberAccessRequest, GetMemberAccessResponse, GrantRequest,
+    ListAccessRequest, ListAccessResponse, ListHeldPermissionsRequest, ListMembersRequest, Member,
+    ObjectRef, RevokeRequest,
 };
 use tonic::transport::Channel;
 use tonic::Status;
@@ -68,6 +69,56 @@ impl TestApp {
         let request = self.authed(actor, request).await;
         self.access().revoke(request).await?;
         Ok(())
+    }
+
+    /// Calls `ListMembers` as `actor`.
+    pub async fn members_of(
+        &self,
+        actor: ActorId,
+        kind: &str,
+        object_id: &str,
+    ) -> Result<Vec<Member>, Status> {
+        let request = ListMembersRequest {
+            object: object(kind, object_id),
+        };
+        let request = self.authed(actor, request).await;
+        Ok(self
+            .access()
+            .list_members(request)
+            .await?
+            .into_inner()
+            .members)
+    }
+
+    /// Calls `GetMemberAccess` as `actor`.
+    pub async fn member_access(
+        &self,
+        actor: ActorId,
+        member: &str,
+        kind: &str,
+        object_id: &str,
+    ) -> Result<GetMemberAccessResponse, Status> {
+        let request = GetMemberAccessRequest {
+            actor_id: Some(id(member)),
+            object: object(kind, object_id),
+        };
+        let request = self.authed(actor, request).await;
+        Ok(self.access().get_member_access(request).await?.into_inner())
+    }
+
+    /// Calls `ListHeldPermissions` as `actor`.
+    pub async fn held_permissions(
+        &self,
+        actor: ActorId,
+        kind: &str,
+        object_id: &str,
+    ) -> Result<Vec<String>, Status> {
+        let request = ListHeldPermissionsRequest {
+            object: object(kind, object_id),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.access().list_held_permissions(request).await?;
+        Ok(response.into_inner().permissions)
     }
 
     /// Calls `ListAccess` as `actor` for one page of an object.

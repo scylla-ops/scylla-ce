@@ -2,11 +2,17 @@
 //! plugins register with `grants` and `role`, and that tells a caller its permissions.
 
 mod check;
+mod effective;
+mod give;
 mod grpc;
+pub(crate) mod held;
+mod held_values;
 mod list;
+mod members;
+pub(crate) mod membership;
 mod platform;
 mod plugin;
-mod service;
-mod store;
+pub(crate) mod service;
+pub(crate) mod store;
 
 pub(crate) use plugin::Grants;

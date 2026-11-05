@@ -4,6 +4,7 @@ use super::{Area, CatalogPermission, Level, Route};
 use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
 use crate::projects::triggers::{TriggerAccess, TriggerHolder};
 use crate::projects::{Project, ProjectHolder};
+use crate::tenancy::grants::ProjectMembers;
 
 /// Makes one permission of an area of this level.
 const fn cell(
@@ -74,7 +75,11 @@ pub(super) const AREAS: &[Area] = &[
                 "project_members.view",
                 "view",
                 &[],
-                &[Route::of(Project::LIST_ACCESS)],
+                &[
+                    Route::of(Project::LIST_ACCESS),
+                    Route::of(ProjectMembers::LIST_MEMBERS),
+                    Route::of(ProjectMembers::GET_MEMBER_ACCESS),
+                ],
             ),
             cell(
                 "project_members.manage",

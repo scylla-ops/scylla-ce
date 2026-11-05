@@ -17,7 +17,8 @@ impl Plugin for Roles {
             .authz::<RoleCaller>()
             .service(|routes, ctx| {
                 let schema = ctx.authz_model().clone();
-                routes.add_service(grpc::server(ctx.pool(), ctx.gate(), schema));
+                let (grants, hooks) = (ctx.grants(), ctx.hooks());
+                routes.add_service(grpc::server(ctx.pool(), ctx.gate(), schema, grants, hooks));
             })
     }
 }

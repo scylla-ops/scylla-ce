@@ -11,6 +11,7 @@ use scylla_extension::{CreateContext, DeleteContext, Gate, Hooks, WorkspaceFutur
 use sqlx::PgPool;
 
 use super::store;
+use crate::features::tenancy::grants;
 use crate::Error;
 
 /// Creates a project if each `BeforeCreate` hook accepts it. Its workspace is in its row only.
@@ -97,6 +98,7 @@ pub(super) async fn delete(
     let workspace_id = store::delete(&mut tx, id)
         .await?
         .ok_or(Error::NotFound("project"))?;
+    grants::store::delete_on_scopes(&mut tx, &[id.to_db()]).await?;
     hooks
         .after_delete(
             &mut tx,

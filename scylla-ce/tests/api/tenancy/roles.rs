@@ -101,8 +101,8 @@ async fn list_roles_gives_the_built_in_roles(pool: PgPool) {
     assert_eq!(find("agent").holder, "apps");
 }
 
-/// A role of the schema counts its holders on all the objects, and a list for a workspace does
-/// not tell the count.
+/// A role of the schema counts its holders on all the objects, and a list for a workspace counts
+/// only the holders in it.
 #[sqlx::test(migrations = false)]
 async fn list_roles_counts_the_holders_of_a_relation(pool: PgPool) {
     // given
@@ -123,7 +123,7 @@ async fn list_roles_counts_the_holders_of_a_relation(pool: PgPool) {
 
     // then
     assert_eq!(on_instance.holder_count, 1);
-    assert_eq!(on_workspace.holder_count, 0);
+    assert_eq!(on_workspace.holder_count, 1);
 }
 
 /// `CreateRole` makes a role of the instance, and adds what its permissions depend on.

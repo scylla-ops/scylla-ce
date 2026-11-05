@@ -1,6 +1,6 @@
 //! The plugin of the grants feature.
 
-use scylla_domain::tenancy::grants::AccessCaller;
+use scylla_domain::tenancy::grants::{AccessCaller, ProjectMembers, WorkspaceMembers};
 use scylla_extension::{EditionBuilder, Plugin};
 
 use super::grpc;
@@ -11,10 +11,14 @@ pub(crate) struct Grants;
 
 impl Plugin for Grants {
     fn install(self, edition: EditionBuilder) -> EditionBuilder {
-        edition.authz::<AccessCaller>().service(|routes, ctx| {
-            let schema = ctx.authz_model().clone();
-            let (pool, gate, grants) = (ctx.pool(), ctx.gate(), ctx.grants());
-            routes.add_service(grpc::server(pool, gate, grants, schema, ctx.hooks()));
-        })
+        edition
+            .authz::<AccessCaller>()
+            .authz::<WorkspaceMembers>()
+            .authz::<ProjectMembers>()
+            .service(|routes, ctx| {
+                let schema = ctx.authz_model().clone();
+                let (pool, gate, grants) = (ctx.pool(), ctx.gate(), ctx.grants());
+                routes.add_service(grpc::server(pool, gate, grants, schema, ctx.hooks()));
+            })
     }
 }

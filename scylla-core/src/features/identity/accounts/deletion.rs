@@ -9,7 +9,7 @@ use scylla_extension::{Rejection, Tx};
 use super::{store, AccountContext};
 use crate::features::identity::admins;
 use crate::features::identity::api_tokens;
-use crate::features::tenancy::{roles, workspaces};
+use crate::features::tenancy::{grants, roles, workspaces};
 use crate::Error;
 
 /// Deletes a user. A workspace where the user is the only owner goes with the user if it is
@@ -68,6 +68,9 @@ async fn is_empty(
     user: ActorId,
 ) -> Result<bool, Error> {
     if workspaces::has_content(tx, workspace).await? {
+        return Ok(false);
+    }
+    if grants::store::others_on_scope(tx, workspace.to_db(), user).await? {
         return Ok(false);
     }
     let holders = ctx.gate.subjects(&Object::of(workspace)).await?;

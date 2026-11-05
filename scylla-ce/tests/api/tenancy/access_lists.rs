@@ -133,6 +133,7 @@ async fn list_access_shows_the_roles_on_a_project(pool: PgPool) {
     let project = app.create_project(owner, "alpha").await.unwrap();
     let id = text(&project.id);
     for (role, to) in [("editor", editor), ("viewer", viewer)] {
+        app.join_workspace(owner, to).await;
         let role = Role::on("project", id, role);
         app.grant_role(owner, role, &to.to_string()).await.unwrap();
     }

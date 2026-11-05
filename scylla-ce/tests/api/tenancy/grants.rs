@@ -18,6 +18,7 @@ async fn a_role_gives_access_until_revoke(pool: PgPool) {
     let project = app.create_project(owner, "alpha").await.unwrap();
     let (id, to) = (text(&project.id), bob.to_string());
     let viewer = Role::on("project", id, "viewer");
+    app.join_workspace(owner, bob).await;
 
     // when
     let before = app.get_project(bob, id).await;
@@ -43,6 +44,10 @@ async fn each_role_gives_its_permissions(pool: PgPool) {
     let project = app.create_project(owner, "alpha").await.unwrap();
     let id = text(&project.id);
     let role = |name| Role::on("project", id, name);
+    let joined = scylla_domain::identity::actors::ActorId::parse(&other).expect("an actor id");
+    for user in [viewer, admin, joined] {
+        app.join_workspace(owner, user).await;
+    }
     app.grant_role(owner, role("viewer"), &viewer.to_string())
         .await
         .unwrap();
@@ -153,6 +158,7 @@ async fn only_the_admins_give_roles(pool: PgPool) {
         .await
         .unwrap();
     let first_admin = Role::on("project", text(&first.id), "admin");
+    app.join_workspace(owner, project_admin).await;
     app.grant_role(owner, first_admin, &project_admin.to_string())
         .await
         .unwrap();
@@ -186,6 +192,7 @@ async fn list_projects_shows_owned_member_and_shared_projects(pool: PgPool) {
     app.create_project(carol, "carol").await.unwrap();
     let carol_workspace = app.workspace_of(carol).await.to_string();
     let viewer = Role::on("project", text(&shared.id), "viewer");
+    app.join_workspace(bob, alice).await;
     app.grant_role(bob, viewer, &to).await.unwrap();
     let member = Role::on("workspace", &carol_workspace, "member");
     app.grant_role(carol, member, &to).await.unwrap();

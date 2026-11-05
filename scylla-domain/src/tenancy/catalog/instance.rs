@@ -75,6 +75,7 @@ pub(super) const AREAS: &[Area] = &[
             routes: &[
                 Route::of(RoleAdmin::LIST_ROLES),
                 Route::of(RoleAdmin::GET_ROLE),
+                Route::of(RoleAdmin::LIST_ROLE_HOLDERS),
                 Route::of(RoleAdmin::CREATE_ROLE),
                 Route::of(RoleAdmin::UPDATE_ROLE),
                 Route::of(RoleAdmin::DELETE_ROLE),

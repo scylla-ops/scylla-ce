@@ -130,26 +130,46 @@ impl Rights {
         }
         let held = self.held_in_rows(caller, object, workspace).await?;
 
-        // Ask the schema for the routes of each other permission.
-        let mut answers = Vec::with_capacity(permissions.len());
-        for id in permissions {
-            let routes: Vec<&'static str> = catalog::find(id)
+        // Ask the schema for the routes of each other permission, in one call.
+        let routes_of = |id: &str| -> Vec<&'static str> {
+            catalog::find(id)
                 .map(|(_, permission)| permission.routes)
                 .unwrap_or_default()
                 .iter()
                 .map(|route| route.permission)
                 .filter(|route| self.schema.has(object.kind(), route))
-                .collect();
-            let mut holds = held.contains(*id);
-            if !holds && !routes.is_empty() {
-                let replies = self
-                    .answers(caller, object, workspace, &routes, None)
-                    .await?;
-                holds = replies.into_iter().all(|reply| reply);
+                .collect()
+        };
+        let mut asked: Vec<&'static str> = Vec::new();
+        for id in permissions.iter().filter(|id| !held.contains(**id)) {
+            for route in routes_of(id) {
+                if !asked.contains(&route) {
+                    asked.push(route);
+                }
             }
-            answers.push(holds);
         }
-        Ok(answers)
+        let replies = if asked.is_empty() {
+            Vec::new()
+        } else {
+            self.answers(caller, object, workspace, &asked, None)
+                .await?
+        };
+        let given: HashSet<&str> = asked
+            .iter()
+            .zip(replies)
+            .filter(|(_, reply)| *reply)
+            .map(|(route, _)| *route)
+            .collect();
+
+        // A permission needs each of its routes, and one or more.
+        Ok(permissions
+            .iter()
+            .map(|id| {
+                let routes = routes_of(id);
+                held.contains(*id)
+                    || (!routes.is_empty() && routes.iter().all(|route| given.contains(route)))
+            })
+            .collect())
     }
 
     /// Returns the ids of the objects of a definition where a role that is a row gives a route

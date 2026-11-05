@@ -9,7 +9,8 @@ use scylla_domain::authz::{Check, Object, Relationship, Schema};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{
-    async_trait, AccessError, Binding, Gate, IssuedToken, Operation, Principal, RolePage,
+    async_trait, AccessError, Binding, Gate, IssuedToken, ObjectRole, Operation, Principal,
+    RolePage,
 };
 use spicedb_grpc_tonic::v1::relationship_update::Operation as Update;
 use sqlx::PgPool;
@@ -231,5 +232,21 @@ impl Gate for Access {
         definition: &'static str,
     ) -> Result<BTreeMap<String, u32>, AccessError> {
         self.spicedb.role_counts(definition).await
+    }
+
+    async fn roles_of(
+        &self,
+        actor: ActorId,
+        definition: &'static str,
+    ) -> Result<Vec<ObjectRole>, AccessError> {
+        self.spicedb.roles_of(actor, definition).await
+    }
+
+    async fn holders_of(
+        &self,
+        definition: &'static str,
+        relation: &str,
+    ) -> Result<Vec<ObjectRole>, AccessError> {
+        self.spicedb.holders_of(definition, relation).await
     }
 }

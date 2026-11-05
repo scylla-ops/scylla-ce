@@ -16,6 +16,7 @@ use sqlx::PgPool;
 
 use super::store;
 use crate::features::identity::accounts::refused;
+use crate::features::tenancy::grants;
 use crate::Error;
 
 /// The number of grants of the roles of the schema: by definition, then by relation.
@@ -128,7 +129,7 @@ async fn relation_counts(gate: &dyn Gate) -> Result<RoleCounts, Error> {
 }
 
 /// Returns the roles of the instance, or the roles for a workspace. The number of holders is for
-/// the whole instance, so a list for a workspace does not tell it.
+/// the whole instance, or for the workspace and its projects in a list for a workspace.
 pub(super) async fn list(
     pool: &PgPool,
     gate: &dyn Gate,
@@ -149,16 +150,18 @@ pub(super) async fn list(
     let rows = store::list_custom(&mut tx, workspace).await?;
     tx.commit().await?;
     list.extend(rows.into_iter().map(custom));
-    if workspace.is_some() {
+    if let Some(workspace) = workspace {
+        let held = grants::held::in_workspace(pool, gate, workspace).await?;
         for role in &mut list {
-            role.holder_count = 0;
+            let count = held.iter().filter(|one| one.key == role.key).count();
+            role.holder_count = u32::try_from(count).unwrap_or(u32::MAX);
         }
     }
     Ok(list)
 }
 
 /// Returns the owner of a custom role, by the text of its id: `None` for an unknown role.
-pub(super) async fn owner(pool: &PgPool, id: RoleId) -> Result<Option<RoleRow>, Error> {
+pub(crate) async fn owner(pool: &PgPool, id: RoleId) -> Result<Option<RoleRow>, Error> {
     let mut tx = pool.begin().await?;
     let row = store::find(&mut tx, id).await?;
     tx.commit().await?;
@@ -177,7 +180,7 @@ pub(super) fn complete(
 
 /// Refuses a permission of a role that the caller does not hold on the object of the role:
 /// `ESCALATION`. An implicit permission needs no check.
-pub(super) async fn check_escalation(
+pub(crate) async fn check_escalation(
     gate: &dyn Gate,
     caller: &Principal,
     object: &Object,

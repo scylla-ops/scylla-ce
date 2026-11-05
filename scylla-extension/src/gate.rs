@@ -8,7 +8,7 @@ use scylla_domain::authz::{Check, Object, Permission, Relationship, Resource};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::platform::Platform;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_domain::Id;
+use scylla_domain::{Id, PageSize};
 use tonic::metadata::MetadataMap;
 use tonic::Request;
 
@@ -72,6 +72,17 @@ fn log_refusal(
 /// A role of an actor on an object, as the permission system holds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RoleHolder {
+    /// The name of the role.
+    pub role: String,
+    /// The actor.
+    pub actor: ActorId,
+}
+
+/// A role of an actor on one object of a definition.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObjectRole {
+    /// The id of the object.
+    pub object: String,
     /// The name of the role.
     pub role: String,
     /// The actor.
@@ -173,9 +184,40 @@ pub trait Gate: Send + Sync + 'static {
         &self,
         definition: &'static str,
     ) -> Result<BTreeMap<String, u32>, AccessError>;
+
+    /// Returns the roles of an actor on all the objects of a definition.
+    async fn roles_of(
+        &self,
+        actor: ActorId,
+        definition: &'static str,
+    ) -> Result<Vec<ObjectRole>, AccessError>;
+
+    /// Returns each grant of a relation, on all the objects of a definition.
+    async fn holders_of(
+        &self,
+        definition: &'static str,
+        relation: &str,
+    ) -> Result<Vec<ObjectRole>, AccessError>;
 }
 
 impl dyn Gate {
+    /// Returns each role on an object.
+    pub async fn all_roles(&self, object: &Object) -> Result<Vec<RoleHolder>, AccessError> {
+        let mut all = Vec::new();
+        let mut cursor = None;
+        loop {
+            let page = self
+                .roles(object, cursor.as_deref(), PageSize::MAX)
+                .await?
+                .ok_or_else(|| AccessError::Unavailable("the role list stopped".to_owned()))?;
+            all.extend(page.holders);
+            if !page.more {
+                return Ok(all);
+            }
+            cursor = page.cursor;
+        }
+    }
+
     /// Authenticates the caller of a gRPC request. The operation is the method of the request.
     pub async fn caller<T: Sync>(&self, request: &Request<T>) -> Result<Principal, AccessError> {
         let operation = request
