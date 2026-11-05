@@ -1,5 +1,5 @@
 //! A person in a workspace: a role on a project needs a role in the workspace, and the roles on
-//! the projects go with the last role in the workspace.
+//! the projects go with the last role in the workspace. See decision 88.
 
 use scylla_domain::authz::Resource;
 use scylla_domain::identity::actors::{Actor, ActorId};
