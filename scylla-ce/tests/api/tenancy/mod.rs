@@ -18,6 +18,7 @@ mod platform_roles;
 mod project_roles;
 mod role_changes;
 mod role_grants;
+mod role_levels;
 mod role_moves;
 mod roles;
 mod slugs;

@@ -140,6 +140,27 @@ impl TestApp {
             name: name.to_owned(),
             description: String::new(),
             permissions: texts(permissions),
+            level: None,
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.roles().update_role(request).await?.into_inner();
+        Ok(response.role.expect("role in response"))
+    }
+
+    /// Calls `UpdateRole` as `actor`, with a level.
+    pub async fn update_role_level(
+        &self,
+        actor: ActorId,
+        role: &str,
+        level: &str,
+        permissions: &[&str],
+    ) -> Result<RoleMessage, Status> {
+        let request = UpdateRoleRequest {
+            role_id: Some(id(role)),
+            name: "Moved".to_owned(),
+            description: String::new(),
+            permissions: texts(permissions),
+            level: Some(level.to_owned()),
         };
         let request = self.authed(actor, request).await;
         let response = self.roles().update_role(request).await?.into_inner();

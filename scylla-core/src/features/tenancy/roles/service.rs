@@ -32,6 +32,11 @@ pub(super) struct RoleFields {
     pub(super) permissions: Vec<String>,
 }
 
+/// The error of a change that a role with a holder refuses.
+fn role_in_use() -> Error {
+    refused("ROLE_IN_USE", "an actor holds this role")
+}
+
 /// Returns the number of permissions that gives full control of a level.
 fn full_count(level: Level) -> usize {
     catalog::areas()
@@ -226,19 +231,24 @@ pub(super) async fn create(pool: &PgPool, role: NewRole) -> Result<Role, Error> 
 pub(super) async fn update(
     pool: &PgPool,
     id: RoleId,
+    level: Level,
     fields: &RoleFields,
     permissions: &[&'static str],
 ) -> Result<Role, Error> {
     let mut tx = pool.begin().await?;
-    let text = (fields.name.as_str(), fields.description.as_str());
-    if !store::update(&mut tx, id, text, permissions).await? {
-        return Err(Error::NotFound("role"));
+    let current = store::lock_level(&mut tx, id)
+        .await?
+        .ok_or(Error::NotFound("role"))?;
+    if level != current && store::has_grant(&mut tx, id).await? {
+        return Err(role_in_use());
     }
+    let text = (fields.name.as_str(), fields.description.as_str());
+    store::update(&mut tx, id, level, text, permissions).await?;
     let row = store::find(&mut tx, id)
         .await?
         .ok_or(Error::NotFound("role"))?;
     tx.commit().await?;
-    tracing::info!(event = "role.updated", role = %id);
+    tracing::info!(event = "role.updated", role = %id, role_level = level.as_str());
     Ok(custom(row))
 }
 
@@ -246,7 +256,7 @@ pub(super) async fn update(
 pub(super) async fn delete(pool: &PgPool, id: RoleId) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     if !store::delete_unused(&mut tx, id).await? {
-        return Err(refused("ROLE_IN_USE", "an actor holds this role"));
+        return Err(role_in_use());
     }
     tx.commit().await?;
     tracing::info!(event = "role.deleted", role = %id);

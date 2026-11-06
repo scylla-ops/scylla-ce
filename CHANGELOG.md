@@ -22,6 +22,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 **Server**
 
+- `UpdateRole` takes an optional level. A custom role changes its level only while it has no holder,
+  else `ROLE_IN_USE`.
 - One port for everything: the web app, gRPC, gRPC-Web, the JSON API, the browser routes and the
   webhooks. The binary holds the build of the web app and serves it with no setting.
   `SCYLLA_WEB_DIR` replaces it with a folder. Hashed files have a cache of one year, pages have

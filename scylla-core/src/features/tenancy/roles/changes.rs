@@ -27,14 +27,10 @@ impl RolesGrpc {
         let caller = self.gate.caller(&request).await?;
         let request = request.into_inner();
         let workspace = optional_workspace(request.workspace_id)?;
-        let level = Level::parse(&request.level)
-            .ok_or_else(|| Error::invalid("level", "is not a level"))?;
+        let level = read_level(&request.level)?;
         let holder = Holder::parse(&request.holder)
             .ok_or_else(|| Error::invalid("holder", "is not a kind of holder"))?;
-        if level == Level::Platform && (workspace.is_some() || holder == Holder::Apps) {
-            let reason = "of a role of the platform level is the instance and people";
-            return Err(Error::invalid("level", reason));
-        }
+        check_level(level, workspace, holder)?;
         let fields = fields(request.name, request.description, request.permissions)?;
 
         // Check the route permission on the owner, then the permissions of the role.
@@ -74,6 +70,7 @@ impl RolesGrpc {
         let caller = self.gate.caller(&request).await?;
         let request = request.into_inner();
         let id: RoleId = parse::required(request.role_id, "role_id")?;
+        let level = request.level.as_deref().map(read_level).transpose()?;
         let fields = fields(request.name, request.description, request.permissions)?;
 
         // Check the route permission on the owner. An unknown role gets the answer of a refusal.
@@ -88,12 +85,14 @@ impl RolesGrpc {
         };
         self.gate.authorize(&caller, check).await?;
 
-        // Check the permissions of the role, then change it.
-        let permissions = service::complete(row.level, row.holder, &fields.permissions)?;
+        // Check the level and the permissions of the role, then change it.
+        let level = level.unwrap_or(row.level);
+        check_level(level, row.workspace, row.holder)?;
+        let permissions = service::complete(level, row.holder, &fields.permissions)?;
         let object = owner_object(row.workspace);
         let gate = self.gate.as_ref();
         service::check_escalation(gate, &caller, &object, row.workspace, &permissions).await?;
-        let role = service::update(&self.pool, id, &fields, &permissions).await?;
+        let role = service::update(&self.pool, id, level, &fields, &permissions).await?;
         Ok(pb::UpdateRoleResponse {
             role: Some(role.to_proto()),
         })
@@ -144,6 +143,20 @@ fn owner_object(workspace: Option<WorkspaceId>) -> Object {
         Some(workspace) => Object::of(workspace),
         None => Object::of(Platform::ID),
     }
+}
+
+/// Reads the name of a level.
+fn read_level(text: &str) -> Result<Level, Error> {
+    Level::parse(text).ok_or_else(|| Error::invalid("level", "is not a level"))
+}
+
+/// Refuses the platform level for a role of a workspace or for apps.
+fn check_level(level: Level, workspace: Option<WorkspaceId>, holder: Holder) -> Result<(), Error> {
+    if level == Level::Platform && (workspace.is_some() || holder == Holder::Apps) {
+        let reason = "of a role of the platform level is the instance and people";
+        return Err(Error::invalid("level", reason));
+    }
+    Ok(())
 }
 
 /// Reads the fields of a custom role.

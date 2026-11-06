@@ -141,17 +141,41 @@ pub(crate) async fn list_custom(
     Ok(rows.into_iter().map(Row::into_role).collect())
 }
 
-/// Changes the name, the description and the permissions of a role. Returns `false` for an
-/// unknown id.
+/// Locks a role against a new grant and returns its level, or `None` for an unknown id.
+pub(crate) async fn lock_level(tx: &mut Tx<'_>, id: RoleId) -> Result<Option<Level>, Error> {
+    let level = sqlx::query_scalar!(
+        "SELECT level FROM roles WHERE id = $1 FOR UPDATE",
+        id.to_db()
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(level.as_deref().and_then(Level::parse))
+}
+
+/// Returns `true` if an actor holds a role.
+pub(crate) async fn has_grant(tx: &mut Tx<'_>, id: RoleId) -> Result<bool, Error> {
+    let held = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM role_grants WHERE role_id = $1) AS "held!""#,
+        id.to_db(),
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(held)
+}
+
+/// Changes the level, the name, the description and the permissions of a role.
 pub(crate) async fn update(
     tx: &mut Tx<'_>,
     id: RoleId,
+    level: Level,
     (name, description): (&str, &str),
     permissions: &[&'static str],
-) -> Result<bool, Error> {
-    let changed = sqlx::query!(
-        "UPDATE roles SET name = $2, description = $3, updated_at = now() WHERE id = $1",
+) -> Result<(), Error> {
+    sqlx::query!(
+        "UPDATE roles SET level = $2, name = $3, description = $4, updated_at = now()
+         WHERE id = $1",
         id.to_db(),
+        level.as_str(),
         name,
         description,
     )
@@ -161,11 +185,7 @@ pub(crate) async fn update(
         sqlx::Error::Database(db) if db.constraint() == Some(NAME_KEY) => name_in_use(),
         error => error.into(),
     })?;
-    if changed.rows_affected() == 0 {
-        return Ok(false);
-    }
-    replace_permissions(tx, id, permissions).await?;
-    Ok(true)
+    replace_permissions(tx, id, permissions).await
 }
 
 /// Deletes a role with no grant. Returns `false` if the role has a grant or does not exist.

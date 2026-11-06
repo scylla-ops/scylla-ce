@@ -25,7 +25,8 @@ pub(crate) async fn grant_on_platform(
     .await
 }
 
-/// Gives a role on a scope to an actor. A role that the actor has stays.
+/// Gives a role on a scope to an actor. A role that the actor has stays. The level of the role must
+/// be the kind of the scope, and it stays locked until the end of the transaction.
 pub(crate) async fn grant_row(
     tx: &mut Tx<'_>,
     actor: ActorId,
@@ -33,6 +34,15 @@ pub(crate) async fn grant_row(
     (kind, scope): (&str, uuid::Uuid),
     created_by: ActorId,
 ) -> Result<(), Error> {
+    let level = sqlx::query_scalar!(
+        "SELECT level FROM roles WHERE id = $1 FOR SHARE",
+        role.to_db()
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    if level.as_deref() != Some(kind) {
+        return Err(Error::invalid("role", format!("is not a role of {kind}")));
+    }
     sqlx::query!(
         "INSERT INTO role_grants (actor_id, role_id, scope_kind, scope_id, created_by)
          VALUES ($1, $2, $3, $4, $5)
