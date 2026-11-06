@@ -5,7 +5,7 @@ name: agent-install
 
 on:
   push:
-    branches: [main, migration]
+    branches: [main, v0.7.0]
     paths:
       - scylla-agent/**
       - scylla-core/src/features/identity/agents/**
