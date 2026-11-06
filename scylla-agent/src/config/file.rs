@@ -1,8 +1,9 @@
 //! The file of the agent, in JSON, readable by its user only: the mode 600 on Unix, and the
 //! access of the parent folder on Windows.
 
+use std::fmt::Display;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
@@ -38,18 +39,44 @@ impl std::fmt::Debug for AgentConfig {
 impl AgentConfig {
     /// Reads the file.
     pub fn load(path: &Path) -> Result<Self, AgentError> {
-        let text = fs::read_to_string(path).map_err(|error| AgentError::File(error.to_string()))?;
-        serde_json::from_str(&text).map_err(|error| AgentError::File(error.to_string()))
+        let text = fs::read_to_string(path).map_err(|error| match error.kind() {
+            ErrorKind::NotFound => AgentError::File(format!(
+                "{} does not exist. Run `scylla-agent join <url> <code>`, or set SCYLLA_URL and \
+                 SCYLLA_JOIN_CODE.",
+                path.display()
+            )),
+            _ => failure(path, error),
+        })?;
+        serde_json::from_str(&text).map_err(|error| failure(path, error))
+    }
+
+    /// Checks that the file can be written, and makes its folder if it is missing.
+    pub fn check_writable(path: &Path) -> Result<(), AgentError> {
+        let fail = |error: std::io::Error| failure(path, error);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(fail)?;
+        }
+        if path.exists() {
+            let opened = OpenOptions::new().write(true).open(path);
+            return opened.map(drop).map_err(fail);
+        }
+        let probe = path.with_extension("check");
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&probe)
+            .map_err(fail)?;
+        fs::remove_file(&probe).map_err(fail)
     }
 
     /// Writes the file with the mode 600 on Unix, and its folder if it is missing.
     pub fn save(&self, path: &Path) -> Result<(), AgentError> {
-        let fail = |error: std::io::Error| AgentError::File(error.to_string());
+        let fail = |error: std::io::Error| failure(path, error);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(fail)?;
         }
-        let text = serde_json::to_string_pretty(self)
-            .map_err(|error| AgentError::File(error.to_string()))?;
+        let text = serde_json::to_string_pretty(self).map_err(|error| failure(path, error))?;
         let mut options = OpenOptions::new();
         options.write(true).create(true).truncate(true);
         #[cfg(unix)]
@@ -57,4 +84,9 @@ impl AgentConfig {
         let mut file = options.open(path).map_err(fail)?;
         file.write_all(text.as_bytes()).map_err(fail)
     }
+}
+
+/// An error of the file, with its path.
+fn failure(path: &Path, error: impl Display) -> AgentError {
+    AgentError::File(format!("{}: {error}", path.display()))
 }

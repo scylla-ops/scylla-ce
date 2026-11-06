@@ -9,4 +9,4 @@ mod stream;
 
 pub use agent::{run, AgentError, Settings};
 pub use config::AgentConfig;
-pub use identity::{join, load_or_join};
+pub use identity::{join, join_and_save, load_or_join};

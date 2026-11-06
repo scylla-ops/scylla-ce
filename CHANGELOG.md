@@ -83,6 +83,13 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   gives its job stats.
 - The agent writes a failed attempt in the logs of the node. It names a program that it did not
   find, and tells how to fix a missing shell.
+- The agent prints each error in words, with its cause and the path of its file. A refusal for good
+  exits with the code 78, and each other error with the code 1.
+- `scylla-agent join` checks that it can write its file before it uses the code, so a failed write
+  does not lose the code. A file that exists stops the join, and `--force` replaces it.
+- `scylla-agent` keeps its files in `~/.scylla-agent` for a user that is not root. `--container-runtime`
+  is `auto` by default: the agent looks for `docker`, then `podman`, in the `PATH` at each start, and
+  `none` runs no container step. `SCYLLA_URL` alone no longer stops a start.
 
 **Import**
 

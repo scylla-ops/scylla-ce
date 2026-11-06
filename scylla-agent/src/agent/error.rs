@@ -5,6 +5,9 @@ use tonic_types::StatusExt;
 /// The reason of the refusal of a disabled App.
 const APP_DISABLED: &str = "APP_DISABLED";
 
+/// The exit code of a refusal for good. A service does not start the agent again after it.
+const REFUSED_EXIT: u8 = 78;
+
 /// An error that stops the agent, or one stream of it.
 #[derive(Debug, thiserror::Error)]
 pub enum AgentError {
@@ -29,6 +32,15 @@ pub enum AgentError {
 }
 
 impl AgentError {
+    /// The exit code of the process for this error.
+    pub fn exit_code(&self) -> u8 {
+        if matches!(self, Self::Refused(_)) {
+            REFUSED_EXIT
+        } else {
+            1
+        }
+    }
+
     /// Sorts a status of the server: a refusal for good, a disabled App, or a failure to try
     /// again.
     pub(crate) fn of_status(status: &tonic::Status) -> Self {
@@ -92,5 +104,19 @@ mod tests {
             "{:?}",
             sorted[2]
         );
+    }
+
+    /// A refusal for good has its own exit code, so that a service does not start it again.
+    #[test]
+    fn only_a_refusal_exits_with_78() {
+        // given
+        let refused = AgentError::Refused("revoked".to_owned());
+        let failed = AgentError::Connection("down".to_owned());
+
+        // when
+        let codes = [refused.exit_code(), failed.exit_code()];
+
+        // then
+        assert_eq!(codes, [78, 1]);
     }
 }

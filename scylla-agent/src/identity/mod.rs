@@ -5,5 +5,5 @@ mod join;
 mod keys;
 
 pub(crate) use channel::connect;
-pub use join::{join, load_or_join};
+pub use join::{join, join_and_save, load_or_join};
 pub(crate) use keys::token;
