@@ -251,7 +251,8 @@ pub(crate) async fn workspace_of(
 
 /// Makes a join code for an App, in the transaction of the caller, and keeps only its hash.
 async fn new_code(tx: &mut Tx<'_>, id: AppId, created_by: ActorId) -> Result<JoinCode, Error> {
-    let code = secret::token();
+    // A token can start with `-`, and a command line then reads the code as a flag.
+    let code = format!("sj_{}", secret::token());
     let expires_at = OffsetDateTime::now_utc() + JOIN_CODE_TTL;
     codes::replace(tx, id, &secret::hash(&code), created_by, expires_at).await?;
     Ok(JoinCode { code, expires_at })

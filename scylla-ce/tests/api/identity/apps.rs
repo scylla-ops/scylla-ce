@@ -47,6 +47,25 @@ async fn join_app_gives_a_key_that_signs_in(pool: PgPool) {
     assert_eq!(text(&created.workspace_id), workspace.to_string());
 }
 
+/// A code goes in a command line, so it never starts as a flag does.
+#[sqlx::test(migrations = false)]
+async fn a_join_code_does_not_start_as_a_flag(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let workspace = app.workspace_of(owner).await;
+
+    // when
+    let created = app.create_app(owner, workspace, true).await.unwrap();
+
+    // then
+    assert!(
+        created.join_code.starts_with("sj_"),
+        "{}",
+        created.join_code
+    );
+}
+
 /// A code works one time, a new code stops the open one, and an unknown code is refused.
 #[sqlx::test(migrations = false)]
 async fn join_app_takes_a_code_one_time(pool: PgPool) {

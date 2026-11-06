@@ -126,6 +126,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ### Fixed
 
+- A join code never starts with `-`. A command line read such a code as a flag, so about one code in
+  64 failed in `scylla-agent join` and in the install scripts.
 - A person who looks at the people of a workspace or of a project no longer sees the instance
   admins, in `ListMembers` and in `GetMemberAccess`. Instance › Users still shows them.
 - The rule of the escalation skips the permissions of a machine, and it also applies to an
