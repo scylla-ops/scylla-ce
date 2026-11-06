@@ -135,6 +135,14 @@ This project overrides the global "no comments" rule.
 - Each dependency is in `[workspace.dependencies]` with all its features. A crate writes only `<name>.workspace = true`.
 - Tell the user about each change of version or feature: the Enterprise repository uses the same lines.
 
+## Release of the agent
+
+- `.github/workflows/release.yml` runs on a tag `v*`, and the tag must be the version of the workspace. It makes six archives, `SHA256SUMS`, the attestations, and the image `ghcr.io/scylla-ops/scylla-agent` with a signature. A tag with `-` is a pre-release, and it does not change `latest`.
+- The server has `install.sh` and `install.ps1` in its binary, and it writes its own version in them. A change of a script reaches a machine only with a new server. A version with no release makes each download fail, so set the version only for a tag. Between two releases, the version stays the version of the last tag.
+- `GetCapabilities` gives the version of the server and the image of the agent, so the web app shows the same version as the scripts. `SCYLLA_AGENT_DOWNLOADS_URL` and `SCYLLA_AGENT_IMAGE` replace them for a mirror.
+- `agent-install` runs the real path on Linux, macOS and Windows, with the binary of the commit and `--binary`. It does not test the download. A pre-release tag and a clean machine test the download.
+- The Enterprise edition takes one CE commit. That commit must have a version with a release: check `.../releases/download/v<version>/SHA256SUMS`.
+
 ## Commands
 
 - `just run`, `just test`, `just lint`, `just prepare`, `just schema`, `just db-reset`, `just user <email> <name>` (password on stdin), `just token <actor id>`. The binary also has `user create --admin` and `user admin grant|revoke <id>` for the instance admins.
