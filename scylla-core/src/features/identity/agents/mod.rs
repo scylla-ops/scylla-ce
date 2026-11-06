@@ -10,5 +10,5 @@ mod stream;
 mod work;
 
 pub(crate) use grpc::server;
-pub(crate) use install::router as install_router;
+pub(crate) use install::{router as install_router, AGENT_DOWNLOADS, AGENT_IMAGE};
 pub(crate) use registry::Registry;

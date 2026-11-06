@@ -58,6 +58,8 @@ pub struct ServeOptions {
     pub web_dir: Option<std::path::PathBuf>,
     /// The folder of the downloads of the agent, for the install scripts.
     pub agent_downloads: String,
+    /// The image of the agent, with its tag, that `GetCapabilities` gives.
+    pub agent_image: String,
 }
 
 impl Default for ServeOptions {
@@ -80,7 +82,8 @@ impl Default for ServeOptions {
             log_retention: Duration::from_secs(30 * 24 * 60 * 60),
             notification_retention: Duration::from_secs(90 * 24 * 60 * 60),
             web_dir: None,
-            agent_downloads: crate::config::AGENT_DOWNLOADS.to_owned(),
+            agent_downloads: agents::AGENT_DOWNLOADS.to_owned(),
+            agent_image: agents::AGENT_IMAGE.to_owned(),
         }
     }
 }
@@ -133,6 +136,7 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
         notification_retention: config.notification_retention,
         web_dir: config.web_dir.clone(),
         agent_downloads: config.agent_downloads_url.trim_end_matches('/').to_owned(),
+        agent_image: config.agent_image.clone(),
     };
     let stop = super::layers::stop_signal();
     serve(listener, pool.clone(), edition, access, options, stop).await?;
@@ -228,7 +232,7 @@ pub async fn serve(
         rates: Arc::default(),
     };
     let notifier: Arc<dyn Notifier> = Arc::new(PgNotifier { pool: pool.clone() });
-    edition.add_services(&mut routes, &pool, &gate, &notifier);
+    edition.add_services(&mut routes, &pool, &gate, &notifier, &options.agent_image);
     let notifications = notifications::spawn(
         pool.clone(),
         Arc::clone(&gate),

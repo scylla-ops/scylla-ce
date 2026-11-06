@@ -116,6 +116,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   folder that the agent cannot delete. The agent trusts the roots of the system too.
 - The workflows `agent` and `agent-install` test the agent and its real install on Linux, macOS and
   Windows.
+- `GetCapabilities` gives the version of the server and the image of the agent. `SCYLLA_AGENT_IMAGE`
+  replaces the image.
 
 **Import**
 

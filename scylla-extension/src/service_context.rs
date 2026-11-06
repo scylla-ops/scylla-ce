@@ -18,6 +18,8 @@ pub struct ServiceContext<'a> {
     pub(crate) notifier: &'a Arc<dyn Notifier>,
     /// The edition that runs.
     pub(crate) edition: &'a Edition,
+    /// The image of the agent, with its tag.
+    pub(crate) agent_image: &'a str,
 }
 
 impl ServiceContext<'_> {
@@ -64,5 +66,10 @@ impl ServiceContext<'_> {
     /// Returns the optional features of the edition.
     pub fn capabilities(&self) -> &[&'static str] {
         self.edition.capabilities()
+    }
+
+    /// Returns the image of the agent, with its tag.
+    pub fn agent_image(&self) -> &str {
+        self.agent_image
     }
 }

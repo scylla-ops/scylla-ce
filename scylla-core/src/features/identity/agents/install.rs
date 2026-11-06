@@ -10,6 +10,18 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 
+/// The image of the agent of this version.
+pub(crate) const AGENT_IMAGE: &str = concat!(
+    "ghcr.io/scylla-ops/scylla-agent:",
+    env!("CARGO_PKG_VERSION")
+);
+
+/// The release of the agent of this version.
+pub(crate) const AGENT_DOWNLOADS: &str = concat!(
+    "https://github.com/scylla-ops/scylla-ce/releases/download/v",
+    env!("CARGO_PKG_VERSION")
+);
+
 /// The script for Linux and macOS, with its marks.
 const SH: &str = include_str!("install.sh");
 

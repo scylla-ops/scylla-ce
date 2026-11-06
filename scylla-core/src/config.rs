@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use clap::Args;
 
+use crate::features::identity::agents::{AGENT_DOWNLOADS, AGENT_IMAGE};
 use crate::infra::logs::LogFormat;
 
 /// The core settings. Each flag also reads the environment variable in its doc.
@@ -65,7 +66,9 @@ pub struct Config {
     #[arg(long, env = "SCYLLA_SPICEDB_KEY", hide_env_values = true)]
     pub spicedb_key: Option<String>,
 
-    /// The public URL of this server, for the redirect URIs of the identity providers.
+    /// The public URL of this server, for the redirect URIs of the identity providers, and the
+    /// default address in the install scripts of the agent. A command from the web app gives the
+    /// address of the browser, and this replaces the default.
     #[arg(long, env = "SCYLLA_API_URL", default_value = "http://127.0.0.1:3000")]
     pub api_url: String,
 
@@ -140,13 +143,12 @@ pub struct Config {
     /// this version.
     #[arg(long, env = "SCYLLA_AGENT_DOWNLOADS_URL", default_value = AGENT_DOWNLOADS)]
     pub agent_downloads_url: String,
-}
 
-/// The release of the agent of this version.
-pub const AGENT_DOWNLOADS: &str = concat!(
-    "https://github.com/scylla-ops/scylla-ce/releases/download/v",
-    env!("CARGO_PKG_VERSION")
-);
+    /// The image of the agent, with its tag, for the commands of the web app. The default is the
+    /// image of this version.
+    #[arg(long, env = "SCYLLA_AGENT_IMAGE", default_value = AGENT_IMAGE)]
+    pub agent_image: String,
+}
 
 impl AsRef<Config> for Config {
     fn as_ref(&self) -> &Config {
@@ -188,6 +190,7 @@ impl fmt::Debug for Config {
             .field("tls_key", &self.tls_key)
             .field("log_format", &self.log_format)
             .field("agent_downloads_url", &self.agent_downloads_url)
+            .field("agent_image", &self.agent_image)
             .finish()
     }
 }

@@ -124,12 +124,14 @@ impl Edition {
         pool: &PgPool,
         gate: &Arc<dyn Gate>,
         notifier: &Arc<dyn Notifier>,
+        agent_image: &str,
     ) {
         let ctx = ServiceContext {
             pool,
             gate,
             notifier,
             edition: self,
+            agent_image,
         };
         for add in &self.services {
             add(routes, &ctx);

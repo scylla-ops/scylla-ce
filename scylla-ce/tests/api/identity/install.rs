@@ -49,3 +49,42 @@ async fn the_install_scripts_have_the_values_of_the_server(pool: PgPool) {
     assert!(!sh.contains("@SCYLLA_") && !ps1.contains("@SCYLLA_"));
     assert!(!sh.contains("@DOWNLOADS") && !ps1.contains("@DOWNLOADS"));
 }
+
+/// The flags that the commands of the web app give are in each script.
+#[sqlx::test(migrations = false)]
+async fn the_install_scripts_take_the_flags_of_the_commands(pool: PgPool) {
+    // given
+    let app = TestApp::spawn(pool, scylla_ce::edition()).await;
+
+    // when
+    let (_, _, sh) = get(&app, "/install.sh").await;
+    let (_, _, ps1) = get(&app, "/install.ps1").await;
+
+    // then
+    for flag in [
+        "--url",
+        "--capacity",
+        "--container-runtime",
+        "--no-service",
+        "--binary",
+        "--update",
+        "--uninstall",
+        "--force",
+    ] {
+        assert!(sh.contains(flag), "{flag}");
+    }
+    assert!(sh.ends_with("main \"$@\"\n"));
+    assert!(sh.contains("RestartPreventExitStatus=78"));
+    for flag in [
+        "$Url",
+        "$Capacity",
+        "$ContainerRuntime",
+        "$NoService",
+        "$Binary",
+        "$Update",
+        "$Uninstall",
+        "$Force",
+    ] {
+        assert!(ps1.contains(flag), "{flag}");
+    }
+}
