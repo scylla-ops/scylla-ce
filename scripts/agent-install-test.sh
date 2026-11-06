@@ -229,7 +229,7 @@ test_no_service() {
   step "install with no service"
   HOME="$home" install_sh "$code" --url "$SERVER" --binary "$AGENT_BIN" --no-service | tee "$home/output"
   [ -x "$home/.scylla-agent/scylla-agent" ] || die "no binary"
-  [ "$(stat -f %Lp "$home/.scylla-agent/agent.json" 2>/dev/null || stat -c %a "$home/.scylla-agent/agent.json")" = 600 ] || die "the mode of the file"
+  [ "$(stat -c %a "$home/.scylla-agent/agent.json" 2>/dev/null || stat -f %Lp "$home/.scylla-agent/agent.json")" = 600 ] || die "the mode of the file"
 
   step "the printed command runs the agent"
   local command
