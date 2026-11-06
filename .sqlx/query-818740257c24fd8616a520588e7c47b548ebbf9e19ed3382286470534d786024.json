@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT e.user_id FROM invitations AS i\n         JOIN user_emails AS e ON e.email = i.email AND e.verified_at IS NOT NULL\n         WHERE i.id = $1 AND i.accepted_at IS NULL AND i.expires_at > now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "user_emails",
+            "name": "user_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "818740257c24fd8616a520588e7c47b548ebbf9e19ed3382286470534d786024"
+}

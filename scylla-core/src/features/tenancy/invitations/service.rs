@@ -15,6 +15,7 @@ use sqlx::PgPool;
 
 use super::store;
 use crate::features::identity::accounts::{mails, refused, verified_emails, AccountContext};
+use crate::features::notifications::{self, kinds};
 use crate::features::tenancy::grants;
 use crate::infra::logs::mask_email;
 use crate::infra::secret;
@@ -60,6 +61,8 @@ pub(crate) async fn create(
     let hash = secret::hash(&token);
     let invitation =
         store::insert(&mut tx, workspace, email.as_str(), role, invited_by, &hash).await?;
+    let fact = kinds::invitation_received(&invitation, None);
+    notifications::emit(&mut tx, fact).await?;
     tx.commit().await?;
     let email = mask_email(&invitation.email);
     let (id, role) = (invitation.id, &invitation.role);
@@ -102,6 +105,7 @@ pub(super) async fn revoke(
     if !store::delete_open(&mut tx, workspace, id).await? {
         return Err(Error::NotFound("invitation"));
     }
+    notifications::withdraw(&mut tx, invitations::KIND.as_str(), id.to_db()).await?;
     tx.commit().await?;
     tracing::info!(event = "invitation.revoked", invitation = %id, %workspace);
     Ok(())
@@ -129,6 +133,8 @@ pub(super) async fn resend(
     // Store the hash of a new token, then send the new link to the email only.
     let token = secret::token();
     let invitation = store::renew(&mut tx, id, &secret::hash(&token)).await?;
+    let kind = invitations::KIND.as_str();
+    notifications::reopen(&mut tx, kinds::INVITATION_RECEIVED, kind, id.to_db()).await?;
     let name = store::workspace_name(&mut tx, workspace)
         .await?
         .ok_or(Error::NotFound("workspace"))?;
@@ -155,6 +161,27 @@ pub(crate) async fn open_for_email(
     store::open_for_email(tx, email).await
 }
 
+/// Records the fact of each open invitation of an email, for a user that just got this email as a
+/// verified email.
+pub(crate) async fn announce_open(
+    tx: &mut Tx<'_>,
+    user: ActorId,
+    email: &str,
+) -> Result<(), Error> {
+    for invitation in store::all_open_for_email(tx, email).await? {
+        notifications::emit(tx, kinds::invitation_received(&invitation, Some(user))).await?;
+    }
+    Ok(())
+}
+
+/// Returns the user with the verified email of an open invitation.
+pub(crate) async fn invitee(pool: &PgPool, id: InvitationId) -> Result<Option<ActorId>, Error> {
+    let mut tx = pool.begin().await?;
+    let user = store::invitee(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(user)
+}
+
 /// Gives the role of an open invitation to a user with its verified email, and returns the
 /// workspace. One transaction locks the invitation, writes the role and marks the invitation,
 /// so a revoke or a resend waits, or wins and the link gives the answer of an unknown link. A
@@ -172,16 +199,8 @@ pub(crate) async fn accept(
         }
         Pick::Id(id) => store::lock_acceptable(&mut tx, None, Some(id)).await?,
     };
-    let invitation = invitation.ok_or_else(not_open)?;
-
-    // Refuse a user with no verified email of the invitation.
-    if !verified_emails(&mut tx, user)
-        .await?
-        .contains(&invitation.email)
-    {
-        let message = "the invitation is for another email";
-        return Err(refused("INVITATION_FOR_ANOTHER_EMAIL", message));
-    }
+    let invitation = invitation.ok_or_else(|| not_open(pick))?;
+    check_email(&mut tx, user, &invitation).await?;
 
     // Mark the invitation, let the hooks check the new member, give the role, and commit.
     let id = invitation.workspace_id.to_string();
@@ -189,7 +208,7 @@ pub(crate) async fn accept(
         .relationship(&invitation.role, &id, user)
         .ok_or_else(|| Error::Internal(format!("unknown role {}", invitation.role)))?;
     if !store::mark_accepted(&mut tx, invitation.id, user).await? {
-        return Err(not_open());
+        return Err(not_open(pick));
     }
     let member = Actor {
         id: user,
@@ -206,15 +225,65 @@ pub(crate) async fn accept(
     let scope = (Workspace::NAME, invitation.workspace_id.to_db());
     let by = invitation.invited_by;
     grants::store::note_relation(&mut tx, user, scope, &invitation.role, by).await?;
+    let fact = kinds::invitation_answered(kinds::INVITATION_ACCEPTED, &invitation, user);
+    notifications::emit(&mut tx, fact).await?;
+    let kind = invitations::KIND.as_str();
+    notifications::close(
+        &mut tx,
+        kinds::INVITATION_RECEIVED,
+        kind,
+        invitation.id.to_db(),
+    )
+    .await?;
     tx.commit().await?;
     let (id, workspace, role) = (invitation.id, invitation.workspace_id, &invitation.role);
     tracing::info!(event = "invitation.accepted", invitation = %id, %workspace, %user, role);
     Ok(invitation.workspace_id)
 }
 
-/// The answer to a link that is not open: unknown, stopped, accepted or expired.
-fn not_open() -> Error {
-    Error::invalid("token", "is not an open invitation")
+/// Declines an open invitation for a user with its verified email: the invitation goes, and the
+/// person that invited gets a notification.
+pub(super) async fn decline(
+    ctx: &AccountContext,
+    id: InvitationId,
+    user: ActorId,
+) -> Result<(), Error> {
+    // Lock the open invitation, and refuse a user with no verified email of it.
+    let mut tx = ctx.pool.begin().await?;
+    let invitation = store::lock_acceptable(&mut tx, None, Some(id))
+        .await?
+        .ok_or(Error::NotFound("invitation"))?;
+    check_email(&mut tx, user, &invitation).await?;
+
+    // Delete the invitation and its rows, then tell the person that invited.
+    let workspace = invitation.workspace_id;
+    if !store::delete_open(&mut tx, workspace, id).await? {
+        return Err(Error::NotFound("invitation"));
+    }
+    notifications::withdraw(&mut tx, invitations::KIND.as_str(), id.to_db()).await?;
+    let fact = kinds::invitation_answered(kinds::INVITATION_DECLINED, &invitation, user);
+    notifications::emit(&mut tx, fact).await?;
+    tx.commit().await?;
+    tracing::info!(event = "invitation.declined", invitation = %id, %workspace, %user);
+    Ok(())
+}
+
+/// Refuses a user with no verified email of an invitation.
+async fn check_email(tx: &mut Tx<'_>, user: ActorId, invitation: &Invitation) -> Result<(), Error> {
+    if verified_emails(tx, user).await?.contains(&invitation.email) {
+        return Ok(());
+    }
+    let message = "the invitation is for another email";
+    Err(refused("INVITATION_FOR_ANOTHER_EMAIL", message))
+}
+
+/// The answer to an invitation that is not open: unknown, stopped, accepted or expired. For a link
+/// it is the answer of an unknown link.
+fn not_open(pick: Pick<'_>) -> Error {
+    match pick {
+        Pick::Token(_) => Error::invalid("token", "is not an open invitation"),
+        Pick::Id(_) => Error::NotFound("invitation"),
+    }
 }
 
 /// Returns the roles of the workspaces in the registry of the edition.

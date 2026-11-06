@@ -2,10 +2,11 @@
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
+use scylla_proto::workspaces::v1::accept_invitation_request::Target;
 use scylla_proto::workspaces::v1::invitation_service_client::InvitationServiceClient;
 use scylla_proto::workspaces::v1::{
-    AcceptInvitationRequest, CreateInvitationRequest, Invitation, ListInvitationsRequest,
-    ResendInvitationRequest, RevokeInvitationRequest,
+    AcceptInvitationRequest, CreateInvitationRequest, DeclineInvitationRequest, Invitation,
+    ListInvitationsRequest, ResendInvitationRequest, RevokeInvitationRequest,
 };
 use tonic::transport::Channel;
 use tonic::Status;
@@ -38,13 +39,38 @@ impl TestApp {
     /// Calls `AcceptInvitation` with an access token, and returns the id of the workspace.
     pub async fn accept_invitation(&self, token: &str, invitation: &str) -> Result<String, Status> {
         let request = AcceptInvitationRequest {
-            token: invitation.to_owned(),
+            target: Some(Target::Token(invitation.to_owned())),
         };
         let response = self
             .invitations()
             .accept_invitation(with_token(token, request))
             .await?;
         Ok(text(&response.into_inner().workspace_id).to_owned())
+    }
+
+    /// Calls `AcceptInvitation` as `actor` with the id of an invitation, and returns the id of the
+    /// workspace.
+    pub async fn accept_invitation_by_id(
+        &self,
+        actor: ActorId,
+        invitation: &str,
+    ) -> Result<String, Status> {
+        let request = AcceptInvitationRequest {
+            target: Some(Target::InvitationId(id(invitation))),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.invitations().accept_invitation(request).await?;
+        Ok(text(&response.into_inner().workspace_id).to_owned())
+    }
+
+    /// Calls `DeclineInvitation` as `actor`.
+    pub async fn decline_invitation(&self, actor: ActorId, invitation: &str) -> Result<(), Status> {
+        let request = DeclineInvitationRequest {
+            invitation_id: Some(id(invitation)),
+        };
+        let request = self.authed(actor, request).await;
+        self.invitations().decline_invitation(request).await?;
+        Ok(())
     }
 
     /// Calls `ListInvitations` as `actor` for one page of 100, and returns the invitations in

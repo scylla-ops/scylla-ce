@@ -4,6 +4,7 @@ use crate::authz::{Model, Schema, SchemaError};
 use crate::identity::actors::{Actor, ActorId};
 use crate::identity::agents::AgentCaller;
 use crate::identity::apps::{App, AppHolder};
+use crate::notifications::NotificationCaller;
 use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
 use crate::projects::triggers::{TriggerAccess, TriggerHolder};
 use crate::projects::{Project, ProjectCaller, ProjectHolder, ProjectId};
@@ -42,6 +43,7 @@ fn core() -> Schema {
         TriggerAccess::part(),
         TriggerHolder::part(),
         AccessCaller::part(),
+        NotificationCaller::part(),
     ];
     for part in parts {
         schema.add(part).expect("core part fits");

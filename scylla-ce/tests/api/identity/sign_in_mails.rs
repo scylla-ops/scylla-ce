@@ -76,6 +76,26 @@ async fn an_unlink_sends_a_mail(pool: PgPool) {
     assert_eq!(identities(&pool).await, 0);
 }
 
+/// A link and an unlink each make a row in the inbox, with the name of the provider.
+#[sqlx::test(migrations = false)]
+async fn a_link_and_an_unlink_make_rows(pool: PgPool) {
+    // given
+    let (app, _idp) = app_with_idp(pool.clone()).await;
+    let user = app.user_with(EMAIL, Some(PASSWORD)).await;
+    let (mut browser, token) = signed_in(&app).await;
+
+    // when
+    browser.sign_in(&app, "idp", "link=true").await;
+    app.unlink_identity(&token, "idp", "alice").await.unwrap();
+    let rows = app.inbox(user).await;
+
+    // then
+    for kind in ["security.identity_linked", "security.identity_unlinked"] {
+        let row = rows.iter().find(|row| row.kind == kind).expect(kind);
+        assert_eq!(row.params["provider"], "idp");
+    }
+}
+
 /// A refused unlink sends no mail: the last way to sign in stays.
 #[sqlx::test(migrations = false)]
 async fn a_refused_unlink_sends_no_mail(pool: PgPool) {

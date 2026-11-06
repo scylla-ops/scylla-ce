@@ -52,8 +52,8 @@ pub(super) async fn lock_all(tx: &mut Tx<'_>) -> Result<Vec<Admin>, Error> {
 }
 
 /// Makes a user an instance admin. An admin stays an admin. An unknown user gives `NotFound`.
-pub(super) async fn grant(tx: &mut Tx<'_>, user: ActorId) -> Result<(), Error> {
-    sqlx::query!(
+pub(super) async fn grant(tx: &mut Tx<'_>, user: ActorId) -> Result<bool, Error> {
+    let granted = sqlx::query!(
         "INSERT INTO instance_admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING",
         user.to_db()
     )
@@ -65,18 +65,18 @@ pub(super) async fn grant(tx: &mut Tx<'_>, user: ActorId) -> Result<(), Error> {
         }
         error => error.into(),
     })?;
-    Ok(())
+    Ok(granted.rows_affected() == 1)
 }
 
 /// Takes the instance admin right from a user. A user that is not an admin changes nothing.
-pub(super) async fn revoke(tx: &mut Tx<'_>, user: ActorId) -> Result<(), Error> {
-    sqlx::query!(
+pub(super) async fn revoke(tx: &mut Tx<'_>, user: ActorId) -> Result<bool, Error> {
+    let revoked = sqlx::query!(
         "DELETE FROM instance_admins WHERE user_id = $1",
         user.to_db()
     )
     .execute(&mut **tx)
     .await?;
-    Ok(())
+    Ok(revoked.rows_affected() == 1)
 }
 
 /// Returns the custom instance roles of each user, in name order.

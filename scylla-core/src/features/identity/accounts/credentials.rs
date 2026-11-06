@@ -5,9 +5,11 @@ use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::users::{Identifier, UserStatus};
 use scylla_extension::AccessError;
 use time::OffsetDateTime;
+use tracing::Instrument;
 
 use super::service::refused;
-use super::{password, store, AccountContext};
+use super::{mails, password, store, AccountContext};
+use crate::features::notifications::{self, kinds};
 use crate::Error;
 
 /// Checks an email or a handle and a password, and returns the user. Each refusal has the same
@@ -44,11 +46,17 @@ pub(crate) async fn verify_password(
         Some(credentials) => {
             let mut tx = ctx.pool.begin().await?;
             let now_locked = store::record_failure(&mut tx, credentials.user).await?;
+            let new_lock = now_locked && record_lock(&mut tx, credentials.user).await?;
+            let to = match new_lock {
+                true => store::find_user(&mut tx, credentials.user).await?,
+                false => None,
+            };
             tx.commit().await?;
             failed(label, if locked { "locked" } else { "password" });
             if now_locked {
                 tracing::info!(event = "account.locked", user = %credentials.user);
             }
+            send_lock_mail(ctx, to.and_then(|user| user.email));
             return Err(invalid());
         }
         None => {
@@ -69,6 +77,27 @@ pub(crate) async fn verify_password(
             Err(invalid())
         }
     }
+}
+
+/// Records the fact of a lockout, at most one for each hour. Returns `true` for a new fact.
+async fn record_lock(tx: &mut scylla_extension::Tx<'_>, user: ActorId) -> Result<bool, Error> {
+    let hour = OffsetDateTime::now_utc().unix_timestamp() / 3600;
+    let fact = kinds::about(kinds::ACCOUNT_LOCKED, user).dedupe(format!("locked:{user}:{hour}"));
+    notifications::emit(tx, fact).await
+}
+
+/// Sends the mail of a lockout in a task: the time of the answer does not tell that the account
+/// exists.
+fn send_lock_mail(ctx: &AccountContext, to: Option<String>) {
+    let Some(to) = to else {
+        return;
+    };
+    let ctx = ctx.clone();
+    let task = async move {
+        let mail = mails::account_locked(&ctx, &to);
+        mails::send(&ctx, "account-locked", mail).await;
+    };
+    tokio::spawn(task.in_current_span());
 }
 
 /// Logs the event `account.signin_failed`, with the label of the attempt and the reason.

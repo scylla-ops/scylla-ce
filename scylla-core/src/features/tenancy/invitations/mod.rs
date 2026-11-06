@@ -7,4 +7,4 @@ mod service;
 mod store;
 
 pub(crate) use grpc::server;
-pub(crate) use service::{accept, find_open, open_for_email, Pick};
+pub(crate) use service::{accept, announce_open, find_open, invitee, open_for_email, Pick};

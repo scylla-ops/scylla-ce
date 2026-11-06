@@ -17,6 +17,7 @@ thiserror.workspace = true
 time.workspace = true
 tonic.workspace = true
 tracing.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true

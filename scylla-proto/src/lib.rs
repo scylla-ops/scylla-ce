@@ -18,6 +18,15 @@ pub mod common {
     }
 }
 
+/// The notifications API: the inbox of a user.
+pub mod notifications {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.notifications.v1");
+    }
+}
+
 /// The projects API: the projects and their secrets.
 pub mod projects {
     /// Version 1.

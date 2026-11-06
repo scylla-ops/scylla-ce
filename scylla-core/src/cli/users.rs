@@ -85,8 +85,12 @@ pub(super) async fn user(config: &Config, command: UserCommand) -> Result<(), Er
             };
             println!("{}", user.id);
         }
-        UserCommand::Admin(AdminCommand::Grant { user }) => admins::grant(&pool, user).await?,
-        UserCommand::Admin(AdminCommand::Revoke { user }) => admins::revoke(&pool, user).await?,
+        UserCommand::Admin(AdminCommand::Grant { user }) => {
+            admins::grant(&pool, user, None).await?
+        }
+        UserCommand::Admin(AdminCommand::Revoke { user }) => {
+            admins::revoke(&pool, user, None).await?
+        }
     }
     pool.close().await;
     Ok(())

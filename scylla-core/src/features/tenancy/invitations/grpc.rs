@@ -8,6 +8,7 @@ use scylla_domain::tenancy::invitations::Invitation;
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceCaller, WorkspaceId};
 use scylla_extension::AccessError;
 use scylla_proto::workspaces::v1 as pb;
+use scylla_proto::workspaces::v1::accept_invitation_request::Target;
 use scylla_proto::workspaces::v1::invitation_service_server::{
     InvitationService, InvitationServiceServer,
 };
@@ -44,6 +45,13 @@ impl InvitationService for InvitationsGrpc {
         request: Request<pb::AcceptInvitationRequest>,
     ) -> Result<Response<pb::AcceptInvitationResponse>, Status> {
         Ok(Response::new(self.accept(request).await?))
+    }
+
+    async fn decline_invitation(
+        &self,
+        request: Request<pb::DeclineInvitationRequest>,
+    ) -> Result<Response<pb::DeclineInvitationResponse>, Status> {
+        Ok(Response::new(self.decline(request).await?))
     }
 
     async fn list_invitations(
@@ -137,12 +145,41 @@ impl InvitationsGrpc {
             return Err(AccessError::refused(&caller, check.permission(), object, reason).into());
         }
 
-        // Accept the open invitation of the link, for a verified email of the caller.
-        let token = request.into_inner().token;
-        let workspace = service::accept(&self.ctx, Pick::Token(&token), caller.actor.id).await?;
+        // Accept the open invitation of the link or of the id, for a verified email of the caller.
+        let target = request.into_inner().target;
+        let target = target.ok_or_else(|| Error::invalid("target", "is required"))?;
+        let user = caller.actor.id;
+        let workspace = match target {
+            Target::Token(token) => service::accept(&self.ctx, Pick::Token(&token), user).await?,
+            Target::InvitationId(id) => {
+                let id = parse::field(id, "invitation_id")?;
+                service::accept(&self.ctx, Pick::Id(id), user).await?
+            }
+        };
         Ok(pb::AcceptInvitationResponse {
             workspace_id: Some(workspace.to_proto()),
         })
+    }
+
+    /// Handles `DeclineInvitation`: a user with the verified email of the invitation deletes it.
+    async fn decline(
+        &self,
+        request: Request<pb::DeclineInvitationRequest>,
+    ) -> Result<pb::DeclineInvitationResponse, Error> {
+        // Authenticate the caller and check the route permission on the caller.
+        let caller = self.ctx.gate.caller(&request).await?;
+        let check = WorkspaceCaller::DECLINE_INVITATION.on(caller.actor.id);
+        self.ctx.gate.authorize(&caller, check.clone()).await?;
+        if caller.actor.kind != KIND {
+            let reason = "only a user declines an invitation".to_owned();
+            let object = check.object();
+            return Err(AccessError::refused(&caller, check.permission(), object, reason).into());
+        }
+
+        // Decline the open invitation, for a verified email of the caller.
+        let id = parse::required(request.into_inner().invitation_id, "invitation_id")?;
+        service::decline(&self.ctx, id, caller.actor.id).await?;
+        Ok(pb::DeclineInvitationResponse {})
     }
 }
 

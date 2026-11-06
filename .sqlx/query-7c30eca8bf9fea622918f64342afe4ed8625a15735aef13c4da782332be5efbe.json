@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications SET last_at = now() - interval '6 minutes'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "7c30eca8bf9fea622918f64342afe4ed8625a15735aef13c4da782332be5efbe"
+}

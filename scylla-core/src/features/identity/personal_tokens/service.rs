@@ -9,27 +9,38 @@ use scylla_domain::identity::users::KIND;
 use scylla_extension::{AccessError, Rejection};
 use sqlx::PgPool;
 
+use crate::features::identity::accounts::{self, mails, AccountContext};
 use crate::features::identity::api_tokens;
+use crate::features::notifications::{self, kinds};
 use crate::features::platform::settings;
 use crate::Error;
 
 /// Creates a personal token of a user, and returns it with its secret.
 pub(super) async fn create(
-    pool: &PgPool,
+    ctx: &AccountContext,
     user: ActorId,
     name: &TokenName,
     expiry: TokenExpiry,
     limits: &TokenLimits,
 ) -> Result<(ApiTokenInfo, String), Error> {
-    let mut tx = pool.begin().await?;
+    let mut tx = ctx.pool.begin().await?;
     if !settings::personal_tokens_enabled(&mut tx).await? {
         return Err(disabled());
     }
     let prefix = PERSONAL_TOKEN_PREFIX;
     let created = api_tokens::create(&mut tx, user, prefix, name, expiry, limits, user);
     let (token, secret) = created.await?;
+    let fact = kinds::about(kinds::TOKEN_CREATED, user).param("name", name.as_str());
+    notifications::emit(&mut tx, fact).await?;
+    let owner = accounts::find_user(&mut tx, user).await?;
     tx.commit().await?;
     tracing::info!(event = "user.token_created", %user, token = %token.id);
+
+    // Tell the owner. A mail that fails does not stop the creation.
+    if let Some(to) = owner.and_then(|owner| owner.email) {
+        let mail = mails::token_created(ctx, &to, name.as_str());
+        mails::send(ctx, "token-created", mail).await;
+    }
     Ok((token, secret))
 }
 

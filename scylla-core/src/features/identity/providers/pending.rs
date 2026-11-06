@@ -14,6 +14,7 @@ use crate::features::identity::accounts::{
     self, cookie_origin_is_allowed, mails, refused, verify_password, AccountContext, EmailAccount,
 };
 use crate::features::identity::sessions::{self, cookie, Client, Opened};
+use crate::features::notifications::{self, kinds};
 use crate::infra::secret;
 use crate::Error;
 
@@ -150,6 +151,9 @@ pub(crate) async fn link_with_password(
             refuse_a_second_identity(&mut tx, provider, user).await?;
             let email = Some(row.email.as_str());
             store::link(&mut tx, provider.id, &row.subject, user, email).await?;
+            let fact = kinds::about(kinds::IDENTITY_LINKED, user)
+                .param("provider", provider.display_name.clone());
+            notifications::emit(&mut tx, fact).await?;
         }
     }
     accounts::record_sign_in(&mut tx, user).await?;

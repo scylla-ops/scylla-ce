@@ -90,6 +90,8 @@ Load the skill of the task from `.claude/skills/`:
 
 - `api/request_log/` logs one line for each call: its code, its duration, its actor, its IP address and the cause of a refusal. A route does not log its start, its end or its refusal again.
 - A fact that an operator must see is a business event after the commit: `tracing::info!(event = "secret.created", secret = %id, %project, name)`. The name is `<subject>.<action>` in the past tense, and it does not change. Add a new name to decision 59.
+- A fact for the notifications goes through `notifications::emit`, in the transaction of the write. Add its kind in `features/notifications/kinds.rs` and a text for it in the web app. A parameter is a short text: never a sentence, `jobs.error`, a secret, a token, a link with a token, or the email of another person. A new kind must say who gets a row (`Audience`) and what a reader needs (`Access`). A kind about the reader alone is `Access::Own`.
+- The inbox routes act on the caller, and take no recipient (decision 98). A person gets no row for an own action, except a mandatory kind.
 - Never log a password, a token, a cookie, the value of a secret, the body or the link of a mail. Mask an email with `logs::mask_email`, and the identifier of a sign-in with `logs::mask_identifier`.
 - Do not give an event a field with the name of a key of the JSON line: `ts`, `level`, `event`, `message`, `target`, `rpc`, `code`, `status`, `ms`, `actor`, `actor_kind`, `ip`, `request_id`.
 - A task of `tokio::spawn` that logs takes `.in_current_span()`, so its lines have the request id of their call.

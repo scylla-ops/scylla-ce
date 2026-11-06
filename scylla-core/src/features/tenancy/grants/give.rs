@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use super::grpc::GrantsGrpc;
 use super::store;
+use crate::features::notifications::{self, kinds};
 use crate::features::tenancy::roles;
 use crate::Error;
 
@@ -165,7 +166,7 @@ pub(super) fn scope_id(id: &str) -> Result<Uuid, Error> {
     Uuid::parse_str(id).map_err(|_| Error::invalid("object.id", "is not an id"))
 }
 
-/// Writes a role where it lives, with its time and its author.
+/// Writes a role where it lives, with its time and its author, and records the fact.
 pub(super) async fn write(
     pool: &PgPool,
     gate: &dyn Gate,
@@ -173,48 +174,61 @@ pub(super) async fn write(
     (kind, id): (&str, &str),
     actor: ActorId,
     by: ActorId,
+    workspace: WorkspaceId,
 ) -> Result<(), Error> {
+    let fact = |role: &str| {
+        kinds::role_change(kinds::ROLE_GRANTED, role, (kind, id), workspace, actor, by)
+    };
     match given {
         Given::Relation(relationship, name) => {
             gate.write(&[relationship]).await?;
+            let mut tx = pool.begin().await?;
             if level_of(kind).is_some() {
-                let mut tx = pool.begin().await?;
                 let scope = (kind, scope_id(id)?);
                 store::note_relation(&mut tx, actor, scope, &name, by).await?;
-                tx.commit().await?;
             }
+            notifications::emit(&mut tx, fact(&name)).await?;
+            tx.commit().await?;
         }
         Given::Row(row) => {
             let mut tx = pool.begin().await?;
             roles::store::grant_row(&mut tx, actor, row.id, (kind, scope_id(id)?), by).await?;
+            notifications::emit(&mut tx, fact(&row.name)).await?;
             tx.commit().await?;
         }
     }
     Ok(())
 }
 
-/// Deletes a role where it lives, with its time and its author. A role that the actor does not have
-/// is not an error.
+/// Deletes a role where it lives, with its time and its author, and records the fact. A role that
+/// the actor does not have is not an error.
 pub(super) async fn erase(
     pool: &PgPool,
     gate: &dyn Gate,
     given: Given,
     (kind, id): (&str, &str),
     actor: ActorId,
+    by: ActorId,
+    workspace: WorkspaceId,
 ) -> Result<(), Error> {
+    let fact = |role: &str| {
+        kinds::role_change(kinds::ROLE_REVOKED, role, (kind, id), workspace, actor, by)
+    };
     match given {
         Given::Relation(relationship, name) => {
             gate.delete(&[relationship]).await?;
+            let mut tx = pool.begin().await?;
             if level_of(kind).is_some() {
-                let mut tx = pool.begin().await?;
                 let scope = (kind, scope_id(id)?);
                 store::forget_relation(&mut tx, actor, scope, &name).await?;
-                tx.commit().await?;
             }
+            notifications::emit(&mut tx, fact(&name)).await?;
+            tx.commit().await?;
         }
         Given::Row(row) => {
             let mut tx = pool.begin().await?;
             roles::store::revoke_row(&mut tx, actor, row.id, (kind, scope_id(id)?)).await?;
+            notifications::emit(&mut tx, fact(&row.name)).await?;
             tx.commit().await?;
         }
     }

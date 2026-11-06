@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, email, role, invited_by, expires_at, sent_at FROM invitations\n         WHERE email = $1 AND accepted_at IS NULL AND expires_at > now()\n         ORDER BY id LIMIT 1",
+  "query": "SELECT id, workspace_id, email, role, invited_by, expires_at, sent_at FROM invitations\n         WHERE email = $1 AND accepted_at IS NULL AND expires_at > now()\n         ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -96,5 +96,5 @@
       false
     ]
   },
-  "hash": "c573ad59a46be158e4aa16056b6c4cfde04c0ad4691fc47348ce72e6df6224ee"
+  "hash": "e790d6be4d5897d995acfa62ae9d9cba63257a619eb1846c372c87fa58f1587f"
 }

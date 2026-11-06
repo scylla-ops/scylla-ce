@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notification_events (id, kind, dispatched_at)\n         VALUES (gen_random_uuid(), 'token.created', now() - interval '31 days')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "592d2e0b574d21a77c6a92f8309a028d7535fc639d3b40375c700977c3b38688"
+}

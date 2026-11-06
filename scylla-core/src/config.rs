@@ -90,6 +90,10 @@ pub struct Config {
     #[arg(long, env = "SCYLLA_LOG_RETENTION_DAYS", default_value = "30", value_parser = days)]
     pub log_retention: Duration,
 
+    /// The time that the server keeps a notification after its last fact, in days.
+    #[arg(long, env = "SCYLLA_NOTIFICATION_RETENTION_DAYS", default_value = "90", value_parser = days)]
+    pub notification_retention: Duration,
+
     /// The SMTP server of the mails: `smtp://host:port`, or `smtps://user:password@host` for
     /// TLS. Without it, the server sends no mail and logs each one with no link.
     #[arg(long, env = "SCYLLA_SMTP_URL", hide_env_values = true)]
@@ -174,6 +178,7 @@ impl fmt::Debug for Config {
             .field("session_ttl", &self.session_ttl)
             .field("web_dir", &self.web_dir)
             .field("log_retention", &self.log_retention)
+            .field("notification_retention", &self.notification_retention)
             .field("smtp_url", &self.smtp_url.as_deref().map(redact))
             .field("mail_from", &self.mail_from)
             .field("secret_key", &self.secret_key.as_ref().map(|_| "***"))

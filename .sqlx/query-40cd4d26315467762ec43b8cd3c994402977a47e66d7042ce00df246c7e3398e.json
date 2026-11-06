@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notification_events SET dispatched_at = now()\n         WHERE id = $1 AND dispatched_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "40cd4d26315467762ec43b8cd3c994402977a47e66d7042ce00df246c7e3398e"
+}

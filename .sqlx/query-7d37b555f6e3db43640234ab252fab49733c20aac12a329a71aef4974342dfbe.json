@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notification_events (id, kind, actor_id, workspace_id, project_id,\n             subject_kind, subject_id, params, dedupe_key, group_key)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n         ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7d37b555f6e3db43640234ab252fab49733c20aac12a329a71aef4974342dfbe"
+}

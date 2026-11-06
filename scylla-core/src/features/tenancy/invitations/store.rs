@@ -112,21 +112,42 @@ pub(super) async fn find_open(
     Ok(row.map(Row::into_invitation))
 }
 
+/// Returns the open invitations for an email, oldest first.
+pub(super) async fn all_open_for_email(
+    tx: &mut Tx<'_>,
+    email: &str,
+) -> Result<Vec<Invitation>, Error> {
+    let rows = sqlx::query_as!(
+        Row,
+        "SELECT id, workspace_id, email, role, invited_by, expires_at, sent_at FROM invitations
+         WHERE email = $1 AND accepted_at IS NULL AND expires_at > now()
+         ORDER BY id",
+        email
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows.into_iter().map(Row::into_invitation).collect())
+}
+
+/// Returns the user with the verified email of an open invitation.
+pub(super) async fn invitee(tx: &mut Tx<'_>, id: InvitationId) -> Result<Option<ActorId>, Error> {
+    let user = sqlx::query_scalar!(
+        "SELECT e.user_id FROM invitations AS i
+         JOIN user_emails AS e ON e.email = i.email AND e.verified_at IS NOT NULL
+         WHERE i.id = $1 AND i.accepted_at IS NULL AND i.expires_at > now()",
+        id.to_db(),
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(user.map(ActorId::from_db))
+}
+
 /// Returns the oldest open invitation for an email, or `None`.
 pub(super) async fn open_for_email(
     tx: &mut Tx<'_>,
     email: &str,
 ) -> Result<Option<Invitation>, Error> {
-    let row = sqlx::query_as!(
-        Row,
-        "SELECT id, workspace_id, email, role, invited_by, expires_at, sent_at FROM invitations
-         WHERE email = $1 AND accepted_at IS NULL AND expires_at > now()
-         ORDER BY id LIMIT 1",
-        email
-    )
-    .fetch_optional(&mut **tx)
-    .await?;
-    Ok(row.map(Row::into_invitation))
+    Ok(all_open_for_email(tx, email).await?.into_iter().next())
 }
 
 /// Returns the invitations of a workspace that nobody accepted, expired ones too, after the

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notifications (id, recipient_id, kind, reason, group_key, first_at, last_at)\n         SELECT gen_random_uuid(), $1, 'token.created', 'subject', gen_random_uuid()::text,\n                now() - $3::text::interval, now() - $3::text::interval\n         FROM generate_series(1, $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c4424d40077d4ede0772620f10906667eb3286bd0d6d70da9ec0c170eb2fbf5e"
+}

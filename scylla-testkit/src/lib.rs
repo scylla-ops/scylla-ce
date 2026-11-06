@@ -5,6 +5,7 @@ mod app;
 mod identity;
 mod logs;
 mod mail;
+mod notifications;
 mod pipelines;
 mod platform;
 mod projects;

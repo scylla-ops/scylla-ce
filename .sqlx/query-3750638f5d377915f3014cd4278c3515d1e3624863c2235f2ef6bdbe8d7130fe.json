@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invitations SET expires_at = now() - interval '1 day',\n             sent_at = now() - interval '1 day' WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3750638f5d377915f3014cd4278c3515d1e3624863c2235f2ef6bdbe8d7130fe"
+}

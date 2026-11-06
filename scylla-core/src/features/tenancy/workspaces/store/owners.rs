@@ -18,8 +18,8 @@ pub(crate) async fn add_owner(
     tx: &mut Tx<'_>,
     workspace: WorkspaceId,
     user: ActorId,
-) -> Result<(), Error> {
-    sqlx::query!(
+) -> Result<bool, Error> {
+    let added = sqlx::query!(
         "INSERT INTO workspace_owners (workspace_id, user_id) VALUES ($1, $2)
          ON CONFLICT DO NOTHING",
         workspace.to_db(),
@@ -36,7 +36,7 @@ pub(crate) async fn add_owner(
         }
         error => error.into(),
     })?;
-    Ok(())
+    Ok(added.rows_affected() == 1)
 }
 
 /// Takes a user out of the owners of a workspace. A user that is not an owner changes nothing.
@@ -44,15 +44,15 @@ pub(crate) async fn remove_owner(
     tx: &mut Tx<'_>,
     workspace: WorkspaceId,
     user: ActorId,
-) -> Result<(), Error> {
-    sqlx::query!(
+) -> Result<bool, Error> {
+    let removed = sqlx::query!(
         "DELETE FROM workspace_owners WHERE workspace_id = $1 AND user_id = $2",
         workspace.to_db(),
         user.to_db(),
     )
     .execute(&mut **tx)
     .await?;
-    Ok(())
+    Ok(removed.rows_affected() == 1)
 }
 
 /// Counts the owners of a workspace.

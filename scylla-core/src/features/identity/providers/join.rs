@@ -11,6 +11,7 @@ use super::store::{self, ProviderRow};
 use super::ExternalIdentity;
 use crate::features::identity::accounts::{self, mails, refused, AccountContext};
 use crate::features::identity::sessions::{self, Client, Opened};
+use crate::features::notifications::{self, kinds};
 use crate::features::tenancy::invitations::{self, Pick};
 use crate::{Error, SignUpMode};
 
@@ -167,6 +168,9 @@ pub(super) async fn link(
         None => {
             let email = identity.email.as_deref();
             store::link(&mut tx, provider.id, &identity.subject, user, email).await?;
+            let fact = kinds::about(kinds::IDENTITY_LINKED, user)
+                .param("provider", provider.display_name.clone());
+            notifications::emit(&mut tx, fact).await?;
             added = true;
         }
     }

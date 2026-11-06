@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM notifications WHERE id IN (\n             SELECT id FROM (\n                 SELECT id, row_number() OVER (\n                     PARTITION BY recipient_id\n                     ORDER BY (read_at IS NULL) DESC, last_at DESC, id DESC) AS place\n                 FROM notifications\n                 WHERE recipient_id IN (\n                     SELECT recipient_id FROM notifications\n                     GROUP BY recipient_id HAVING count(*) > $1)\n             ) AS ranked WHERE place > $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "476872609602cb400b2ca79c38d449ea8711676bac5d20d8e49985ea4c8da580"
+}

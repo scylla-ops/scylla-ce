@@ -12,6 +12,8 @@ use super::one_time::{self, Purpose};
 use super::{deletion, mails, password, refused, store, AccountContext};
 use crate::features::identity::providers::{self, IdentityInfo};
 use crate::features::identity::sessions;
+use crate::features::notifications::{self, kinds};
+use crate::features::tenancy::invitations;
 use crate::infra::logs::mask_email;
 use crate::Error;
 
@@ -57,6 +59,8 @@ pub(crate) async fn change_profile(
         }
         store::replace_email(&mut tx, user, email).await?;
         one_time::cancel_all(&mut tx, user).await?;
+        notifications::emit(&mut tx, kinds::about(kinds::EMAIL_CHANGED, user)).await?;
+        invitations::announce_open(&mut tx, user, email.as_str()).await?;
     }
     let changed = store::find_user(&mut tx, user).await?;
     tx.commit().await?;
@@ -69,19 +73,29 @@ pub(crate) async fn change_profile(
 /// Changes a password. It needs the current password if the user has one, and closes the
 /// sessions of the user, except one if it is given.
 pub(crate) async fn change_password(
-    pool: &PgPool,
+    ctx: &AccountContext,
     user: ActorId,
     keep: Option<SessionId>,
     current: String,
     new: Password,
 ) -> Result<(), Error> {
-    let mut tx = pool.begin().await?;
+    let mut tx = ctx.pool.begin().await?;
     check_password(&mut tx, user, current, "current_password").await?;
     let hash = password::hash(new.as_str().to_owned()).await?;
     store::set_password(&mut tx, user, &hash).await?;
     sessions::revoke_all(&mut tx, user, keep).await?;
+    notifications::emit(&mut tx, kinds::about(kinds::PASSWORD_CHANGED, user)).await?;
+    let to = store::find_user(&mut tx, user)
+        .await?
+        .and_then(|user| user.email);
     tx.commit().await?;
     tracing::info!(event = "password.changed", %user, via = "profile");
+
+    // Tell the owner. A mail that fails does not stop the change.
+    if let Some(to) = to {
+        let mail = mails::password_changed(ctx, &to);
+        mails::send(ctx, "password-changed", mail).await;
+    }
     Ok(())
 }
 
@@ -123,6 +137,8 @@ pub(crate) async fn unlink_identity(
     let to = store::find_user(&mut tx, user)
         .await?
         .and_then(|user| user.email);
+    let fact = kinds::about(kinds::IDENTITY_UNLINKED, user).param("provider", name.clone());
+    notifications::emit(&mut tx, fact).await?;
     tx.commit().await?;
     tracing::info!(event = "account.identity_unlinked", %user, provider);
 
@@ -220,6 +236,8 @@ pub(crate) async fn confirm_email_change(
     // Replace the email, stop the other links, then tell the old email.
     store::replace_email(&mut tx, user, &new).await?;
     one_time::cancel_all(&mut tx, user).await?;
+    notifications::emit(&mut tx, kinds::about(kinds::EMAIL_CHANGED, user)).await?;
+    invitations::announce_open(&mut tx, user, new.as_str()).await?;
     let changed = store::find_user(&mut tx, user).await?;
     tx.commit().await?;
     tracing::info!(event = "email.changed", %user, email = mask_email(new.as_str()));

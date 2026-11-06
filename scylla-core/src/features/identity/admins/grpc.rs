@@ -189,10 +189,11 @@ impl UserAdminService for UserAdminGrpc {
         &self,
         request: Request<pb::GrantInstanceAdminRequest>,
     ) -> Answer<pb::GrantInstanceAdminResponse> {
-        self.admin(&request, UserAdminHolder::GRANT_INSTANCE_ADMIN)
+        let caller = self
+            .admin(&request, UserAdminHolder::GRANT_INSTANCE_ADMIN)
             .await?;
         let user = user_id(request.into_inner().user_id)?;
-        service::grant(&self.ctx.pool, user).await?;
+        service::grant(&self.ctx.pool, user, Some(caller)).await?;
         Ok(Response::new(pb::GrantInstanceAdminResponse {}))
     }
 
@@ -200,10 +201,11 @@ impl UserAdminService for UserAdminGrpc {
         &self,
         request: Request<pb::RevokeInstanceAdminRequest>,
     ) -> Answer<pb::RevokeInstanceAdminResponse> {
-        self.admin(&request, UserAdminHolder::REVOKE_INSTANCE_ADMIN)
+        let caller = self
+            .admin(&request, UserAdminHolder::REVOKE_INSTANCE_ADMIN)
             .await?;
         let user = user_id(request.into_inner().user_id)?;
-        service::revoke(&self.ctx.pool, user).await?;
+        service::revoke(&self.ctx.pool, user, Some(caller)).await?;
         Ok(Response::new(pb::RevokeInstanceAdminResponse {}))
     }
 }

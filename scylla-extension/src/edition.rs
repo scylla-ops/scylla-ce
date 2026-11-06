@@ -10,7 +10,10 @@ use sqlx::PgPool;
 use tonic::service::RoutesBuilder;
 
 use crate::grants::{AccessRoutes, FindWorkspace, Grants};
-use crate::{AfterDelete, BeforeCreate, Gate, Hooks};
+use crate::{
+    AfterDelete, BeforeCreate, Gate, Hooks, NotificationKind, NotificationKinds, Notifier,
+    ServiceContext,
+};
 
 /// A function that adds the gRPC services of one plugin.
 type AddServices = Box<dyn Fn(&mut RoutesBuilder, &ServiceContext<'_>) + Send + Sync>;
@@ -31,9 +34,11 @@ pub struct Edition {
     /// The permission model: the definitions of the plugins, with their extensions.
     authz: Schema,
     /// The roles that `AccessService` can give.
-    grants: Arc<Grants>,
+    pub(crate) grants: Arc<Grants>,
     /// The hooks of each event and kind.
     hooks: Arc<Hooks>,
+    /// The kinds of notifications.
+    notification_kinds: Arc<NotificationKinds>,
     /// The functions that add the gRPC services.
     services: Vec<AddServices>,
     /// The encoded descriptor sets of the protos of the edition, for the JSON gateway.
@@ -52,11 +57,13 @@ impl Edition {
                 authz: Schema::default(),
                 grants: Arc::default(),
                 hooks: Arc::new(Hooks::default()),
+                notification_kinds: Arc::default(),
                 services: Vec::new(),
                 descriptors: Vec::new(),
             },
             grants: Grants::default(),
             hooks: Hooks::default(),
+            notification_kinds: NotificationKinds::default(),
         }
     }
 
@@ -105,63 +112,28 @@ impl Edition {
         Arc::clone(&self.hooks)
     }
 
-    /// Adds the gRPC services of each plugin, with the pool and the gate.
-    pub fn add_services(&self, routes: &mut RoutesBuilder, pool: &PgPool, gate: &Arc<dyn Gate>) {
+    /// Returns the kinds of notifications.
+    pub fn notification_kinds(&self) -> Arc<NotificationKinds> {
+        Arc::clone(&self.notification_kinds)
+    }
+
+    /// Adds the gRPC services of each plugin, with the pool, the gate and the notifier.
+    pub fn add_services(
+        &self,
+        routes: &mut RoutesBuilder,
+        pool: &PgPool,
+        gate: &Arc<dyn Gate>,
+        notifier: &Arc<dyn Notifier>,
+    ) {
         let ctx = ServiceContext {
             pool,
             gate,
+            notifier,
             edition: self,
         };
         for add in &self.services {
             add(routes, &ctx);
         }
-    }
-}
-
-/// What a plugin gets when it adds its gRPC services.
-pub struct ServiceContext<'a> {
-    /// The database pool.
-    pool: &'a PgPool,
-    /// The access gate of the server.
-    gate: &'a Arc<dyn Gate>,
-    /// The edition that runs.
-    edition: &'a Edition,
-}
-
-impl ServiceContext<'_> {
-    /// Returns a handle to the database pool.
-    pub fn pool(&self) -> PgPool {
-        self.pool.clone()
-    }
-
-    /// Returns the access gate of the server.
-    pub fn gate(&self) -> Arc<dyn Gate> {
-        Arc::clone(self.gate)
-    }
-
-    /// Returns the hooks of the edition.
-    pub fn hooks(&self) -> Arc<Hooks> {
-        self.edition.hooks()
-    }
-
-    /// Returns the roles that `AccessService` can give.
-    pub fn grants(&self) -> Arc<Grants> {
-        Arc::clone(&self.edition.grants)
-    }
-
-    /// Returns the permission model of the edition: each definition and its permissions.
-    pub fn authz_model(&self) -> &Schema {
-        self.edition.authz_model()
-    }
-
-    /// Returns the name of the edition.
-    pub fn edition_name(&self) -> &'static str {
-        self.edition.name()
-    }
-
-    /// Returns the optional features of the edition.
-    pub fn capabilities(&self) -> &[&'static str] {
-        self.edition.capabilities()
     }
 }
 
@@ -179,6 +151,8 @@ pub struct EditionBuilder {
     grants: Grants,
     /// The hooks, mutable until `build`.
     hooks: Hooks,
+    /// The kinds of notifications, mutable until `build`.
+    notification_kinds: NotificationKinds,
 }
 
 impl EditionBuilder {
@@ -257,6 +231,20 @@ impl EditionBuilder {
         self
     }
 
+    /// Adds a kind of notification.
+    ///
+    /// # Panics
+    ///
+    /// If the key is not `<subject>.<action>`, or has a kind already. Each start of the edition
+    /// finds it.
+    pub fn notification_kind(mut self, kind: NotificationKind) -> Self {
+        let key = kind.key;
+        if !self.notification_kinds.add(kind) {
+            panic!("notifications: `{key}` cannot be added");
+        }
+        self
+    }
+
     /// Adds a function that adds gRPC services at start. Service names must be unique.
     pub fn service<F>(mut self, add: F) -> Self
     where
@@ -281,6 +269,7 @@ impl EditionBuilder {
     pub fn build(mut self) -> Edition {
         self.edition.grants = Arc::new(self.grants);
         self.edition.hooks = Arc::new(self.hooks);
+        self.edition.notification_kinds = Arc::new(self.notification_kinds);
         self.edition
     }
 }

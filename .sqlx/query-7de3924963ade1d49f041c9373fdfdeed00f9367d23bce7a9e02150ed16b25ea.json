@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications AS row\n         SET closed_at = NULL, needs_action = true, read_at = NULL, done_at = NULL,\n             last_at = now()\n         WHERE row.kind = $1 AND row.subject_kind = $2 AND row.subject_id = $3\n           AND (row.closed_at IS NOT NULL OR row.done_at IS NOT NULL)\n           AND NOT EXISTS (\n               SELECT 1 FROM notifications AS open\n               WHERE open.recipient_id = row.recipient_id AND open.group_key = row.group_key\n                 AND open.closed_at IS NULL AND open.id <> row.id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7de3924963ade1d49f041c9373fdfdeed00f9367d23bce7a9e02150ed16b25ea"
+}

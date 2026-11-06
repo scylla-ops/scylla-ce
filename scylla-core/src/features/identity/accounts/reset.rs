@@ -8,6 +8,8 @@ use tracing::Instrument;
 use super::one_time::{self, Purpose};
 use super::{mails, password, store, AccountContext};
 use crate::features::identity::sessions;
+use crate::features::notifications::{self, kinds};
+use crate::features::tenancy::invitations;
 use crate::infra::logs::mask_email;
 use crate::Error;
 
@@ -100,7 +102,12 @@ pub(super) async fn reset_password(
     store::set_password(&mut tx, redeemed.user, &hash).await?;
     store::verify_email(&mut tx, redeemed.user, &redeemed.email).await?;
     sessions::revoke_all(&mut tx, redeemed.user, None).await?;
+    let fact = kinds::about(kinds::PASSWORD_CHANGED, redeemed.user);
+    notifications::emit(&mut tx, fact).await?;
+    invitations::announce_open(&mut tx, redeemed.user, &redeemed.email).await?;
     tx.commit().await?;
     tracing::info!(event = "password.changed", user = %redeemed.user, via = "reset");
+    let mail = mails::password_changed(ctx, &redeemed.email);
+    mails::send(ctx, "password-changed", mail).await;
     Ok(())
 }

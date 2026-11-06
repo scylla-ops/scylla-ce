@@ -95,8 +95,8 @@ impl ProfileService for ProfileGrpc {
         let (caller, user) = self.user(&request, AccountCaller::CHANGE_PASSWORD).await?;
         let request = request.into_inner();
         let new = parse::field(request.new_password, "new_password")?;
-        let (pool, keep) = (&self.ctx.pool, caller.session());
-        manage::change_password(pool, user, keep, request.current_password, new).await?;
+        let keep = caller.session();
+        manage::change_password(&self.ctx, user, keep, request.current_password, new).await?;
         Ok(Response::new(pb::ChangePasswordResponse {}))
     }
 

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notification_events SET attempts = attempts + 1, next_attempt_at = $2\n         WHERE id = $1 AND dispatched_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9328ad3bd88cd637fa6bce269e7b40d69fee7bf230698ff8f77e50cc6a7e5fc4"
+}

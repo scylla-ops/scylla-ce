@@ -1,6 +1,7 @@
 //! The gRPC API tests of the Community edition: one binary, one module per subject.
 
 mod identity;
+mod notifications;
 mod platform;
 mod projects;
 mod tenancy;

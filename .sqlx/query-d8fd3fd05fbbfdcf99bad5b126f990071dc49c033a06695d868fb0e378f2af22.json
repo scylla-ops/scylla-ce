@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notifications (id, recipient_id, kind, reason, group_key, workspace_id)\n         VALUES ($1, $2, 'invitation.accepted', 'inviter', 'g', $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d8fd3fd05fbbfdcf99bad5b126f990071dc49c033a06695d868fb0e378f2af22"
+}

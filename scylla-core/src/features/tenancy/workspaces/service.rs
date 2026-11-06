@@ -13,6 +13,7 @@ use scylla_extension::{CreateContext, Gate, Hooks, Rejection, Tx, WorkspaceFutur
 use sqlx::PgPool;
 
 use super::store;
+use crate::features::notifications::{self, kinds};
 use crate::features::platform::settings;
 use crate::Error;
 
@@ -145,8 +146,14 @@ pub(crate) async fn give_owner(
 ) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     let hook = CreateContext::new(MEMBER_KIND, actor, workspace).with_member(user, None, OWNER);
+    let by = hook.actor.id;
     hooks.before_create(&mut tx, &hook).await?;
-    store::add_owner(&mut tx, workspace, user).await?;
+    if store::add_owner(&mut tx, workspace, user).await? {
+        let fact = kinds::about(kinds::OWNER_ADDED, user)
+            .actor(by)
+            .workspace(workspace);
+        notifications::emit(&mut tx, fact).await?;
+    }
     tx.commit().await?;
     Ok(())
 }
@@ -164,6 +171,7 @@ pub(crate) async fn take_owner(
     pool: &PgPool,
     workspace: WorkspaceId,
     user: ActorId,
+    by: ActorId,
 ) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
 
@@ -173,10 +181,16 @@ pub(crate) async fn take_owner(
     }
 
     // Remove the owner, then refuse if no owner stays: the drop of the transaction rolls back.
-    store::remove_owner(&mut tx, workspace, user).await?;
+    let removed = store::remove_owner(&mut tx, workspace, user).await?;
     if store::count_owners(&mut tx, workspace).await? == 0 {
         let message = "a workspace keeps one owner or more";
         return Err(Error::Rejected(Rejection::new("LAST_OWNER", message)));
+    }
+    if removed {
+        let fact = kinds::about(kinds::OWNER_REMOVED, user)
+            .actor(by)
+            .workspace(workspace);
+        notifications::emit(&mut tx, fact).await?;
     }
     tx.commit().await?;
     Ok(())

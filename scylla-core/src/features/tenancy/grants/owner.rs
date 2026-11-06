@@ -55,7 +55,7 @@ impl GrantsGrpc {
         let check = kind.revoke(id).ok_or_else(not_an_id)?;
         let actor: ActorId = parse::required(actor_id, "actor_id")?;
         let workspace = self.check_changes_owners(&caller, kind, id, check).await?;
-        workspaces::take_owner(&self.pool, workspace, actor).await?;
+        workspaces::take_owner(&self.pool, workspace, actor, caller.actor.id).await?;
         let object = format!("{}:{id}", Workspace::NAME);
         let member = (actor, object.clone(), OWNER);
         let by = caller.actor;

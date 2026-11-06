@@ -6,7 +6,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use scylla_extension::{Edition, Gate, Mailer};
+use scylla_extension::{Edition, Gate, Mailer, Notifier};
 use sqlx::PgPool;
 use tokio::net::TcpListener;
 use tonic::service::{Routes, RoutesBuilder};
@@ -22,6 +22,7 @@ use crate::features::identity::agents::{self, Registry};
 use crate::features::identity::providers::{self, Providers};
 use crate::features::identity::tokens;
 use crate::features::identity::{admins, apps, personal_tokens};
+use crate::features::notifications::{self, PgNotifier};
 use crate::features::platform::settings;
 use crate::features::projects::jobs::{self, housekeeping};
 use crate::features::projects::triggers::webhook::{self, Webhooks};
@@ -51,6 +52,8 @@ pub struct ServeOptions {
     pub sealer: Option<Arc<Sealer>>,
     /// The time that the server keeps the logs of the jobs.
     pub log_retention: Duration,
+    /// The time that the server keeps a notification after its last fact.
+    pub notification_retention: Duration,
     /// The folder of the built web app, if the server serves it.
     pub web_dir: Option<std::path::PathBuf>,
     /// The folder of the downloads of the agent, for the install scripts.
@@ -75,6 +78,7 @@ impl Default for ServeOptions {
             mailer: Arc::new(LogMailer),
             sealer: None,
             log_retention: Duration::from_secs(30 * 24 * 60 * 60),
+            notification_retention: Duration::from_secs(90 * 24 * 60 * 60),
             web_dir: None,
             agent_downloads: crate::config::AGENT_DOWNLOADS.to_owned(),
         }
@@ -126,6 +130,7 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
         mailer,
         sealer,
         log_retention: config.log_retention,
+        notification_retention: config.notification_retention,
         web_dir: config.web_dir.clone(),
         agent_downloads: config.agent_downloads_url.trim_end_matches('/').to_owned(),
     };
@@ -183,7 +188,7 @@ pub async fn serve(
     routes.add_service(accounts::account_server(ctx.clone()));
     routes.add_service(accounts::profile_server(ctx.clone()));
     routes.add_service(admins::server(ctx.clone()));
-    routes.add_service(personal_tokens::server(pool.clone(), Arc::clone(&gate)));
+    routes.add_service(personal_tokens::server(ctx.clone()));
     routes.add_service(settings::server(pool.clone(), Arc::clone(&gate)));
     routes.add_service(invitations::server(ctx));
     routes.add_service(secrets::server(
@@ -222,7 +227,14 @@ pub async fn serve(
         sealer: sealer(),
         rates: Arc::default(),
     };
-    edition.add_services(&mut routes, &pool, &gate);
+    let notifier: Arc<dyn Notifier> = Arc::new(PgNotifier { pool: pool.clone() });
+    edition.add_services(&mut routes, &pool, &gate, &notifier);
+    let notifications = notifications::spawn(
+        pool.clone(),
+        Arc::clone(&gate),
+        edition.notification_kinds(),
+        options.notification_retention,
+    );
 
     // Log the calls inside gRPC-Web, then add the browser routes and the JSON gateway.
     let grpc = routes
@@ -265,5 +277,6 @@ pub async fn serve(
         .await?;
     housekeeping.abort();
     schedules.abort();
+    notifications.abort();
     Ok(())
 }

@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT params::text AS \"params!\" FROM notifications\n           UNION ALL SELECT params::text AS \"params!\" FROM notification_events",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "params!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "cdb42d5686ec173580e51de9aea915fee1a10c4903082a256830b05666f9c390"
+}

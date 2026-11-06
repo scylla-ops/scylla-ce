@@ -138,5 +138,8 @@ crate::authz! {
         /// The route `AcceptInvitation` of `InvitationService`: a user accepts an invitation for
         /// its email.
         permission accept_invitation = nil;
+        /// The route `DeclineInvitation` of `InvitationService`: a user declines an invitation
+        /// for its email.
+        permission decline_invitation = nil;
     }
 }

@@ -135,7 +135,7 @@ impl TokenService for TokensGrpc {
         // Read the refresh token, then rotate it.
         let ctx = self.ctx();
         let (refresh, from_cookie) = refresh_token(ctx, request.metadata(), request.get_ref())?;
-        let (user, opened) = sessions::refresh(&ctx.pool, &refresh).await?;
+        let (user, opened) = sessions::refresh(ctx, &refresh).await?;
 
         // Sign a token in the session, and give the new refresh token back the same way.
         let actor = Actor {

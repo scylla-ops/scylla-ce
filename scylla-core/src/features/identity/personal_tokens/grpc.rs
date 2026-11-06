@@ -17,16 +17,18 @@ use tonic::{Request, Response, Status};
 
 use super::service;
 use crate::api::parse::{self, ToProto};
+use crate::features::identity::accounts::AccountContext;
 use crate::features::identity::api_tokens;
 use crate::features::tenancy::workspaces;
 use crate::Error;
 
 /// Makes the service.
-pub(crate) fn server(
-    pool: PgPool,
-    gate: Arc<dyn Gate>,
-) -> PersonalTokenServiceServer<PersonalTokensGrpc> {
-    PersonalTokenServiceServer::new(PersonalTokensGrpc { pool, gate })
+pub(crate) fn server(ctx: AccountContext) -> PersonalTokenServiceServer<PersonalTokensGrpc> {
+    PersonalTokenServiceServer::new(PersonalTokensGrpc {
+        pool: ctx.pool.clone(),
+        gate: Arc::clone(&ctx.gate),
+        ctx,
+    })
 }
 
 /// The handler.
@@ -35,6 +37,8 @@ pub(crate) struct PersonalTokensGrpc {
     pool: PgPool,
     /// The access gate.
     gate: Arc<dyn Gate>,
+    /// What the account routes share, for the mails.
+    ctx: AccountContext,
 }
 
 #[tonic::async_trait]
@@ -76,7 +80,7 @@ impl PersonalTokensGrpc {
         let expiry = api_tokens::expiry(request.expiry)?;
         let limits = api_tokens::limits(request.limits)?;
         let user = caller.actor.id;
-        let (token, secret) = service::create(&self.pool, user, &name, expiry, &limits).await?;
+        let (token, secret) = service::create(&self.ctx, user, &name, expiry, &limits).await?;
         Ok(pb::CreatePersonalTokenResponse {
             token: Some(token.to_proto()),
             secret,

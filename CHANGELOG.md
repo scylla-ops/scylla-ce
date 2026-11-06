@@ -40,6 +40,21 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - TLS in the server, a health service, and a stop that ends the running requests.
 - The server refuses a public dev key on an address that other machines can reach.
 
+**Notifications**
+
+- An inbox for each person: `NotificationService`, with a count, a list, read, unread, done and mark
+  all as read. The routes act on the caller, for a session of a user only.
+- A person gets a row for an invitation, a change of a role, an owner or an instance admin, and for
+  a change of the account. A row holds a kind and its parameters, so a client shows it in the
+  language of the reader. Rows go after `SCYLLA_NOTIFICATION_RETENTION_DAYS` (90), and one person
+  keeps at most 1,000.
+- `AcceptInvitation` takes the id of the invitation, for a user with its verified email, and
+  `DeclineInvitation` tells the person that sent the invitation.
+- New mails: a changed password, a closed session after a second use of a refresh token, a locked
+  account (at most one for each hour), and a new personal token.
+- An edition adds kinds with `EditionBuilder::notification_kind`, and records a fact with
+  `ServiceContext::notifier`.
+
 **Access**
 
 - Zero-trust access: Biscuit tokens and SpiceDB permissions, with one permission for each route and

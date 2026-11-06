@@ -3,12 +3,13 @@
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::users::{NewUser, User, UserStatus};
-use scylla_extension::Tx;
+use scylla_extension::{Event, Tx};
 use sqlx::PgPool;
 
 use super::store;
 use crate::features::identity::accounts::{self, refused, AccountContext};
 use crate::features::identity::sessions;
+use crate::features::notifications::{self, kinds};
 use crate::Error;
 
 /// Refuses a change that takes the user out of the active instance admins when no other
@@ -26,11 +27,13 @@ pub(crate) async fn keep_an_admin(tx: &mut Tx<'_>, user: ActorId) -> Result<(), 
     Ok(())
 }
 
-/// Makes a user an instance admin. An admin stays an admin. An unknown user gives
-/// `NotFound("user")`.
-pub async fn grant(pool: &PgPool, user: ActorId) -> Result<(), Error> {
+/// Makes a user an instance admin, and records the fact with the actor that did it, if there is
+/// one. An admin stays an admin. An unknown user gives `NotFound("user")`.
+pub async fn grant(pool: &PgPool, user: ActorId, by: Option<ActorId>) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
-    store::grant(&mut tx, user).await?;
+    if store::grant(&mut tx, user).await? {
+        notifications::emit(&mut tx, admin_fact(kinds::ADMIN_GRANTED, user, by)).await?;
+    }
     tx.commit().await?;
     tracing::info!(event = "admin.granted", %user);
     Ok(())
@@ -38,17 +41,30 @@ pub async fn grant(pool: &PgPool, user: ActorId) -> Result<(), Error> {
 
 /// Makes a user an instance admin in the transaction of the caller.
 pub(crate) async fn grant_in(tx: &mut Tx<'_>, user: ActorId) -> Result<(), Error> {
-    store::grant(tx, user).await
+    store::grant(tx, user).await?;
+    Ok(())
 }
 
-/// Takes the instance admin right from a user. The last active admin stays.
-pub async fn revoke(pool: &PgPool, user: ActorId) -> Result<(), Error> {
+/// Takes the instance admin right from a user, and records the fact with the actor that did it,
+/// if there is one. The last active admin stays.
+pub async fn revoke(pool: &PgPool, user: ActorId, by: Option<ActorId>) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     keep_an_admin(&mut tx, user).await?;
-    store::revoke(&mut tx, user).await?;
+    if store::revoke(&mut tx, user).await? {
+        notifications::emit(&mut tx, admin_fact(kinds::ADMIN_REVOKED, user, by)).await?;
+    }
     tx.commit().await?;
     tracing::info!(event = "admin.revoked", %user);
     Ok(())
+}
+
+/// Makes the fact of a change of the instance admins.
+fn admin_fact(kind: &str, user: ActorId, by: Option<ActorId>) -> Event {
+    let fact = kinds::about(kind, user);
+    match by {
+        Some(by) => fact.actor(by),
+        None => fact,
+    }
 }
 
 /// Creates an active user with a verified email, and returns it.

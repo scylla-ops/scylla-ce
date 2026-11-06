@@ -155,6 +155,7 @@ impl GrantsGrpc {
             (&name, &id),
             actor,
             by,
+            workspace,
         )
         .await?;
         tracing::info!(event = "role.granted", role, object, grantee = %actor);
@@ -190,7 +191,18 @@ impl GrantsGrpc {
         let (check, workspace) = self.within(&caller, kind, &id, check).await?;
         self.gate.authorize(&caller, check).await?;
         let given = self.resolve(given, &name, workspace).await?;
-        give::erase(&self.pool, self.gate.as_ref(), given, (&name, &id), actor).await?;
+        let by = caller.actor.id;
+        let target = (name.as_str(), id.as_str());
+        give::erase(
+            &self.pool,
+            self.gate.as_ref(),
+            given,
+            target,
+            actor,
+            by,
+            workspace,
+        )
+        .await?;
         let object = format!("{name}:{id}");
         let member = (actor, object.clone(), role.as_str());
         let by = caller.actor;

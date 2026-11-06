@@ -14,14 +14,15 @@ use super::service::{check_escalation, owner};
 use super::store;
 use crate::features::identity::accounts::refused;
 use crate::features::identity::{actors, admins};
+use crate::features::notifications::{self, kinds};
 use crate::Error;
 
 /// A role of the platform level, by its name in `Grant`.
 enum PlatformRole {
     /// The role of the instance admins.
     Admins,
-    /// A custom role, with its permissions.
-    Row(RoleId, Vec<&'static str>),
+    /// A custom role, with its name and its permissions.
+    Row(RoleId, String, Vec<&'static str>),
 }
 
 /// Finds a role of the platform level by its name in `Grant`. Another name is a request error.
@@ -40,7 +41,7 @@ async fn platform_role(pool: &PgPool, name: &str) -> Result<PlatformRole, Error>
         .iter()
         .filter_map(|id| catalog::find(id).map(|(_, permission)| permission.id))
         .collect();
-    Ok(PlatformRole::Row(row.id, permissions))
+    Ok(PlatformRole::Row(row.id, row.name, permissions))
 }
 
 /// Refuses a change of a role of the platform level that the caller cannot give.
@@ -64,7 +65,7 @@ async fn check_can_give(
                 "only an instance admin gives this role",
             ))
         }
-        PlatformRole::Row(_, permissions) => {
+        PlatformRole::Row(_, _, permissions) => {
             check_escalation(gate, caller, &platform, None, permissions).await
         }
     }
@@ -89,12 +90,15 @@ pub(crate) async fn give_on_platform(
     }
     check_can_give(gate, caller, &role).await?;
 
-    // Write the role where it lives.
+    // Write the role where it lives, and record the fact.
+    let by = caller.actor.id;
     match role {
-        PlatformRole::Admins => admins::grant(pool, actor).await?,
-        PlatformRole::Row(id, _) => {
+        PlatformRole::Admins => admins::grant(pool, actor, Some(by)).await?,
+        PlatformRole::Row(id, role_name, _) => {
             let mut tx = pool.begin().await?;
-            store::grant_on_platform(&mut tx, actor, id, caller.actor.id).await?;
+            store::grant_on_platform(&mut tx, actor, id, by).await?;
+            let fact = kinds::instance_role_change(true, &role_name, actor, by);
+            notifications::emit(&mut tx, fact).await?;
             tx.commit().await?;
         }
     }
@@ -112,11 +116,14 @@ pub(crate) async fn take_back_on_platform(
 ) -> Result<(), Error> {
     let role = platform_role(pool, name).await?;
     check_can_give(gate, caller, &role).await?;
+    let by = caller.actor.id;
     match role {
-        PlatformRole::Admins => admins::revoke(pool, actor).await?,
-        PlatformRole::Row(id, _) => {
+        PlatformRole::Admins => admins::revoke(pool, actor, Some(by)).await?,
+        PlatformRole::Row(id, role_name, _) => {
             let mut tx = pool.begin().await?;
             store::revoke_on_platform(&mut tx, actor, id).await?;
+            let fact = kinds::instance_role_change(false, &role_name, actor, by);
+            notifications::emit(&mut tx, fact).await?;
             tx.commit().await?;
         }
     }

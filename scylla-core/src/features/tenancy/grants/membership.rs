@@ -14,6 +14,7 @@ use sqlx::PgPool;
 use super::give::scope_id;
 use super::{held, service, store};
 use crate::features::identity::actors;
+use crate::features::notifications::{self, kinds};
 use crate::features::tenancy::roles;
 use crate::Error;
 
@@ -97,10 +98,15 @@ pub(crate) async fn end_membership(
     for role in on_workspace {
         let id = role.scope.id.as_str();
         let scope = (Project::NAME, scope_id(id)?);
+        let fact = |name: &str| {
+            let object = (Project::NAME, id);
+            kinds::role_change(kinds::ROLE_REVOKED, name, object, workspace, actor, by.id)
+        };
         match RoleId::parse(&role.role) {
             Ok(row) => {
                 let mut tx = pool.begin().await?;
                 roles::store::revoke_row(&mut tx, actor, row, scope).await?;
+                notifications::emit(&mut tx, fact(&role.name)).await?;
                 tx.commit().await?;
             }
             Err(_) => {
@@ -109,6 +115,7 @@ pub(crate) async fn end_membership(
                 }
                 let mut tx = pool.begin().await?;
                 store::forget_relation(&mut tx, actor, scope, &role.role).await?;
+                notifications::emit(&mut tx, fact(&role.role)).await?;
                 tx.commit().await?;
             }
         }

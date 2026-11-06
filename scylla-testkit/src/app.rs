@@ -13,7 +13,7 @@ use scylla_domain::identity::actors::{ActorId, ActorKind};
 use scylla_domain::identity::users::{Email, NewUser, Password};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Name;
-use scylla_extension::{AccessError, Binding, Edition, Gate, Operation};
+use scylla_extension::{AccessError, Binding, Edition, Gate, NotificationKinds, Operation};
 use scylla_proto::projects::v1::project_service_client::ProjectServiceClient;
 use sqlx::PgPool;
 use tokio::net::TcpListener;
@@ -49,6 +49,8 @@ pub struct TestApp {
     pub mails: Arc<Mailbox>,
     /// The key of the secrets of the server, or `None` for a server with no key.
     pub sealer: Option<Arc<Sealer>>,
+    /// The kinds of notifications of the edition.
+    pub notification_kinds: Arc<NotificationKinds>,
 }
 
 impl TestApp {
@@ -103,6 +105,7 @@ impl TestApp {
 
         // Start the server on a free port, and connect to it.
         let access = Arc::new(access);
+        let notification_kinds = edition.notification_kinds();
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("local addr");
         options.accounts.api_url = format!("http://{addr}");
@@ -127,6 +130,7 @@ impl TestApp {
             channel,
             mails,
             sealer,
+            notification_kinds,
         }
     }
 

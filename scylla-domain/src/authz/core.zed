@@ -2,10 +2,16 @@ definition actor {
     permission create_workspace = nil
     permission list_workspaces = nil
     permission accept_invitation = nil
+    permission decline_invitation = nil
     permission open_stream = nil
     permission list_projects = nil
     permission check_permissions = nil
     permission list_held_permissions = nil
+    permission get_notification_summary = nil
+    permission list_notifications = nil
+    permission mark_notifications_read = nil
+    permission mark_all_notifications_read = nil
+    permission set_notifications_done = nil
 }
 
 definition workspace {

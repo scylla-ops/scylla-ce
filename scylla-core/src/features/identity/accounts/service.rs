@@ -95,6 +95,9 @@ pub(crate) async fn insert_user(
     if let Some(hash) = hash {
         store::set_password(tx, actor.id, hash).await?;
     }
+    if new.email_verified {
+        invitations::announce_open(tx, actor.id, new.email.as_str()).await?;
+    }
 
     // Give the user its personal workspace, with a slug from its handle or its name.
     let source = new
@@ -182,6 +185,7 @@ pub(super) async fn verify_email(ctx: &AccountContext, token: &str) -> Result<()
         .await?
         .ok_or_else(|| Error::invalid("token", "is not a valid link"))?;
     store::verify_email(&mut tx, redeemed.user, &redeemed.email).await?;
+    invitations::announce_open(&mut tx, redeemed.user, &redeemed.email).await?;
     tx.commit().await?;
     tracing::info!(event = "account.verified", user = %redeemed.user);
     Ok(())

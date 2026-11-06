@@ -10,6 +10,8 @@ use sqlx::PgPool;
 use time::OffsetDateTime;
 
 use super::{store, Client, SessionInfo};
+use crate::features::identity::accounts::{self, mails, AccountContext};
+use crate::features::notifications::{self, kinds};
 use crate::infra::secret;
 use crate::Error;
 
@@ -48,10 +50,13 @@ pub(crate) async fn open(
 
 /// Rotates the refresh token of a session, and returns the user and the new token. A refresh
 /// token that is used a second time closes its session: someone else has a copy of it.
-pub(crate) async fn refresh(pool: &PgPool, refresh: &str) -> Result<(ActorId, Opened), Error> {
+pub(crate) async fn refresh(
+    ctx: &AccountContext,
+    refresh: &str,
+) -> Result<(ActorId, Opened), Error> {
     // Read and lock the session of the token.
     let (session, secret) = parse(refresh)?;
-    let mut tx = pool.begin().await?;
+    let mut tx = ctx.pool.begin().await?;
     let row = store::lock(&mut tx, session).await?.ok_or_else(closed)?;
     if row.closed || row.status != UserStatus::Active {
         return Err(closed());
@@ -60,9 +65,15 @@ pub(crate) async fn refresh(pool: &PgPool, refresh: &str) -> Result<(ActorId, Op
     // Close the session if the secret is an old one.
     if secret::hash(secret) != row.refresh_hash {
         store::revoke(&mut tx, row.user, session).await?;
-        tx.commit().await?;
         let user = row.user;
+        notifications::emit(&mut tx, kinds::about(kinds::SESSION_REUSE, user)).await?;
+        let to = accounts::find_user(&mut tx, user).await?;
+        tx.commit().await?;
         tracing::warn!(event = "session.revoked", %user, %session, scope = "reuse");
+        if let Some(to) = to.and_then(|found| found.email) {
+            let mail = mails::session_reuse(ctx, &to);
+            mails::send(ctx, "session-reuse", mail).await;
+        }
         return Err(closed());
     }
 

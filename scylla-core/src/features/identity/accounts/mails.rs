@@ -118,6 +118,78 @@ pub(super) fn identity_unlinked(ctx: &AccountContext, to: &str, provider: &str) 
     .compose()
 }
 
+/// The mail to the owner of an account after a change of its password.
+pub(super) fn password_changed(ctx: &AccountContext, to: &str) -> Mail {
+    Letter {
+        to,
+        subject: "Your Scylla password changed".to_owned(),
+        intro: vec!["The password of your Scylla account changed.".to_owned()],
+        action: Some(("Open Scylla", ctx.settings.app_url.clone())),
+        outro: vec![
+            "If it was not you, ask for a password reset on the sign-in page, and tell an admin."
+                .to_owned(),
+        ],
+    }
+    .compose()
+}
+
+/// The mail to the owner of a session that closed because someone used an old refresh token.
+pub(crate) fn session_reuse(ctx: &AccountContext, to: &str) -> Mail {
+    Letter {
+        to,
+        subject: "A Scylla session of your account closed".to_owned(),
+        intro: vec![
+            "Someone used an old token of one of your Scylla sessions, so this session closed. A \
+             copy of this token can be in another place."
+                .to_owned(),
+        ],
+        action: Some(("Open Scylla", ctx.settings.app_url.clone())),
+        outro: vec![
+            "If you did not expect it, change your password, close your other sessions, and tell \
+             an admin."
+                .to_owned(),
+        ],
+    }
+    .compose()
+}
+
+/// The mail to the owner of an account that many failed passwords locked.
+pub(super) fn account_locked(ctx: &AccountContext, to: &str) -> Mail {
+    Letter {
+        to,
+        subject: "Your Scylla account is locked for a short time".to_owned(),
+        intro: vec![
+            "Too many sign-ins with a wrong password locked your Scylla account for a short time."
+                .to_owned(),
+        ],
+        action: Some(("Open Scylla", ctx.settings.app_url.clone())),
+        outro: vec![
+            "If it was not you, someone can know your email or your handle. Change your password \
+             when the lock ends, and tell an admin."
+                .to_owned(),
+        ],
+    }
+    .compose()
+}
+
+/// The mail to the owner of an account that got a new personal token.
+pub(crate) fn token_created(ctx: &AccountContext, to: &str, name: &str) -> Mail {
+    Letter {
+        to,
+        subject: format!("A new personal token on your Scylla account: {name}"),
+        intro: vec![format!(
+            "The personal token {name} can now act as your Scylla account."
+        )],
+        action: Some(("Open Scylla", ctx.settings.app_url.clone())),
+        outro: vec![
+            "If it was not you, sign in, revoke this token, change your password, and tell an \
+             admin."
+                .to_owned(),
+        ],
+    }
+    .compose()
+}
+
 /// The mail with the link of an invitation into a workspace.
 pub(crate) fn invitation(ctx: &AccountContext, to: &str, workspace: &str, token: &str) -> Mail {
     Letter {

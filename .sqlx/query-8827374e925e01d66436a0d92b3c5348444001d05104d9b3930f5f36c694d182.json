@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications\n         SET read_at = CASE WHEN $3 THEN COALESCE(read_at, now()) ELSE NULL END\n         WHERE recipient_id = $1 AND id = ANY($2)\n           AND NOT (needs_action AND closed_at IS NULL)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8827374e925e01d66436a0d92b3c5348444001d05104d9b3930f5f36c694d182"
+}
