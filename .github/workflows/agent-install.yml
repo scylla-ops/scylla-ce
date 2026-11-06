@@ -1,0 +1,168 @@
+# At each change of the agent or its scripts: the real path on a real machine for each system,
+# against a real server on the same machine: install, connected, a job with its log, update,
+# uninstall. The Linux job also runs both Docker commands.
+name: agent-install
+
+on:
+  push:
+    branches: [main, migration]
+    paths:
+      - scylla-agent/**
+      - scylla-core/src/features/identity/agents/**
+      - scripts/agent-install-*.sh
+      - docker/agent.Dockerfile
+      - .github/workflows/agent-install.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SQLX_OFFLINE: "true"
+  DATABASE_URL: postgres://scylla:scylla@127.0.0.1:5432/scylla
+  SCYLLA_SPICEDB_ENDPOINT: http://127.0.0.1:50051
+  SCYLLA_SPICEDB_KEY: test
+  SCYLLA_BIND_ADDR: 127.0.0.1:3000
+  SCYLLA_APP_URL: http://127.0.0.1:3000
+  # The command gives the address, so this one must not reach the agent.
+  SCYLLA_API_URL: http://127.0.0.1:9
+  SERVER: http://127.0.0.1:3000
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y mold clang jq postgresql-client
+      - run: cargo build --locked -p scylla-ce -p scylla-agent
+      - name: start the database and the permissions
+        run: |
+          docker run -d --name db -p 5432:5432 -e POSTGRES_USER=scylla -e POSTGRES_PASSWORD=scylla -e POSTGRES_DB=scylla postgres:18-alpine
+          docker run -d --name spicedb -p 50051:50051 authzed/spicedb:v1.57.0 serve-testing
+          until docker exec db pg_isready -U scylla -h 127.0.0.1; do sleep 1; done
+      - name: start the server
+        env:
+          SCYLLA_CE: target/debug/scylla-ce
+        run: scripts/agent-install-server.sh
+      - name: the service
+        env:
+          SCYLLA_CE: ${{ github.workspace }}/target/debug/scylla-ce
+          AGENT_BIN: ${{ github.workspace }}/target/debug/scylla-agent
+        run: scripts/agent-install-test.sh linux
+      - name: no service
+        env:
+          SCYLLA_CE: ${{ github.workspace }}/target/debug/scylla-ce
+          AGENT_BIN: ${{ github.workspace }}/target/debug/scylla-agent
+        run: scripts/agent-install-test.sh no-service
+      - name: the image
+        run: |
+          mkdir -p dist/linux-amd64
+          cp target/debug/scylla-agent dist/linux-amd64/
+          docker build -f docker/agent.Dockerfile --build-arg TARGETARCH=amd64 -t scylla-agent:test .
+      - name: docker
+        env:
+          SCYLLA_CE: ${{ github.workspace }}/target/debug/scylla-ce
+          AGENT_IMAGE: scylla-agent:test
+        run: scripts/agent-install-test.sh docker
+      - name: logs
+        if: always()
+        run: |
+          cat server.log | tail -n 100 || true
+          sudo journalctl -u scylla-agent --no-pager -n 100 || true
+          docker logs scylla-agent 2>&1 | tail -n 100 || true
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked -p scylla-ce -p scylla-agent
+      - name: start the database and the permissions
+        run: |
+          brew install postgresql@18
+          pg="$(brew --prefix postgresql@18)/bin"
+          echo "PSQL=$pg/psql" >> "$GITHUB_ENV"
+          "$pg/initdb" -D "$RUNNER_TEMP/db" -U scylla --auth=trust
+          "$pg/pg_ctl" -D "$RUNNER_TEMP/db" -o "-p 5432" -l "$RUNNER_TEMP/db.log" -w start
+          "$pg/createdb" -h 127.0.0.1 -U scylla scylla
+          curl -fsSL https://github.com/authzed/spicedb/releases/download/v1.57.0/spicedb_1.57.0_darwin_arm64.tar.gz | tar -xz -C "$RUNNER_TEMP" spicedb
+          nohup "$RUNNER_TEMP/spicedb" serve-testing > "$RUNNER_TEMP/spicedb.log" 2>&1 &
+      - name: start the server
+        env:
+          SCYLLA_CE: target/debug/scylla-ce
+        run: scripts/agent-install-server.sh
+      - name: the service
+        env:
+          SCYLLA_CE: ${{ github.workspace }}/target/debug/scylla-ce
+          AGENT_BIN: ${{ github.workspace }}/target/debug/scylla-agent
+        run: scripts/agent-install-test.sh macos
+      - name: no service
+        env:
+          SCYLLA_CE: ${{ github.workspace }}/target/debug/scylla-ce
+          AGENT_BIN: ${{ github.workspace }}/target/debug/scylla-agent
+        run: scripts/agent-install-test.sh no-service
+      - name: logs
+        if: always()
+        run: |
+          tail -n 100 server.log || true
+          tail -n 100 "$HOME/.scylla-agent/agent.log" || true
+
+  windows:
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked -p scylla-ce -p scylla-agent
+      - name: build the permissions server, which has no Windows release
+        run: |
+          git clone --depth 1 --branch v1.57.0 https://github.com/authzed/spicedb "$RUNNER_TEMP/spicedb-src"
+          cd "$RUNNER_TEMP/spicedb-src"
+          go build -o "$RUNNER_TEMP/spicedb.exe" ./cmd/spicedb
+      - name: start the database and the permissions
+        run: |
+          pg=$(cygpath -u "$PGBIN")
+          echo "PSQL=$pg/psql.exe" >> "$GITHUB_ENV"
+          "$pg/initdb.exe" -D "$RUNNER_TEMP/db" -U scylla --auth=trust
+          "$pg/pg_ctl.exe" -D "$RUNNER_TEMP/db" -o "-p 5432" -l "$RUNNER_TEMP/db.log" -w start
+          "$pg/createdb.exe" -h 127.0.0.1 -U scylla scylla
+          nohup "$RUNNER_TEMP/spicedb.exe" serve-testing > "$RUNNER_TEMP/spicedb.log" 2>&1 &
+      - name: start the server
+        env:
+          SCYLLA_CE: target/debug/scylla-ce.exe
+        run: scripts/agent-install-server.sh
+      - name: the service
+        env:
+          SCYLLA_CE: ${{ github.workspace }}/target/debug/scylla-ce.exe
+          AGENT_BIN: ${{ github.workspace }}/target/debug/scylla-agent.exe
+        run: scripts/agent-install-test.sh windows
+      - name: logs
+        if: always()
+        run: |
+          tail -n 100 server.log || true
+          tail -n 100 /c/ProgramData/scylla-agent/agent.*.log || true

@@ -1,5 +1,7 @@
 //! The command of an attempt: a process or a container, with a clean environment.
 
+use std::path::Path;
+
 use scylla_proto::agents::v1::{dispatch_node, DispatchNode};
 use scylla_proto::pipelines::v1::Shell;
 use tokio::process::Command;
@@ -9,6 +11,15 @@ use super::step::NodeContext;
 /// The variables of the agent that a Windows program needs to start.
 #[cfg(windows)]
 const SYSTEM: [&str; 6] = ["SystemRoot", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP"];
+
+/// The variables that tell the program of a container runtime where its daemon is. The program
+/// gets their values, and the container gets only the names of `base_names` and of the node.
+const RUNTIME: [&str; 4] = [
+    "DOCKER_HOST",
+    "DOCKER_CONFIG",
+    "CONTAINER_HOST",
+    "XDG_RUNTIME_DIR",
+];
 
 /// Makes the command of an attempt: a process in the work folder, or a container with the work
 /// folder in `/work`. The environment has only the base variables and the variables of the node.
@@ -88,7 +99,7 @@ fn base_names() -> Vec<&'static str> {
 
 /// Sets a clean environment: the path, a home in the work folder, the base variables of the
 /// job, then the variables of the node. On Windows, it keeps the system variables and puts the
-/// user profile in the work folder too.
+/// user profile in the work folder too. A container step also keeps the settings of its runtime.
 fn environment(command: &mut Command, context: &NodeContext, node: &DispatchNode) {
     command.env_clear();
     #[cfg(windows)]
@@ -112,7 +123,26 @@ fn environment(command: &mut Command, context: &NodeContext, node: &DispatchNode
         .env("SCYLLA_NODE_ID", &node.id)
         .env("SCYLLA_PIPELINE_ID", &context.pipeline)
         .env("SCYLLA_PROJECT_ID", &context.project);
+    if node.container.is_some() {
+        runtime_settings(command);
+    }
     for var in &node.env {
         command.env(&var.name, &var.value);
+    }
+}
+
+/// Keeps the settings of the container runtime of the agent. The home of the command is the work
+/// folder, so `DOCKER_CONFIG` shows the folder of the settings in the home of the agent.
+fn runtime_settings(command: &mut Command) {
+    for name in RUNTIME {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    if std::env::var_os("DOCKER_CONFIG").is_none() {
+        let settings = std::env::var_os("HOME").map(|home| Path::new(&home).join(".docker"));
+        if let Some(settings) = settings.filter(|folder| folder.is_dir()) {
+            command.env("DOCKER_CONFIG", settings);
+        }
     }
 }

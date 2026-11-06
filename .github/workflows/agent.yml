@@ -1,0 +1,70 @@
+# At each change of the agent: its lint and its unit tests on Linux, macOS and Windows, and its
+# tests against the real server on Linux.
+name: agent
+
+on:
+  push:
+    branches: [main, migration]
+    paths:
+      - scylla-agent/**
+      - scylla-core/src/features/identity/agents/**
+      - Cargo.lock
+      - .github/workflows/agent.yml
+  pull_request:
+    paths:
+      - scylla-agent/**
+      - scylla-core/src/features/identity/agents/**
+      - .github/workflows/agent.yml
+
+permissions:
+  contents: read
+
+env:
+  SQLX_OFFLINE: "true"
+
+jobs:
+  lint:
+    name: lint and unit tests ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+      - run: cargo clippy --locked -p scylla-agent --all-targets -- -D warnings
+      - run: cargo test --locked -p scylla-agent --lib --bins
+
+  server:
+    name: tests against the server
+    runs-on: ubuntu-24.04
+    env:
+      DATABASE_URL: postgres://scylla:scylla@127.0.0.1:5432/scylla
+      SCYLLA_TEST_SPICEDB_ENDPOINT: http://127.0.0.1:50051
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y mold clang
+      - name: start the database and the permissions
+        run: |
+          docker run -d --name db -p 5432:5432 -e POSTGRES_USER=scylla -e POSTGRES_PASSWORD=scylla -e POSTGRES_DB=scylla postgres:18-alpine postgres -c max_connections=500 -c fsync=off
+          docker run -d --name spicedb -p 50051:50051 authzed/spicedb:v1.57.0 serve-testing
+          until docker exec db pg_isready -U scylla -h 127.0.0.1; do sleep 1; done
+      - run: cargo test --locked -p scylla-agent

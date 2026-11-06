@@ -3,8 +3,10 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Stdio;
 
 use scylla_proto::agents::v1::{Dispatch, DispatchNode, EventKind};
+use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
@@ -47,6 +49,11 @@ pub(super) async fn run(
     events::send(outbox, &job, EventKind::JobStarted, Event::default()).await;
 
     // Run the nodes in the order of their needs.
+    let image = dispatch.nodes.iter().find_map(|node| {
+        node.container
+            .as_ref()
+            .map(|container| container.image.clone())
+    });
     let context = NodeContext {
         job: job.clone(),
         pipeline: dispatch.pipeline_id.map(|id| id.value).unwrap_or_default(),
@@ -71,7 +78,8 @@ pub(super) async fn run(
         }
     }
     if !settings.keep_workspace {
-        remove(dir).await;
+        let runtime = settings.container_runtime.as_deref();
+        remove(dir, runtime.zip(image.as_deref())).await;
     }
 }
 
@@ -158,8 +166,25 @@ async fn skip(context: &NodeContext, node: &str) {
     events::send(&context.outbox, &context.job, EventKind::NodeSkipped, event).await;
 }
 
-/// Deletes the work folder of a job. A failure goes to the log.
-async fn remove(dir: PathBuf) {
+/// Deletes the work folder of a job. A container can write files that this user cannot delete, so
+/// after a failure a container of the same image empties the folder. A failure goes to the log.
+async fn remove(dir: PathBuf, container: Option<(&str, &str)>) {
+    if tokio::fs::remove_dir_all(&dir).await.is_ok() {
+        return;
+    }
+    if let Some((runtime, image)) = container {
+        let mount = format!("{}:/work", dir.display());
+        let emptied = Command::new(runtime)
+            .args(["run", "--rm", "-v", &mount, "--entrypoint", "find", image])
+            .args(["/work", "-mindepth", "1", "-delete"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
+        if let Err(error) = emptied {
+            tracing::warn!(%error, "the container that empties a work folder did not start");
+        }
+    }
     if let Err(error) = tokio::fs::remove_dir_all(&dir).await {
         tracing::warn!(%error, dir = %dir.display(), "the work folder of a job stays");
     }

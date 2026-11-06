@@ -90,6 +90,17 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - `scylla-agent` keeps its files in `~/.scylla-agent` for a user that is not root. `--container-runtime`
   is `auto` by default: the agent looks for `docker`, then `podman`, in the `PATH` at each start, and
   `none` runs no container step. `SCYLLA_URL` alone no longer stops a start.
+- The install scripts take `--url`, and they join with a temporary file before any change on the
+  machine. They also take `--update`, `--uninstall`, `--binary` and `--force`. The same flags exist
+  in `install.ps1`.
+- The macOS agent is a LaunchAgent of the user, with no sudo. The Windows service has the account
+  `NT SERVICE\ScyllaAgent`, and it finds `sh` of Git for Windows.
+- The image has the fixed user id 10001 and the Docker CLI. It runs no container step unless
+  `SCYLLA_AGENT_CONTAINER_RUNTIME` is set.
+- A container step keeps the settings of the runtime of the agent, and a container empties a work
+  folder that the agent cannot delete. The agent trusts the roots of the system too.
+- The workflows `agent` and `agent-install` test the agent and its real install on Linux, macOS and
+  Windows.
 
 **Import**
 

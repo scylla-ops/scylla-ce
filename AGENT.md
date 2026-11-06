@@ -121,7 +121,7 @@ This project overrides the global "no comments" rule.
 - Each service, RPC, message and field has a comment (`just lint` of `scylla-protos`, category `COMMENTS`).
 - Each RPC has its own request and response messages.
 - A change of a proto is a change of `scylla-protos`: change the files there, run its `just lint`, commit and push there, then move the submodule `proto` to the new commit and commit the new pin with the code that uses it. A new file also goes in the list of `scylla-proto/build.rs`.
-- No compatibility code: no client of an old version exists. Remove a field or an RPC with no `reserved` line and no deprecated mark. The fields of a message have the numbers 1 to n, with no gap.
+- No compatibility code: no client of an old version exists. Remove a field or an RPC with no `reserved` line and no deprecated mark. The fields of a message have the numbers 1 to n, with no gap. One exception: `agents/v1`, `apps/v1` for the join, and `auth/v1` for the exchange. An agent on a machine does not update itself, so these stay additive for one minor version (decision 96).
 
 ## SQL
 

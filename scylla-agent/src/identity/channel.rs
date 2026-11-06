@@ -1,4 +1,5 @@
-//! The gRPC channel to the server, with TLS for an `https` URL.
+//! The gRPC channel to the server, with TLS for an `https` URL. The server can have a certificate
+//! from a public authority or from an authority of the system.
 
 use std::error::Error;
 
@@ -13,8 +14,14 @@ pub(crate) async fn connect(url: &str) -> Result<Channel, AgentError> {
     };
     let mut endpoint = Endpoint::from_shared(url.to_owned()).map_err(fail)?;
     if url.starts_with("https://") {
-        let tls = ClientTlsConfig::new().with_webpki_roots();
-        endpoint = endpoint.tls_config(tls).map_err(fail)?;
+        let public = ClientTlsConfig::new().with_webpki_roots();
+        endpoint = match endpoint
+            .clone()
+            .tls_config(public.clone().with_native_roots())
+        {
+            Ok(endpoint) => endpoint,
+            Err(_) => endpoint.tls_config(public).map_err(fail)?,
+        };
     }
     endpoint.connect().await.map_err(fail)
 }

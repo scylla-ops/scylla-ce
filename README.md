@@ -129,24 +129,56 @@ The dev setup has no identity provider: the tests use a fake one. To try a real 
 
 ## Run an agent
 
-An admin creates an App with `runner = true` (`AppService.CreateApp`) and gives it the role `runner` of the workspace, or of some projects (`AccessService.Grant`). The server gives an install script that downloads the agent, checks its SHA-256, joins the App, and starts the agent as a service:
+An admin creates an App with `runner = true` (`AppService.CreateApp`) and gives it the role `runner` of the workspace, or of some projects (`AccessService.Grant`). The server gives an install script. It downloads the agent, checks its SHA-256, joins the App with a temporary file, and only then changes the machine and starts a service. A bad code leaves the machine as it was. `--url` is the address of the server for this machine, and `SCYLLA_API_URL` is the default.
 
 ```sh
-# Linux (systemd, user scylla-agent) or macOS (launchd, user of the command)
-curl -fsSL https://scylla.example.com/install.sh | sh -s -- <join code> --capacity 2
+# Linux: systemd, user scylla-agent, /var/lib/scylla-agent. It asks for the sudo password.
+# macOS: a LaunchAgent of your user, ~/.scylla-agent, no sudo. It runs while you are signed in.
+curl -fsSL https://scylla.example.com/install.sh | sh -s -- <join code> --url https://scylla.example.com --capacity 2
 ```
 
 ```powershell
-# Windows, PowerShell as administrator: the service ScyllaAgent
-& ([scriptblock]::Create((irm https://scylla.example.com/install.ps1))) -JoinCode <join code> -Capacity 2
+# Windows, PowerShell as administrator: the service ScyllaAgent, with the account NT SERVICE\ScyllaAgent
+& ([scriptblock]::Create((irm https://scylla.example.com/install.ps1))) -JoinCode <join code> -Url https://scylla.example.com -Capacity 2
 ```
 
 ```sh
-# A container: the first start joins, the volume keeps the file of the agent
-docker run -d --name scylla-agent -e SCYLLA_URL=https://scylla.example.com -e SCYLLA_JOIN_CODE=<join code> -v scylla-agent:/var/lib/scylla-agent ghcr.io/scylla-ops/scylla-agent
+# Docker, shell steps only: the first start joins, the volume keeps the file of the agent
+docker run -d --name scylla-agent --restart unless-stopped -e SCYLLA_URL=https://scylla.example.com -e SCYLLA_JOIN_CODE=<join code> -v scylla-agent:/var/lib/scylla-agent ghcr.io/scylla-ops/scylla-agent:<version>
 ```
 
-The scripts take `--container-runtime` (`-ContainerRuntime`) and `--no-service` (`-NoService`), and download from the release of the version of the server, or from `SCYLLA_AGENT_DOWNLOADS_URL` (on the server, or on the machine for one install). The release workflow (`.github/workflows/release.yml`, at each tag `v*`) builds the archives, `SHA256SUMS` and the image. By hand, on the machine of the agent. The default folder is `~/.scylla-agent`, and `/var/lib/scylla-agent` for root:
+| Script option | What it does |
+|---|---|
+| `--url`, `-Url` | The address of the server for this machine. |
+| `--capacity`, `-Capacity` | The largest number of jobs at the same time. The default is 1. |
+| `--container-runtime`, `-ContainerRuntime` | `auto` (the default), `docker`, `podman`, or `none`. `auto` looks in the `PATH` at each start. |
+| `--no-service`, `-NoService` | No sudo and no service. All files are in `~/.scylla-agent`, and the script prints the command that runs the agent. |
+| `--binary`, `-Binary` | Uses this binary and downloads nothing, for a build from source. It warns when the version is not the version of the server. |
+| `--update`, `-Update` | Needs no code. Replaces the binary, starts the service again, and keeps the key. |
+| `--uninstall`, `-Uninstall` | Removes the service, the binary, the folder and the user. The key stays on the server until you revoke it or delete the agent. |
+| `--force`, `-Force` | Makes a new key on a machine that joined before. With no `--force`, the script stops before any change. |
+
+The agent does not update itself, and the server does not refuse an older agent. The page of the agent shows the two versions and the command.
+
+With Docker on Linux, the agent can also run container steps with the Docker of the host. The socket gives root rights on the host to each job, so use this only for pipelines that you trust. The folder has the same path on both sides, because the agent gives this path to the daemon:
+
+```sh
+sudo install -d -o 10001 -g 10001 -m 700 /var/lib/scylla-agent
+docker run -d --name scylla-agent --restart unless-stopped --group-add "$(stat -c %g /var/run/docker.sock)" -e SCYLLA_URL=https://scylla.example.com -e SCYLLA_JOIN_CODE=<join code> -e SCYLLA_AGENT_CONTAINER_RUNTIME=docker -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/scylla-agent:/var/lib/scylla-agent ghcr.io/scylla-ops/scylla-agent:<version>
+```
+
+For a server on the same machine as Docker Desktop, the address is `http://host.docker.internal:3000`. On Linux, use `--network host` with `http://127.0.0.1:3000`.
+
+An agent uses HTTP/2 and keeps one stream open. A reverse proxy in front of the server must send HTTP/2 to the server, and it needs a long read timeout. A certificate from a public authority or from an authority of the system works with no setting.
+
+To build the agent from source, with Rust and `protoc`:
+
+```sh
+cargo install --git https://github.com/scylla-ops/scylla-ce --tag v<version> --locked scylla-agent
+curl -fsSL https://scylla.example.com/install.sh | sh -s -- <join code> --url https://scylla.example.com --binary "$HOME/.cargo/bin/scylla-agent"
+```
+
+The scripts download from the release of the version of the server, or from `SCYLLA_AGENT_DOWNLOADS_URL` (on the server, or on the machine for one install). The image is `SCYLLA_AGENT_IMAGE` on the server, and the default is `ghcr.io/scylla-ops/scylla-agent:<version>`. The release workflow (`.github/workflows/release.yml`, at each tag `v*`) builds the archives, `SHA256SUMS` and the image. By hand, on the machine of the agent. The default folder is `~/.scylla-agent`, and `/var/lib/scylla-agent` for root:
 
 ```sh
 scylla-agent join https://scylla.example.com <join code>
@@ -222,6 +254,8 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Jobs: the cancel, the rerun, the delete, the lists newest first, who can call them | `scylla-ce/tests/api/projects/jobs.rs` |
 | Agent: the join, the order of the nodes, a script with a secret masked in the logs, a retry, the skip after a failure, a cancel that stops the process and its children and deletes the work folder, on Unix and Windows, the name of the machine on the key, the join at a first start | `scylla-agent/tests/agent.rs` |
 | Command line of the agent: a used code, a file that cannot be written, a file that exists and `--force`, a closed port, a start with the URL alone, a revoked key and its exit code, the search for the container runtime | `scylla-agent/tests/cli.rs` |
+| A container step of the agent: the settings of the runtime stay out of the job, and a container empties a work folder that the agent cannot delete | `scylla-agent/tests/containers.rs` |
+| The real path of an agent on a real machine for each system: install, connected, a job with its log, update, uninstall, both Docker commands | `.github/workflows/agent-install.yml`, `scripts/agent-install-test.sh` |
 | Import of the old product: its real schema, the users and their passwords, a disabled user, a user with no email, the workspaces and their owners, the roles, the project ids, the secrets sealed again, the pipelines and a pipeline with a cycle, a second import | `scylla-ce/tests/api/platform/import.rs` |
 | Web app: a file, a route of the web app gives `index.html`, the API on the same address, the files in the binary and a folder that comes first, the cache, the compression, an unknown gRPC call | `scylla-ce/tests/api/platform/web.rs` |
 | Triggers: the schedules, the inputs, a fire now as the runner, the signature of a webhook, a second delivery, a body with no value, a ping, a stopped trigger, the rate limit, the roles, the key of the secrets | `scylla-ce/tests/api/projects/triggers.rs` |
