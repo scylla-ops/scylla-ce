@@ -6,7 +6,7 @@ use super::{Operand, Test};
 use crate::projects::pipelines::{EnvValue, EnvVar, Node, Runtime, Step};
 use crate::DomainError;
 
-/// The size of a switch, its ports, and its fields are checked.
+/// The size of a switch, its ports (unique, and not `error`), and its fields are checked.
 #[test]
 fn a_bad_switch_is_refused() {
     // given
@@ -18,6 +18,11 @@ fn a_bad_switch_is_refused() {
     if let Step::Switch(switch) = &mut otherwise.step {
         switch.otherwise = Some(port("yes"));
     }
+    let mut otherwise_error = switch("s", &[], vec![on_var()]);
+    if let Step::Switch(switch) = &mut otherwise_error.step {
+        switch.otherwise = Some(port("error"));
+    }
+    let case_error = switch_of("s", &[], vec![case("error", vec![on_var()])]);
     let mut retries = switch("s", &[], vec![on_var()]);
     retries.retries = 1;
     let mut work = switch("s", &[], vec![on_var()]);
@@ -36,6 +41,8 @@ fn a_bad_switch_is_refused() {
         switch("s", &[], vec![on_var(); 33]),
         switch_of("s", &[], same),
         otherwise,
+        case_error,
+        otherwise_error,
         retries,
         work,
         container,
@@ -50,6 +57,8 @@ fn a_bad_switch_is_refused() {
         (rules, DomainError::TooMany { max: 32 }),
         ("nodes[0].switch.cases[1].port", DomainError::Duplicate),
         ("nodes[0].switch.otherwise", DomainError::Duplicate),
+        ("nodes[0].switch.cases[0].port", DomainError::ReservedPort),
+        ("nodes[0].switch.otherwise", DomainError::ReservedPort),
         ("nodes[0].retries", DomainError::NotExpected),
         ("nodes[0].working_dir", DomainError::NotExpected),
         ("nodes[0].container", DomainError::NotExpected),

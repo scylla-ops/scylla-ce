@@ -166,6 +166,14 @@ async fn create_pipeline_checks_the_conditional_nodes(pool: PgPool) {
             "nodes[2].switch.otherwise".to_owned(),
         ),
         (
+            changed(2, &|node| {
+                if let Some(node::Step::Switch(switch)) = &mut node.step {
+                    switch.cases[0].port = "error".to_owned();
+                }
+            }),
+            "nodes[2].switch.cases[0].port".to_owned(),
+        ),
+        (
             with_rule(var("BRANCH"), Test::Equals, None),
             format!("{at}.right"),
         ),

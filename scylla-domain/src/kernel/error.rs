@@ -86,6 +86,9 @@ pub enum DomainError {
     /// The text is not the name of a port.
     #[error("must be 1 to 128 lower case letters, digits, dashes or underscores")]
     NotAPortName,
+    /// A switch names a port `error`: this name is the port of a failed run node.
+    #[error("must not be error: this name is the port of a failure")]
+    ReservedPort,
     /// A need names a port that its node does not have.
     #[error("must be a port of the node: a case or the otherwise port of a switch, or error")]
     UnknownPort,

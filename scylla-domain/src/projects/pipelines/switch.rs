@@ -199,19 +199,19 @@ impl Switch {
         // Check the count of the cases, and their ports.
         count(self.cases.len(), Self::MAX_CASES, format!("{at}.cases"))?;
         let mut ports = HashSet::new();
-        for (index, case) in self.cases.iter().enumerate() {
-            if !ports.insert(&case.port) {
-                let path = format!("{at}.cases[{index}].port");
-                return Err(NodeError::at(path, DomainError::Duplicate));
-            }
-        }
-        if self
+        let cases = self.cases.iter().enumerate();
+        let cases = cases.map(|(c, case)| (format!("{at}.cases[{c}].port"), &case.port));
+        let otherwise = self
             .otherwise
-            .as_ref()
-            .is_some_and(|port| ports.contains(port))
-        {
-            let error = DomainError::Duplicate;
-            return Err(NodeError::at(format!("{at}.otherwise"), error));
+            .iter()
+            .map(|port| (format!("{at}.otherwise"), port));
+        for (path, port) in cases.chain(otherwise) {
+            let error = match port.as_str() {
+                PortName::ERROR => DomainError::ReservedPort,
+                _ if !ports.insert(port) => DomainError::Duplicate,
+                _ => continue,
+            };
+            return Err(NodeError::at(path, error));
         }
 
         // Check each rule.
