@@ -9,6 +9,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ### Changed
 
+- The web app follows the commit that keeps the state of a person on the server: the theme, the
+  language, the node style, the last workspace, the seen flags, the tour and the places of the nodes.
 - The web app follows the commit that repairs the guided tours: the ring, the card and the hold of a
   dialog.
 - **Breaking:** a new backend replaces the old server. An install of the old product needs the
