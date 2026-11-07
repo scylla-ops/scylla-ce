@@ -2,6 +2,7 @@
 //! the jobs on the agents, their number and their stats, and the roles that reach them.
 
 mod cast;
+mod conditions;
 mod disabled;
 mod held;
 mod jobs;
@@ -9,6 +10,7 @@ mod lifecycle;
 mod pipeline_layout_changes;
 mod pipeline_layouts;
 mod pipelines;
+mod placement;
 mod runs;
 mod scopes;
 mod secret_access;

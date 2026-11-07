@@ -89,6 +89,13 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - Pipelines, jobs and their run on the agents, with the logs and their live tail.
 - The places of the nodes on the canvas: `SavePipelineLayout`, and a `layout` field in `GetPipeline`,
   `CreatePipeline` and `UpdatePipeline`. A place does not change the version of a pipeline.
+- Conditional nodes. A need names a node and an optional port. A switch checks its cases (texts,
+  numbers, variables and the outputs of earlier nodes) and opens one port or more, with no process.
+  A merge joins branches. The port `error` of a run node takes its failure, and the job still
+  fails. A step writes `KEY=value` lines to `$SCYLLA_OUTPUT`, and a node after a failure gets
+  `SCYLLA_ERROR`. `GetJob` gives the ports that each switch opened. A node on a path that the job
+  did not take is skipped. An agent of v0.7.0-rc.1 gets no job with a switch, a merge or an
+  `error` need: the job waits for a newer agent, and a plain job still goes to each agent.
 - Cron and webhook triggers.
 - Apps with join codes and keys, API tokens with limits, CI identities, and the App creator role.
   An App can be disabled and enabled. Keys have names, and record their last use.

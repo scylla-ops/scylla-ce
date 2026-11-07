@@ -2,13 +2,17 @@
 
 mod graph;
 mod layout;
+mod needs;
 mod nodes;
+mod switch;
 #[cfg(test)]
 mod tests;
 
 pub use graph::Nodes;
 pub use layout::{PipelineLayout, Position};
-pub use nodes::{env_name, EnvValue, EnvVar, Node, NodeError, NodeId, Runtime, Shell, Step};
+pub use needs::{Need, NodeId, PortName};
+pub use nodes::{env_name, EnvValue, EnvVar, Node, NodeError, Runtime, Shell, Step};
+pub use switch::{Case, Combinator, Operand, Rule, Switch, Test};
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId};

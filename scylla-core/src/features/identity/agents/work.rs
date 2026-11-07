@@ -3,7 +3,7 @@
 
 use scylla_domain::authz::Object;
 use scylla_domain::projects::jobs::{JobEvent, JobId, LogLine, LogStream, RunScope};
-use scylla_domain::projects::pipelines::{NodeId, PipelineAccess, PipelineHolder};
+use scylla_domain::projects::pipelines::{NodeId, PipelineAccess, PipelineHolder, PortName, Step};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Gate, Principal};
 use scylla_proto::agents::v1 as pb;
@@ -97,6 +97,7 @@ pub(super) async fn fill(stream: &Stream, out: &Outbox) -> Result<bool, Status> 
             projects,
             stream.app,
             stream.containers,
+            stream.conditions,
         );
         let Some(assignment) = claimed.await? else {
             break;
@@ -184,6 +185,12 @@ fn event_of(event: pb::JobEvent) -> Result<JobEvent, Status> {
         pb::EventKind::NodeCompleted => JobEvent::NodeCompleted {
             node: node()?,
             exit_code: event.exit_code,
+            ports: event
+                .ports
+                .iter()
+                .map(|port| PortName::parse(port.clone()))
+                .collect::<Result<_, _>>()
+                .map_err(|error| Status::invalid_argument(format!("event.ports {error}")))?,
         },
         pb::EventKind::NodeFailed => JobEvent::NodeFailed {
             node: node()?,
@@ -211,15 +218,18 @@ fn dispatch(assignment: Assignment) -> Down {
             needs: node
                 .needs
                 .iter()
-                .map(|need| need.as_str().to_owned())
+                .map(|need| need.node.as_str().to_owned())
                 .collect(),
+            links: pipelines::needs(node.needs),
             step: Some(match node.step {
-                scylla_domain::projects::pipelines::Step::Exec(argv) => {
-                    pb::dispatch_node::Step::Exec(pipelines_pb::Exec { argv })
-                }
-                scylla_domain::projects::pipelines::Step::Script { shell, source } => {
+                Step::Exec(argv) => pb::dispatch_node::Step::Exec(pipelines_pb::Exec { argv }),
+                Step::Script { shell, source } => {
                     pb::dispatch_node::Step::Script(pipelines::script(shell, source))
                 }
+                Step::Switch(definition) => {
+                    pb::dispatch_node::Step::Switch(pipelines::switch(definition))
+                }
+                Step::Merge => pb::dispatch_node::Step::Merge(pipelines_pb::Merge {}),
             }),
             env: env
                 .into_iter()

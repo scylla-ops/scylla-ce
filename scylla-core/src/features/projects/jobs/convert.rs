@@ -57,6 +57,11 @@ fn run(run: NodeRun) -> pb::NodeRun {
         finished_at: run.finished_at.map(parse::timestamp),
         exit_code: run.exit_code,
         error: run.error.unwrap_or_default(),
+        ports: run
+            .ports
+            .iter()
+            .map(|port| port.as_str().to_owned())
+            .collect(),
     }
 }
 

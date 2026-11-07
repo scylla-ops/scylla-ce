@@ -5,13 +5,14 @@ use std::collections::BTreeMap;
 
 use scylla_domain::projects::jobs::{NodeRun, NodeStatus};
 use scylla_domain::projects::pipelines::{
-    EnvValue, EnvVar, Node, NodeId, PipelineLayout, Position, Runtime, Shell, Step,
+    EnvValue, EnvVar, Node, NodeId, PipelineLayout, PortName, Position, Runtime, Shell, Step,
 };
 use scylla_domain::projects::secrets::SecretName;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::OffsetDateTime;
 
+use super::switch::{NeedJson, SwitchJson};
 use crate::Error;
 
 /// A node in JSON.
@@ -20,7 +21,7 @@ struct NodeJson {
     /// The id.
     id: String,
     /// The needs.
-    needs: Vec<String>,
+    needs: Vec<NeedJson>,
     /// The step.
     step: StepJson,
     /// The environment.
@@ -51,6 +52,10 @@ enum StepJson {
         /// The text of the script.
         source: String,
     },
+    /// A switch.
+    Switch(SwitchJson),
+    /// A merge.
+    Merge,
 }
 
 /// An environment variable in JSON: a literal or the name of a secret.
@@ -81,6 +86,8 @@ struct RunJson {
     exit_code: Option<i32>,
     /// The error.
     error: Option<String>,
+    /// The ports that a switch opened.
+    ports: Vec<String>,
 }
 
 /// Returns the JSON of nodes.
@@ -149,6 +156,11 @@ pub(crate) fn runs(runs: &[NodeRun]) -> Value {
             finished_at: run.finished_at.map(micros),
             exit_code: run.exit_code,
             error: run.error.clone(),
+            ports: run
+                .ports
+                .iter()
+                .map(|port| port.as_str().to_owned())
+                .collect(),
         })
         .collect();
     serde_json::to_value(items).unwrap_or(Value::Null)
@@ -168,6 +180,11 @@ pub(crate) fn read_runs(value: Value) -> Result<Vec<NodeRun>, Error> {
                 finished_at: run.finished_at.map(time_of).transpose()?,
                 exit_code: run.exit_code,
                 error: run.error,
+                ports: run
+                    .ports
+                    .into_iter()
+                    .map(|port| PortName::parse(port).map_err(bad))
+                    .collect::<Result<_, _>>()?,
             })
         })
         .collect()
@@ -181,6 +198,8 @@ fn node_json(node: &Node) -> NodeJson {
             bash: *shell == Shell::Bash,
             source: source.clone(),
         },
+        Step::Switch(definition) => StepJson::Switch(SwitchJson::of(definition)),
+        Step::Merge => StepJson::Merge,
     };
     let env = node
         .env
@@ -200,11 +219,7 @@ fn node_json(node: &Node) -> NodeJson {
         .collect();
     NodeJson {
         id: node.id.as_str().to_owned(),
-        needs: node
-            .needs
-            .iter()
-            .map(|need| need.as_str().to_owned())
-            .collect(),
+        needs: node.needs.iter().map(NeedJson::of).collect(),
         step,
         env,
         timeout_seconds: node.timeout_seconds,
@@ -225,6 +240,8 @@ fn read_node(json: NodeJson) -> Result<Node, Error> {
             shell: if bash { Shell::Bash } else { Shell::Sh },
             source,
         },
+        StepJson::Switch(definition) => Step::Switch(definition.read()?),
+        StepJson::Merge => Step::Merge,
     };
     let env = json
         .env
@@ -246,7 +263,7 @@ fn read_node(json: NodeJson) -> Result<Node, Error> {
         needs: json
             .needs
             .into_iter()
-            .map(|need| NodeId::parse(need).map_err(bad))
+            .map(NeedJson::read)
             .collect::<Result<_, _>>()?,
         step,
         env,
@@ -271,6 +288,6 @@ fn time_of(micros: i64) -> Result<OffsetDateTime, Error> {
 }
 
 /// The error of bad JSON in the database.
-fn bad(error: impl std::fmt::Display) -> Error {
+pub(super) fn bad(error: impl std::fmt::Display) -> Error {
     Error::Internal(format!("bad node data in the database: {error}"))
 }
