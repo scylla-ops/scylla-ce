@@ -12,6 +12,8 @@ definition actor {
     permission mark_notifications_read = nil
     permission mark_all_notifications_read = nil
     permission set_notifications_done = nil
+    permission get_user_state = nil
+    permission put_user_state_entry = nil
 }
 
 definition workspace {
@@ -66,6 +68,7 @@ definition workspace {
     permission create_pipeline = work
     permission get_pipeline = read
     permission update_pipeline = work
+    permission save_pipeline_layout = work
     permission delete_pipeline = work
     permission list_project_pipelines = read
     permission list_workspace_pipelines = read
@@ -128,6 +131,7 @@ definition project {
     permission create_pipeline = edit
     permission get_pipeline = view
     permission update_pipeline = edit
+    permission save_pipeline_layout = edit
     permission delete_pipeline = edit
     permission list_project_pipelines = view
     permission run_pipeline = edit

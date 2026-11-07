@@ -38,7 +38,7 @@ pub fn exec_node(node_id: &str, needs: &[&str]) -> Node {
 
 impl TestApp {
     /// Returns a client of `PipelineService`.
-    fn pipelines(&self) -> PipelineServiceClient<Channel> {
+    pub(crate) fn pipelines(&self) -> PipelineServiceClient<Channel> {
         PipelineServiceClient::new(self.channel.clone())
     }
 
@@ -58,6 +58,7 @@ impl TestApp {
             project_id: Some(id(project)),
             name: "build".to_owned(),
             nodes,
+            layout: None,
         };
         let request = self.authed(actor, request).await;
         let response = self
@@ -92,6 +93,7 @@ impl TestApp {
             version,
             name: name.map(str::to_owned),
             nodes: nodes.map(|nodes| NodeList { nodes }),
+            layout: None,
         };
         let request = self.authed(actor, request).await;
         let response = self

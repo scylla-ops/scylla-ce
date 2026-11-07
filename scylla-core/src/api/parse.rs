@@ -3,6 +3,7 @@
 use std::fmt;
 
 use prost_types::Timestamp;
+use scylla_domain::identity::user_state::StateKey;
 use scylla_domain::identity::users::{Email, Handle, Password};
 use scylla_domain::projects::secrets::{SecretName, SecretValue};
 use scylla_domain::projects::{ProjectDescription, ProjectName};
@@ -168,6 +169,12 @@ impl FromProto<String> for Handle {
 }
 
 impl FromProto<String> for Slug {
+    fn from_proto(value: String) -> Result<Self, Invalid> {
+        Ok(Self::parse(value)?)
+    }
+}
+
+impl FromProto<String> for StateKey {
     fn from_proto(value: String) -> Result<Self, Invalid> {
         Ok(Self::parse(value)?)
     }

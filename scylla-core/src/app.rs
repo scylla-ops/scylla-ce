@@ -8,6 +8,7 @@ use scylla_domain::platform::{Platform, SettingsHolder};
 use scylla_extension::{Edition, EditionBuilder};
 
 use crate::features::identity::apps::Apps;
+use crate::features::identity::user_state::UserState;
 use crate::features::notifications::Notifications;
 use crate::features::platform::capabilities::Capabilities;
 use crate::features::projects::pipelines::Pipelines;
@@ -38,4 +39,5 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .plugin(Grants)
         .plugin(Roles)
         .plugin(Notifications)
+        .plugin(UserState)
 }

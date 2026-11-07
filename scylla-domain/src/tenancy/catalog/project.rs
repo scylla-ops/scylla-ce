@@ -120,6 +120,8 @@ pub(super) const AREAS: &[Area] = &[
                 &[
                     Route::of(PipelineHolder::UPDATE_PIPELINE),
                     Route::of(PipelineAccess::UPDATE_PIPELINE),
+                    Route::of(PipelineHolder::SAVE_PIPELINE_LAYOUT),
+                    Route::of(PipelineAccess::SAVE_PIPELINE_LAYOUT),
                 ],
             ),
             cell(

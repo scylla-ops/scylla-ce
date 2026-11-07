@@ -64,6 +64,11 @@ impl PipelineService for PipelinesGrpc {
             created_by: caller.actor.id,
             name: parse::field(request.name, "name")?,
             nodes: convert::nodes(request.nodes)?,
+            layout: request
+                .layout
+                .map(convert::layout)
+                .transpose()?
+                .unwrap_or_default(),
         };
 
         // Check the route permission on the project, then create the pipeline.
@@ -89,12 +94,34 @@ impl PipelineService for PipelinesGrpc {
                 PipelineAccess::GET_PIPELINE,
             )
             .await?;
-        let pipeline = service::get(&self.pool, id)
+        let (pipeline, layout) = service::get_with_layout(&self.pool, id)
             .await?
             .ok_or(Error::NotFound("pipeline"))?;
         Ok(Response::new(pb::GetPipelineResponse {
             pipeline: Some(pipeline.to_proto()),
+            layout: layout.map(ToProto::to_proto),
         }))
+    }
+
+    async fn save_pipeline_layout(
+        &self,
+        request: Request<pb::SavePipelineLayoutRequest>,
+    ) -> Result<Response<pb::SavePipelineLayoutResponse>, Status> {
+        // Authenticate the caller, then read the request.
+        let caller = self.gate.caller(&request).await.map_err(Error::from)?;
+        let request = request.into_inner();
+        let layout = request
+            .layout
+            .ok_or_else(|| Error::invalid("layout", "is required"))?;
+        let layout = convert::layout(layout)?;
+
+        // Check the route permission, then save the places.
+        let permission = PipelineAccess::SAVE_PIPELINE_LAYOUT;
+        let id = self
+            .pipeline_of(&caller, request.pipeline_id, permission)
+            .await?;
+        service::save_layout(&self.pool, id, layout).await?;
+        Ok(Response::new(pb::SavePipelineLayoutResponse {}))
     }
 
     async fn update_pipeline(
@@ -114,6 +141,11 @@ impl PipelineService for PipelinesGrpc {
                 .nodes
                 .map(|list| convert::nodes(list.nodes))
                 .transpose()?,
+            layout: request
+                .layout
+                .map(convert::layout)
+                .transpose()?
+                .unwrap_or_default(),
         };
 
         // Check the route permission, then change the pipeline.

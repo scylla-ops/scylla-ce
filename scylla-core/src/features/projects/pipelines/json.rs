@@ -1,8 +1,12 @@
-//! The JSON form of the nodes of a pipeline and of the state of the nodes of a job, as the
-//! `jsonb` columns keep them.
+//! The JSON form of the nodes of a pipeline, of their places and of the state of the nodes of a
+//! job, as the `jsonb` columns keep them.
+
+use std::collections::BTreeMap;
 
 use scylla_domain::projects::jobs::{NodeRun, NodeStatus};
-use scylla_domain::projects::pipelines::{EnvValue, EnvVar, Node, NodeId, Runtime, Shell, Step};
+use scylla_domain::projects::pipelines::{
+    EnvValue, EnvVar, Node, NodeId, PipelineLayout, Position, Runtime, Shell, Step,
+};
 use scylla_domain::projects::secrets::SecretName;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -89,6 +93,48 @@ pub(crate) fn nodes(nodes: &[Node]) -> Value {
 pub(crate) fn read_nodes(value: Value) -> Result<Vec<Node>, Error> {
     let items: Vec<NodeJson> = serde_json::from_value(value).map_err(bad)?;
     items.into_iter().map(read_node).collect()
+}
+
+/// A place in JSON.
+#[derive(Serialize, Deserialize)]
+struct PlaceJson {
+    /// The horizontal place.
+    x: i32,
+    /// The vertical place.
+    y: i32,
+}
+
+/// Returns the JSON of one place.
+pub(crate) fn place(place: Position) -> Value {
+    let (x, y) = (place.x, place.y);
+    serde_json::to_value(PlaceJson { x, y }).unwrap_or(Value::Null)
+}
+
+/// Returns the JSON of the places of nodes, by the id of the node.
+pub(crate) fn places(places: &BTreeMap<NodeId, Position>) -> Value {
+    let items: BTreeMap<&str, Value> = places
+        .iter()
+        .map(|(id, position)| (id.as_str(), place(*position)))
+        .collect();
+    serde_json::to_value(items).unwrap_or(Value::Null)
+}
+
+/// Reads saved places from their JSON. Bad data in the database gives `INTERNAL`.
+pub(crate) fn read_layout(start: Option<Value>, nodes: Value) -> Result<PipelineLayout, Error> {
+    let position = |json: PlaceJson| Position {
+        x: json.x,
+        y: json.y,
+    };
+    let start: Option<PlaceJson> = start.map(serde_json::from_value).transpose().map_err(bad)?;
+    let items: BTreeMap<String, PlaceJson> = serde_json::from_value(nodes).map_err(bad)?;
+    let mut nodes = BTreeMap::new();
+    for (id, json) in items {
+        nodes.insert(NodeId::parse(id).map_err(bad)?, position(json));
+    }
+    Ok(PipelineLayout {
+        start: start.map(position),
+        nodes,
+    })
 }
 
 /// Returns the JSON of the states of nodes.
