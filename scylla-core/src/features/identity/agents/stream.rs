@@ -54,6 +54,8 @@ pub(super) struct Stream {
     pub(super) capacity: usize,
     /// `true` if the agent has a container runtime.
     pub(super) containers: bool,
+    /// `true` if the agent runs the conditional nodes, from the hello.
+    pub(super) conditions: bool,
     /// The jobs that the agent may take, from its roles `runner`.
     pub(super) scope: RunScope,
 }
@@ -117,6 +119,7 @@ impl Stream {
         self.workspace = Some(app.workspace_id);
         self.capacity = host.capacity as usize;
         self.containers = host.container_runtime.is_some();
+        self.conditions = hello.conditional_nodes;
         self.scope = self.run_scope().await;
 
         // Welcome the agent, then stop the jobs that it must not run.

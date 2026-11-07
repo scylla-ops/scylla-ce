@@ -11,6 +11,7 @@ CREATE TABLE jobs (
     nodes jsonb NOT NULL,
     runs jsonb NOT NULL,
     need_container boolean NOT NULL,
+    need_conditions boolean NOT NULL,
     agent_id uuid REFERENCES apps (id) ON DELETE SET NULL,
     error text,
     version bigint NOT NULL DEFAULT 1 CHECK (version >= 1),

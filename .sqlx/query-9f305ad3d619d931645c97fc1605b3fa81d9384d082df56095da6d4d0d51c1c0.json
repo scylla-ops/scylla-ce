@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE jobs SET agent_id = $2, version = version + 1\n         WHERE id = (SELECT id FROM jobs\n                     WHERE workspace_id = $1 AND status = 'pending' AND agent_id IS NULL\n                       AND ($3 OR NOT need_container)\n                       AND ($4::uuid[] IS NULL OR project_id = ANY($4))\n                     ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)\n         RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,\n                   nodes, runs, agent_id, error, version, created_at, started_at, finished_at",
+  "query": "UPDATE jobs SET agent_id = $2, version = version + 1\n         WHERE id = (SELECT id FROM jobs\n                     WHERE workspace_id = $1 AND status = 'pending' AND agent_id IS NULL\n                       AND ($3 OR NOT need_container)\n                       AND ($5 OR NOT need_conditions)\n                       AND ($4::uuid[] IS NULL OR project_id = ANY($4))\n                     ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)\n         RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,\n                   nodes, runs, agent_id, error, version, created_at, started_at, finished_at",
   "describe": {
     "columns": [
       {
@@ -185,7 +185,8 @@
         "Uuid",
         "Uuid",
         "Bool",
-        "UuidArray"
+        "UuidArray",
+        "Bool"
       ]
     },
     "nullable": [
@@ -207,5 +208,5 @@
       true
     ]
   },
-  "hash": "5373a8f5cf29172c878b2fb87429284d02f0336dfa09d04c7665f80a91077e5a"
+  "hash": "9f305ad3d619d931645c97fc1605b3fa81d9384d082df56095da6d4d0d51c1c0"
 }

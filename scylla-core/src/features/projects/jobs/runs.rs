@@ -66,8 +66,8 @@ pub(crate) async fn held_counts(
 }
 
 /// Gives the oldest pending job of a workspace to an agent, with the values of its secrets: of
-/// each project, or of `projects` only. A job whose secrets do not open fails with the reason,
-/// and the next job comes.
+/// each project, or of `projects` only. A job with a conditional node goes only to an agent with
+/// `conditions`. A job whose secrets do not open fails with the reason, and the next job comes.
 pub(crate) async fn claim(
     pool: &PgPool,
     sealer: Option<&Sealer>,
@@ -75,11 +75,12 @@ pub(crate) async fn claim(
     projects: Option<&[ProjectId]>,
     agent: AppId,
     containers: bool,
+    conditions: bool,
 ) -> Result<Option<Assignment>, Error> {
     loop {
         // Take the oldest free job.
         let mut tx = pool.begin().await?;
-        let job = jobs::claim(&mut tx, workspace, projects, agent, containers).await?;
+        let job = jobs::claim(&mut tx, workspace, projects, agent, containers, conditions).await?;
         tx.commit().await?;
         let Some(job) = job else {
             return Ok(None);

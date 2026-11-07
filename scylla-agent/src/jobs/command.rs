@@ -1,6 +1,7 @@
-//! The command of an attempt: a process or a container, with a clean environment.
+//! The command of an attempt: a process or a container, with a clean environment and an empty
+//! output file.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use scylla_proto::agents::v1::{dispatch_node, DispatchNode};
 use scylla_proto::pipelines::v1::Shell;
@@ -28,11 +29,17 @@ pub(super) async fn build(
     node: &DispatchNode,
     name: &str,
 ) -> Result<Command, String> {
-    // Find the work folder, and write a script to a file.
+    // Find the work folder, empty the output file, and write a script to a file.
     let work = context.dir.join(&node.working_dir);
     tokio::fs::create_dir_all(&work)
         .await
         .map_err(|error| format!("the work folder: {error}"))?;
+    let out = output_file(&context.dir, &node.id);
+    let failed = |error: std::io::Error| format!("the output file: {error}");
+    tokio::fs::create_dir_all(out.parent().unwrap_or(&context.dir))
+        .await
+        .map_err(failed)?;
+    tokio::fs::write(&out, b"").await.map_err(failed)?;
     let script = match &node.step {
         Some(dispatch_node::Step::Script(script)) => {
             let file = format!(".scylla/{}.sh", node.id);
@@ -94,12 +101,30 @@ fn base_names() -> Vec<&'static str> {
         "SCYLLA_NODE_ID",
         "SCYLLA_PIPELINE_ID",
         "SCYLLA_PROJECT_ID",
+        "SCYLLA_OUTPUT",
     ]
 }
 
+/// Returns the base variables of a node of the job: its job, its node, its pipeline and its
+/// project. A switch reads them too.
+pub(super) fn base(context: &NodeContext, node: &str) -> [(&'static str, String); 4] {
+    [
+        ("SCYLLA_JOB_ID", context.job.clone()),
+        ("SCYLLA_NODE_ID", node.to_owned()),
+        ("SCYLLA_PIPELINE_ID", context.pipeline.clone()),
+        ("SCYLLA_PROJECT_ID", context.project.clone()),
+    ]
+}
+
+/// Returns the output file of a node in the folder of a job: `.scylla/out/<node>`.
+pub(super) fn output_file(dir: &Path, node: &str) -> PathBuf {
+    dir.join(".scylla").join("out").join(node)
+}
+
 /// Sets a clean environment: the path, a home in the work folder, the base variables of the
-/// job, then the variables of the node. On Windows, it keeps the system variables and puts the
-/// user profile in the work folder too. A container step also keeps the settings of its runtime.
+/// job, the output file, then the variables of the node. On Windows, it keeps the system
+/// variables and puts the user profile in the work folder too. A container step also keeps the
+/// settings of its runtime.
 fn environment(command: &mut Command, context: &NodeContext, node: &DispatchNode) {
     command.env_clear();
     #[cfg(windows)]
@@ -119,12 +144,13 @@ fn environment(command: &mut Command, context: &NodeContext, node: &DispatchNode
         .env("LC_ALL", "C.UTF-8")
         .env("TERM", "dumb")
         .env("CI", "true")
-        .env("SCYLLA_JOB_ID", &context.job)
-        .env("SCYLLA_NODE_ID", &node.id)
-        .env("SCYLLA_PIPELINE_ID", &context.pipeline)
-        .env("SCYLLA_PROJECT_ID", &context.project);
+        .envs(base(context, &node.id));
     if node.container.is_some() {
+        command.env("SCYLLA_OUTPUT", format!("/work/.scylla/out/{}", node.id));
         runtime_settings(command);
+    } else {
+        let file = output_file(&context.dir, &node.id);
+        command.env("SCYLLA_OUTPUT", std::path::absolute(&file).unwrap_or(file));
     }
     for var in &node.env {
         command.env(&var.name, &var.value);

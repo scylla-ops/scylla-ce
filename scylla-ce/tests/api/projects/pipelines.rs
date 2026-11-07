@@ -43,7 +43,7 @@ async fn create_pipeline_keeps_its_nodes(pool: PgPool) {
     let id = text(&created.id).to_owned();
     let read = app.get_pipeline(owner, &id).await.unwrap();
     assert_eq!(read.version, 1);
-    assert_eq!(read.nodes[1].needs, vec!["build".to_owned()]);
+    assert_eq!(read.nodes[1].needs[0].node, "build");
     assert_eq!(read.nodes[0].timeout_seconds, 3600);
     let in_project = app
         .list_project_pipelines(owner, &project, 0, "")

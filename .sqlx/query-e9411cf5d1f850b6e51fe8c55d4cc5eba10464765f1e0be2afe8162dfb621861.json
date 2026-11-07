@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO jobs (id, pipeline_id, project_id, workspace_id, created_by, rerun_of,\n                           trigger_id, status, nodes, runs, need_container)\n         VALUES ($1, $2, $3, $4, $5, $6, $10, 'pending', $7, $8, $9)\n         RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,\n                   nodes, runs, agent_id, error, version, created_at, started_at, finished_at",
+  "query": "INSERT INTO jobs (id, pipeline_id, project_id, workspace_id, created_by, rerun_of,\n                           trigger_id, status, nodes, runs, need_container, need_conditions)\n         VALUES ($1, $2, $3, $4, $5, $6, $10, 'pending', $7, $8, $9, $11)\n         RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,\n                   nodes, runs, agent_id, error, version, created_at, started_at, finished_at",
   "describe": {
     "columns": [
       {
@@ -191,7 +191,8 @@
         "Jsonb",
         "Jsonb",
         "Bool",
-        "Uuid"
+        "Uuid",
+        "Bool"
       ]
     },
     "nullable": [
@@ -213,5 +214,5 @@
       true
     ]
   },
-  "hash": "a568a784766b211c19b7ea7587cef727e9877dc90c4f8f9fde271e1584bc17a0"
+  "hash": "e9411cf5d1f850b6e51fe8c55d4cc5eba10464765f1e0be2afe8162dfb621861"
 }

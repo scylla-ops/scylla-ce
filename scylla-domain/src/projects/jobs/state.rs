@@ -3,7 +3,7 @@
 use time::OffsetDateTime;
 
 use super::{error_text, Job, JobStatus, NodeStatus};
-use crate::projects::pipelines::{Node, NodeId};
+use crate::projects::pipelines::{Node, NodeId, PortName, Step};
 use crate::DomainError;
 
 /// The state of one node in a job.
@@ -23,6 +23,8 @@ pub struct NodeRun {
     pub exit_code: Option<i32>,
     /// The error of a failed node.
     pub error: Option<String>,
+    /// The ports that a completed switch opened. Empty for another node.
+    pub ports: Vec<PortName>,
 }
 
 impl NodeRun {
@@ -36,6 +38,7 @@ impl NodeRun {
             finished_at: None,
             exit_code: None,
             error: None,
+            ports: Vec::new(),
         }
     }
 }
@@ -60,6 +63,8 @@ pub enum JobEvent {
         node: NodeId,
         /// The exit code.
         exit_code: Option<i32>,
+        /// The ports that a switch opened. Empty for another node.
+        ports: Vec<PortName>,
     },
     /// A node failed after its last attempt.
     NodeFailed {
@@ -70,7 +75,7 @@ pub enum JobEvent {
         /// The error.
         error: String,
     },
-    /// A node does not run, because a node failed.
+    /// A node does not run: a node failed, or a need of the node did not open.
     NodeSkipped(NodeId),
     /// Each node completed or was skipped.
     JobCompleted,
@@ -123,12 +128,12 @@ impl Job {
             | JobEvent::NodeFailed { node, .. } => node,
             _ => return Err(DomainError::NotAllowed),
         };
-        let retries = self
+        let definition = self
             .nodes
             .iter()
             .find(|candidate| &candidate.id == node)
-            .map(|candidate| candidate.retries)
             .ok_or(DomainError::NotAllowed)?;
+        let retries = definition.retries;
         let run = self
             .runs
             .iter_mut()
@@ -147,9 +152,22 @@ impl Job {
             {
                 run.attempt = *attempt;
             }
-            (JobEvent::NodeCompleted { exit_code, .. }, NodeStatus::Running) => {
+            (
+                JobEvent::NodeCompleted {
+                    exit_code, ports, ..
+                },
+                NodeStatus::Running,
+            ) => {
+                let fits = match &definition.step {
+                    Step::Switch(switch) => switch.allows(ports),
+                    _ => ports.is_empty(),
+                };
+                if !fits {
+                    return Err(DomainError::NotAllowed);
+                }
                 run.status = NodeStatus::Completed;
                 run.exit_code = *exit_code;
+                run.ports = ports.clone();
                 run.finished_at = Some(now);
             }
             (
