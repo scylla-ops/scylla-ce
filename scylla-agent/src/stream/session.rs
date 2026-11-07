@@ -58,6 +58,7 @@ pub(crate) async fn session(
     let hello = Hello {
         host: Some(host(&shared.settings)),
         running_jobs: running,
+        conditional_nodes: true,
     };
     let _ = up.send(message(Up::Hello(hello))).await;
     let mut request = Request::new(ReceiverStream::new(messages));

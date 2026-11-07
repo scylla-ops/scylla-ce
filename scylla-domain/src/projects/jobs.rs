@@ -89,7 +89,7 @@ pub enum NodeStatus {
     Completed,
     /// The node failed after its last attempt.
     Failed,
-    /// The node did not run, because a node failed.
+    /// The node did not run: a node failed, or a need of the node did not open.
     Skipped,
     /// The job ended before the node ended.
     Cancelled,

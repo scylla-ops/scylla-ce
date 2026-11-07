@@ -165,7 +165,12 @@ async fn import_moves_the_old_product(pool: PgPool) {
         .get_pipeline(alice, &id_of("01hzzzzzzzzzzzzzzzzzzzzzm1").to_string())
         .await
         .unwrap();
-    assert_eq!(pipeline.nodes[1].needs, vec!["build".to_owned()]);
+    let needs: Vec<_> = pipeline.nodes[1]
+        .needs
+        .iter()
+        .map(|need| (need.node.as_str(), need.port.as_str()))
+        .collect();
+    assert_eq!(needs, vec![("build", "")]);
     assert_eq!(pipeline.nodes[1].working_dir, "site");
 
     old.close().await;

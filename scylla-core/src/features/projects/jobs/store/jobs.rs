@@ -3,7 +3,7 @@
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::{Job, JobId, JobScope, JobStatus, NewJob, NodeRun};
-use scylla_domain::projects::pipelines::PipelineId;
+use scylla_domain::projects::pipelines::{PipelineId, PortName, Runtime, Step};
 use scylla_domain::projects::triggers::TriggerId;
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -18,17 +18,23 @@ use crate::Error;
 /// Inserts a pending job and returns it.
 pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewJob) -> Result<Job, Error> {
     let runs: Vec<NodeRun> = new.nodes.iter().map(NodeRun::pending).collect();
-    let need_container = new.nodes.iter().any(|node| {
-        !matches!(
-            node.runtime,
-            scylla_domain::projects::pipelines::Runtime::Process
-        )
+    let need_container = new
+        .nodes
+        .iter()
+        .any(|node| !matches!(node.runtime, Runtime::Process));
+    let need_conditions = new.nodes.iter().any(|node| {
+        matches!(node.step, Step::Switch(_) | Step::Merge)
+            || node.needs.iter().any(|need| {
+                need.port
+                    .as_ref()
+                    .is_some_and(|port| port.as_str() == PortName::ERROR)
+            })
     });
     let row = sqlx::query_as!(
         Row,
         "INSERT INTO jobs (id, pipeline_id, project_id, workspace_id, created_by, rerun_of,
-                           trigger_id, status, nodes, runs, need_container)
-         VALUES ($1, $2, $3, $4, $5, $6, $10, 'pending', $7, $8, $9)
+                           trigger_id, status, nodes, runs, need_container, need_conditions)
+         VALUES ($1, $2, $3, $4, $5, $6, $10, 'pending', $7, $8, $9, $11)
          RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
                    nodes, runs, agent_id, error, version, created_at, started_at, finished_at",
         JobId::generate().to_db(),
@@ -41,6 +47,7 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewJob) -> Result<Job, Error> 
         json::runs(&runs),
         need_container,
         new.trigger_id.map(TriggerId::to_db),
+        need_conditions,
     )
     .fetch_one(&mut **tx)
     .await?;
@@ -170,13 +177,15 @@ pub(crate) async fn delete(
 
 /// Gives the oldest pending job of a workspace with no agent to an agent, and returns it: of
 /// each project, or of `projects` only. A job with a container goes only to an agent with a
-/// container runtime.
+/// container runtime, and a job with a switch, a merge or an `error` need only to an agent with
+/// `conditions`.
 pub(crate) async fn claim(
     tx: &mut Tx<'_>,
     workspace: WorkspaceId,
     projects: Option<&[ProjectId]>,
     agent: AppId,
     containers: bool,
+    conditions: bool,
 ) -> Result<Option<Job>, Error> {
     let projects: Option<Vec<_>> = projects.map(|ids| ids.iter().map(|id| id.to_db()).collect());
     let row = sqlx::query_as!(
@@ -185,6 +194,7 @@ pub(crate) async fn claim(
          WHERE id = (SELECT id FROM jobs
                      WHERE workspace_id = $1 AND status = 'pending' AND agent_id IS NULL
                        AND ($3 OR NOT need_container)
+                       AND ($5 OR NOT need_conditions)
                        AND ($4::uuid[] IS NULL OR project_id = ANY($4))
                      ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
          RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
@@ -193,6 +203,7 @@ pub(crate) async fn claim(
         agent.to_db(),
         containers,
         projects.as_deref(),
+        conditions,
     )
     .fetch_optional(&mut **tx)
     .await?;

@@ -10,6 +10,7 @@ use scylla_domain::projects::secrets::SecretName;
 use scylla_domain::DomainError;
 use scylla_proto::pipelines::v1 as pb;
 
+use super::switch;
 use crate::api::parse::{self, ToProto};
 use crate::Error;
 
@@ -54,20 +55,17 @@ pub(crate) fn nodes(nodes: Vec<pb::Node>) -> Result<Nodes, Error> {
 fn node_of(node: pb::Node, at: &str) -> Result<Node, Error> {
     let invalid = |field: String, reason: String| Error::invalid(field, reason);
     let id = NodeId::parse(node.id).map_err(|e| invalid(format!("{at}.id"), e.to_string()))?;
-    let needs = node
-        .needs
-        .into_iter()
-        .enumerate()
-        .map(|(index, need)| {
-            NodeId::parse(need).map_err(|e| invalid(format!("{at}.needs[{index}]"), e.to_string()))
-        })
-        .collect::<Result<_, _>>()?;
+    let needs = switch::needs_of(node.needs, at)?;
     let step = match node.step {
         Some(pb::node::Step::Exec(exec)) => Step::Exec(exec.argv),
         Some(pb::node::Step::Script(script)) => Step::Script {
             shell: shell_of(script.shell()),
             source: script.source,
         },
+        Some(pb::node::Step::Switch(definition)) => {
+            Step::Switch(switch::switch_of(definition, &format!("{at}.switch"))?)
+        }
+        Some(pb::node::Step::Merge(_)) => Step::Merge,
         None => return Err(invalid(format!("{at}.step"), "is required".to_owned())),
     };
     let env = node
@@ -122,6 +120,8 @@ pub(crate) fn step(step: Step) -> pb::node::Step {
     match step {
         Step::Exec(argv) => pb::node::Step::Exec(pb::Exec { argv }),
         Step::Script { shell, source } => pb::node::Step::Script(script(shell, source)),
+        Step::Switch(definition) => pb::node::Step::Switch(switch::switch(definition)),
+        Step::Merge => pb::node::Step::Merge(pb::Merge {}),
     }
 }
 
@@ -160,11 +160,7 @@ impl ToProto<pb::Node> for Node {
             .collect();
         pb::Node {
             id: self.id.as_str().to_owned(),
-            needs: self
-                .needs
-                .iter()
-                .map(|need| need.as_str().to_owned())
-                .collect(),
+            needs: switch::needs(self.needs),
             step: Some(step(self.step)),
             env,
             timeout_seconds: self.timeout_seconds,

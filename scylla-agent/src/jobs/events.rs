@@ -20,6 +20,8 @@ pub(crate) struct Event<'a> {
     pub(crate) exit_code: Option<i32>,
     /// The error of a failure.
     pub(crate) error: String,
+    /// The ports that a switch opened.
+    pub(crate) ports: Vec<String>,
 }
 
 /// Sends an event of a job.
@@ -33,6 +35,7 @@ pub(crate) async fn send(outbox: &Outbox, job: &str, kind: EventKind, event: Eve
         attempt: event.attempt,
         exit_code: event.exit_code,
         error: event.error.chars().take(4096).collect(),
+        ports: event.ports,
     };
     let _ = outbox
         .send(OpenStreamRequest {
