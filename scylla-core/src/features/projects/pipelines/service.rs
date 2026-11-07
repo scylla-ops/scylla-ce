@@ -3,14 +3,14 @@
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::projects::jobs::{Job, NewJob};
 use scylla_domain::projects::pipelines::{
-    EnvValue, EnvVar, ListPipelines, NewPipeline, Pipeline, PipelineChange, PipelineId,
-    PipelinePage, KIND,
+    EnvValue, EnvVar, ListPipelines, NewPipeline, Node, Pipeline, PipelineChange, PipelineId,
+    PipelineLayout, PipelinePage, KIND,
 };
 use scylla_domain::projects::triggers::TriggerId;
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Page;
-use scylla_extension::{CreateContext, DeleteContext, Hooks};
+use scylla_extension::{CreateContext, DeleteContext, Hooks, Tx};
 use sqlx::PgPool;
 
 use super::store::{self, Changed};
@@ -30,14 +30,18 @@ pub(crate) async fn create(
     workspace: WorkspaceId,
     new: NewPipeline,
 ) -> Result<Pipeline, Error> {
+    // Check the size of the nodes, then run the hooks.
     check_size(&new.nodes)?;
     let mut tx = pool.begin().await?;
     hooks
         .before_create(&mut tx, &CreateContext::new(KIND, actor, workspace))
         .await?;
+
+    // Insert the pipeline with the places of its nodes.
     let pipeline = store::insert(&mut tx, &new)
         .await?
         .ok_or(Error::NotFound("project"))?;
+    save_places(&mut tx, pipeline.id, new.layout, &ids_of(&pipeline.nodes)).await?;
     tx.commit().await?;
     Ok(pipeline)
 }
@@ -56,6 +60,57 @@ pub(crate) async fn get(pool: &PgPool, id: PipelineId) -> Result<Option<Pipeline
     let pipeline = store::find(&mut tx, id).await?;
     tx.commit().await?;
     Ok(pipeline)
+}
+
+/// Returns a pipeline with its saved places, or `None` if no pipeline has this id.
+pub(crate) async fn get_with_layout(
+    pool: &PgPool,
+    id: PipelineId,
+) -> Result<Option<(Pipeline, Option<PipelineLayout>)>, Error> {
+    let mut tx = pool.begin().await?;
+    let pipeline = store::find(&mut tx, id).await?;
+    let layout = store::find_layout(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(pipeline.map(|pipeline| (pipeline, layout)))
+}
+
+/// Saves places of a pipeline. The version of the pipeline does not change.
+pub(crate) async fn save_layout(
+    pool: &PgPool,
+    id: PipelineId,
+    layout: PipelineLayout,
+) -> Result<(), Error> {
+    let mut tx = pool.begin().await?;
+    let nodes = store::lock_node_ids(&mut tx, id)
+        .await?
+        .ok_or(Error::NotFound("pipeline"))?;
+    save_places(&mut tx, id, layout, &nodes).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Saves the places of the named nodes, and ignores the other places.
+async fn save_places(
+    tx: &mut Tx<'_>,
+    id: PipelineId,
+    mut layout: PipelineLayout,
+    nodes: &[String],
+) -> Result<(), sqlx::Error> {
+    layout
+        .nodes
+        .retain(|node, _| nodes.iter().any(|name| name == node.as_str()));
+    if layout.is_empty() {
+        return Ok(());
+    }
+    store::save_layout(tx, id, &layout).await
+}
+
+/// Returns the ids of nodes as text.
+fn ids_of(nodes: &[Node]) -> Vec<String> {
+    nodes
+        .iter()
+        .map(|node| node.id.as_str().to_owned())
+        .collect()
 }
 
 /// Returns the project and the workspace of a pipeline, or `None` if no pipeline has this id.
@@ -80,18 +135,30 @@ pub(crate) async fn list(pool: &PgPool, query: ListPipelines) -> Result<Pipeline
 }
 
 /// Changes a pipeline that still has the version of the change. Another version gives
-/// `ABORTED`.
+/// `ABORTED`. The places of the nodes that the change removes go away.
 pub(crate) async fn update(
     pool: &PgPool,
     id: PipelineId,
     change: PipelineChange,
 ) -> Result<Pipeline, Error> {
+    // Check the size of the new nodes.
     if let Some(nodes) = &change.nodes {
         check_size(nodes)?;
     }
+
+    // Change the pipeline and its places.
     let mut tx = pool.begin().await?;
     let changed = store::update(&mut tx, id, &change).await?;
+    if let Changed::Done(pipeline) = &changed {
+        let nodes = ids_of(&pipeline.nodes);
+        if change.nodes.is_some() {
+            store::keep_places(&mut tx, id, &nodes).await?;
+        }
+        save_places(&mut tx, id, change.layout, &nodes).await?;
+    }
     tx.commit().await?;
+
+    // Answer the result of the change.
     match changed {
         Changed::Done(pipeline) => Ok(pipeline),
         Changed::Stale => Err(Error::Conflict("the pipeline changed: read it again")),

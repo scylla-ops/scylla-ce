@@ -1,14 +1,44 @@
-//! The conversions between the proto nodes and the domain nodes. A bad value gives
-//! `INVALID_ARGUMENT` with its path, for example `nodes[2].env[0].name`.
+//! The conversions between the proto nodes and places and the domain nodes and places. A bad
+//! value gives `INVALID_ARGUMENT` with its path, for example `nodes[2].env[0].name`.
+
+use std::collections::BTreeMap;
 
 use scylla_domain::projects::pipelines::{
-    EnvValue, EnvVar, Node, NodeId, Nodes, Pipeline, Runtime, Shell, Step,
+    EnvValue, EnvVar, Node, NodeId, Nodes, Pipeline, PipelineLayout, Position, Runtime, Shell, Step,
 };
 use scylla_domain::projects::secrets::SecretName;
+use scylla_domain::DomainError;
 use scylla_proto::pipelines::v1 as pb;
 
 use crate::api::parse::{self, ToProto};
 use crate::Error;
+
+/// Reads and checks the places of a request. A key that cannot be the id of a node is ignored, as
+/// each id that is not a node of the pipeline is.
+pub(crate) fn layout(layout: pb::PipelineLayout) -> Result<PipelineLayout, Error> {
+    if layout.nodes.len() > PipelineLayout::MAX_NODES {
+        let max = PipelineLayout::MAX_NODES;
+        let error = DomainError::TooMany { max };
+        return Err(Error::invalid("layout.nodes", error.to_string()));
+    }
+    let start = layout
+        .start
+        .map(|place| position(place, "layout.start"))
+        .transpose()?;
+    let mut nodes = BTreeMap::new();
+    for (id, place) in layout.nodes {
+        if let Ok(id) = NodeId::parse(id) {
+            let place = position(place, &format!("layout.nodes[{}]", id.as_str()))?;
+            nodes.insert(id, place);
+        }
+    }
+    Ok(PipelineLayout { start, nodes })
+}
+
+/// Reads one place of a request, at the path `at`.
+fn position(place: pb::Position, at: &str) -> Result<Position, Error> {
+    Position::parse(place.x, place.y).map_err(|error| Error::invalid(at, error.to_string()))
+}
 
 /// Reads and checks the nodes of a request.
 pub(crate) fn nodes(nodes: Vec<pb::Node>) -> Result<Nodes, Error> {
@@ -141,6 +171,28 @@ impl ToProto<pb::Node> for Node {
             retries: self.retries,
             working_dir: self.working_dir.unwrap_or_default(),
             container: container(self.runtime),
+        }
+    }
+}
+
+impl ToProto<pb::Position> for Position {
+    fn to_proto(self) -> pb::Position {
+        pb::Position {
+            x: self.x,
+            y: self.y,
+        }
+    }
+}
+
+impl ToProto<pb::PipelineLayout> for PipelineLayout {
+    fn to_proto(self) -> pb::PipelineLayout {
+        pb::PipelineLayout {
+            start: self.start.map(ToProto::to_proto),
+            nodes: self
+                .nodes
+                .into_iter()
+                .map(|(id, place)| (id.as_str().to_owned(), place.to_proto()))
+                .collect(),
         }
     }
 }

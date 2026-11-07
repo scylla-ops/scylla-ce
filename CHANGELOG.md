@@ -74,6 +74,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - A failed sign-in in a browser goes to a page of the web app, with a code.
 - Instance admins, and a console of the users.
 - Personal tokens, with a switch on the instance and a switch on each workspace.
+- `UserStateService`: the state of the web app for the caller, as small JSON values with a version.
+  A user has at most 32 keys and 64 KiB, else `USER_STATE_FULL`.
 
 **Workspaces and projects**
 
@@ -85,6 +87,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 **Pipelines and agents**
 
 - Pipelines, jobs and their run on the agents, with the logs and their live tail.
+- The places of the nodes on the canvas: `SavePipelineLayout`, and a `layout` field in `GetPipeline`,
+  `CreatePipeline` and `UpdatePipeline`. A place does not change the version of a pipeline.
 - Cron and webhook triggers.
 - Apps with join codes and keys, API tokens with limits, CI identities, and the App creator role.
   An App can be disabled and enabled. Keys have names, and record their last use.

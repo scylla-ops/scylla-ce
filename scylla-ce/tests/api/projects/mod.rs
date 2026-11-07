@@ -6,6 +6,8 @@ mod disabled;
 mod held;
 mod jobs;
 mod lifecycle;
+mod pipeline_layout_changes;
+mod pipeline_layouts;
 mod pipelines;
 mod runs;
 mod scopes;

@@ -2,7 +2,7 @@
 //! account, the instance admins and their console, sessions, sign-in with an identity provider,
 //! tokens, the Apps, their creators, their keys, their API tokens with their limits and their CI
 //! identities, the personal tokens and their switches, the streams of the agents and their
-//! install scripts.
+//! install scripts, and the state of a user.
 
 pub(crate) mod accounts;
 mod admins;
@@ -31,3 +31,5 @@ mod sign_in_link_refusals;
 mod sign_in_mails;
 mod token_limits;
 mod tokens;
+mod user_state;
+mod user_state_limits;

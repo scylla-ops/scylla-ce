@@ -1,6 +1,6 @@
 //! Who acts: the accounts of the users, the instance admins, their sessions and identity
-//! providers, the tokens, the API tokens, the personal tokens, the actors, the Apps and the
-//! agents.
+//! providers, the tokens, the API tokens, the personal tokens, the actors, the Apps, the agents
+//! and the state of the web app for a user.
 
 pub mod accounts;
 pub mod actors;
@@ -12,3 +12,4 @@ pub(crate) mod personal_tokens;
 pub mod providers;
 pub mod sessions;
 pub(crate) mod tokens;
+pub(crate) mod user_state;

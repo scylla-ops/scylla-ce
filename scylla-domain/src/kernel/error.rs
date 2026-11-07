@@ -110,4 +110,13 @@ pub enum DomainError {
     /// The text is not the path of a repository.
     #[error("must be owner/repo or group/project")]
     NotARepository,
+    /// The text is not the key of an entry of the state of a user.
+    #[error("must be 1 to 128 lower case letters, digits, dots, colons, dashes or underscores")]
+    NotAStateKey,
+    /// The place is outside the canvas of a pipeline.
+    #[error("must be from -{max} to {max}")]
+    OffCanvas {
+        /// The largest distance from the origin.
+        max: i32,
+    },
 }

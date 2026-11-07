@@ -1,11 +1,13 @@
 //! The pipelines of a project: a graph of nodes that a job runs on an agent.
 
 mod graph;
+mod layout;
 mod nodes;
 #[cfg(test)]
 mod tests;
 
 pub use graph::Nodes;
+pub use layout::{PipelineLayout, Position};
 pub use nodes::{env_name, EnvValue, EnvVar, Node, NodeError, NodeId, Runtime, Shell, Step};
 use time::OffsetDateTime;
 
@@ -57,6 +59,8 @@ pub struct NewPipeline {
     pub name: PipelineName,
     /// The checked nodes.
     pub nodes: Nodes,
+    /// The places of the new nodes.
+    pub layout: PipelineLayout,
 }
 
 /// A change of a pipeline. A field that is `None` does not change. The change passes only if
@@ -69,6 +73,8 @@ pub struct PipelineChange {
     pub name: Option<PipelineName>,
     /// The new nodes: they replace all the nodes.
     pub nodes: Option<Nodes>,
+    /// The places to save with the change. An empty layout saves nothing.
+    pub layout: PipelineLayout,
 }
 
 /// Where a pipeline list looks.
@@ -106,6 +112,8 @@ crate::authz! {
         permission get_pipeline = view;
         /// The route `UpdatePipeline`, on each pipeline of this project.
         permission update_pipeline = edit;
+        /// The route `SavePipelineLayout`, on each pipeline of this project.
+        permission save_pipeline_layout = edit;
         /// The route `DeletePipeline`, on each pipeline of this project.
         permission delete_pipeline = edit;
         /// The route `ListProjectPipelines`: the pipelines of this project.
@@ -138,6 +146,8 @@ crate::authz! {
         permission get_pipeline = read;
         /// The route `UpdatePipeline`, in each project of this workspace.
         permission update_pipeline = work;
+        /// The route `SavePipelineLayout`, in each project of this workspace.
+        permission save_pipeline_layout = work;
         /// The route `DeletePipeline`, in each project of this workspace.
         permission delete_pipeline = work;
         /// The route `ListProjectPipelines`, for each project of this workspace.

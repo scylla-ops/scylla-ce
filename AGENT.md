@@ -70,6 +70,7 @@ Load the skill of the task from `.claude/skills/`:
 - An identity of a provider is never linked to an account by its email. A link needs the session of the user (`/auth/<slug>/start?link=true`) or the password of the account (`LinkPendingIdentity`, decision 90). Each new link and each unlink sends a mail, and a mail that fails stops nothing (decision 91). A browser route of a sign-in answers a failure with a code on the page `sign-in-error` of the web app, and never with data of the person in the URL.
 - A mail goes through the `Mailer` of `AccountContext` with `mails::send`. Write it with `Letter` (`accounts/letter.rs`): one text body and one escaped HTML body. A link comes from `AccountSettings::link`, with the token in the fragment. A body can hold a one-time link: never log it.
 - A secret never goes to the logs or the database in clear. The server stores public keys and hashes only. No answer holds the value of a secret of a project, and `SecretValue` shows `***` in `Debug`. A route that seals a value gives `SECRET_KEY_MISSING` after its route check when the server has no key.
+- The state of the web app for a user is in `UserStateService`, with the limits of decision 100. Its routes act on the caller, and the server does not read the values. A value never holds a secret or a token. A new value of the web app needs no change here.
 
 ## Apps and agents
 
@@ -83,6 +84,7 @@ Load the skill of the task from `.claude/skills/`:
 - A pipeline or a job is an object of a project: its routes are permissions of `PipelineAccess` on the project and of `PipelineHolder` on the workspace. Check them with `pipelines::access::authorize`: an unknown object and a refusal get the same answer, which names the object.
 - A job keeps a snapshot of its nodes and the state of each node in JSON (`pipelines::json`). Change a job only with `Job::apply` and `Job::end`, in a transaction that locks its row (`jobs::find(tx, id, true)`), then `jobs::save`.
 - A change of a job that an agent holds tells its stream after the commit: `Registry::cancel` for a job to stop, `Registry::wake_all` for a free job. A lost command is safe: each later message of the agent about the job gets a cancel.
+- The places of the nodes are in `pipeline_layouts`, never in `Node` (decision 101): a field of `Node` goes into each job snapshot, and a drag would change the version of the pipeline.
 - Times of a job are in whole microseconds (`runs::now`), as the database keeps them.
 - A job of a trigger has the runner of the triggers of its workspace as its author (`fire::runner`), an actor of kind `trigger_runner` with no key and no role. Start a job with `pipelines::service::start`, which checks the secrets and adds the variables of a trigger.
 
