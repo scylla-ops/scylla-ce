@@ -9,6 +9,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ### Changed
 
+- The web app follows the commit that repairs the guided tours: the ring, the card and the hold of a
+  dialog.
 - **Breaking:** a new backend replaces the old server. An install of the old product needs the
   one-off import: this is not an upgrade in place.
 - **Breaking:** the code is in two repositories, in one direction. `scylla-ce` holds the core and is
