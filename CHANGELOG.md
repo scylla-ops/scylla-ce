@@ -157,3 +157,7 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   in turn. For example, each permission of a project needs the view of the project and of its
   pipelines, the agents need the view of the apps, and the instance access needs the view of the
   users. Thus a page that a role opens does not show a refusal.
+- The Windows install script works with no admin rights. In a PowerShell with no admin rights, it
+  installs the agent for the user in `%LOCALAPPDATA%`, and a task of the user starts it at each
+  sign-in with no window. As administrator, it installs the service `ScyllaAgent`, and
+  `-CurrentUser` selects the install for the user. `-Uninstall` removes the two installs.
