@@ -146,3 +146,6 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - A token is refused when a Datalog query of its claims fails.
 - The pretty logs show the random end of the ids.
 - Line endings are LF in each file.
+- The built-in role Project agent gives its permissions in `ListRoles`: `job_execution.edit` and
+  `job_execution.run`. The area `job_execution` is on the project level, so a custom role for apps
+  on a project can also hold it.

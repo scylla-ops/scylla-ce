@@ -90,6 +90,24 @@ fn complete_refuses_a_permission_that_does_not_fit() {
     );
 }
 
+/// A role for apps holds the area of the machines on a workspace and on a project.
+#[test]
+fn complete_gives_the_area_of_the_machines_to_a_role_for_apps() {
+    // given
+    let ids = ["job_execution.run".to_owned()];
+
+    // when
+    let on_workspace = complete(Level::Workspace, true, &ids).expect("valid");
+    let on_project = complete(Level::Project, true, &ids).expect("valid");
+
+    // then
+    assert_eq!(
+        on_workspace,
+        ["workspace.view", "job_execution.edit", "job_execution.run"]
+    );
+    assert_eq!(on_project, ["job_execution.edit", "job_execution.run"]);
+}
+
 /// A role of the project level sees only the areas of a project.
 #[test]
 fn permissions_of_a_level_stop_at_that_level() {
