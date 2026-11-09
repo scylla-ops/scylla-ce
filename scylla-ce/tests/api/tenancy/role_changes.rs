@@ -86,7 +86,12 @@ async fn a_workspace_makes_its_own_roles(pool: PgPool) {
     // then
     assert_eq!(
         role.permissions,
-        ["workspace.view", "pipelines.view", "pipelines.run"]
+        [
+            "workspace.view",
+            "project.view",
+            "pipelines.view",
+            "pipelines.run"
+        ]
     );
     assert_code(refused, Code::PermissionDenied);
     assert_code(on_platform, Code::InvalidArgument);

@@ -2,6 +2,8 @@
 //! area, and it gives a list of route permissions.
 
 mod instance;
+#[cfg(test)]
+mod pages;
 mod project;
 #[cfg(test)]
 mod tests;
@@ -203,6 +205,19 @@ pub enum PermissionError<'a> {
     Holder(&'a str),
 }
 
+/// Returns the ids of the permissions that a permission needs, with the permission itself: what
+/// it depends on, then what these depend on.
+pub fn needs(id: &'static str) -> BTreeSet<&'static str> {
+    let mut found = BTreeSet::new();
+    let mut next = vec![id];
+    while let Some(id) = next.pop() {
+        if found.insert(id) {
+            next.extend(find(id).map_or(&[][..], |(_, permission)| permission.depends_on));
+        }
+    }
+    found
+}
+
 /// Checks the permissions of a role, then adds the permissions that they depend on and the
 /// implicit permissions of its level. Returns the ids in the order of the catalog.
 pub fn complete<'a>(
@@ -210,7 +225,7 @@ pub fn complete<'a>(
     for_apps: bool,
     ids: &'a [String],
 ) -> Result<Vec<&'static str>, PermissionError<'a>> {
-    // Check each id, and keep it with what it depends on.
+    // Check each id, and keep it with what it needs.
     let mut kept = BTreeSet::new();
     for id in ids {
         let (area, permission) = find(id).ok_or(PermissionError::Unknown(id))?;
@@ -220,8 +235,7 @@ pub fn complete<'a>(
         if area.machine && !for_apps {
             return Err(PermissionError::Holder(id));
         }
-        kept.insert(permission.id);
-        kept.extend(permission.depends_on);
+        kept.extend(needs(permission.id));
     }
 
     // Add the implicit permissions, then read the catalog in its order.

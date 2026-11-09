@@ -153,3 +153,7 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   on a project can also hold it.
 - The build compiles the protos again when a file of the submodule `proto` changes. Before, a build
   after a move of the submodule could use old generated code.
+- A custom role gets each permission that its pages need, also in another area, and what these need
+  in turn. For example, each permission of a project needs the view of the project and of its
+  pipelines, the agents need the view of the apps, and the instance access needs the view of the
+  users. Thus a page that a role opens does not show a refusal.

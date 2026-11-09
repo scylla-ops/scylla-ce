@@ -50,7 +50,7 @@ pub(super) const AREAS: &[Area] = &[
             CatalogPermission {
                 id: "members.view",
                 action: "view",
-                depends_on: &[],
+                depends_on: &["project_members.view"],
                 implicit: false,
                 routes: &[
                     Route::of(Workspace::LIST_ACCESS),
@@ -62,7 +62,7 @@ pub(super) const AREAS: &[Area] = &[
             CatalogPermission {
                 id: "members.manage",
                 action: "manage",
-                depends_on: &["members.view"],
+                depends_on: &["members.view", "project_members.manage"],
                 implicit: false,
                 routes: &[
                     Route::of(Workspace::GRANT),
@@ -82,7 +82,7 @@ pub(super) const AREAS: &[Area] = &[
         permissions: &[CatalogPermission {
             id: "workspace_roles.manage",
             action: "manage",
-            depends_on: &[],
+            depends_on: &["members.view"],
             implicit: false,
             routes: &[
                 Route::of(RoleHolder::CREATE_ROLE),
@@ -114,7 +114,7 @@ pub(super) const AREAS: &[Area] = &[
             CatalogPermission {
                 id: "apps.create",
                 action: "create",
-                depends_on: &[],
+                depends_on: &["apps.view"],
                 implicit: false,
                 routes: &[Route::of(AppHolder::CREATE_APP)],
             },
@@ -158,7 +158,7 @@ pub(super) const AREAS: &[Area] = &[
             CatalogPermission {
                 id: "agents.view",
                 action: "view",
-                depends_on: &[],
+                depends_on: &["apps.view"],
                 implicit: false,
                 routes: &[
                     Route::of(AppHolder::GET_AGENT_STATS),
@@ -169,7 +169,7 @@ pub(super) const AREAS: &[Area] = &[
             CatalogPermission {
                 id: "agents.create",
                 action: "create",
-                depends_on: &[],
+                depends_on: &["agents.view"],
                 implicit: false,
                 routes: &[Route::of(AppHolder::CREATE_APP)],
             },
@@ -182,7 +182,7 @@ pub(super) const AREAS: &[Area] = &[
         permissions: &[CatalogPermission {
             id: "projects.create",
             action: "create",
-            depends_on: &[],
+            depends_on: &["project.view"],
             implicit: false,
             routes: &[Route::of(ProjectHolder::CREATE_PROJECT)],
         }],
