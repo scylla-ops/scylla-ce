@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT agent_id AS \"agent_id!\",\n                  count(*) FILTER (WHERE status = 'completed') AS \"completed!\",\n                  count(*) FILTER (WHERE status = 'failed') AS \"failed!\",\n                  count(*) FILTER (WHERE status = 'cancelled') AS \"cancelled!\",\n                  count(*) FILTER (WHERE status = 'orphaned') AS \"orphaned!\",\n                  percentile_cont(0.5) WITHIN GROUP\n                      (ORDER BY extract(epoch FROM finished_at - started_at)::float8) AS median,\n                  percentile_cont(0.95) WITHIN GROUP\n                      (ORDER BY extract(epoch FROM finished_at - started_at)::float8) AS p95\n           FROM jobs\n           WHERE workspace_id = $1 AND agent_id IS NOT NULL\n             AND ($2::uuid IS NULL OR agent_id = $2) AND created_at >= $3\n           GROUP BY agent_id ORDER BY agent_id",
+  "query": "SELECT agent_id AS \"agent_id!\",\n                  count(*) FILTER (WHERE status = 'completed') AS \"completed!\",\n                  count(*) FILTER (WHERE status = 'failed') AS \"failed!\",\n                  count(*) FILTER (WHERE status = 'cancelled') AS \"cancelled!\",\n                  count(*) FILTER (WHERE status = 'orphaned') AS \"orphaned!\",\n                  percentile_cont(0.5) WITHIN GROUP\n                      (ORDER BY extract(epoch FROM finished_at - started_at)::float8) AS median,\n                  percentile_cont(0.95) WITHIN GROUP\n                      (ORDER BY extract(epoch FROM finished_at - started_at)::float8) AS p95\n           FROM jobs\n           WHERE workspace_id = $1 AND agent_id IS NOT NULL\n             AND ($2::uuid IS NULL OR agent_id = $2)\n             AND created_at >= $3 AND created_at < $4\n           GROUP BY agent_id ORDER BY agent_id",
   "describe": {
     "columns": [
       {
@@ -55,6 +55,7 @@
       "Left": [
         "Uuid",
         "Uuid",
+        "Timestamptz",
         "Timestamptz"
       ]
     },
@@ -68,5 +69,5 @@
       null
     ]
   },
-  "hash": "539b9a33016f72d2b73ea67b79d58d1683a105860bfe9308e423fb45b93fa5c1"
+  "hash": "baf5a828077f89f8ae982de7cc013d031ae30065ab9c3ee0e68985439b90ec35"
 }

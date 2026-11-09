@@ -131,6 +131,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 - A one-off import of the old product: its schema, the users and their passwords, a disabled user,
   and a user with no email.
+- `GetAgentStats` counts the jobs of a period: from the day of the creation of the agent to today,
+  at most one year. With no period, it counts the last 30 days.
 
 ### Fixed
 

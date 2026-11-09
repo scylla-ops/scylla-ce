@@ -112,6 +112,19 @@ pub fn duration(length: time::Duration) -> prost_types::Duration {
     }
 }
 
+impl FromProto<Timestamp> for OffsetDateTime {
+    fn from_proto(value: Timestamp) -> Result<Self, Invalid> {
+        let seconds = Self::from_unix_timestamp(value.seconds);
+        let nanos = u32::try_from(value.nanos).ok();
+        match (seconds, nanos) {
+            (Ok(at), Some(nanos)) => at
+                .replace_nanosecond(nanos)
+                .map_err(|_| Invalid::new("must be a valid time")),
+            _ => Err(Invalid::new("must be a valid time")),
+        }
+    }
+}
+
 impl<T: ?Sized> FromProto<pb::Id> for Id<T> {
     fn from_proto(message: pb::Id) -> Result<Self, Invalid> {
         Ok(Self::parse(&message.value)?)

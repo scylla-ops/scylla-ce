@@ -1,5 +1,6 @@
 //! The `TestApp` helpers of the job stats of the agents in `AgentService`.
 
+use prost_types::Timestamp;
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_proto::agents::v1::agent_service_client::AgentServiceClient;
@@ -9,10 +10,19 @@ use tonic::Status;
 use crate::{id, TestApp};
 
 impl TestApp {
-    /// Calls `GetAgentStats` as `actor`, and returns the stats.
-    pub async fn get_agent_stats(&self, actor: ActorId, app: &str) -> Result<AgentStats, Status> {
+    /// Calls `GetAgentStats` as `actor` for the period from `from` to `to`, and returns the
+    /// stats.
+    pub async fn get_agent_stats(
+        &self,
+        actor: ActorId,
+        app: &str,
+        from: Option<Timestamp>,
+        to: Option<Timestamp>,
+    ) -> Result<AgentStats, Status> {
         let request = GetAgentStatsRequest {
             agent_id: Some(id(app)),
+            from,
+            to,
         };
         let request = self.authed(actor, request).await;
         let mut client = AgentServiceClient::new(self.channel.clone());

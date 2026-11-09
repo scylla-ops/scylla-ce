@@ -1,12 +1,12 @@
 //! The SQL of the job stats of the agents.
 
 use scylla_domain::identity::apps::AppId;
-use scylla_domain::projects::jobs::{DayOutcomes, Outcomes};
+use scylla_domain::projects::jobs::{DayOutcomes, Outcomes, StatsPeriod};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::Tx;
-use time::{Duration, OffsetDateTime};
+use time::Duration;
 
-/// The jobs of an agent since a time, by their end, and their durations.
+/// The jobs of an agent in a period, by their end, and their durations.
 pub(crate) struct Totals {
     /// The agent.
     pub(crate) agent_id: AppId,
@@ -19,12 +19,12 @@ pub(crate) struct Totals {
 }
 
 /// Returns the totals of each agent of a workspace, or of `agent` only, for the jobs created
-/// since `since`. An agent with no job is not in the list.
+/// in `period`. An agent with no job is not in the list.
 pub(crate) async fn totals(
     tx: &mut Tx<'_>,
     workspace: WorkspaceId,
     agent: Option<AppId>,
-    since: OffsetDateTime,
+    period: StatsPeriod,
 ) -> Result<Vec<Totals>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT agent_id AS "agent_id!",
@@ -38,11 +38,13 @@ pub(crate) async fn totals(
                       (ORDER BY extract(epoch FROM finished_at - started_at)::float8) AS p95
            FROM jobs
            WHERE workspace_id = $1 AND agent_id IS NOT NULL
-             AND ($2::uuid IS NULL OR agent_id = $2) AND created_at >= $3
+             AND ($2::uuid IS NULL OR agent_id = $2)
+             AND created_at >= $3 AND created_at < $4
            GROUP BY agent_id ORDER BY agent_id"#,
         workspace.to_db(),
         agent.map(AppId::to_db),
-        since,
+        period.first,
+        period.end(),
     )
     .fetch_all(&mut **tx)
     .await?;
@@ -57,13 +59,13 @@ pub(crate) async fn totals(
         .collect())
 }
 
-/// Returns the days with a job of each agent of a workspace, or of `agent` only, since
-/// `since`, in the order of the agents and then of the days.
+/// Returns the days with a job of each agent of a workspace, or of `agent` only, in `period`,
+/// in the order of the agents and then of the days.
 pub(crate) async fn days(
     tx: &mut Tx<'_>,
     workspace: WorkspaceId,
     agent: Option<AppId>,
-    since: OffsetDateTime,
+    period: StatsPeriod,
 ) -> Result<Vec<(AppId, DayOutcomes)>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT agent_id AS "agent_id!", date_trunc('day', created_at, 'UTC') AS "day!",
@@ -73,11 +75,13 @@ pub(crate) async fn days(
                   count(*) FILTER (WHERE status = 'orphaned') AS "orphaned!"
            FROM jobs
            WHERE workspace_id = $1 AND agent_id IS NOT NULL
-             AND ($2::uuid IS NULL OR agent_id = $2) AND created_at >= $3
+             AND ($2::uuid IS NULL OR agent_id = $2)
+             AND created_at >= $3 AND created_at < $4
            GROUP BY agent_id, 2 ORDER BY agent_id, 2"#,
         workspace.to_db(),
         agent.map(AppId::to_db),
-        since,
+        period.first,
+        period.end(),
     )
     .fetch_all(&mut **tx)
     .await?;

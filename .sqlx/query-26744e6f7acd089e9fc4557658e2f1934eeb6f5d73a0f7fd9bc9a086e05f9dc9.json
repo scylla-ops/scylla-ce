@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT agent_id AS \"agent_id!\", date_trunc('day', created_at, 'UTC') AS \"day!\",\n                  count(*) FILTER (WHERE status = 'completed') AS \"completed!\",\n                  count(*) FILTER (WHERE status = 'failed') AS \"failed!\",\n                  count(*) FILTER (WHERE status = 'cancelled') AS \"cancelled!\",\n                  count(*) FILTER (WHERE status = 'orphaned') AS \"orphaned!\"\n           FROM jobs\n           WHERE workspace_id = $1 AND agent_id IS NOT NULL\n             AND ($2::uuid IS NULL OR agent_id = $2) AND created_at >= $3\n           GROUP BY agent_id, 2 ORDER BY agent_id, 2",
+  "query": "SELECT agent_id AS \"agent_id!\", date_trunc('day', created_at, 'UTC') AS \"day!\",\n                  count(*) FILTER (WHERE status = 'completed') AS \"completed!\",\n                  count(*) FILTER (WHERE status = 'failed') AS \"failed!\",\n                  count(*) FILTER (WHERE status = 'cancelled') AS \"cancelled!\",\n                  count(*) FILTER (WHERE status = 'orphaned') AS \"orphaned!\"\n           FROM jobs\n           WHERE workspace_id = $1 AND agent_id IS NOT NULL\n             AND ($2::uuid IS NULL OR agent_id = $2)\n             AND created_at >= $3 AND created_at < $4\n           GROUP BY agent_id, 2 ORDER BY agent_id, 2",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,7 @@
       "Left": [
         "Uuid",
         "Uuid",
+        "Timestamptz",
         "Timestamptz"
       ]
     },
@@ -61,5 +62,5 @@
       null
     ]
   },
-  "hash": "fa5173afb7c4cd6266d73f71f682ab9a9b2bdfdd4a05f9994cd5bb4b354dc679"
+  "hash": "26744e6f7acd089e9fc4557658e2f1934eeb6f5d73a0f7fd9bc9a086e05f9dc9"
 }
