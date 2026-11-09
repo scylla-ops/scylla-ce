@@ -151,3 +151,5 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - The built-in role Project agent gives its permissions in `ListRoles`: `job_execution.edit` and
   `job_execution.run`. The area `job_execution` is on the project level, so a custom role for apps
   on a project can also hold it.
+- The build compiles the protos again when a file of the submodule `proto` changes. Before, a build
+  after a move of the submodule could use old generated code.

@@ -40,11 +40,13 @@ const PROTOS: &[&str] = &[
     "scylla/workspaces/v1/workspace_service.proto",
 ];
 
-/// Compiles the protos, then prints the include folder for the dependent build scripts.
+/// Compiles the protos, then prints the include folder for the dependent build scripts. Runs again
+/// when a file of the `proto` folder changes: the folder is outside the package.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?)
         .join("..")
         .join("proto");
+    println!("cargo::rerun-if-changed={}", root.display());
     let files: Vec<PathBuf> = PROTOS.iter().map(|file| root.join(file)).collect();
     let descriptors = PathBuf::from(env::var("OUT_DIR")?).join("scylla_descriptors.bin");
     tonic_prost_build::configure()
