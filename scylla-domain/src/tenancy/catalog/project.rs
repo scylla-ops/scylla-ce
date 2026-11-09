@@ -1,4 +1,5 @@
-//! The areas of the catalog in a project. Each route is on the project and on its workspace.
+//! The areas of the catalog in a project, and the area of the machines. Each route is on the
+//! project and on its workspace.
 
 use super::{Area, CatalogPermission, Level, Route};
 use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
@@ -251,4 +252,29 @@ pub(super) const AREAS: &[Area] = &[
             ),
         ],
     ),
+    Area {
+        id: "job_execution",
+        level: Level::Project,
+        machine: true,
+        permissions: &[
+            cell(
+                "job_execution.edit",
+                "edit",
+                &[],
+                &[
+                    Route::of(PipelineHolder::RUN_JOBS),
+                    Route::of(PipelineAccess::RUN_JOBS),
+                ],
+            ),
+            cell(
+                "job_execution.run",
+                "run",
+                &["job_execution.edit"],
+                &[
+                    Route::of(PipelineHolder::RUN_JOBS),
+                    Route::of(PipelineAccess::RUN_JOBS),
+                ],
+            ),
+        ],
+    },
 ];

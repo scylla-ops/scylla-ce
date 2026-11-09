@@ -37,6 +37,7 @@ pub(crate) async fn owners(
             actor_kind: ActorKind::from_name(row.kind),
             display_name: row.display_name,
             handle: row.handle,
+            runner: false,
             role: OWNER.to_owned(),
         })
         .collect())
@@ -160,7 +161,7 @@ pub(crate) async fn others_on_scope(
 }
 
 /// Returns the kind of each actor, with the display name and the handle of a user, or the name
-/// of an App. The role of each entry is empty.
+/// of an App and if it is an agent. The role of each entry is empty.
 pub(crate) async fn profiles(
     tx: &mut Tx<'_>,
     actors: &[ActorId],
@@ -168,7 +169,8 @@ pub(crate) async fn profiles(
     let ids: Vec<_> = actors.iter().map(|id| id.to_db()).collect();
     let rows = sqlx::query!(
         r#"SELECT a.id AS "id!", a.kind AS "kind!",
-                  coalesce(u.display_name, p.name) AS "display_name?", u.handle
+                  coalesce(u.display_name, p.name) AS "display_name?", u.handle,
+                  coalesce(p.runner, false) AS "runner!"
            FROM actors a
            LEFT JOIN users u ON u.id = a.id
            LEFT JOIN apps p ON p.id = a.id
@@ -184,6 +186,7 @@ pub(crate) async fn profiles(
             actor_kind: ActorKind::from_name(row.kind),
             display_name: row.display_name.unwrap_or_default(),
             handle: row.handle,
+            runner: row.runner,
             role: String::new(),
         })
         .collect())

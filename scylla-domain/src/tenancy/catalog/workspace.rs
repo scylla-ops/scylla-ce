@@ -1,8 +1,7 @@
-//! The areas of the catalog in a workspace, and the area of the machines.
+//! The areas of the catalog in a workspace.
 
 use super::{Area, CatalogPermission, Level, Route};
 use crate::identity::apps::{App, AppHolder};
-use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
 use crate::projects::ProjectHolder;
 use crate::tenancy::grants::WorkspaceMembers;
 use crate::tenancy::roles::RoleHolder;
@@ -187,32 +186,5 @@ pub(super) const AREAS: &[Area] = &[
             implicit: false,
             routes: &[Route::of(ProjectHolder::CREATE_PROJECT)],
         }],
-    },
-    Area {
-        id: "job_execution",
-        level: Level::Workspace,
-        machine: true,
-        permissions: &[
-            CatalogPermission {
-                id: "job_execution.edit",
-                action: "edit",
-                depends_on: &[],
-                implicit: false,
-                routes: &[
-                    Route::of(PipelineHolder::RUN_JOBS),
-                    Route::of(PipelineAccess::RUN_JOBS),
-                ],
-            },
-            CatalogPermission {
-                id: "job_execution.run",
-                action: "run",
-                depends_on: &["job_execution.edit"],
-                implicit: false,
-                routes: &[
-                    Route::of(PipelineHolder::RUN_JOBS),
-                    Route::of(PipelineAccess::RUN_JOBS),
-                ],
-            },
-        ],
     },
 ];
