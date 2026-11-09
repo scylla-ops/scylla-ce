@@ -1,9 +1,11 @@
 //! The tests of the job stats of the agents: the ends of the jobs on each day, their durations,
 //! the agents of a workspace, and who can read them.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use prost_types::Timestamp;
 use scylla_domain::identity::actors::ActorId;
+use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::JobId;
 use scylla_domain::tenancy::workspaces::Workspace;
 use scylla_proto::agents::v1::{EventKind, JobOutcomes};
@@ -13,7 +15,7 @@ use sqlx::PgPool;
 use tonic::Code;
 
 use super::runs::{agent, pipeline, Agent};
-use crate::{app, assert_code, UNKNOWN_ID};
+use crate::{app, assert_code, assert_invalid_field, UNKNOWN_ID};
 
 /// Runs a pipeline and gives its job to `agent`, which ends it with `end`. Returns the job.
 async fn ended_job(
@@ -56,6 +58,25 @@ async fn move_job(app: &TestApp, job: &str, days: i32, seconds: i32) {
     .unwrap();
 }
 
+/// Sets the creation time of an App to `days` days ago.
+async fn move_app(app: &TestApp, id: &str, days: i32) {
+    sqlx::query!(
+        "UPDATE apps SET created_at = now() - make_interval(days => $2) WHERE id = $1",
+        AppId::parse(id).unwrap().to_db(),
+        days,
+    )
+    .execute(&app.pool)
+    .await
+    .unwrap();
+}
+
+/// Returns the time `days` days ago, or later for a negative number.
+fn days_ago(days: i64) -> Option<Timestamp> {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    let seconds = i64::try_from(now.as_secs()).unwrap() - days * 86_400;
+    Some(Timestamp { seconds, nanos: 0 })
+}
+
 /// Returns outcomes with a number of completed and failed jobs.
 fn ends(completed: u32, failed: u32) -> Option<JobOutcomes> {
     Some(JobOutcomes {
@@ -84,7 +105,10 @@ async fn get_agent_stats_counts_the_ends_of_each_day(pool: PgPool) {
     move_job(&app, &old, 40, 5).await;
 
     // when
-    let stats = app.get_agent_stats(owner, &busy.key.app).await.unwrap();
+    let stats = app
+        .get_agent_stats(owner, &busy.key.app, None, None)
+        .await
+        .unwrap();
 
     // then
     assert_eq!(text(&stats.agent_id), busy.key.app);
@@ -104,6 +128,52 @@ async fn get_agent_stats_counts_the_ends_of_each_day(pool: PgPool) {
     assert_eq!((today.seconds % 86_400, today.nanos), (0, 0));
 }
 
+/// A period counts only its own days, with the median of their jobs. The server moves its start
+/// to the creation of the agent and its end to today, and refuses a period that ends before it
+/// starts.
+#[sqlx::test(migrations = false)]
+async fn get_agent_stats_counts_the_jobs_of_a_period(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let (owner, workspace, _, pipeline) = pipeline(&app, vec![exec_node("build", &[])]).await;
+    let mut busy = agent(&app, owner, workspace, true, 4, "").await;
+    let today = ended_job(&app, owner, &pipeline, &mut busy, EventKind::JobCompleted).await;
+    let recent = ended_job(&app, owner, &pipeline, &mut busy, EventKind::JobFailed).await;
+    let old = ended_job(&app, owner, &pipeline, &mut busy, EventKind::JobCompleted).await;
+    let early = ended_job(&app, owner, &pipeline, &mut busy, EventKind::JobFailed).await;
+    move_job(&app, &today, 0, 10).await;
+    move_job(&app, &recent, 10, 30).await;
+    move_job(&app, &old, 40, 5).await;
+    move_job(&app, &early, 70, 5).await;
+    move_app(&app, &busy.key.app, 60).await;
+    let agent = busy.key.app.as_str();
+
+    // when
+    let middle = app
+        .get_agent_stats(owner, agent, days_ago(45), days_ago(5))
+        .await;
+    let wide = app
+        .get_agent_stats(owner, agent, days_ago(90), days_ago(-3))
+        .await;
+    let reversed = app
+        .get_agent_stats(owner, agent, days_ago(5), days_ago(45))
+        .await;
+
+    // then
+    let middle = middle.unwrap();
+    assert_eq!(middle.outcomes, ends(1, 1));
+    assert_eq!(middle.days.len(), 41);
+    assert_eq!(middle.days[5].outcomes, ends(1, 0));
+    assert_eq!(middle.days[35].outcomes, ends(0, 1));
+    let median = middle.median_duration.unwrap();
+    assert_eq!((median.seconds, median.nanos), (17, 500_000_000));
+    let wide = wide.unwrap();
+    assert_eq!(wide.outcomes, ends(2, 1));
+    assert_eq!(wide.days.len(), 61);
+    assert_eq!(wide.days[60].outcomes, ends(1, 0));
+    assert_invalid_field(&reversed.unwrap_err(), "to");
+}
+
 /// The list has each agent of the workspace with a job, and an agent with no job gets stats at
 /// 0 from `GetAgentStats`.
 #[sqlx::test(migrations = false)]
@@ -120,7 +190,10 @@ async fn list_agent_stats_gives_each_agent_with_a_job(pool: PgPool) {
 
     // when
     let listed = app.list_agent_stats(owner, workspace).await.unwrap();
-    let empty = app.get_agent_stats(owner, &idle.key.app).await.unwrap();
+    let empty = app
+        .get_agent_stats(owner, &idle.key.app, None, None)
+        .await
+        .unwrap();
 
     // then
     let agents: Vec<_> = listed.iter().map(|stats| text(&stats.agent_id)).collect();
@@ -143,11 +216,11 @@ async fn the_agent_stats_need_a_reader(pool: PgPool) {
     let (key, _) = app.app_in(owner, workspace, true).await;
 
     // when
-    let by_member = app.get_agent_stats(member, &key.app).await;
+    let by_member = app.get_agent_stats(member, &key.app, None, None).await;
     let listed = app.list_agent_stats(member, workspace).await;
-    let by_stranger = app.get_agent_stats(stranger, &key.app).await;
+    let by_stranger = app.get_agent_stats(stranger, &key.app, None, None).await;
     let list_by_stranger = app.list_agent_stats(stranger, workspace).await;
-    let unknown = app.get_agent_stats(owner, UNKNOWN_ID).await;
+    let unknown = app.get_agent_stats(owner, UNKNOWN_ID, None, None).await;
 
     // then
     assert!(by_member.is_ok() && listed.is_ok());

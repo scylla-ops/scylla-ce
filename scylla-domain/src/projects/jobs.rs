@@ -9,7 +9,7 @@ mod tests;
 
 pub use logs::{LogBatch, LogBatchId, LogLine, LogStream};
 pub use state::{JobEvent, NodeRun};
-pub use stats::{AgentStats, DayOutcomes, Outcomes, STATS_DAYS};
+pub use stats::{AgentStats, DayOutcomes, Outcomes, StatsPeriod, MAX_STATS_DAYS, STATS_DAYS};
 use time::OffsetDateTime;
 
 use crate::identity::actors::ActorId;

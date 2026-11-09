@@ -119,4 +119,7 @@ pub enum DomainError {
         /// The largest distance from the origin.
         max: i32,
     },
+    /// The end of a period is before its start.
+    #[error("must not be before the start of the period")]
+    BeforeStart,
 }

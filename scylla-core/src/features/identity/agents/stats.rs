@@ -1,10 +1,11 @@
 //! The handlers of `AgentService` for the job stats of the agents.
 
 use scylla_domain::identity::apps::{App, AppHolder, AppId};
-use scylla_domain::projects::jobs::{AgentStats, DayOutcomes, Outcomes};
+use scylla_domain::projects::jobs::{AgentStats, DayOutcomes, Outcomes, StatsPeriod};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::AccessError;
 use scylla_proto::agents::v1 as pb;
+use time::OffsetDateTime;
 use tonic::Request;
 
 use super::grpc::AgentsGrpc;
@@ -14,22 +15,36 @@ use crate::features::projects::jobs::stats;
 use crate::Error;
 
 impl AgentsGrpc {
-    /// Handles `GetAgentStats`: the stats of one agent. An unknown App gets the answer of a
-    /// refusal.
+    /// Handles `GetAgentStats`: the stats of one agent for a period. An unknown App gets the
+    /// answer of a refusal.
     pub(super) async fn get_stats(
         &self,
         request: Request<pb::GetAgentStatsRequest>,
     ) -> Result<pb::GetAgentStatsResponse, Error> {
+        // Authenticate the caller, and parse the request.
         let caller = self.gate.caller(&request).await?;
-        let id: AppId = parse::required(request.into_inner().agent_id, "agent_id")?;
+        let request = request.into_inner();
+        let id: AppId = parse::required(request.agent_id, "agent_id")?;
+        let from: Option<OffsetDateTime> = request
+            .from
+            .map(|from| parse::field(from, "from"))
+            .transpose()?;
+        let to: Option<OffsetDateTime> = request.to.map(|to| parse::field(to, "to")).transpose()?;
+
+        // Check the route permission in the workspace of the App.
         let check = App::GET_AGENT_STATS.on(id);
-        let Some(workspace) = apps::workspace(&self.pool, id).await? else {
+        let Some(app) = apps::get(&self.pool, id).await? else {
             return Err(AccessError::denied(&caller, &check).into());
         };
         self.gate
-            .authorize(&caller, check.within(workspace))
+            .authorize(&caller, check.within(app.workspace_id))
             .await?;
-        let stats = stats::of_agent(&self.pool, workspace, id).await?;
+
+        // Count the jobs of the period.
+        let now = OffsetDateTime::now_utc();
+        let period = StatsPeriod::of_request(from, to, app.created_at, now)
+            .map_err(|error| Error::invalid("to", error.to_string()))?;
+        let stats = stats::of_agent(&self.pool, app.workspace_id, id, period).await?;
         Ok(pb::GetAgentStatsResponse {
             stats: Some(stats.to_proto()),
         })
