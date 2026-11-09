@@ -1,6 +1,8 @@
 //! Unit tests of the catalog.
 
-use super::{areas, complete, covering, find, needs, permissions_of, Level, PermissionError};
+use super::{
+    areas, complete, covering, find, giving, held, needs, permissions_of, Level, PermissionError,
+};
 
 /// A role holds at most 38, 30 or 18 permissions, and the machine area is apart.
 #[test]
@@ -117,6 +119,68 @@ fn needs_follows_the_dependencies_through_a_cycle() {
             "project.view"
         ]
     );
+}
+
+/// A role of the platform with a permission of a workspace or of a project sees each workspace. A
+/// role of the platform with permissions of the instance only does not.
+#[test]
+fn complete_shows_each_workspace_to_a_role_of_the_platform_that_acts_in_one() {
+    // given
+    let in_a_project = ["pipelines.view".to_owned()];
+    let in_a_workspace = ["apps.view".to_owned()];
+    let on_the_instance = ["users.view".to_owned()];
+
+    // when
+    let project = complete(Level::Platform, false, &in_a_project).expect("valid");
+    let workspace = complete(Level::Platform, false, &in_a_workspace).expect("valid");
+    let instance = complete(Level::Platform, false, &on_the_instance).expect("valid");
+
+    // then
+    assert_eq!(
+        project,
+        [
+            "workspaces.view",
+            "workspace.view",
+            "project.view",
+            "pipelines.view"
+        ]
+    );
+    assert_eq!(
+        workspace,
+        ["workspaces.view", "workspace.view", "apps.view"]
+    );
+    assert_eq!(instance, ["users.view"]);
+}
+
+/// A stored role holds what its permissions need now, also when it was saved before a new
+/// dependency. An id that the catalog does not know gives nothing.
+#[test]
+fn held_adds_what_stored_permissions_need() {
+    // given
+    let stored = ["secrets.view", "workspaces.create"];
+
+    // when
+    let found = held(Level::Project, stored);
+
+    // then
+    assert_eq!(found, ["project.view", "pipelines.view", "secrets.view"]);
+}
+
+/// A route of the view of a project comes from each permission that needs this view, and not from
+/// a permission that does not need it.
+#[test]
+fn giving_finds_each_permission_that_needs_an_id() {
+    // given
+    let ids = ["project.view"];
+
+    // when
+    let found = giving(Level::Project, &ids);
+
+    // then
+    assert!(found.contains(&"project.view"));
+    assert!(found.contains(&"secrets.view"));
+    assert!(found.contains(&"job_logs.view"));
+    assert!(!found.contains(&"job_execution.run"));
 }
 
 /// A permission above the level, not in the catalog, or for apps only is refused.

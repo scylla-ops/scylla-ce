@@ -105,15 +105,15 @@ pub(super) async fn is_admin(tx: &mut Tx<'_>, actor: ActorId) -> Result<bool, sq
 }
 
 /// Returns the ids of the permissions that the roles that are rows give to an actor on the
-/// instance, on a workspace and on a project.
+/// instance, on a workspace and on a project, each with the kind of its scope.
 pub(super) async fn held_in_rows(
     tx: &mut Tx<'_>,
     actor: ActorId,
     workspace: Option<WorkspaceId>,
     project: Option<ProjectId>,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar!(
-        "SELECT DISTINCT p.permission
+) -> Result<Vec<(String, String)>, sqlx::Error> {
+    let rows = sqlx::query!(
+        "SELECT DISTINCT g.scope_kind, p.permission
          FROM role_grants g
          JOIN role_permissions p ON p.role_id = g.role_id
          WHERE g.actor_id = $1
@@ -125,7 +125,11 @@ pub(super) async fn held_in_rows(
         project.map(ProjectId::to_db),
     )
     .fetch_all(&mut **tx)
-    .await
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.scope_kind, row.permission))
+        .collect())
 }
 
 /// Returns the ids of the objects of a kind where a role that is a row gives an actor one of the

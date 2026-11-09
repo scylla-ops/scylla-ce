@@ -161,3 +161,7 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   installs the agent for the user in `%LOCALAPPDATA%`, and a task of the user starts it at each
   sign-in with no window. As administrator, it installs the service `ScyllaAgent`, and
   `-CurrentUser` selects the install for the user. `-Uninstall` removes the two installs.
+- A role of the instance with a permission of a workspace or of a project also gets the view of all
+  the workspaces, so its holder finds the workspaces where it acts. A custom role that was saved
+  before a new dependency gets this dependency at once: the server adds what the permissions of a
+  role need each time that it reads the role, checks a route or lists the objects of a role.

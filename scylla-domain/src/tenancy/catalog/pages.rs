@@ -1,7 +1,7 @@
 //! The pages and the actions of the web app, with the routes that each one calls with no other
 //! check. A test holds the catalog to them: a role that opens a page can use it.
 
-use super::{areas, complete, find, Level, Route};
+use super::{areas, complete, find, Level, Route, VIEW_ALL_WORKSPACES};
 use crate::identity::admins::UserAdminHolder;
 use crate::identity::apps::AppHolder;
 use crate::projects::pipelines::PipelineAccess;
@@ -140,11 +140,13 @@ fn same(one: &Route, other: &Route) -> bool {
 }
 
 /// A role with one permission and what it needs can use each page and action that it opens. A
-/// role of the instance is checked on the areas of the instance only.
+/// role of the instance with a permission of a workspace or of a project also finds each workspace.
 #[test]
 fn a_role_that_opens_a_page_calls_each_route_of_the_page() {
     let roles = [
         (Level::Platform, Level::Platform),
+        (Level::Platform, Level::Workspace),
+        (Level::Platform, Level::Project),
         (Level::Workspace, Level::Workspace),
         (Level::Workspace, Level::Project),
         (Level::Project, Level::Project),
@@ -174,12 +176,19 @@ fn a_role_that_opens_a_page_calls_each_route_of_the_page() {
                         .map(move |route| format!("{}: {}", page.name, route.permission))
                 })
                 .collect();
+            let in_a_workspace = level == Level::Platform && of != Level::Platform;
+            let finds_workspaces = !in_a_workspace || held.contains(&VIEW_ALL_WORKSPACES);
 
             // then
             assert!(
                 missing.is_empty(),
                 "a {} role with {} misses {missing:?}",
                 level.as_str(),
+                permission.id
+            );
+            assert!(
+                finds_workspaces,
+                "a platform role with {} does not find the workspaces",
                 permission.id
             );
         }
