@@ -133,6 +133,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   and a user with no email.
 - `GetAgentStats` counts the jobs of a period: from the day of the creation of the agent to today,
   at most one year. With no period, it counts the last 30 days.
+- `ListMembers` and `ListRoleHolders` give `runner` for each actor: true for an App that runs jobs
+  (an agent).
 
 ### Fixed
 

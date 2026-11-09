@@ -2,6 +2,7 @@
 //! list of the access, the permissions of a caller, and the permission model.
 
 mod access_lists;
+mod actor_kinds;
 mod authz;
 mod checks;
 mod deletion;
