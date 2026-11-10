@@ -3,7 +3,7 @@
 # update, uninstall. It needs curl and jq.
 #
 #   SERVER=<url> SCYLLA_CE=<server binary> AGENT_BIN=<agent binary> \
-#     scripts/agent-install-test.sh <linux|macos|windows|no-service|docker>
+#     scripts/agent-install-test.sh <linux|macos|windows|windows-user|no-service|docker>
 #
 # PSQL is the psql program, and DATABASE_URL is the database of the server.
 set -euo pipefail
@@ -219,6 +219,46 @@ test_windows() {
   install_ps1 -Uninstall
   [ ! -e "$exe" ] && [ ! -e "$data" ] || die "files stay"
   until_true "the service stays" 15 service_gone
+}
+
+user_task() {
+  schtasks.exe /query /tn "ScyllaAgent-$USERNAME" >/dev/null 2>&1
+}
+
+# The runner is an administrator, so -CurrentUser gives the install of a user with no admin rights.
+test_windows_user() {
+  local local_data exe data
+  local_data=$(cygpath -u "$LOCALAPPDATA")
+  exe="$local_data/Programs/scylla-agent/scylla-agent.exe"
+  data="$local_data/scylla-agent"
+  new_app windows-user
+
+  step "a bad code changes nothing"
+  expect_failure "a bad code passed" install_ps1 -JoinCode wrong-code -Url "$SERVER" -Binary "$(cygpath -w "$AGENT_BIN")" -CurrentUser
+  [ ! -e "$exe" ] && [ ! -e "$data" ] && ! user_task || die "a bad code changed the machine"
+
+  step "install for this user"
+  install_ps1 -JoinCode "$code" -Url "$SERVER" -Binary "$(cygpath -w "$AGENT_BIN")" -CurrentUser
+  until_true "the agent did not connect" 30 connected
+  user_task || die "no task at the sign-in"
+  service_gone || die "a service"
+
+  step "a script job, with sh of Git"
+  run_job "$(sh_node 'echo hello-from-the-agent; uname -s')" hello-from-the-agent
+  grep -q 'the stream is open' "$data/agent.log" || die "no log of the agent"
+
+  step "a second install stops before any change"
+  expect_failure "a second install passed" install_ps1 -JoinCode "$code" -Url "$SERVER" -Binary "$(cygpath -w "$AGENT_BIN")" -CurrentUser
+  connected || die "a second install stopped the agent"
+
+  step "update"
+  install_ps1 -Update -Binary "$(cygpath -w "$AGENT_BIN")"
+  until_true "the agent did not come back" 30 connected
+
+  step "uninstall"
+  install_ps1 -Uninstall
+  [ ! -e "$exe" ] && [ ! -e "$data" ] && ! user_task || die "files stay"
+  until_true "the server still sees the agent" 30 not_connected
 }
 
 test_no_service() {

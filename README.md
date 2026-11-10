@@ -129,7 +129,7 @@ The dev setup has no identity provider: the tests use a fake one. To try a real 
 
 ## Run an agent
 
-An admin creates an App with `runner = true` (`AppService.CreateApp`) and gives it the role `runner` of the workspace, or of some projects (`AccessService.Grant`). The server gives an install script. It downloads the agent, checks its SHA-256, joins the App with a temporary file, and only then changes the machine and starts a service. A bad code leaves the machine as it was. `--url` is the address of the server for this machine, and `SCYLLA_API_URL` is the default.
+An admin creates an App with `runner = true` (`AppService.CreateApp`) and gives it the role `runner` of the workspace, or of some projects (`AccessService.Grant`). The server gives an install script. It downloads the agent, checks its SHA-256, joins the App with a temporary file, and only then changes the machine and starts the agent. A bad code leaves the machine as it was. `--url` is the address of the server for this machine, and `SCYLLA_API_URL` is the default.
 
 ```sh
 # Linux: systemd, user scylla-agent, /var/lib/scylla-agent. It asks for the sudo password.
@@ -138,7 +138,8 @@ curl -fsSL https://scylla.example.com/install.sh | sh -s -- <join code> --url ht
 ```
 
 ```powershell
-# Windows, PowerShell as administrator: the service ScyllaAgent, with the account NT SERVICE\ScyllaAgent
+# Windows, no admin rights: for your user only, in %LOCALAPPDATA%\scylla-agent, with the logs in agent.log. A task of your user starts it at each sign-in, with no window.
+# Windows, PowerShell as administrator: the service ScyllaAgent, with the account NT SERVICE\ScyllaAgent. It starts with the machine.
 & ([scriptblock]::Create((irm https://scylla.example.com/install.ps1))) -JoinCode <join code> -Url https://scylla.example.com -Capacity 2
 ```
 
@@ -152,10 +153,11 @@ docker run -d --name scylla-agent --restart unless-stopped -e SCYLLA_URL=https:/
 | `--url`, `-Url` | The address of the server for this machine. |
 | `--capacity`, `-Capacity` | The largest number of jobs at the same time. The default is 1. |
 | `--container-runtime`, `-ContainerRuntime` | `auto` (the default), `docker`, `podman`, or `none`. `auto` looks in the `PATH` at each start. |
-| `--no-service`, `-NoService` | No sudo and no service. All files are in `~/.scylla-agent`, and the script prints the command that runs the agent. |
+| `-CurrentUser` | Windows only. Installs the agent for your user with its task, also in PowerShell as administrator. |
+| `--no-service`, `-NoService` | No sudo, no service and no task. All files are in `~/.scylla-agent` (`%LOCALAPPDATA%\scylla-agent` on Windows), and the script prints the command that runs the agent. |
 | `--binary`, `-Binary` | Uses this binary and downloads nothing, for a build from source. It warns when the version is not the version of the server. |
-| `--update`, `-Update` | Needs no code. Replaces the binary, starts the service again, and keeps the key. |
-| `--uninstall`, `-Uninstall` | Removes the service, the binary, the folder and the user. The key stays on the server until you revoke it or delete the agent. |
+| `--update`, `-Update` | Needs no code. Replaces the binary, starts the agent again, and keeps the key. |
+| `--uninstall`, `-Uninstall` | Removes the service, the binary, the folder and the user. On Windows, it removes the agent of your user with its task, and also the service in PowerShell as administrator. The key stays on the server until you revoke it or delete the agent. |
 | `--force`, `-Force` | Makes a new key on a machine that joined before. With no `--force`, the script stops before any change. |
 
 The agent does not update itself, and the server does not refuse an older agent. The page of the agent shows the two versions and the command.

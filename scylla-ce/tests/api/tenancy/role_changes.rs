@@ -1,8 +1,10 @@
-//! The tests of the changes of a role: a built-in role stays, a role in use stays, and a change is
-//! live at once.
+//! The tests of the changes of a role: a built-in role stays, a role in use stays, a change is live
+//! at once, and a saved role holds a new dependency.
 
 use scylla_domain::identity::actors::ActorId;
-use scylla_testkit::{RoleInput, TestApp};
+use scylla_domain::tenancy::roles::RoleId;
+use scylla_proto::common::v1::PageRequest;
+use scylla_testkit::{text, Role, RoleInput, TestApp};
 use sqlx::PgPool;
 use tonic::Code;
 
@@ -86,7 +88,12 @@ async fn a_workspace_makes_its_own_roles(pool: PgPool) {
     // then
     assert_eq!(
         role.permissions,
-        ["workspace.view", "pipelines.view", "pipelines.run"]
+        [
+            "workspace.view",
+            "project.view",
+            "pipelines.view",
+            "pipelines.run"
+        ]
     );
     assert_code(refused, Code::PermissionDenied);
     assert_code(on_platform, Code::InvalidArgument);
@@ -153,4 +160,76 @@ async fn a_role_of_the_instance_gives_its_routes(pool: PgPool) {
     // then
     assert!(settings.is_ok());
     assert_code(users, Code::PermissionDenied);
+}
+
+/// Takes permissions out of the rows of a role, as a role saved before a new dependency has them.
+async fn forget(app: &TestApp, key: &str, permissions: &[&str]) {
+    let role = RoleId::parse(key).unwrap();
+    let permissions: Vec<String> = permissions.iter().map(|id| (*id).to_owned()).collect();
+    sqlx::query!(
+        "DELETE FROM role_permissions WHERE role_id = $1 AND permission = ANY($2)",
+        role.to_db(),
+        &permissions,
+    )
+    .execute(&app.pool)
+    .await
+    .unwrap();
+}
+
+/// A role saved before a new dependency holds it at once: the role shows it, and its holder
+/// passes its routes.
+#[sqlx::test(migrations = false)]
+async fn a_saved_role_holds_a_new_dependency(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let admin = app.admin().await;
+    let input = RoleInput::on_platform("Onboarding", &["users.create"]);
+    let role = app.create_role(admin, input).await.unwrap();
+    forget(&app, &role.key, &["users.view"]).await;
+    let user = app.user().await;
+    app.grant_on_platform(admin, &role.grant_name, user)
+        .await
+        .unwrap();
+
+    // when
+    let shown = app.get_role(admin, &role.key, None).await.unwrap();
+    let users = app.list_users(user, "", PageRequest::default()).await;
+
+    // then
+    assert_eq!(shown.permissions, ["users.view", "users.create"]);
+    assert!(users.is_ok(), "{users:?}");
+}
+
+/// A role of a project saved before a new dependency shows its project in the list, and its
+/// holder opens it.
+#[sqlx::test(migrations = false)]
+async fn a_saved_project_role_shows_its_project(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let (owner, bob) = (app.user().await, app.user().await);
+    let workspace = app.workspace_of(owner).await;
+    let project = app.create_project(owner, "alpha").await.unwrap();
+    let owned_by = workspace.to_string();
+    let input = RoleInput {
+        name: "Secrets",
+        level: "project",
+        holder: "people",
+        permissions: &["secrets.view"],
+        workspace: Some(&owned_by),
+    };
+    let role = app.create_role(owner, input).await.unwrap();
+    forget(&app, &role.key, &["project.view", "pipelines.view"]).await;
+    app.join_workspace(owner, bob).await;
+    let grant = Role::on("project", text(&project.id), &role.grant_name);
+    app.grant_role(owner, grant, &bob.to_string())
+        .await
+        .unwrap();
+
+    // when
+    let listed = app.visible_projects(bob, Some(workspace)).await.unwrap();
+    let read = app.get_project(bob, text(&project.id)).await;
+
+    // then
+    assert_eq!(listed, ["alpha"]);
+    assert!(read.is_ok(), "{read:?}");
 }

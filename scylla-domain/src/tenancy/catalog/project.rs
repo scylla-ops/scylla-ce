@@ -41,7 +41,7 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "project.view",
                 "view",
-                &[],
+                &["pipelines.view"],
                 &[
                     Route::of(ProjectHolder::GET_PROJECT),
                     Route::of(ProjectHolder::LIST_PROJECTS),
@@ -75,7 +75,7 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "project_members.view",
                 "view",
-                &[],
+                &["project.view"],
                 &[
                     Route::of(Project::LIST_ACCESS),
                     Route::of(ProjectMembers::LIST_MEMBERS),
@@ -96,7 +96,7 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "pipelines.view",
                 "view",
-                &[],
+                &["project.view"],
                 &[
                     Route::of(PipelineHolder::GET_PIPELINE),
                     Route::of(PipelineHolder::LIST_PROJECT_PIPELINES),
@@ -108,7 +108,7 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "pipelines.create",
                 "create",
-                &[],
+                &["pipelines.view"],
                 &[
                     Route::of(PipelineHolder::CREATE_PIPELINE),
                     Route::of(PipelineAccess::CREATE_PIPELINE),
@@ -150,7 +150,7 @@ pub(super) const AREAS: &[Area] = &[
         &[cell(
             "triggers.manage",
             "manage",
-            &[],
+            &["pipelines.view"],
             &[
                 Route::of(TriggerHolder::CREATE_TRIGGER),
                 Route::of(TriggerHolder::GET_TRIGGER),
@@ -175,7 +175,7 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "jobs.view",
                 "view",
-                &[],
+                &["pipelines.view"],
                 &[
                     Route::of(PipelineHolder::GET_JOB),
                     Route::of(PipelineHolder::LIST_PIPELINE_JOBS),
@@ -211,7 +211,7 @@ pub(super) const AREAS: &[Area] = &[
         &[cell(
             "job_logs.view",
             "view",
-            &[],
+            &["jobs.view"],
             &[
                 Route::of(PipelineHolder::TAIL_JOB_LOGS),
                 Route::of(PipelineAccess::TAIL_JOB_LOGS),
@@ -224,7 +224,7 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "secrets.view",
                 "view",
-                &[],
+                &["project.view"],
                 &[
                     Route::of(ProjectHolder::LIST_SECRETS),
                     Route::of(Project::LIST_SECRETS),
@@ -233,7 +233,7 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "secrets.create",
                 "create",
-                &[],
+                &["secrets.view"],
                 &[
                     Route::of(ProjectHolder::CREATE_SECRET),
                     Route::of(ProjectHolder::UPDATE_SECRET),

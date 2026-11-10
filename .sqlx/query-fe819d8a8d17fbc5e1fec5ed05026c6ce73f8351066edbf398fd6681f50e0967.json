@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT g.scope_kind, p.permission\n         FROM role_grants g\n         JOIN role_permissions p ON p.role_id = g.role_id\n         WHERE g.actor_id = $1\n           AND (g.scope_kind = 'platform'\n                OR (g.scope_kind = 'workspace' AND g.scope_id = $2)\n                OR (g.scope_kind = 'project' AND g.scope_id = $3))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scope_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "role_grants",
+            "name": "scope_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "permission",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "role_permissions",
+            "name": "permission"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "fe819d8a8d17fbc5e1fec5ed05026c6ce73f8351066edbf398fd6681f50e0967"
+}

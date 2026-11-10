@@ -2,6 +2,8 @@
 //! area, and it gives a list of route permissions.
 
 mod instance;
+#[cfg(test)]
+mod pages;
 mod project;
 #[cfg(test)]
 mod tests;
@@ -203,33 +205,76 @@ pub enum PermissionError<'a> {
     Holder(&'a str),
 }
 
-/// Checks the permissions of a role, then adds the permissions that they depend on and the
-/// implicit permissions of its level. Returns the ids in the order of the catalog.
+/// Returns the ids of the permissions that a permission needs, with the permission itself: what
+/// it depends on, then what these depend on.
+pub fn needs(id: &'static str) -> BTreeSet<&'static str> {
+    let mut found = BTreeSet::new();
+    let mut next = vec![id];
+    while let Some(id) = next.pop() {
+        if found.insert(id) {
+            next.extend(find(id).map_or(&[][..], |(_, permission)| permission.depends_on));
+        }
+    }
+    found
+}
+
+/// Returns the ids of the permissions that a role of a level holds with some ids, in the order of
+/// the catalog: the ids and what they need, the view of all the workspaces for a role of the
+/// platform with a permission of a workspace or of a project, and the implicit permissions of the
+/// level. An unknown id and an id above the level give nothing.
+pub fn held<'a>(level: Level, ids: impl IntoIterator<Item = &'a str>) -> Vec<&'static str> {
+    // Keep each known id with what it needs.
+    let mut kept = BTreeSet::new();
+    for (_, permission) in ids.into_iter().filter_map(find) {
+        kept.extend(needs(permission.id));
+    }
+
+    // Show each workspace to a role of the platform that acts in the workspaces.
+    let below = |id: &&str| find(id).is_some_and(|(area, _)| area.level != Level::Platform);
+    if level == Level::Platform && kept.iter().any(below) {
+        kept.extend(needs(VIEW_ALL_WORKSPACES));
+    }
+
+    // Add the implicit permissions, then read the catalog in its order.
+    areas()
+        .filter(|area| level.covers(area.level))
+        .flat_map(|area| area.permissions.iter().map(move |cell| (area, cell)))
+        .filter(|(area, cell)| kept.contains(cell.id) || (cell.implicit && area.level == level))
+        .map(|(_, cell)| cell.id)
+        .collect()
+}
+
+/// Returns the ids of the permissions of a level that give one of some ids to a role of that
+/// level, with what they need.
+pub fn giving(level: Level, ids: &[&str]) -> Vec<&'static str> {
+    permissions_of(level)
+        .filter(|permission| {
+            held(level, [permission.id])
+                .iter()
+                .any(|id| ids.contains(id))
+        })
+        .map(|permission| permission.id)
+        .collect()
+}
+
+/// Checks the permissions of a role, then adds what a role of its level holds with them (`held`).
+/// Returns the ids in the order of the catalog.
 pub fn complete<'a>(
     level: Level,
     for_apps: bool,
     ids: &'a [String],
 ) -> Result<Vec<&'static str>, PermissionError<'a>> {
-    // Check each id, and keep it with what it depends on.
-    let mut kept = BTreeSet::new();
+    // Check each id.
     for id in ids {
-        let (area, permission) = find(id).ok_or(PermissionError::Unknown(id))?;
+        let (area, _) = find(id).ok_or(PermissionError::Unknown(id))?;
         if !level.covers(area.level) {
             return Err(PermissionError::AboveLevel(id));
         }
         if area.machine && !for_apps {
             return Err(PermissionError::Holder(id));
         }
-        kept.insert(permission.id);
-        kept.extend(permission.depends_on);
     }
 
-    // Add the implicit permissions, then read the catalog in its order.
-    let chosen = areas()
-        .filter(|area| level.covers(area.level))
-        .flat_map(|area| area.permissions.iter().map(move |cell| (area, cell)))
-        .filter(|(area, cell)| kept.contains(cell.id) || (cell.implicit && area.level == level))
-        .map(|(_, cell)| cell.id)
-        .collect();
-    Ok(chosen)
+    // Add what a role of the level holds with them.
+    Ok(held(level, ids.iter().map(String::as_str)))
 }

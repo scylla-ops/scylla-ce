@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use scylla_domain::authz::{Check, Object, Resource, Schema};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::projects::{Project, ProjectId};
-use scylla_domain::tenancy::catalog;
+use scylla_domain::tenancy::catalog::{self, Level};
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
 use scylla_extension::AccessError;
 use sqlx::PgPool;
@@ -173,19 +173,24 @@ impl Rights {
     }
 
     /// Returns the ids of the objects of a definition where a role that is a row gives a route
-    /// permission to the actor.
+    /// permission to the actor, also through what its permissions need.
     pub(super) async fn row_objects(
         &self,
         actor: ActorId,
         definition: &'static str,
         permission: &'static str,
     ) -> Result<Vec<String>, AccessError> {
+        // Find the permissions that give the route, also through what they need.
         let ids = catalog::covering(definition, permission);
         if ids.is_empty() {
             return Ok(Vec::new());
         }
+        let ids = Level::parse(definition)
+            .map_or_else(|| ids.to_vec(), |level| catalog::giving(level, ids));
+
+        // Read the objects of the roles that hold one of them.
         let mut tx = self.pool.begin().await.map_err(store::failed)?;
-        let objects = store::objects_in_rows(&mut tx, actor, definition, ids)
+        let objects = store::objects_in_rows(&mut tx, actor, definition, &ids)
             .await
             .map_err(store::failed)?;
         tx.commit().await.map_err(store::failed)?;
@@ -193,7 +198,8 @@ impl Rights {
     }
 
     /// Returns the ids of the permissions that the roles that are rows give to the actor on an
-    /// object: on the object, on its workspace and on the instance. A route on an actor has none.
+    /// object: on the object, on its workspace and on the instance, with what a role of each level
+    /// holds with them. A route on an actor has none.
     async fn held_in_rows(
         &self,
         caller: ActorId,
@@ -207,11 +213,11 @@ impl Rights {
             .then(|| ProjectId::parse(object.id()).ok())
             .flatten();
         let mut tx = self.pool.begin().await.map_err(store::failed)?;
-        let held = store::held_in_rows(&mut tx, caller, workspace, project)
+        let rows = store::held_in_rows(&mut tx, caller, workspace, project)
             .await
             .map_err(store::failed)?;
         tx.commit().await.map_err(store::failed)?;
-        Ok(held.into_iter().collect())
+        Ok(held_by_level(&rows))
     }
 
     /// Returns `true` if the caller has each permission with no role: it is the object itself,
@@ -256,6 +262,27 @@ impl Rights {
         tx.commit().await.map_err(store::failed)?;
         Ok(admin)
     }
+}
+
+/// Returns what the roles of each level hold with the ids of their rows. The kind of the scope of a
+/// grant is the level of its role.
+fn held_by_level(rows: &[(String, String)]) -> HashSet<String> {
+    [Level::Platform, Level::Workspace, Level::Project]
+        .into_iter()
+        .flat_map(|level| {
+            let ids: Vec<&str> = rows
+                .iter()
+                .filter(|(kind, _)| kind == level.as_str())
+                .map(|(_, id)| id.as_str())
+                .collect();
+            if ids.is_empty() {
+                Vec::new()
+            } else {
+                catalog::held(level, ids)
+            }
+        })
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Returns the workspace of an object: the object itself for a workspace.
