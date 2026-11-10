@@ -25,6 +25,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `Revoke` change it, and they also check the new permission `manage_owners`. `AddOwner`, `RemoveOwner`,
   `ListOwners` and `WorkspaceOwner` are gone from the API, and the events `owner.added` and
   `owner.removed` are gone from the log. The rows of `workspace_owners` stay, with no migration.
+- The Rust dependencies are at their latest versions: `croner` 4.0.3, `syn` 3.0.10, `uuid` 1.29.2,
+  and the latest patch versions in `Cargo.lock`. A cron schedule with `7L` (the last Sunday of the
+  month) now fires.
 
 ### Added
 
