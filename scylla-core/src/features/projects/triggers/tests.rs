@@ -23,6 +23,22 @@ fn a_schedule_gives_its_next_time() {
     assert!(schedule::check("0 3 * * 1-5").is_ok());
 }
 
+/// A schedule on the last Sunday of the month, written as `7L`, gives that Sunday.
+#[test]
+fn a_schedule_on_the_last_sunday_gives_its_next_time() {
+    // given
+    let start = OffsetDateTime::from_unix_timestamp(1_793_491_200).unwrap();
+
+    // when
+    let next = schedule::next("0 3 * * 7L", start);
+
+    // then
+    assert_eq!(
+        next.map(OffsetDateTime::unix_timestamp),
+        Some(1_795_921_200)
+    );
+}
+
 /// A due trigger fires one time and gets its next time. A stopped trigger does not fire.
 #[sqlx::test(migrator = "crate::infra::db::MIGRATOR")]
 async fn tick_fires_the_due_triggers(pool: PgPool) {
