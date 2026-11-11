@@ -6,11 +6,9 @@ use std::time::Duration;
 use scylla_proto::agents::v1::EventKind;
 use scylla_proto::integrations::v1::merge_block_service_client::MergeBlockServiceClient;
 use scylla_proto::integrations::v1::repository_service_client::RepositoryServiceClient;
-use scylla_proto::integrations::v1::vcs_connection_service_client::VcsConnectionServiceClient;
 use scylla_proto::integrations::v1::vcs_report_service_client::VcsReportServiceClient;
 use scylla_proto::integrations::v1::{
-    GetRepositoryLinkRequest, GetVcsProvidersRequest, ListJobReportsRequest,
-    ListMergeBlocksRequest, PipelineSource,
+    GetRepositoryLinkRequest, ListJobReportsRequest, ListMergeBlocksRequest, PipelineSource,
 };
 use scylla_proto::pipelines::v1::job_service_client::JobServiceClient;
 use scylla_proto::pipelines::v1::pipeline_service_client::PipelineServiceClient;
@@ -189,16 +187,14 @@ async fn the_events_of_a_checkout_change_nothing(pool: PgPool) {
     assert!(read.error.is_empty() && read.checkout.is_none());
 }
 
-/// The services of the integrations and of the GitHub App answer `UNIMPLEMENTED`.
+/// The services of the integrations that are not done yet and of the GitHub App answer
+/// `UNIMPLEMENTED`.
 #[sqlx::test(migrations = false)]
 async fn the_services_of_the_integrations_are_not_served(pool: PgPool) {
     // given
     let app = app(pool).await;
-    let (owner, workspace, project, _) = pipeline(&app, vec![exec_node("build", &[])]).await;
+    let (owner, _, project, _) = pipeline(&app, vec![exec_node("build", &[])]).await;
     let admin = app.admin().await;
-    let providers = GetVcsProvidersRequest {
-        workspace_id: Some(id(workspace.to_string())),
-    };
     let link = GetRepositoryLinkRequest {
         project_id: Some(id(&project)),
     };
@@ -210,9 +206,6 @@ async fn the_services_of_the_integrations_are_not_served(pool: PgPool) {
     };
 
     // when
-    let providers = VcsConnectionServiceClient::new(app.channel.clone())
-        .get_vcs_providers(app.authed(owner, providers).await)
-        .await;
     let link = RepositoryServiceClient::new(app.channel.clone())
         .get_repository_link(app.authed(owner, link).await)
         .await;
@@ -227,7 +220,6 @@ async fn the_services_of_the_integrations_are_not_served(pool: PgPool) {
         .await;
 
     // then
-    assert_code(providers, Code::Unimplemented);
     assert_code(link, Code::Unimplemented);
     assert_code(blocks, Code::Unimplemented);
     assert_code(reports, Code::Unimplemented);

@@ -156,6 +156,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   approval and gets no secret value. `RerunJob` keeps the source and checks the secrets.
   `ListPipelineJobs` and `ListWorkspaceJobs` filter on the branch, the event, the author and the
   pull request.
+- The API connects a workspace to GitHub (install of the GitHub App) and to GitLab (the token of a
+  service account). It lists, gets and deletes the connections, and lists the repositories of a
+  connection. Only the admins of the workspace add, change or delete a connection. No answer and no
+  log line has a token.
 
 ### Fixed
 

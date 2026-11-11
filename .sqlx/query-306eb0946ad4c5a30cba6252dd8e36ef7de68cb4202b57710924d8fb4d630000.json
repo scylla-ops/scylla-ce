@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO vcs_connections (id, workspace_id, provider, auth_kind, external_id, account,\n                                      account_kind, avatar_url, sealed_token, token_expires_at,\n                                      scopes, repository_count, created_by)\n         VALUES ($1, $2, 'gitlab', 'access_token', $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bytea",
+        "Timestamptz",
+        "TextArray",
+        "Int4",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "306eb0946ad4c5a30cba6252dd8e36ef7de68cb4202b57710924d8fb4d630000"
+}

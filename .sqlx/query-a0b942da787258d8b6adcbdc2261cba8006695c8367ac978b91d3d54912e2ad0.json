@@ -1,0 +1,277 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id, c.workspace_id, c.provider, c.auth_kind, c.app_id, c.external_id, c.account,\n                  c.account_kind, c.avatar_url, c.token_expires_at, c.scopes, c.permissions,\n                  c.all_repositories, c.repository_count, c.delivery_mode,\n                  c.poll_interval_seconds, c.last_event_at, c.state, c.state_reason, c.created_by,\n                  c.created_at,\n                  (SELECT count(*) FROM repository_links l WHERE l.connection_id = c.id)\n                      AS \"project_count!\"\n           FROM vcs_connections c\n           WHERE c.workspace_id = $1 AND ($2::uuid IS NULL OR c.id > $2)\n           ORDER BY c.id\n           LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "auth_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "auth_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "app_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "app_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "account",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "account"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "account_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "account_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "avatar_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "avatar_url"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "token_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "token_expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "scopes",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "scopes"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "permissions",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "permissions"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "all_repositories",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "all_repositories"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "repository_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "repository_count"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "delivery_mode",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "delivery_mode"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "poll_interval_seconds",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "poll_interval_seconds"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "last_event_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "last_event_at"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "state_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "state_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "project_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "a0b942da787258d8b6adcbdc2261cba8006695c8367ac978b91d3d54912e2ad0"
+}

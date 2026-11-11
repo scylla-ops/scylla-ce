@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM vcs_setup_states\n         WHERE kind = 'github_install' AND expires_at < now() - interval '1 day'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "569fae78797042db65161f03f1a58078d982569e08842dcd12acbe249f15c1f9"
+}
