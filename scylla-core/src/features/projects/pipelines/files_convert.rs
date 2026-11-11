@@ -43,7 +43,7 @@ fn error_of(error: FileError, warning: bool) -> pb::FileError {
 }
 
 /// Returns the proto of the checkout settings.
-fn checkout_of(checkout: CheckoutSettings) -> pb::CheckoutSettings {
+pub(super) fn checkout_of(checkout: CheckoutSettings) -> pb::CheckoutSettings {
     pb::CheckoutSettings {
         enabled: checkout.enabled,
         depth: checkout.depth,

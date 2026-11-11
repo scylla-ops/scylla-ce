@@ -1,5 +1,5 @@
-//! The open streams of the agents on this server: at most one stream for each agent, and the
-//! commands that the server sends to a stream.
+//! The open streams of the agents on this server: at most one stream for each agent, its
+//! workspace and its features, and the commands that the server sends to a stream.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -7,6 +7,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::JobId;
+use scylla_domain::tenancy::workspaces::WorkspaceId;
 use tokio::sync::mpsc;
 
 /// The number of commands that wait for a busy stream.
@@ -38,6 +39,10 @@ struct Entry {
     number: u64,
     /// The commands to the stream.
     commands: mpsc::Sender<Command>,
+    /// The workspace of the agent.
+    workspace: WorkspaceId,
+    /// `true` if the agent gets the code of a job before its first node.
+    checkout: bool,
 }
 
 /// The ticket of an open stream: its number and its commands.
@@ -49,13 +54,16 @@ pub(crate) struct Ticket {
 }
 
 impl Registry {
-    /// Records the stream of an agent, and stops its previous stream.
-    pub(crate) fn open(&self, app: AppId) -> Ticket {
+    /// Records the stream of an agent of a workspace, with its checkout feature, and stops its
+    /// previous stream.
+    pub(crate) fn open(&self, app: AppId, workspace: WorkspaceId, checkout: bool) -> Ticket {
         let number = self.next.fetch_add(1, Ordering::Relaxed);
         let (sender, commands) = mpsc::channel(COMMANDS);
         let entry = Entry {
             number,
             commands: sender,
+            workspace,
+            checkout,
         };
         if let Some(previous) = self.streams().insert(app, entry) {
             let _ = previous
@@ -102,6 +110,14 @@ impl Registry {
     /// Returns `true` if the agent has an open stream.
     pub(crate) fn is_connected(&self, app: AppId) -> bool {
         self.streams().contains_key(&app)
+    }
+
+    /// Returns `true` if an agent of the workspace that gets the code of a job has an open
+    /// stream.
+    pub(crate) fn can_check_out(&self, workspace: WorkspaceId) -> bool {
+        self.streams()
+            .values()
+            .any(|entry| entry.workspace == workspace && entry.checkout)
     }
 
     /// Locks the map. A panic in another holder leaves the map usable.

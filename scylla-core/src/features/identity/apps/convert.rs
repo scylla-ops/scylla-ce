@@ -42,7 +42,7 @@ fn host(host: Host) -> pb::Host {
         memory_bytes: host.memory_bytes,
         capacity: host.capacity,
         container_runtime: host.container_runtime.unwrap_or_default(),
-        features: Vec::new(),
+        features: host.features,
     }
 }
 
@@ -70,6 +70,7 @@ impl FromProto<pb::Host> for Host {
             memory_bytes: value.memory_bytes,
             capacity: value.capacity,
             container_runtime: Some(value.container_runtime),
+            features: value.features,
         };
         Host::parse(host).map_err(|(field, error)| Invalid::at(field, error))
     }

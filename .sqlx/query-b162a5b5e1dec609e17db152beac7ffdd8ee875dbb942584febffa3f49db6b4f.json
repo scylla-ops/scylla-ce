@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO pipelines (id, project_id, workspace_id, created_by, name, nodes)\n         SELECT $1, p.id, p.workspace_id, $3, $4, $5 FROM projects p WHERE p.id = $2\n         RETURNING id, project_id, workspace_id, created_by, name, nodes, version, created_at,\n                   updated_at",
+  "query": "INSERT INTO pipelines (id, project_id, workspace_id, created_by, name, nodes, checkout)\n         SELECT $1, p.id, p.workspace_id, $3, $4, $5, $6 FROM projects p WHERE p.id = $2\n         RETURNING id, project_id, workspace_id, created_by, name, nodes, checkout, version,\n                   created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -71,6 +71,17 @@
       },
       {
         "ordinal": 6,
+        "name": "checkout",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "checkout"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -109,6 +120,7 @@
         "Uuid",
         "Uuid",
         "Text",
+        "Jsonb",
         "Jsonb"
       ]
     },
@@ -119,10 +131,11 @@
       false,
       false,
       false,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "78541d8cccf2dd5e24257371e228040c432ca0c932b67bf8b2a8b00ef18419f2"
+  "hash": "b162a5b5e1dec609e17db152beac7ffdd8ee875dbb942584febffa3f49db6b4f"
 }

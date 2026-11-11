@@ -1,5 +1,5 @@
-//! The conversions of the jobs and of their logs to the proto messages, and of the filters of a
-//! job list.
+//! The conversions of the jobs and of their logs to the proto messages, with the reason why a
+//! pending job waits, and of the filters of a job list.
 
 use scylla_domain::integrations::sources::{ApprovalState, GitRef};
 use scylla_domain::projects::jobs::{
@@ -10,10 +10,28 @@ use scylla_domain::projects::pipeline_files::FileError;
 use scylla_proto::pipelines::v1 as pb;
 
 use crate::api::parse::{self, FromProto, Invalid, ToProto};
+use crate::features::identity::agents::Registry;
 use crate::features::integrations::sources;
 
 /// The longest login of an author in a filter, in characters.
 const MAX_LOGIN: usize = 255;
+
+/// Why a pending job with a checkout waits: no agent of its workspace that gets the code is
+/// online.
+const NO_AGENT_WITH_CHECKOUT: &str = "NO_AGENT_WITH_CHECKOUT";
+
+/// Returns the proto of a job, with the reason why it waits for an agent.
+pub(super) fn job_of(job: Job, registry: &Registry) -> pb::Job {
+    let blocked = job.status == JobStatus::Pending
+        && job.agent_id.is_none()
+        && job.checkout.is_some()
+        && !registry.can_check_out(job.workspace_id);
+    let mut proto = job.to_proto();
+    if blocked {
+        proto.waiting_reason = NO_AGENT_WITH_CHECKOUT.to_owned();
+    }
+    proto
+}
 
 impl ToProto<pb::Job> for Job {
     fn to_proto(self) -> pb::Job {

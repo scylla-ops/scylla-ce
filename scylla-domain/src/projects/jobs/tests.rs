@@ -1,5 +1,7 @@
 //! Unit tests of the state machine of a job.
 
+mod checkout;
+
 use time::OffsetDateTime;
 
 use super::{Job, JobEvent, JobStatus, NodeRun, NodeStatus, RerunOrigin, StartJob};

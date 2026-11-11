@@ -213,9 +213,8 @@ pub async fn serve(
     let (hooks, share) = (edition.hooks(), || Arc::clone(&registry));
     routes.add_service(apps::server(pool.clone(), Arc::clone(&gate), share()));
     let sealer = || options.sealer.clone();
-    let agents = agents::server(pool.clone(), Arc::clone(&gate), share(), sealer());
-    routes.add_service(agents);
     let vcs = IntegrationContext::new(&ctx, share(), options.vcs)?;
+    routes.add_service(agents::server(&vcs));
     routes.add_service(pipelines::server(&vcs));
     let jobs = jobs::server(pool.clone(), Arc::clone(&hooks), Arc::clone(&gate), share());
     routes.add_service(jobs);

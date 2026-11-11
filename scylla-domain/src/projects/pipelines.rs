@@ -12,6 +12,7 @@ pub use nodes::{env_name, EnvValue, EnvVar, Node, NodeError, NodeId, Runtime, Sh
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId};
+use crate::projects::pipeline_files::CheckoutSettings;
 use crate::projects::{Project, ProjectId};
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
 use crate::{Id, Name, Page, PageRequest, ResourceKind};
@@ -40,6 +41,8 @@ pub struct Pipeline {
     pub name: String,
     /// The nodes.
     pub nodes: Vec<Node>,
+    /// How the agent gets the code of a job with a source, before the first node.
+    pub checkout: CheckoutSettings,
     /// The version: 1 at the creation, and one more at each change.
     pub version: i64,
     /// The creation time.
@@ -61,6 +64,8 @@ pub struct NewPipeline {
     pub nodes: Nodes,
     /// The places of the new nodes.
     pub layout: PipelineLayout,
+    /// How the agent gets the code of a job with a source, before the first node.
+    pub checkout: CheckoutSettings,
 }
 
 /// A change of a pipeline. A field that is `None` does not change. The change passes only if
@@ -75,6 +80,8 @@ pub struct PipelineChange {
     pub nodes: Option<Nodes>,
     /// The places to save with the change. An empty layout saves nothing.
     pub layout: PipelineLayout,
+    /// The new checkout settings.
+    pub checkout: Option<CheckoutSettings>,
 }
 
 /// Where a pipeline list looks.

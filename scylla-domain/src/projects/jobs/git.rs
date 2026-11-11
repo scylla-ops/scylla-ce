@@ -7,6 +7,7 @@ use time::OffsetDateTime;
 use super::NodeStatus;
 use crate::identity::actors::ActorId;
 use crate::integrations::sources::ApprovalState;
+use crate::projects::pipeline_files::CheckoutSettings;
 
 /// The approval of a job from a fork.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,4 +55,22 @@ pub struct CheckoutRun {
     pub finished_at: Option<OffsetDateTime>,
     /// The error of a failed checkout.
     pub error: Option<String>,
+    /// The settings of the checkout at the start of the job.
+    pub settings: CheckoutSettings,
+}
+
+impl CheckoutRun {
+    /// The node id of the log lines of the checkout.
+    pub const NODE: &'static str = ".checkout";
+
+    /// Makes the checkout of a new job: it waits for the agent.
+    pub fn pending(settings: CheckoutSettings) -> Self {
+        Self {
+            status: NodeStatus::Pending,
+            started_at: None,
+            finished_at: None,
+            error: None,
+            settings,
+        }
+    }
 }

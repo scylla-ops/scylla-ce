@@ -1,11 +1,12 @@
 //! The logic of the jobs that the agents call on their stream: the placement of a job with the
-//! values of its secrets, the events, the logs, and the check of the jobs after a new stream.
-//! Each change of the state of a job records it for the reports, in its transaction.
+//! values of its secrets, the events, the logs of the nodes and of the checkout, and the check of
+//! the jobs after a new stream. Each change of the state of a job records it for the reports, in
+//! its transaction.
 
 use std::collections::HashMap;
 
 use scylla_domain::identity::apps::AppId;
-use scylla_domain::projects::jobs::{Job, JobEvent, JobId, JobStatus, LogLine};
+use scylla_domain::projects::jobs::{CheckoutRun, Job, JobEvent, JobId, JobStatus, LogLine};
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::DomainError;
@@ -57,8 +58,8 @@ pub(crate) async fn held_counts(
 }
 
 /// Gives the oldest pending job of a workspace to an agent, with the values of its secrets: of
-/// each project, or of `projects` only. A job whose secrets do not open fails with the reason,
-/// and the next job comes.
+/// each project, or of `projects` only. A job with a checkout goes only to an agent with
+/// `checkout`. A job whose secrets do not open fails with the reason, and the next job comes.
 pub(crate) async fn claim(
     pool: &PgPool,
     sealer: Option<&Sealer>,
@@ -66,11 +67,12 @@ pub(crate) async fn claim(
     projects: Option<&[ProjectId]>,
     agent: AppId,
     containers: bool,
+    checkout: bool,
 ) -> Result<Option<Assignment>, Error> {
     loop {
         // Take the oldest free job.
         let mut tx = pool.begin().await?;
-        let job = jobs::claim(&mut tx, workspace, projects, agent, containers).await?;
+        let job = jobs::claim(&mut tx, workspace, projects, agent, containers, checkout).await?;
         if let Some(job) = &job {
             reports::job_changed(&mut tx, job).await?;
         }
@@ -88,7 +90,7 @@ pub(crate) async fn claim(
 }
 
 /// Fails a job that did not end, with a reason.
-async fn fail(pool: &PgPool, id: JobId, reason: &str) -> Result<(), Error> {
+pub(crate) async fn fail(pool: &PgPool, id: JobId, reason: &str) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     if let Some(mut job) = jobs::find(&mut tx, id, true).await? {
         if job.end(JobStatus::Failed, Some(reason), now()) {
@@ -139,8 +141,8 @@ pub(crate) async fn apply(
     Ok(Reply::Nothing)
 }
 
-/// Stores a batch of lines of a node of a job that the agent holds. A job of another agent, or a
-/// node that the job does not have, gives `Cancel`.
+/// Stores a batch of lines of a node of a job that the agent holds, or of its checkout. A job of
+/// another agent, or a node that the job does not have, gives `Cancel`.
 pub(crate) async fn append(
     pool: &PgPool,
     agent: AppId,
@@ -152,10 +154,11 @@ pub(crate) async fn append(
     let Some(job) = jobs::find(&mut tx, id, false).await? else {
         return Ok(Reply::Cancel);
     };
-    let known = job
-        .nodes
-        .iter()
-        .any(|candidate| candidate.id.as_str() == node);
+    let known = (node == CheckoutRun::NODE && job.checkout.is_some())
+        || job
+            .nodes
+            .iter()
+            .any(|candidate| candidate.id.as_str() == node);
     if job.agent_id != Some(agent) || !known {
         return Ok(Reply::Cancel);
     }

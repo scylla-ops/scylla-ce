@@ -143,9 +143,9 @@ impl TestApp {
             .expect("give the App to a connection");
     }
 
-    /// Registers an agent with the role `runner` in a workspace, opens its stream, and returns
-    /// the first dispatch that it gets in 10 seconds. The stream stays open while the sender
-    /// lives.
+    /// Registers an agent with the role `runner` and the feature `checkout` in a workspace, opens
+    /// its stream, and returns the first dispatch that it gets in 10 seconds. The stream stays
+    /// open while the sender lives.
     pub async fn first_dispatch(
         &self,
         owner: ActorId,
@@ -165,7 +165,7 @@ impl TestApp {
             memory_bytes: 1 << 30,
             capacity: 1,
             container_runtime: String::new(),
-            features: Vec::new(),
+            features: vec!["checkout".to_owned()],
         };
         let hello = Up::Hello(Hello {
             host: Some(host),

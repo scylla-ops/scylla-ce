@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, project_id, workspace_id, created_by, name, nodes, version, created_at,\n                updated_at\n         FROM pipelines WHERE id = $1",
+  "query": "UPDATE pipelines\n         SET name = coalesce($3, name), nodes = coalesce($4, nodes),\n             checkout = coalesce($5, checkout), version = version + 1, updated_at = now()\n         WHERE id = $1 AND version = $2\n         RETURNING id, project_id, workspace_id, created_by, name, nodes, checkout, version,\n                   created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -71,6 +71,17 @@
       },
       {
         "ordinal": 6,
+        "name": "checkout",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "checkout"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -105,7 +116,11 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Int8",
+        "Text",
+        "Jsonb",
+        "Jsonb"
       ]
     },
     "nullable": [
@@ -115,10 +130,11 @@
       false,
       false,
       false,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "482a90226ee15c61eaa7774b5341e67aecbf6b9c68f22f7d6188b1a745667869"
+  "hash": "c37ebbd4a455f208f7930be31db988baa8942d04ae21d13d820e4e30bae3edc8"
 }

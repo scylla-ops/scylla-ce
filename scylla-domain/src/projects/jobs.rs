@@ -19,7 +19,7 @@ use time::OffsetDateTime;
 use crate::identity::actors::ActorId;
 use crate::identity::apps::AppId;
 use crate::integrations::sources::{JobSource, SourceEvent};
-use crate::projects::pipeline_files::FileError;
+use crate::projects::pipeline_files::{CheckoutSettings, FileError};
 use crate::projects::pipelines::{Node, PipelineId};
 use crate::projects::ProjectId;
 use crate::tenancy::workspaces::WorkspaceId;
@@ -211,6 +211,8 @@ pub struct NewJob {
     pub pipeline_file: Option<PipelineFileRef>,
     /// The errors of an invalid pipeline file: the job fails at its creation.
     pub file_errors: Vec<FileError>,
+    /// The checkout of the code before the first node, or `None` for a job with no checkout.
+    pub checkout: Option<CheckoutSettings>,
 }
 
 impl NewJob {

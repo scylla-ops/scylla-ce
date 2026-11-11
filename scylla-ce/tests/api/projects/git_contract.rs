@@ -58,7 +58,7 @@ async fn approve_job_and_reject_job_are_not_served(pool: PgPool) {
 }
 
 /// The RPCs that read the pipeline files and set their source answer `UNIMPLEMENTED`, and a
-/// pipeline comes from the editor.
+/// pipeline comes from the editor, with the default checkout.
 #[sqlx::test(migrations = false)]
 async fn the_rpcs_of_the_pipeline_files_are_not_served(pool: PgPool) {
     // given
@@ -93,7 +93,9 @@ async fn the_rpcs_of_the_pipeline_files_are_not_served(pool: PgPool) {
     assert_code(moved, Code::Unimplemented);
     let read = app.get_pipeline(owner, &pipeline).await.unwrap();
     assert_eq!(read.source, PipelineSource::Editor as i32);
-    assert!(read.file_key.is_empty() && read.checkout.is_none() && read.archived_at.is_none());
+    assert!(read.file_key.is_empty() && read.archived_at.is_none());
+    let checkout = read.checkout.expect("the default checkout");
+    assert!(checkout.enabled && checkout.depth == 1 && !checkout.submodules && !checkout.lfs);
 }
 
 /// A push, pull request or tag trigger gives `INVALID_ARGUMENT` with the reason
@@ -139,7 +141,8 @@ async fn create_trigger_refuses_a_git_kind(pool: PgPool) {
     assert!(!cron.from_file);
 }
 
-/// An agent gets no checkout, and the events of a checkout change nothing: the job runs on.
+/// A job with no source gets no checkout, and the events of a checkout change nothing: the job
+/// runs on.
 #[sqlx::test(migrations = false)]
 async fn the_events_of_a_checkout_change_nothing(pool: PgPool) {
     // given

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, disabled_at\n         FROM apps WHERE id = $1",
+  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,\n                disabled_at\n         FROM apps WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -170,6 +170,17 @@
       },
       {
         "ordinal": 15,
+        "name": "features",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "features"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
         "name": "disabled_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -201,8 +212,9 @@
       true,
       false,
       true,
+      false,
       true
     ]
   },
-  "hash": "d9124a29cbeebb51498c0749bcbfb2d72871dc8a5fac8f05d23d429cd0d60b80"
+  "hash": "527d5473a08da5532be5f187f22cc9ceecfb13c0d655ba996080d02ec5f9b115"
 }

@@ -7,12 +7,12 @@ use scylla_domain::integrations::sources::{ApprovalState, JobSource};
 use scylla_domain::projects::jobs::{
     CheckoutRun, Job, JobApproval, JobId, JobStatus, NodeStatus, PipelineFileRef,
 };
-use scylla_domain::projects::pipeline_files::FileError;
+use scylla_domain::projects::pipeline_files::{CheckoutSettings, FileError};
 use scylla_domain::projects::pipelines::PipelineId;
 use scylla_domain::projects::triggers::TriggerId;
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::OffsetDateTime;
 
@@ -81,8 +81,8 @@ pub(super) type ApprovalColumns<'a> = (
     Option<OffsetDateTime>,
 );
 
-/// The checkout in JSON. The times are unix microseconds.
-#[derive(Deserialize)]
+/// The checkout in JSON, with its settings. The times are unix microseconds.
+#[derive(Deserialize, Serialize)]
 struct CheckoutJson {
     /// The state.
     status: String,
@@ -92,6 +92,15 @@ struct CheckoutJson {
     finished_at: Option<i64>,
     /// The error.
     error: Option<String>,
+    /// The number of commits to fetch.
+    #[serde(default = "one")]
+    depth: u32,
+    /// `true` also fetches the submodules.
+    #[serde(default)]
+    submodules: bool,
+    /// `true` also fetches the LFS files.
+    #[serde(default)]
+    lfs: bool,
 }
 
 impl Row {
@@ -119,7 +128,7 @@ impl Row {
             approval,
             pipeline_file: self.pipeline_file.map(read).transpose()?,
             file_errors: self.file_errors.map(read).transpose()?.unwrap_or_default(),
-            checkout: self.checkout.map(checkout).transpose()?,
+            checkout: self.checkout.map(read_checkout).transpose()?,
         })
     }
 
@@ -169,13 +178,28 @@ pub(super) fn file_errors(errors: &[FileError]) -> Option<Value> {
     }
 }
 
+/// Returns the JSON of the checkout of a job.
+pub(super) fn checkout(run: Option<&CheckoutRun>) -> Option<Value> {
+    let micros = |at: OffsetDateTime| (at.unix_timestamp_nanos() / 1_000) as i64;
+    let json = run.map(|run| CheckoutJson {
+        status: run.status.as_str().to_owned(),
+        started_at: run.started_at.map(micros),
+        finished_at: run.finished_at.map(micros),
+        error: run.error.clone(),
+        depth: run.settings.depth,
+        submodules: run.settings.submodules,
+        lfs: run.settings.lfs,
+    })?;
+    serde_json::to_value(json).ok()
+}
+
 /// Reads a value from its JSON.
 fn read<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, Error> {
     serde_json::from_value(value).map_err(bad)
 }
 
 /// Reads a checkout from its JSON.
-fn checkout(value: Value) -> Result<CheckoutRun, Error> {
+fn read_checkout(value: Value) -> Result<CheckoutRun, Error> {
     let json: CheckoutJson = read(value)?;
     let time = |micros: i64| {
         OffsetDateTime::from_unix_timestamp_nanos(i128::from(micros) * 1_000).map_err(bad)
@@ -185,7 +209,18 @@ fn checkout(value: Value) -> Result<CheckoutRun, Error> {
         started_at: json.started_at.map(time).transpose()?,
         finished_at: json.finished_at.map(time).transpose()?,
         error: json.error,
+        settings: CheckoutSettings {
+            enabled: true,
+            depth: json.depth,
+            submodules: json.submodules,
+            lfs: json.lfs,
+        },
     })
+}
+
+/// The depth of a checkout with no depth in its JSON.
+fn one() -> u32 {
+    1
 }
 
 /// The error of a state that the code does not know.

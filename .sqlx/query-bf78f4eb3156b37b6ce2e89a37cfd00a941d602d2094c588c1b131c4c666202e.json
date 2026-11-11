@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE apps\n         SET disabled_at = CASE WHEN $2 THEN coalesce(disabled_at, now()) END\n         WHERE id = $1\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, disabled_at",
+  "query": "UPDATE apps\n         SET disabled_at = CASE WHEN $2 THEN coalesce(disabled_at, now()) END\n         WHERE id = $1\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, disabled_at",
   "describe": {
     "columns": [
       {
@@ -170,6 +170,17 @@
       },
       {
         "ordinal": 15,
+        "name": "features",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "features"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
         "name": "disabled_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -202,8 +213,9 @@
       true,
       false,
       true,
+      false,
       true
     ]
   },
-  "hash": "050ba33c08f30f07b7b4e01c5259791bed73fd8219d8ee26d9dfa36dee8b837f"
+  "hash": "bf78f4eb3156b37b6ce2e89a37cfd00a941d602d2094c588c1b131c4c666202e"
 }

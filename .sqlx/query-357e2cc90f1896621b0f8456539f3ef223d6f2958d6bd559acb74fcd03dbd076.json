@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO apps (id, workspace_id, name, runner, created_by) VALUES ($1, $2, $3, $4, $5)\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, disabled_at",
+  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,\n                disabled_at\n         FROM apps\n         WHERE workspace_id = $1\n           AND ($2::boolean IS NULL OR runner = $2)\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
   "describe": {
     "columns": [
       {
@@ -170,6 +170,17 @@
       },
       {
         "ordinal": 15,
+        "name": "features",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "features"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
         "name": "disabled_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -183,10 +194,9 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Text",
         "Bool",
-        "Uuid"
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -205,8 +215,9 @@
       true,
       false,
       true,
+      false,
       true
     ]
   },
-  "hash": "a592fd5c5d7cece9fee5f3670141f51cfe92ff1f2667fb0f9b5a610424f746ed"
+  "hash": "357e2cc90f1896621b0f8456539f3ef223d6f2958d6bd559acb74fcd03dbd076"
 }

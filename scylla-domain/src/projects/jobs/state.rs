@@ -1,4 +1,5 @@
-//! The state machine of a job and of its nodes: the events of the agent, and the end of a job.
+//! The state machine of a job, of its checkout and of its nodes: the events of the agent, and the
+//! end of a job.
 
 use time::OffsetDateTime;
 
@@ -76,6 +77,12 @@ pub enum JobEvent {
     JobCompleted,
     /// The job failed.
     JobFailed(String),
+    /// The agent starts the checkout of the code.
+    CheckoutStarted,
+    /// The checkout completed: the agent starts the nodes.
+    CheckoutCompleted,
+    /// The checkout failed, with the error.
+    CheckoutFailed(String),
 }
 
 impl Job {
@@ -109,8 +116,37 @@ impl Job {
             {
                 self.apply_node(event, now)
             }
+            JobEvent::CheckoutStarted
+            | JobEvent::CheckoutCompleted
+            | JobEvent::CheckoutFailed(_)
+                if self.status == JobStatus::Running =>
+            {
+                self.apply_checkout(event, now)
+            }
             _ => Err(DomainError::NotAllowed),
         }
+    }
+
+    /// Applies an event of the checkout of a running job. A job with no checkout refuses it.
+    fn apply_checkout(&mut self, event: &JobEvent, now: OffsetDateTime) -> Result<(), DomainError> {
+        let checkout = self.checkout.as_mut().ok_or(DomainError::NotAllowed)?;
+        match (event, checkout.status) {
+            (JobEvent::CheckoutStarted, NodeStatus::Pending) => {
+                checkout.status = NodeStatus::Running;
+                checkout.started_at = Some(now);
+            }
+            (JobEvent::CheckoutCompleted, NodeStatus::Running) => {
+                checkout.status = NodeStatus::Completed;
+                checkout.finished_at = Some(now);
+            }
+            (JobEvent::CheckoutFailed(error), NodeStatus::Pending | NodeStatus::Running) => {
+                checkout.status = NodeStatus::Failed;
+                checkout.error = Some(error_text(error));
+                checkout.finished_at = Some(now);
+            }
+            _ => return Err(DomainError::NotAllowed),
+        }
+        Ok(())
     }
 
     /// Applies an event of a node of a running job.
@@ -172,8 +208,8 @@ impl Job {
         Ok(())
     }
 
-    /// Ends a job that is not final: the nodes that did not end become `Cancelled`. A final
-    /// job does not change. Returns `true` if the job changed.
+    /// Ends a job that is not final: the checkout and the nodes that did not end become
+    /// `Cancelled`. A final job does not change. Returns `true` if the job changed.
     pub fn end(&mut self, status: JobStatus, error: Option<&str>, now: OffsetDateTime) -> bool {
         if self.status.is_final() || !status.is_final() {
             return false;
@@ -181,6 +217,10 @@ impl Job {
         self.status = status;
         self.error = error.map(error_text);
         self.finished_at = Some(now);
+        if let Some(checkout) = self.checkout.as_mut().filter(|run| !run.status.is_final()) {
+            checkout.status = NodeStatus::Cancelled;
+            checkout.finished_at = Some(now);
+        }
         for run in self.runs.iter_mut().filter(|run| !run.status.is_final()) {
             run.status = NodeStatus::Cancelled;
             run.finished_at = Some(now);

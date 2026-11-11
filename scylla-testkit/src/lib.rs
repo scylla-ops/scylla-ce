@@ -18,8 +18,8 @@ mod triggers;
 pub use app::{test_access, TestApp};
 pub use identity::{new_key, TestKey};
 pub use integrations::{
-    test_github_app, FakeProvider, LinkRow, Recorded, TEST_APP_CLIENT_SECRET, TEST_APP_PRIVATE_KEY,
-    TEST_APP_PUBLIC_KEY, TEST_APP_WEBHOOK_SECRET,
+    test_github_app, FakeProvider, LinkRow, Recorded, TestAgent, TEST_APP_CLIENT_SECRET,
+    TEST_APP_PRIVATE_KEY, TEST_APP_PUBLIC_KEY, TEST_APP_WEBHOOK_SECRET,
 };
 pub use logs::Logs;
 pub use mail::Mailbox;

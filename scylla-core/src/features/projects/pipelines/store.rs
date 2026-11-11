@@ -30,15 +30,16 @@ pub(super) enum Changed {
 pub(super) async fn insert(tx: &mut Tx<'_>, new: &NewPipeline) -> Result<Option<Pipeline>, Error> {
     let row = sqlx::query_as!(
         Row,
-        "INSERT INTO pipelines (id, project_id, workspace_id, created_by, name, nodes)
-         SELECT $1, p.id, p.workspace_id, $3, $4, $5 FROM projects p WHERE p.id = $2
-         RETURNING id, project_id, workspace_id, created_by, name, nodes, version, created_at,
-                   updated_at",
+        "INSERT INTO pipelines (id, project_id, workspace_id, created_by, name, nodes, checkout)
+         SELECT $1, p.id, p.workspace_id, $3, $4, $5, $6 FROM projects p WHERE p.id = $2
+         RETURNING id, project_id, workspace_id, created_by, name, nodes, checkout, version,
+                   created_at, updated_at",
         PipelineId::generate().to_db(),
         new.project_id.to_db(),
         new.created_by.to_db(),
         new.name.as_str(),
         json::nodes(new.nodes.as_slice()),
+        serde_json::to_value(&new.checkout).ok(),
     )
     .fetch_optional(&mut **tx)
     .await?;
@@ -49,8 +50,8 @@ pub(super) async fn insert(tx: &mut Tx<'_>, new: &NewPipeline) -> Result<Option<
 pub(crate) async fn find(tx: &mut Tx<'_>, id: PipelineId) -> Result<Option<Pipeline>, Error> {
     let row = sqlx::query_as!(
         Row,
-        "SELECT id, project_id, workspace_id, created_by, name, nodes, version, created_at,
-                updated_at
+        "SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,
+                created_at, updated_at
          FROM pipelines WHERE id = $1",
         id.to_db(),
     )
@@ -107,8 +108,8 @@ pub(super) async fn list(
     };
     let rows = sqlx::query_as!(
         Row,
-        "SELECT id, project_id, workspace_id, created_by, name, nodes, version, created_at,
-                updated_at
+        "SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,
+                created_at, updated_at
          FROM pipelines
          WHERE ($1::uuid IS NULL OR project_id = $1)
            AND ($2::uuid IS NULL OR workspace_id = $2)
@@ -135,11 +136,11 @@ pub(super) async fn update(
     let row = sqlx::query_as!(
         Row,
         "UPDATE pipelines
-         SET name = coalesce($3, name), nodes = coalesce($4, nodes), version = version + 1,
-             updated_at = now()
+         SET name = coalesce($3, name), nodes = coalesce($4, nodes),
+             checkout = coalesce($5, checkout), version = version + 1, updated_at = now()
          WHERE id = $1 AND version = $2
-         RETURNING id, project_id, workspace_id, created_by, name, nodes, version, created_at,
-                   updated_at",
+         RETURNING id, project_id, workspace_id, created_by, name, nodes, checkout, version,
+                   created_at, updated_at",
         id.to_db(),
         change.version,
         change.name.as_ref().map(PipelineName::as_str),
@@ -147,6 +148,10 @@ pub(super) async fn update(
             .nodes
             .as_ref()
             .map(|nodes| json::nodes(nodes.as_slice())),
+        change
+            .checkout
+            .as_ref()
+            .and_then(|new| serde_json::to_value(new).ok()),
     )
     .fetch_optional(&mut **tx)
     .await?;
@@ -258,6 +263,8 @@ struct Row {
     name: String,
     /// The nodes in JSON.
     nodes: Value,
+    /// The checkout settings in JSON, or `None` for the default.
+    checkout: Option<Value>,
     /// The version.
     version: i64,
     /// The creation time.
@@ -276,6 +283,12 @@ impl Row {
             created_by: ActorId::from_db(self.created_by),
             name: self.name,
             nodes: json::read_nodes(self.nodes)?,
+            checkout: self
+                .checkout
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|error| Error::Internal(format!("bad checkout of a pipeline: {error}")))?
+                .unwrap_or_default(),
             version: self.version,
             created_at: self.created_at,
             updated_at: self.updated_at,

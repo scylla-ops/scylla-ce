@@ -128,12 +128,13 @@ async fn placed_job(pool: &PgPool, place: &Place) -> JobId {
         awaiting: false,
         pipeline_file: None,
         file_errors: Vec::new(),
+        checkout: None,
     };
     let registry = Registry::default();
     let job = service::create(pool, &Hooks::default(), &registry, place.user.clone(), new)
         .await
         .unwrap();
-    let claimed = runs::claim(pool, None, place.workspace, None, place.agent, false)
+    let claimed = runs::claim(pool, None, place.workspace, None, place.agent, false, false)
         .await
         .unwrap()
         .unwrap();
@@ -159,7 +160,7 @@ async fn reap_releases_the_jobs_of_a_lost_agent(pool: PgPool) {
         .unwrap();
     let waiting = placed_job(&pool, &place).await;
     let connected = Registry::default();
-    let _ticket = connected.open(place.agent);
+    let _ticket = connected.open(place.agent, place.workspace, false);
 
     // when
     let kept = housekeeping::reap(&pool, &connected, Duration::ZERO)

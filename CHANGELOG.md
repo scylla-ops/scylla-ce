@@ -164,6 +164,12 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   line and column, and a warning for each secret that the project does not have. `ExportPipeline`
   writes a pipeline as a TOML, YAML or JSON file, with its path in `.scylla/pipelines/`. `GET
   /schemas/pipeline-v1.json` gives the JSON Schema of the pipeline files.
+- A job on a commit gets the code of its commit on the agent before the first node. Only an agent
+  with the feature `checkout` gets such a job, and a job that waits for one has the `waiting_reason`
+  `NO_AGENT_WITH_CHECKOUT`. The dispatch has a token that can only read the repository: an
+  installation token of one hour on GitHub, or a GitLab deploy token that the server deletes at the
+  end of the job. The job shows the state of its checkout, and `CreatePipeline` and `UpdatePipeline`
+  take the checkout settings of a pipeline.
 
 ### Fixed
 

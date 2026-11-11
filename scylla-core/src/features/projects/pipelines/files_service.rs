@@ -4,8 +4,7 @@
 use scylla_domain::integrations::reports::pipeline_key;
 use scylla_domain::projects::git_rules::GitRules;
 use scylla_domain::projects::pipeline_files::{
-    self, CheckoutSettings, FileError, FileFormat, FilePipeline, FileRef, PipelineFile, TreeEntry,
-    MAX_BYTES,
+    self, FileError, FileFormat, FilePipeline, FileRef, PipelineFile, TreeEntry, MAX_BYTES,
 };
 use scylla_domain::projects::pipelines::PipelineId;
 use scylla_domain::projects::ProjectId;
@@ -99,7 +98,7 @@ pub(crate) async fn export(
         &pipeline.name,
         &pipeline.nodes,
         &GitRules::default(),
-        &CheckoutSettings::default(),
+        &pipeline.checkout,
     );
     Ok(ExportedFile {
         content: document.write(format),

@@ -2,7 +2,7 @@
 
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::{
-    Job, JobFilter, JobId, JobScope, JobStatus, NewJob, NodeRun, INVALID_FILE,
+    CheckoutRun, Job, JobFilter, JobId, JobScope, JobStatus, NewJob, NodeRun, INVALID_FILE,
 };
 use scylla_domain::projects::triggers::TriggerId;
 use scylla_domain::projects::ProjectId;
@@ -16,8 +16,8 @@ use super::sources;
 use crate::features::projects::pipelines::json;
 use crate::Error;
 
-/// Inserts a job with its source, and returns it. A job of an invalid pipeline file fails at
-/// once, and a job from a fork waits for an approval.
+/// Inserts a job with its source and its checkout, and returns it. A job of an invalid pipeline
+/// file fails at once, and a job from a fork waits for an approval.
 pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewJob) -> Result<Job, Error> {
     // Insert the row in its first state.
     let id = JobId::generate();
@@ -31,11 +31,12 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewJob) -> Result<Job, Error> 
     let status = new.status();
     let error = (status == JobStatus::Failed).then_some(INVALID_FILE);
     let approval = (status == JobStatus::AwaitingApproval).then_some("waiting");
+    let checkout = new.checkout.clone().map(CheckoutRun::pending);
     sqlx::query!(
         "INSERT INTO jobs (id, pipeline_id, project_id, workspace_id, created_by, rerun_of,
                            trigger_id, status, nodes, runs, need_container, approval, error,
-                           pipeline_file, file_errors, finished_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                           pipeline_file, file_errors, need_checkout, checkout, finished_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
                  CASE WHEN $8 = 'failed' THEN now() END)",
         id.to_db(),
         new.pipeline_id.to_db(),
@@ -52,6 +53,8 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewJob) -> Result<Job, Error> 
         error,
         row::pipeline_file(new.pipeline_file.as_ref()),
         row::file_errors(&new.file_errors),
+        checkout.is_some(),
+        row::checkout(checkout.as_ref()),
     )
     .execute(&mut **tx)
     .await?;
@@ -182,7 +185,8 @@ pub(crate) async fn save(tx: &mut Tx<'_>, job: &mut Job) -> Result<(), Error> {
     let version = sqlx::query_scalar!(
         "UPDATE jobs SET status = $2, runs = $3, agent_id = $4, error = $5, started_at = $6,
                          finished_at = $7, approval = $8, approved_by = $9, approved_at = $10,
-                         rejected_by = $11, rejected_at = $12, version = version + 1
+                         rejected_by = $11, rejected_at = $12, checkout = $13,
+                         version = version + 1
          WHERE id = $1 RETURNING version",
         job.id.to_db(),
         job.status.as_str(),
@@ -196,6 +200,7 @@ pub(crate) async fn save(tx: &mut Tx<'_>, job: &mut Job) -> Result<(), Error> {
         approved_at,
         rejected_by,
         rejected_at,
+        row::checkout(job.checkout.as_ref()),
     )
     .fetch_one(&mut **tx)
     .await?;
@@ -227,13 +232,14 @@ pub(crate) async fn delete(
 
 /// Gives the oldest pending job of a workspace with no agent to an agent, and returns it: of
 /// each project, or of `projects` only. A job with a container goes only to an agent with a
-/// container runtime.
+/// container runtime, and a job with a checkout only to an agent with `checkout`.
 pub(crate) async fn claim(
     tx: &mut Tx<'_>,
     workspace: WorkspaceId,
     projects: Option<&[ProjectId]>,
     agent: AppId,
     containers: bool,
+    checkout: bool,
 ) -> Result<Option<Job>, Error> {
     let projects: Option<Vec<_>> = projects.map(|ids| ids.iter().map(|id| id.to_db()).collect());
     let claimed = sqlx::query_scalar!(
@@ -241,6 +247,7 @@ pub(crate) async fn claim(
          WHERE id = (SELECT id FROM jobs
                      WHERE workspace_id = $1 AND status = 'pending' AND agent_id IS NULL
                        AND ($3 OR NOT need_container)
+                       AND ($5 OR NOT need_checkout)
                        AND ($4::uuid[] IS NULL OR project_id = ANY($4))
                      ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
          RETURNING id",
@@ -248,6 +255,7 @@ pub(crate) async fn claim(
         agent.to_db(),
         containers,
         projects.as_deref(),
+        checkout,
     )
     .fetch_optional(&mut **tx)
     .await?;

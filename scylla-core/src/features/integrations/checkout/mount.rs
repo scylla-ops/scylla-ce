@@ -1,10 +1,15 @@
-//! The mount of the checkout of a job on an agent, with a short-lived token. It adds nothing yet.
+//! The mount of the checkout of a job on an agent: the task that deletes the GitLab deploy tokens
+//! that no job needs.
 
 use tonic::service::RoutesBuilder;
 
+use super::cleanup;
 use crate::features::integrations::{IntegrationContext, Part};
 
-/// Adds the services, the routes and the tasks of this part. It adds nothing yet.
-pub(crate) fn mount(_ctx: &IntegrationContext, _services: &mut RoutesBuilder) -> Part {
-    Part::default()
+/// Adds the task of this part: the cleanup of the deploy tokens.
+pub(crate) fn mount(ctx: &IntegrationContext, _services: &mut RoutesBuilder) -> Part {
+    Part {
+        tasks: vec![cleanup::spawn(ctx.clone())],
+        ..Part::default()
+    }
 }

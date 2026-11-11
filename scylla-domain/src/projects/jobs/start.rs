@@ -3,7 +3,7 @@
 use super::{Job, JobId, NewJob, PipelineFileRef};
 use crate::identity::actors::ActorId;
 use crate::integrations::sources::{JobSource, SourceEvent};
-use crate::projects::pipeline_files::FileError;
+use crate::projects::pipeline_files::{CheckoutSettings, FileError};
 use crate::projects::pipelines::{EnvValue, EnvVar, Node, Pipeline, PipelineId};
 use crate::projects::triggers::TriggerId;
 use crate::projects::ProjectId;
@@ -44,10 +44,13 @@ pub struct StartJob {
     pub pipeline_file: Option<PipelineFileRef>,
     /// The errors of an invalid pipeline file.
     pub file_errors: Vec<FileError>,
+    /// The checkout settings of the pipeline. Only a job with a source has a checkout.
+    pub checkout: CheckoutSettings,
 }
 
 impl StartJob {
-    /// Makes a run of the nodes of a pipeline, with no variable, no trigger and no source.
+    /// Makes a run of the nodes of a pipeline with its checkout settings, with no variable, no
+    /// trigger and no source.
     pub fn of(pipeline: Pipeline) -> Self {
         Self {
             pipeline_id: pipeline.id,
@@ -60,11 +63,13 @@ impl StartJob {
             source: None,
             pipeline_file: None,
             file_errors: Vec::new(),
+            checkout: pipeline.checkout,
         }
     }
 
-    /// Makes a new run of a job: its pipeline, its nodes, its trigger, its pipeline file and its
-    /// source. The new source is not automatic, and a rerun from the provider has its event.
+    /// Makes a new run of a job: its pipeline, its nodes, its trigger, its pipeline file, its
+    /// source and its checkout. The new source is not automatic, and a rerun from the provider
+    /// has its event.
     pub fn rerun(job: Job, origin: RerunOrigin) -> Self {
         let source = job.source.map(|mut source| {
             source.automatic = false;
@@ -84,6 +89,7 @@ impl StartJob {
             source,
             pipeline_file: job.pipeline_file,
             file_errors: job.file_errors,
+            checkout: job.checkout.map_or_else(no_checkout, |run| run.settings),
         }
     }
 
@@ -100,7 +106,8 @@ impl StartJob {
     }
 
     /// Makes the job that an actor creates: each node gets the variables that it does not have,
-    /// and a job from a fork waits for an approval.
+    /// a job from a fork waits for an approval, and a job with a source gets the code when its
+    /// checkout is on.
     pub fn into_new(self, created_by: ActorId) -> NewJob {
         let mut nodes = self.nodes;
         for node in &mut nodes {
@@ -111,6 +118,7 @@ impl StartJob {
             }
         }
         let awaiting = self.source.as_ref().is_some_and(JobSource::from_fork);
+        let checkout = (self.source.is_some() && self.checkout.enabled).then_some(self.checkout);
         NewJob {
             pipeline_id: self.pipeline_id,
             project_id: self.project_id,
@@ -123,6 +131,15 @@ impl StartJob {
             awaiting,
             pipeline_file: self.pipeline_file,
             file_errors: self.file_errors,
+            checkout,
         }
+    }
+}
+
+/// Returns the settings of a job with no checkout.
+fn no_checkout() -> CheckoutSettings {
+    CheckoutSettings {
+        enabled: false,
+        ..CheckoutSettings::default()
     }
 }

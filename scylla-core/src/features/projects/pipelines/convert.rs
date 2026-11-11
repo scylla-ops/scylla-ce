@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use scylla_domain::projects::pipeline_files::CheckoutSettings;
 use scylla_domain::projects::pipelines::{
     EnvValue, EnvVar, Node, NodeId, Nodes, Pipeline, PipelineLayout, Position, Runtime, Shell, Step,
 };
@@ -11,8 +12,19 @@ use scylla_domain::DomainError;
 use scylla_proto::integrations::v1::PipelineSource;
 use scylla_proto::pipelines::v1 as pb;
 
+use super::files_convert::checkout_of;
 use crate::api::parse::{self, ToProto};
 use crate::Error;
+
+/// Reads the checkout settings of a request.
+pub(crate) fn checkout(checkout: pb::CheckoutSettings) -> CheckoutSettings {
+    CheckoutSettings {
+        enabled: checkout.enabled,
+        depth: checkout.depth,
+        submodules: checkout.submodules,
+        lfs: checkout.lfs,
+    }
+}
 
 /// Reads and checks the places of a request. A key that cannot be the id of a node is ignored, as
 /// each id that is not a node of the pipeline is.
@@ -213,7 +225,7 @@ impl ToProto<pb::Pipeline> for Pipeline {
             source: PipelineSource::Editor.into(),
             file_key: String::new(),
             file_path: String::new(),
-            checkout: None,
+            checkout: Some(checkout_of(self.checkout)),
             archived_at: None,
             removed_at: None,
             file_error_count: 0,

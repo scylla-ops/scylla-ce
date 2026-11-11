@@ -19,6 +19,7 @@ mod polling;
 mod reports;
 mod sources;
 
+pub use checkout::TestAgent;
 pub use fakes::{FakeProvider, Recorded};
 pub use fixtures::LinkRow;
 pub use keys::{

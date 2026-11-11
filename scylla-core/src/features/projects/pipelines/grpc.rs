@@ -66,6 +66,7 @@ impl PipelineService for PipelinesGrpc {
                 .map(convert::layout)
                 .transpose()?
                 .unwrap_or_default(),
+            checkout: request.checkout.map(convert::checkout).unwrap_or_default(),
         };
 
         // Check the route permission on the project, then create the pipeline.
@@ -143,6 +144,7 @@ impl PipelineService for PipelinesGrpc {
                 .map(convert::layout)
                 .transpose()?
                 .unwrap_or_default(),
+            checkout: request.checkout.map(convert::checkout),
         };
 
         // Check the route permission, then change the pipeline.

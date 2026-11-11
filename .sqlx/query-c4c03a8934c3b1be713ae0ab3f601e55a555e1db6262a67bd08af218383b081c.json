@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, project_id, workspace_id, created_by, name, nodes, version, created_at,\n                updated_at\n         FROM pipelines\n         WHERE ($1::uuid IS NULL OR project_id = $1)\n           AND ($2::uuid IS NULL OR workspace_id = $2)\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
+  "query": "SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,\n                created_at, updated_at\n         FROM pipelines WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -71,6 +71,17 @@
       },
       {
         "ordinal": 6,
+        "name": "checkout",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "checkout"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -105,10 +116,7 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Uuid",
-        "Uuid",
-        "Int8"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -118,10 +126,11 @@
       false,
       false,
       false,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "4ee1e91fd45142170ccfcf01319e6c64f02c57f8161bfa16f941e141af49e831"
+  "hash": "c4c03a8934c3b1be713ae0ab3f601e55a555e1db6262a67bd08af218383b081c"
 }

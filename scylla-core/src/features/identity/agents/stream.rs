@@ -22,6 +22,7 @@ use super::registry::Command;
 use super::{work, Registry};
 use crate::api::parse;
 use crate::features::identity::apps;
+use crate::features::integrations::IntegrationContext;
 use crate::infra::secret::Sealer;
 use crate::Error;
 
@@ -44,6 +45,8 @@ pub(super) struct Stream {
     pub(super) registry: Arc<Registry>,
     /// The key of the secrets, for the dispatch.
     pub(super) sealer: Option<Arc<Sealer>>,
+    /// What the Git integration shares, for the tokens of the checkouts.
+    pub(super) vcs: IntegrationContext,
     /// The agent.
     pub(super) app: AppId,
     /// The principal of the current token of the stream.
@@ -54,6 +57,8 @@ pub(super) struct Stream {
     pub(super) capacity: usize,
     /// `true` if the agent has a container runtime.
     pub(super) containers: bool,
+    /// `true` if the agent gets the code of a job before its first node.
+    pub(super) checkout: bool,
     /// The jobs that the agent may take, from its roles `runner`.
     pub(super) scope: RunScope,
 }
@@ -63,8 +68,8 @@ impl Stream {
     pub(super) async fn run(mut self, mut inbound: Streaming<pb::OpenStreamRequest>, out: Outbox) {
         // Wait for the hello, then record the stream.
         let ending = match self.hello(&mut inbound, &out).await {
-            Ok(()) => {
-                let ticket = self.registry.open(self.app);
+            Ok(workspace) => {
+                let ticket = self.registry.open(self.app, workspace, self.checkout);
                 tracing::info!(event = "agent.connected", app = %self.app);
                 let ending = self.serve(&mut inbound, &out, ticket.commands).await;
                 self.registry.close(self.app, ticket.number);
@@ -84,12 +89,13 @@ impl Stream {
     }
 
     /// Reads the first message: it must be a hello. Stores the host, checks the jobs that the
-    /// agent still runs, and learns the place and the role of the agent.
+    /// agent still runs, and learns the place, the features and the role of the agent. Returns
+    /// the workspace of the agent.
     async fn hello(
         &mut self,
         inbound: &mut Streaming<pb::OpenStreamRequest>,
         out: &Outbox,
-    ) -> Result<(), Status> {
+    ) -> Result<WorkspaceId, Status> {
         // Read the hello.
         let first = timeout(HELLO_TIMEOUT, inbound.message())
             .await
@@ -117,6 +123,7 @@ impl Stream {
         self.workspace = Some(app.workspace_id);
         self.capacity = host.capacity as usize;
         self.containers = host.container_runtime.is_some();
+        self.checkout = host.can_check_out();
         self.scope = self.run_scope().await;
 
         // Welcome the agent, then stop the jobs that it must not run.
@@ -124,7 +131,7 @@ impl Stream {
         for job in work::reconcile(self, &running).await? {
             work::send(out, work::cancel(job)).await;
         }
-        Ok(())
+        Ok(app.workspace_id)
     }
 
     /// Answers the messages and the commands until the stream ends. Returns the status to send,
