@@ -1,10 +1,11 @@
-//! Unit tests of the pipeline files: the read, the errors and their places, the export and the
-//! lookup.
+//! Unit tests of the pipeline files: the read, the errors and their places, the warnings, the
+//! export and the lookup.
 
 mod errors;
 mod export;
 mod lookup;
 mod read;
+mod warnings;
 
 use super::{parse, FileError, FileFormat, FileKey, FilePipeline, Location};
 

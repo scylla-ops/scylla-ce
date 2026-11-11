@@ -160,6 +160,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   service account). It lists, gets and deletes the connections, and lists the repositories of a
   connection. Only the admins of the workspace add, change or delete a connection. No answer and no
   log line has a token.
+- `ValidatePipelineFile` reads a pipeline file that a client sends. It gives each error with its
+  line and column, and a warning for each secret that the project does not have. `ExportPipeline`
+  writes a pipeline as a TOML, YAML or JSON file, with its path in `.scylla/pipelines/`. `GET
+  /schemas/pipeline-v1.json` gives the JSON Schema of the pipeline files.
 
 ### Fixed
 

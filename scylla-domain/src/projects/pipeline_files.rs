@@ -10,6 +10,7 @@ mod positions;
 mod read;
 #[cfg(test)]
 mod tests;
+mod warnings;
 mod write;
 
 use std::fmt;
@@ -22,6 +23,7 @@ pub use document::{
 };
 pub use lookup::{lookup, FileRef, Lookup, Rejected, TreeEntry, MAX_FILES};
 pub use read::parse;
+pub use warnings::missing_secrets;
 
 use crate::projects::git_rules::GitRules;
 use crate::projects::pipelines::{Nodes, PipelineName};

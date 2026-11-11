@@ -78,6 +78,22 @@ pub(crate) async fn place(
     }))
 }
 
+/// Returns the pipeline of a project with a file key, or `None` if the project has none.
+pub(super) async fn find_by_file_key(
+    tx: &mut Tx<'_>,
+    project: ProjectId,
+    key: &str,
+) -> Result<Option<PipelineId>, sqlx::Error> {
+    let id = sqlx::query_scalar!(
+        "SELECT id FROM pipelines WHERE project_id = $1 AND file_key = $2",
+        project.to_db(),
+        key,
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(id.map(PipelineId::from_db))
+}
+
 /// Returns the pipelines of a project or of a workspace after the page id, in id order, with
 /// one extra row.
 pub(super) async fn list(

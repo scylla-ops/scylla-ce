@@ -15,9 +15,8 @@ use scylla_proto::pipelines::v1::pipeline_service_client::PipelineServiceClient;
 use scylla_proto::pipelines::v1::trigger_service_client::TriggerServiceClient;
 use scylla_proto::pipelines::v1::{
     create_trigger_request, update_trigger_request, ApproveJobRequest, CreateTriggerRequest,
-    ExportPipelineRequest, GetFilePipelineRequest, JobStatus, ListPipelineFilesRequest, Push,
-    RejectJobRequest, SetPipelineSourceRequest, Tag, UpdateTriggerRequest,
-    ValidatePipelineFileRequest,
+    GetFilePipelineRequest, JobStatus, ListPipelineFilesRequest, Push, RejectJobRequest,
+    SetPipelineSourceRequest, Tag, UpdateTriggerRequest,
 };
 use scylla_proto::platform::v1::vcs_app_service_client::VcsAppServiceClient;
 use scylla_proto::platform::v1::GetVcsAppRequest;
@@ -59,22 +58,14 @@ async fn approve_job_and_reject_job_are_not_served(pool: PgPool) {
     assert!(read.source.is_none() && read.approval.is_none() && read.checkout.is_none());
 }
 
-/// The RPCs of the pipeline files answer `UNIMPLEMENTED`, and a pipeline comes from the editor.
+/// The RPCs that read the pipeline files and set their source answer `UNIMPLEMENTED`, and a
+/// pipeline comes from the editor.
 #[sqlx::test(migrations = false)]
 async fn the_rpcs_of_the_pipeline_files_are_not_served(pool: PgPool) {
     // given
     let app = app(pool).await;
     let (owner, _, project, pipeline) = pipeline(&app, vec![exec_node("build", &[])]).await;
     let mut client = PipelineServiceClient::new(app.channel.clone());
-    let validate = ValidatePipelineFileRequest {
-        project_id: Some(id(&project)),
-        path: ".scylla/pipeline.toml".to_owned(),
-        content: "version = 1".to_owned(),
-    };
-    let export = ExportPipelineRequest {
-        pipeline_id: Some(id(&pipeline)),
-        format: 1,
-    };
     let get = GetFilePipelineRequest {
         pipeline_id: Some(id(&pipeline)),
         r#ref: None,
@@ -89,12 +80,6 @@ async fn the_rpcs_of_the_pipeline_files_are_not_served(pool: PgPool) {
     };
 
     // when
-    let validated = client
-        .validate_pipeline_file(app.authed(owner, validate).await)
-        .await;
-    let exported = client
-        .export_pipeline(app.authed(owner, export).await)
-        .await;
     let got = client.get_file_pipeline(app.authed(owner, get).await).await;
     let listed = client
         .list_pipeline_files(app.authed(owner, list).await)
@@ -104,8 +89,6 @@ async fn the_rpcs_of_the_pipeline_files_are_not_served(pool: PgPool) {
         .await;
 
     // then
-    assert_code(validated, Code::Unimplemented);
-    assert_code(exported, Code::Unimplemented);
     assert_code(got, Code::Unimplemented);
     assert_code(listed, Code::Unimplemented);
     assert_code(moved, Code::Unimplemented);

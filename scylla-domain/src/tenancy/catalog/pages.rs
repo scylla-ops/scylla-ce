@@ -121,6 +121,11 @@ const PAGES: &[Page] = &[
         needs: &[Route::of(PipelineAccess::GET_PIPELINE)],
     },
     Page {
+        name: "the export of a pipeline",
+        opens: Route::of(PipelineAccess::GET_PIPELINE),
+        needs: &[Route::of(PipelineAccess::EXPORT_PIPELINE)],
+    },
+    Page {
         name: "the triggers of a pipeline",
         opens: Route::of(TriggerAccess::LIST_PIPELINE_TRIGGERS),
         needs: &A_PROJECT,
