@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE jobs SET agent_id = $2, version = version + 1\n         WHERE id = (SELECT id FROM jobs\n                     WHERE workspace_id = $1 AND status = 'pending' AND agent_id IS NULL\n                       AND ($3 OR NOT need_container)\n                       AND ($4::uuid[] IS NULL OR project_id = ANY($4))\n                     ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)\n         RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d8f78d16d5a1b37862b4a4081c5aa3a20aca7fff5f0f3236e80908a3cc2190b0"
+}

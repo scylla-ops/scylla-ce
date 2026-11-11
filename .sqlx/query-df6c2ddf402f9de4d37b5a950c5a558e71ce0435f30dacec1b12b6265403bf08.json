@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE jobs SET status = $2, runs = $3, agent_id = $4, error = $5, started_at = $6,\n                         finished_at = $7, version = version + 1\n         WHERE id = $1 RETURNING version",
+  "query": "UPDATE jobs SET status = $2, runs = $3, agent_id = $4, error = $5, started_at = $6,\n                         finished_at = $7, approval = $8, approved_by = $9, approved_at = $10,\n                         rejected_by = $11, rejected_at = $12, version = version + 1\n         WHERE id = $1 RETURNING version",
   "describe": {
     "columns": [
       {
@@ -23,6 +23,11 @@
         "Uuid",
         "Text",
         "Timestamptz",
+        "Timestamptz",
+        "Text",
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
         "Timestamptz"
       ]
     },
@@ -30,5 +35,5 @@
       false
     ]
   },
-  "hash": "6a6626cae05c9ec9a59cc0b4ffe45b633f6c2dbfa135df51669a313945546418"
+  "hash": "df6c2ddf402f9de4d37b5a950c5a558e71ce0435f30dacec1b12b6265403bf08"
 }

@@ -1,0 +1,208 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT job_id, provider, repository, url, sha, ref AS git_ref, branch, tag,\n                  pull_requests, fork_repository, author_login, avatar, message_title, event,\n                  automatic, changes_pipeline_files\n           FROM job_sources WHERE job_id = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "job_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "repository",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "repository"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "url"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "sha",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "sha"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "git_ref",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "ref"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "branch",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "branch"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "tag",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "tag"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "pull_requests",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "pull_requests"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "fork_repository",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "fork_repository"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "author_login",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "author_login"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "avatar",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "avatar"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "message_title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "message_title"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "event",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "event"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "automatic",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "automatic"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "changes_pipeline_files",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "changes_pipeline_files"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1bf9151228d08789dd58ef4997a8584d50b79a95d34c597275e90e1386e9dad4"
+}

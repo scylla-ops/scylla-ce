@@ -124,6 +124,10 @@ async fn placed_job(pool: &PgPool, place: &Place) -> JobId {
         rerun_of: None,
         trigger_id: None,
         nodes: vec![node],
+        source: None,
+        awaiting: false,
+        pipeline_file: None,
+        file_errors: Vec::new(),
     };
     let registry = Registry::default();
     let job = service::create(pool, &Hooks::default(), &registry, place.user.clone(), new)

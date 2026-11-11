@@ -215,8 +215,8 @@ pub async fn serve(
     let sealer = || options.sealer.clone();
     let agents = agents::server(pool.clone(), Arc::clone(&gate), share(), sealer());
     routes.add_service(agents);
-    let pipelines = pipelines::server(pool.clone(), Arc::clone(&hooks), Arc::clone(&gate), share());
-    routes.add_service(pipelines);
+    let vcs = IntegrationContext::new(&ctx, share(), options.vcs)?;
+    routes.add_service(pipelines::server(&vcs));
     let jobs = jobs::server(pool.clone(), Arc::clone(&hooks), Arc::clone(&gate), share());
     routes.add_service(jobs);
     let triggers = triggers::server(
@@ -229,7 +229,6 @@ pub async fn serve(
     routes.add_service(triggers);
 
     // Mount the Git integration: its services, its public routes and its tasks.
-    let vcs = IntegrationContext::new(&ctx, share(), options.vcs)?;
     let (vcs_routes, vcs_tasks) = integrations::mount(&vcs, &mut routes);
 
     // Start the background tasks: the lost agents, the old logs, and the cron triggers.

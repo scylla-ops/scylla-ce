@@ -150,6 +150,12 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   failed checkout fails the job with no node started. The token never goes to `.git/config`, a URL
   or a log. With git 2.31 or newer it is not in the process list. The hello has the feature
   `checkout` only when `git --version` runs.
+- A job can have a source: the commit, the branch or the tag, the pull requests and the author in
+  the linked repository. `RunPipeline` takes a `ref` (a branch, a tag or a SHA) and gets its commit
+  from GitHub or GitLab. Each node gets the `SCYLLA_GIT_*` variables. A job from a fork waits for an
+  approval and gets no secret value. `RerunJob` keeps the source and checks the secrets.
+  `ListPipelineJobs` and `ListWorkspaceJobs` filter on the branch, the event, the author and the
+  pull request.
 
 ### Fixed
 

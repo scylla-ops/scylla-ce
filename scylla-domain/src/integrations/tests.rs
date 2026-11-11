@@ -4,7 +4,7 @@ use super::connections::{AccountKind, AuthKind, ConnectionState, DeliveryMode};
 use super::links::{GitLabRole, PipelineSource, ReportMode};
 use super::merge_blocks::MergeBlockState;
 use super::reports::{pipeline_key, report_context, ReportState, ReportedStatus, MAX_KEY};
-use super::sources::{ApprovalState, JobSource, PullRequestRef, SourceEvent};
+use super::sources::{title_of, ApprovalState, GitRef, JobSource, PullRequestRef, SourceEvent};
 use super::VcsProvider;
 use crate::projects::pipelines::EnvValue;
 
@@ -188,4 +188,42 @@ fn a_source_gives_the_git_variables() {
     .map(|(name, value)| (name.to_owned(), value));
     assert_eq!(variables, expected);
     assert!(source.from_fork());
+}
+
+/// A branch or a tag follows the rules of Git, and a SHA has 7 to 40 hexadecimal characters.
+#[test]
+fn a_git_ref_follows_the_rules_of_git() {
+    // given
+    let good = ["main", "release/1.2", "feature/login-page", "v1.2.0", "a"];
+    let bad = [
+        "", "a b", "-x", "/x", "x/", "a..b", "x.lock", "@", "a@{1}", "a:b", "a~1", "a\\b", ".x",
+    ];
+    let long = "a".repeat(GitRef::MAX_NAME + 1);
+
+    // when
+    let branches: Vec<_> = good
+        .iter()
+        .map(|name| GitRef::branch((*name).to_owned()))
+        .collect();
+    let refused: Vec<_> = bad
+        .iter()
+        .map(|name| GitRef::tag((*name).to_owned()))
+        .collect();
+
+    // then
+    assert!(branches.iter().all(Result::is_ok));
+    assert!(refused.iter().all(Result::is_err), "{refused:?}");
+    assert!(GitRef::branch(long).is_err());
+    assert_eq!(
+        GitRef::sha("ABCDEF1"),
+        Ok(GitRef::Sha("abcdef1".to_owned()))
+    );
+    assert!(GitRef::sha("abcdef").is_err() && GitRef::sha("xyz1234").is_err());
+    assert!(GitRef::sha(&"a".repeat(41)).is_err());
+    let branch = GitRef::branch("main".to_owned()).unwrap();
+    assert_eq!(branch.full_ref().as_deref(), Some("refs/heads/main"));
+    let tag = GitRef::tag("v1".to_owned()).unwrap();
+    assert_eq!(tag.full_ref().as_deref(), Some("refs/tags/v1"));
+    assert_eq!(GitRef::sha("abcdef1").unwrap().full_ref(), None);
+    assert_eq!(title_of("Fix the build\n\nMore text"), "Fix the build");
 }

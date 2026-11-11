@@ -3,7 +3,8 @@
 
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::projects::jobs::{
-    Job, JobId, JobPage, JobStatus, ListJobs, LogBatch, LogBatchId, NewJob, KIND,
+    Job, JobId, JobPage, JobStatus, ListJobs, LogBatch, LogBatchId, NewJob, RerunOrigin, StartJob,
+    KIND,
 };
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -14,9 +15,11 @@ use sqlx::PgPool;
 use super::runs::now;
 use super::store::{jobs, logs};
 use crate::features::identity::agents::Registry;
+use crate::features::integrations::reports;
+use crate::features::projects::pipelines::service as pipelines;
 use crate::Error;
 
-/// Creates a pending job if each `BeforeCreate` hook accepts it, then wakes the agents.
+/// Creates a job with its source if each `BeforeCreate` hook accepts it, then wakes the agents.
 pub(crate) async fn create(
     pool: &PgPool,
     hooks: &Hooks,
@@ -29,6 +32,7 @@ pub(crate) async fn create(
         .before_create(&mut tx, &CreateContext::new(KIND, actor, new.workspace_id))
         .await?;
     let job = jobs::insert(&mut tx, &new).await?;
+    reports::job_changed(&mut tx, &job).await?;
     tx.commit().await?;
     registry.wake_all();
     tracing::info!(event = "job.created", job = %job.id, pipeline = %job.pipeline_id);
@@ -54,10 +58,10 @@ pub(crate) async fn place(
     Ok(place)
 }
 
-/// Returns one page of jobs, newest first.
+/// Returns one page of the jobs that match the filter, newest first.
 pub(crate) async fn list(pool: &PgPool, query: ListJobs) -> Result<JobPage, Error> {
     let mut tx = pool.begin().await?;
-    let items = jobs::list(&mut tx, query.scope, query.page).await?;
+    let items = jobs::list(&mut tx, query.scope, query.page, &query.filter).await?;
     tx.commit().await?;
     Ok(Page::from_overfetch(items, query.page.size, |job| job.id))
 }
@@ -72,6 +76,7 @@ pub(crate) async fn cancel(pool: &PgPool, registry: &Registry, id: JobId) -> Res
     let changed = job.end(JobStatus::Cancelled, None, now());
     if changed {
         jobs::save(&mut tx, &mut job).await?;
+        reports::job_changed(&mut tx, &job).await?;
     }
     tx.commit().await?;
 
@@ -110,29 +115,23 @@ pub(crate) async fn delete(
     Ok(())
 }
 
-/// Starts a new pending job with the nodes and the pipeline of a job that ended.
+/// Starts a new job with the nodes, the pipeline and the source of a job that ended. A job from
+/// a fork waits for an approval again.
 pub(crate) async fn rerun(
     pool: &PgPool,
     hooks: &Hooks,
     registry: &Registry,
     actor: Actor,
     id: JobId,
+    origin: RerunOrigin,
 ) -> Result<Job, Error> {
     let old = get(pool, id).await?.ok_or(Error::NotFound("job"))?;
     if !old.status.is_final() {
         let message = "only a job that ended runs again";
         return Err(Error::Rejected(Rejection::new("JOB_NOT_ENDED", message)));
     }
-    let new = NewJob {
-        pipeline_id: old.pipeline_id,
-        project_id: old.project_id,
-        workspace_id: old.workspace_id,
-        created_by: actor.id,
-        rerun_of: Some(old.id),
-        trigger_id: old.trigger_id,
-        nodes: old.nodes,
-    };
-    create(pool, hooks, registry, actor, new).await
+    let start = StartJob::rerun(old, origin);
+    pipelines::start(pool, hooks, registry, actor, start).await
 }
 
 /// Returns at most `limit` batches of the logs of a job after a cursor, of one node if it is

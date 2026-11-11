@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use scylla_domain::authz::Permission;
 use scylla_domain::identity::apps::AppId;
-use scylla_domain::projects::jobs::{JobId, JobScope, ListJobs};
+use scylla_domain::projects::jobs::{JobId, JobScope, ListJobs, RerunOrigin};
 use scylla_domain::projects::pipelines::{PipelineAccess, PipelineHolder, PipelineId};
 use scylla_domain::projects::{Project, ProjectId};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -119,8 +119,9 @@ impl JobService for JobsGrpc {
                 PipelineAccess::RERUN_JOB,
             )
             .await?;
-        let actor = caller.actor;
-        let job = service::rerun(&self.pool, &self.hooks, &self.registry, actor, id).await?;
+        let (actor, origin) = (caller.actor, RerunOrigin::Person);
+        let job = service::rerun(&self.pool, &self.hooks, &self.registry, actor, id, origin);
+        let job = job.await?;
         Ok(Response::new(pb::RerunJobResponse {
             job: Some(job.to_proto()),
         }))
@@ -149,6 +150,7 @@ impl JobService for JobsGrpc {
         let request = request.into_inner();
         let id: PipelineId = parse::required(request.pipeline_id, "pipeline_id")?;
         let page = parse::optional(request.page, "page")?;
+        let filter = parse::optional(request.filter, "filter")?;
         let place = pipelines::place(&self.pool, id).await?;
         let permission = PipelineAccess::LIST_PIPELINE_JOBS;
         access::authorize(
@@ -164,6 +166,7 @@ impl JobService for JobsGrpc {
         let query = ListJobs {
             scope: JobScope::Pipeline(id),
             page,
+            filter,
         };
         let page = service::list(&self.pool, query).await?;
         Ok(Response::new(pb::ListPipelineJobsResponse {
@@ -185,6 +188,7 @@ impl JobService for JobsGrpc {
             .map(|id| parse::field(id, "agent_id"))
             .transpose()?;
         let page = parse::optional(request.page, "page")?;
+        let filter = parse::optional(request.filter, "filter")?;
         self.gate
             .authorize(&caller, PipelineHolder::LIST_WORKSPACE_JOBS.on(workspace))
             .await
@@ -194,6 +198,7 @@ impl JobService for JobsGrpc {
         let query = ListJobs {
             scope: JobScope::Workspace(workspace, agent),
             page,
+            filter,
         };
         let page = service::list(&self.pool, query).await?;
         Ok(Response::new(pb::ListWorkspaceJobsResponse {

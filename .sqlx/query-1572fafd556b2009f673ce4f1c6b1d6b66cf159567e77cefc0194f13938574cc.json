@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO jobs (id, pipeline_id, project_id, workspace_id, created_by, rerun_of,\n                           trigger_id, status, nodes, runs, need_container)\n         VALUES ($1, $2, $3, $4, $5, $6, $10, 'pending', $7, $8, $9)\n         RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,\n                   nodes, runs, agent_id, error, version, created_at, started_at, finished_at",
+  "query": "SELECT j.id, j.pipeline_id, j.project_id, j.workspace_id, j.created_by, j.rerun_of,\n                j.trigger_id, j.status, j.nodes, j.runs, j.agent_id, j.error, j.version,\n                j.created_at, j.started_at, j.finished_at, j.approval, j.approved_by,\n                j.approved_at, j.rejected_by, j.rejected_at, j.checkout, j.pipeline_file,\n                j.file_errors\n         FROM jobs j LEFT JOIN job_sources s ON s.job_id = j.id\n         WHERE ($1::uuid IS NULL OR j.pipeline_id = $1)\n           AND ($2::uuid IS NULL OR j.workspace_id = $2)\n           AND ($3::uuid IS NULL OR j.agent_id = $3)\n           AND ($4::uuid IS NULL OR j.id < $4)\n           AND ($6::text IS NULL OR s.branch = $6)\n           AND ($7::text IS NULL OR s.event = $7)\n           AND ($8::text IS NULL OR s.author_login = $8)\n           AND ($9::jsonb IS NULL OR s.pull_requests @> $9)\n         ORDER BY j.id DESC\n         LIMIT $5",
   "describe": {
     "columns": [
       {
@@ -178,6 +178,94 @@
             "name": "finished_at"
           }
         }
+      },
+      {
+        "ordinal": 16,
+        "name": "approval",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "approval"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "approved_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "approved_by"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "approved_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "approved_at"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "rejected_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "rejected_by"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "rejected_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "rejected_at"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "checkout",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "checkout"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "pipeline_file",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "pipeline_file"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "file_errors",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "file_errors"
+          }
+        }
       }
     ],
     "parameters": {
@@ -186,12 +274,11 @@
         "Uuid",
         "Uuid",
         "Uuid",
-        "Uuid",
-        "Uuid",
-        "Jsonb",
-        "Jsonb",
-        "Bool",
-        "Uuid"
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
       ]
     },
     "nullable": [
@@ -210,8 +297,16 @@
       false,
       false,
       true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "a568a784766b211c19b7ea7587cef727e9877dc90c4f8f9fde271e1584bc17a0"
+  "hash": "1572fafd556b2009f673ce4f1c6b1d6b66cf159567e77cefc0194f13938574cc"
 }

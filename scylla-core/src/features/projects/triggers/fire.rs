@@ -2,7 +2,7 @@
 //! of its workspace, and the record of the result on the trigger.
 
 use scylla_domain::identity::actors::{Actor, ActorId};
-use scylla_domain::projects::jobs::Job;
+use scylla_domain::projects::jobs::{Job, StartJob};
 use scylla_domain::projects::pipelines::{EnvValue, EnvVar};
 use scylla_domain::projects::triggers::{FireResult, InputValue, Trigger, TriggerId, RUNNER_KIND};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -90,16 +90,12 @@ async fn start(
         id: runner(pool, trigger.workspace_id).await?,
         kind: RUNNER_KIND,
     };
-    let job = pipelines::start(
-        pool,
-        hooks,
-        registry,
-        actor,
-        pipeline,
-        &vars,
-        Some(trigger.id),
-    );
-    Ok(job.await?)
+    let start = StartJob {
+        variables: vars,
+        trigger_id: Some(trigger.id),
+        ..StartJob::of(pipeline)
+    };
+    Ok(pipelines::start(pool, hooks, registry, actor, start).await?)
 }
 
 /// Returns the variables of the inputs of a trigger. A pointer reads the body: a text gives the

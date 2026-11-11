@@ -1,22 +1,26 @@
-//! The SQL of the `jobs` table.
+//! The SQL of the `jobs` table. A job comes back with its source from `job_sources`.
 
-use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::apps::AppId;
-use scylla_domain::projects::jobs::{Job, JobId, JobScope, JobStatus, NewJob, NodeRun};
-use scylla_domain::projects::pipelines::PipelineId;
+use scylla_domain::projects::jobs::{
+    Job, JobFilter, JobId, JobScope, JobStatus, NewJob, NodeRun, INVALID_FILE,
+};
 use scylla_domain::projects::triggers::TriggerId;
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::PageRequest;
 use scylla_extension::Tx;
-use serde_json::Value;
-use time::OffsetDateTime;
+use serde_json::json;
 
+use super::row::{self, bad_status, Row};
+use super::sources;
 use crate::features::projects::pipelines::json;
 use crate::Error;
 
-/// Inserts a pending job and returns it.
+/// Inserts a job with its source, and returns it. A job of an invalid pipeline file fails at
+/// once, and a job from a fork waits for an approval.
 pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewJob) -> Result<Job, Error> {
+    // Insert the row in its first state.
+    let id = JobId::generate();
     let runs: Vec<NodeRun> = new.nodes.iter().map(NodeRun::pending).collect();
     let need_container = new.nodes.iter().any(|node| {
         !matches!(
@@ -24,54 +28,74 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewJob) -> Result<Job, Error> 
             scylla_domain::projects::pipelines::Runtime::Process
         )
     });
-    let row = sqlx::query_as!(
-        Row,
+    let status = new.status();
+    let error = (status == JobStatus::Failed).then_some(INVALID_FILE);
+    let approval = (status == JobStatus::AwaitingApproval).then_some("waiting");
+    sqlx::query!(
         "INSERT INTO jobs (id, pipeline_id, project_id, workspace_id, created_by, rerun_of,
-                           trigger_id, status, nodes, runs, need_container)
-         VALUES ($1, $2, $3, $4, $5, $6, $10, 'pending', $7, $8, $9)
-         RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
-                   nodes, runs, agent_id, error, version, created_at, started_at, finished_at",
-        JobId::generate().to_db(),
+                           trigger_id, status, nodes, runs, need_container, approval, error,
+                           pipeline_file, file_errors, finished_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                 CASE WHEN $8 = 'failed' THEN now() END)",
+        id.to_db(),
         new.pipeline_id.to_db(),
         new.project_id.to_db(),
         new.workspace_id.to_db(),
         new.created_by.to_db(),
         new.rerun_of.map(JobId::to_db),
+        new.trigger_id.map(TriggerId::to_db),
+        status.as_str(),
         json::nodes(&new.nodes),
         json::runs(&runs),
         need_container,
-        new.trigger_id.map(TriggerId::to_db),
+        approval,
+        error,
+        row::pipeline_file(new.pipeline_file.as_ref()),
+        row::file_errors(&new.file_errors),
     )
-    .fetch_one(&mut **tx)
+    .execute(&mut **tx)
     .await?;
-    row.into_job()
+
+    // Insert its source, then read the job back.
+    if let Some(source) = &new.source {
+        sources::insert(tx, id, new.pipeline_id, source).await?;
+    }
+    find(tx, id, false)
+        .await?
+        .ok_or_else(|| Error::Internal(format!("the new job {id} is missing")))
 }
 
 /// Returns a job, or `None` if no job has this id. With `lock`, the row stays locked until the
 /// end of the transaction.
 pub(crate) async fn find(tx: &mut Tx<'_>, id: JobId, lock: bool) -> Result<Option<Job>, Error> {
-    let row = if lock {
-        sqlx::query_as!(
-            Row,
-            "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
-                    nodes, runs, agent_id, error, version, created_at, started_at, finished_at
-             FROM jobs WHERE id = $1 FOR UPDATE",
-            id.to_db(),
-        )
-        .fetch_optional(&mut **tx)
-        .await?
-    } else {
-        sqlx::query_as!(
-            Row,
-            "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
-                    nodes, runs, agent_id, error, version, created_at, started_at, finished_at
-             FROM jobs WHERE id = $1",
-            id.to_db(),
-        )
-        .fetch_optional(&mut **tx)
-        .await?
+    // Lock the row first, if the caller changes it.
+    if lock {
+        let locked =
+            sqlx::query_scalar!("SELECT id FROM jobs WHERE id = $1 FOR UPDATE", id.to_db())
+                .fetch_optional(&mut **tx)
+                .await?;
+        if locked.is_none() {
+            return Ok(None);
+        }
+    }
+
+    // Read the row and its source.
+    let row = sqlx::query_as!(
+        Row,
+        "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
+                nodes, runs, agent_id, error, version, created_at, started_at, finished_at,
+                approval, approved_by, approved_at, rejected_by, rejected_at, checkout,
+                pipeline_file, file_errors
+         FROM jobs WHERE id = $1",
+        id.to_db(),
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(row) = row else {
+        return Ok(None);
     };
-    row.map(Row::into_job).transpose()
+    let source = sources::find(tx, id).await?;
+    row.into_job(source).map(Some)
 }
 
 /// Returns the project and the workspace of a job, or `None` if no job has this id.
@@ -93,44 +117,72 @@ pub(crate) async fn place(
     }))
 }
 
-/// Returns the jobs of a pipeline or of a workspace before the page id, newest first, with one
-/// extra row.
+/// Returns the jobs of a pipeline or of a workspace before the page id that match the filter,
+/// newest first, with one extra row.
 pub(crate) async fn list(
     tx: &mut Tx<'_>,
     scope: JobScope,
     page: PageRequest<JobId>,
+    filter: &JobFilter,
 ) -> Result<Vec<Job>, Error> {
+    // Read the rows of the page.
     let (pipeline, workspace, agent) = match scope {
         JobScope::Pipeline(id) => (Some(id.to_db()), None, None),
         JobScope::Workspace(id, agent) => (None, Some(id.to_db()), agent.map(AppId::to_db)),
     };
+    let pull_request = filter
+        .pull_request
+        .map(|number| json!([{ "number": number }]));
     let rows = sqlx::query_as!(
         Row,
-        "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
-                nodes, runs, agent_id, error, version, created_at, started_at, finished_at
-         FROM jobs
-         WHERE ($1::uuid IS NULL OR pipeline_id = $1)
-           AND ($2::uuid IS NULL OR workspace_id = $2)
-           AND ($3::uuid IS NULL OR agent_id = $3)
-           AND ($4::uuid IS NULL OR id < $4)
-         ORDER BY id DESC
+        "SELECT j.id, j.pipeline_id, j.project_id, j.workspace_id, j.created_by, j.rerun_of,
+                j.trigger_id, j.status, j.nodes, j.runs, j.agent_id, j.error, j.version,
+                j.created_at, j.started_at, j.finished_at, j.approval, j.approved_by,
+                j.approved_at, j.rejected_by, j.rejected_at, j.checkout, j.pipeline_file,
+                j.file_errors
+         FROM jobs j LEFT JOIN job_sources s ON s.job_id = j.id
+         WHERE ($1::uuid IS NULL OR j.pipeline_id = $1)
+           AND ($2::uuid IS NULL OR j.workspace_id = $2)
+           AND ($3::uuid IS NULL OR j.agent_id = $3)
+           AND ($4::uuid IS NULL OR j.id < $4)
+           AND ($6::text IS NULL OR s.branch = $6)
+           AND ($7::text IS NULL OR s.event = $7)
+           AND ($8::text IS NULL OR s.author_login = $8)
+           AND ($9::jsonb IS NULL OR s.pull_requests @> $9)
+         ORDER BY j.id DESC
          LIMIT $5",
         pipeline,
         workspace,
         agent,
         page.after.map(JobId::to_db),
         page.size.get() as i64 + 1,
+        filter.branch,
+        filter.event.map(|event| event.as_str()),
+        filter.author_login,
+        pull_request,
     )
     .fetch_all(&mut **tx)
     .await?;
-    rows.into_iter().map(Row::into_job).collect()
+
+    // Add the source of each job.
+    let ids: Vec<JobId> = rows.iter().map(|row| JobId::from_db(row.id)).collect();
+    let mut found = sources::of_jobs(tx, &ids).await?;
+    rows.into_iter()
+        .map(|row| {
+            let source = found.remove(&JobId::from_db(row.id));
+            row.into_job(source)
+        })
+        .collect()
 }
 
 /// Writes the state of a job that the caller read in this transaction, with one more version.
 pub(crate) async fn save(tx: &mut Tx<'_>, job: &mut Job) -> Result<(), Error> {
+    let (approval, approved_by, approved_at, rejected_by, rejected_at) =
+        row::approval_columns(job.approval.as_ref());
     let version = sqlx::query_scalar!(
         "UPDATE jobs SET status = $2, runs = $3, agent_id = $4, error = $5, started_at = $6,
-                         finished_at = $7, version = version + 1
+                         finished_at = $7, approval = $8, approved_by = $9, approved_at = $10,
+                         rejected_by = $11, rejected_at = $12, version = version + 1
          WHERE id = $1 RETURNING version",
         job.id.to_db(),
         job.status.as_str(),
@@ -139,6 +191,11 @@ pub(crate) async fn save(tx: &mut Tx<'_>, job: &mut Job) -> Result<(), Error> {
         job.error,
         job.started_at,
         job.finished_at,
+        approval,
+        approved_by,
+        approved_at,
+        rejected_by,
+        rejected_at,
     )
     .fetch_one(&mut **tx)
     .await?;
@@ -179,16 +236,14 @@ pub(crate) async fn claim(
     containers: bool,
 ) -> Result<Option<Job>, Error> {
     let projects: Option<Vec<_>> = projects.map(|ids| ids.iter().map(|id| id.to_db()).collect());
-    let row = sqlx::query_as!(
-        Row,
+    let claimed = sqlx::query_scalar!(
         "UPDATE jobs SET agent_id = $2, version = version + 1
          WHERE id = (SELECT id FROM jobs
                      WHERE workspace_id = $1 AND status = 'pending' AND agent_id IS NULL
                        AND ($3 OR NOT need_container)
                        AND ($4::uuid[] IS NULL OR project_id = ANY($4))
                      ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
-         RETURNING id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, status,
-                   nodes, runs, agent_id, error, version, created_at, started_at, finished_at",
+         RETURNING id",
         workspace.to_db(),
         agent.to_db(),
         containers,
@@ -196,70 +251,8 @@ pub(crate) async fn claim(
     )
     .fetch_optional(&mut **tx)
     .await?;
-    row.map(Row::into_job).transpose()
-}
-
-/// The error of a state that the code does not know.
-fn bad_status(status: &str) -> Error {
-    Error::Internal(format!("unknown job status {status}"))
-}
-
-/// A row of the `jobs` table.
-struct Row {
-    /// The id.
-    id: uuid::Uuid,
-    /// The pipeline.
-    pipeline_id: uuid::Uuid,
-    /// The project.
-    project_id: uuid::Uuid,
-    /// The workspace.
-    workspace_id: uuid::Uuid,
-    /// The author.
-    created_by: uuid::Uuid,
-    /// The job that this job runs again.
-    rerun_of: Option<uuid::Uuid>,
-    /// The trigger of the job.
-    trigger_id: Option<uuid::Uuid>,
-    /// The state.
-    status: String,
-    /// The nodes in JSON.
-    nodes: Value,
-    /// The states of the nodes in JSON.
-    runs: Value,
-    /// The agent.
-    agent_id: Option<uuid::Uuid>,
-    /// The error.
-    error: Option<String>,
-    /// The version.
-    version: i64,
-    /// The creation time.
-    created_at: OffsetDateTime,
-    /// The start.
-    started_at: Option<OffsetDateTime>,
-    /// The end.
-    finished_at: Option<OffsetDateTime>,
-}
-
-impl Row {
-    /// Makes the job of the row.
-    fn into_job(self) -> Result<Job, Error> {
-        Ok(Job {
-            id: JobId::from_db(self.id),
-            pipeline_id: PipelineId::from_db(self.pipeline_id),
-            project_id: ProjectId::from_db(self.project_id),
-            workspace_id: WorkspaceId::from_db(self.workspace_id),
-            created_by: ActorId::from_db(self.created_by),
-            rerun_of: self.rerun_of.map(JobId::from_db),
-            trigger_id: self.trigger_id.map(TriggerId::from_db),
-            status: JobStatus::parse(&self.status).ok_or_else(|| bad_status(&self.status))?,
-            nodes: json::read_nodes(self.nodes)?,
-            runs: json::read_runs(self.runs)?,
-            agent_id: self.agent_id.map(AppId::from_db),
-            error: self.error,
-            version: self.version,
-            created_at: self.created_at,
-            started_at: self.started_at,
-            finished_at: self.finished_at,
-        })
+    match claimed {
+        Some(id) => find(tx, JobId::from_db(id), false).await,
+        None => Ok(None),
     }
 }

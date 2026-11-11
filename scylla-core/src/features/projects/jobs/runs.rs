@@ -1,30 +1,21 @@
 //! The logic of the jobs that the agents call on their stream: the placement of a job with the
 //! values of its secrets, the events, the logs, and the check of the jobs after a new stream.
+//! Each change of the state of a job records it for the reports, in its transaction.
 
 use std::collections::HashMap;
 
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::{Job, JobEvent, JobId, JobStatus, LogLine};
-use scylla_domain::projects::pipelines::EnvValue;
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::DomainError;
 use sqlx::PgPool;
 
+use super::env::{self, ResolvedEnv};
 use super::store::{holds, jobs, logs};
-use crate::features::projects::secrets;
+use crate::features::integrations::reports;
 use crate::infra::secret::Sealer;
 use crate::Error;
-
-/// A variable of a node to run, with its value.
-pub(crate) struct ResolvedEnv {
-    /// The name.
-    pub(crate) name: String,
-    /// The value.
-    pub(crate) value: String,
-    /// `true` for the value of a secret.
-    pub(crate) masked: bool,
-}
 
 /// A job for an agent: the job, and the environment of each node with the values.
 pub(crate) struct Assignment {
@@ -80,47 +71,20 @@ pub(crate) async fn claim(
         // Take the oldest free job.
         let mut tx = pool.begin().await?;
         let job = jobs::claim(&mut tx, workspace, projects, agent, containers).await?;
+        if let Some(job) = &job {
+            reports::job_changed(&mut tx, job).await?;
+        }
         tx.commit().await?;
         let Some(job) = job else {
             return Ok(None);
         };
 
         // Open its secrets, or fail it.
-        match resolve(pool, sealer, &job).await {
+        match env::resolve(pool, sealer, &job).await {
             Ok(env) => return Ok(Some(Assignment { job, env })),
             Err(reason) => fail(pool, job.id, &reason).await?,
         }
     }
-}
-
-/// Opens the environment of each node of a job. Returns the reason of a failure.
-async fn resolve(
-    pool: &PgPool,
-    sealer: Option<&Sealer>,
-    job: &Job,
-) -> Result<Vec<Vec<ResolvedEnv>>, String> {
-    let mut all = Vec::with_capacity(job.nodes.len());
-    for node in &job.nodes {
-        let mut env = Vec::with_capacity(node.env.len());
-        for var in &node.env {
-            let (value, masked) = match &var.value {
-                EnvValue::Literal(text) => (text.clone(), false),
-                EnvValue::Secret(name) => {
-                    let value = secrets::reveal(pool, sealer, job.project_id, name)
-                        .await
-                        .map_err(|error| format!("secret {}: {error}", name.as_str()))?;
-                    (value.expose().to_owned(), true)
-                }
-            };
-            env.push(ResolvedEnv {
-                name: var.name.clone(),
-                value,
-                masked,
-            });
-        }
-        all.push(env);
-    }
-    Ok(all)
 }
 
 /// Fails a job that did not end, with a reason.
@@ -129,6 +93,7 @@ async fn fail(pool: &PgPool, id: JobId, reason: &str) -> Result<(), Error> {
     if let Some(mut job) = jobs::find(&mut tx, id, true).await? {
         if job.end(JobStatus::Failed, Some(reason), now()) {
             jobs::save(&mut tx, &mut job).await?;
+            reports::job_changed(&mut tx, &job).await?;
         }
     }
     tx.commit().await?;
@@ -164,6 +129,7 @@ pub(crate) async fn apply(
         Err(error) => return Err(Error::Internal(error.to_string())),
     }
     jobs::save(&mut tx, &mut job).await?;
+    reports::job_changed(&mut tx, &job).await?;
     tx.commit().await?;
     if job.status.is_final() {
         let status = job.status.as_str();
@@ -263,6 +229,7 @@ pub(crate) async fn release(
         _ => return Ok(false),
     };
     jobs::save(tx, &mut job).await?;
+    reports::job_changed(tx, &job).await?;
     Ok(pooled)
 }
 

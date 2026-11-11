@@ -1,12 +1,12 @@
 //! The logic of the pipelines: one transaction for each call, with the hooks.
 
 use scylla_domain::identity::actors::Actor;
-use scylla_domain::projects::jobs::{Job, NewJob};
+use scylla_domain::integrations::sources::GitRef;
+use scylla_domain::projects::jobs::{Job, StartJob};
 use scylla_domain::projects::pipelines::{
-    EnvValue, EnvVar, ListPipelines, NewPipeline, Node, Pipeline, PipelineChange, PipelineId,
-    PipelineLayout, PipelinePage, KIND,
+    ListPipelines, NewPipeline, Node, Pipeline, PipelineChange, PipelineId, PipelineLayout,
+    PipelinePage, KIND,
 };
-use scylla_domain::projects::triggers::TriggerId;
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Page;
@@ -15,6 +15,7 @@ use sqlx::PgPool;
 
 use super::store::{self, Changed};
 use crate::features::identity::agents::Registry;
+use crate::features::integrations::{sources, IntegrationContext};
 use crate::features::projects::jobs::{self, runs};
 use crate::features::projects::{secrets, service as projects};
 use crate::Error;
@@ -198,64 +199,45 @@ pub(crate) async fn delete(
     Ok(())
 }
 
-/// Starts a pending job of a pipeline with a snapshot of its nodes. A secret that a node names
-/// and that the project does not have gives `NOT_FOUND`.
+/// Starts a job of a pipeline with a snapshot of its nodes, with no source, or on a commit of the
+/// linked repository. A secret that a node names and that the project does not have gives
+/// `NOT_FOUND`.
 pub(crate) async fn run(
-    pool: &PgPool,
-    hooks: &Hooks,
-    registry: &Registry,
+    ctx: &IntegrationContext,
     actor: Actor,
     id: PipelineId,
+    git_ref: Option<GitRef>,
 ) -> Result<Job, Error> {
-    let pipeline = get(pool, id).await?.ok_or(Error::NotFound("pipeline"))?;
-    start(pool, hooks, registry, actor, pipeline, &[], None).await
+    let pipeline = get(&ctx.pool, id)
+        .await?
+        .ok_or(Error::NotFound("pipeline"))?;
+    let source = match &git_ref {
+        Some(git_ref) => Some(sources::resolve(ctx, pipeline.project_id, git_ref).await?),
+        None => None,
+    };
+    let start = StartJob {
+        source,
+        ..StartJob::of(pipeline)
+    };
+    self::start(&ctx.pool, &ctx.hooks, &ctx.registry, actor, start).await
 }
 
-/// Starts a pending job of a pipeline, with more variables in each node and the trigger of the
-/// job. A variable of a node with the same name wins. A secret that a node names and that the
-/// project does not have gives `NOT_FOUND`.
+/// Starts a job: a run, a fire of a trigger or a new run of a job. Each node gets the variables
+/// that it does not have, and a job from a fork waits for an approval. A secret that a node names
+/// and that the project does not have gives `NOT_FOUND`.
 pub(crate) async fn start(
     pool: &PgPool,
     hooks: &Hooks,
     registry: &Registry,
     actor: Actor,
-    pipeline: Pipeline,
-    extra: &[EnvVar],
-    trigger_id: Option<TriggerId>,
+    start: StartJob,
 ) -> Result<Job, Error> {
-    // Refuse a missing secret.
-    let names: Vec<String> = pipeline
-        .nodes
-        .iter()
-        .flat_map(|node| &node.env)
-        .filter_map(|var| match &var.value {
-            EnvValue::Secret(name) => Some(name.as_str().to_owned()),
-            EnvValue::Literal(_) => None,
-        })
-        .collect();
-    if let Some(name) = secrets::missing(pool, pipeline.project_id, &names).await? {
-        tracing::info!(pipeline = %pipeline.id, secret = name, "a pipeline names a missing secret");
+    if let Some(name) = secrets::missing(pool, start.project_id, &start.secrets()).await? {
+        let pipeline = start.pipeline_id;
+        tracing::info!(%pipeline, secret = name, "a pipeline names a missing secret");
         return Err(Error::NotFound("secret"));
     }
-
-    // Add the variables that a node does not have, then create the job.
-    let mut nodes = pipeline.nodes;
-    for node in &mut nodes {
-        for var in extra {
-            if !node.env.iter().any(|own| own.name == var.name) {
-                node.env.push(var.clone());
-            }
-        }
-    }
-    let new = NewJob {
-        pipeline_id: pipeline.id,
-        project_id: pipeline.project_id,
-        workspace_id: pipeline.workspace_id,
-        created_by: actor.id,
-        rerun_of: None,
-        trigger_id,
-        nodes,
-    };
+    let new = start.into_new(actor.id);
     jobs::create(pool, hooks, registry, actor, new).await
 }
 

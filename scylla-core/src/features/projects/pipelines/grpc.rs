@@ -19,20 +19,17 @@ use tonic::{Request, Response, Status};
 use super::{convert, service};
 use crate::api::parse::{self, ToProto};
 use crate::features::identity::agents::Registry;
+use crate::features::integrations::IntegrationContext;
 use crate::Error;
 
-/// Makes the service.
-pub(crate) fn server(
-    pool: PgPool,
-    hooks: Arc<Hooks>,
-    gate: Arc<dyn Gate>,
-    registry: Arc<Registry>,
-) -> PipelineServiceServer<PipelinesGrpc> {
+/// Makes the service, with what the Git integration shares.
+pub(crate) fn server(ctx: &IntegrationContext) -> PipelineServiceServer<PipelinesGrpc> {
     PipelineServiceServer::new(PipelinesGrpc {
-        pool,
-        hooks,
-        gate,
-        registry,
+        pool: ctx.pool.clone(),
+        hooks: Arc::clone(&ctx.hooks),
+        gate: Arc::clone(&ctx.gate),
+        registry: Arc::clone(&ctx.registry),
+        vcs: ctx.clone(),
     })
 }
 
@@ -46,6 +43,8 @@ pub(crate) struct PipelinesGrpc {
     pub(super) gate: Arc<dyn Gate>,
     /// The open streams of the agents.
     registry: Arc<Registry>,
+    /// What the Git integration shares: the repository of a run on a commit.
+    pub(super) vcs: IntegrationContext,
 }
 
 #[tonic::async_trait]
@@ -229,12 +228,14 @@ impl PipelineService for PipelinesGrpc {
         request: Request<pb::RunPipelineRequest>,
     ) -> Result<Response<pb::RunPipelineResponse>, Status> {
         let caller = self.gate.caller(&request).await.map_err(Error::from)?;
+        let request = request.into_inner();
+        let git_ref = request.r#ref.map(|value| parse::field(value, "ref"));
+        let git_ref = git_ref.transpose()?;
         let permission = PipelineAccess::RUN_PIPELINE;
         let id = self
-            .pipeline_of(&caller, request.into_inner().pipeline_id, permission)
+            .pipeline_of(&caller, request.pipeline_id, permission)
             .await?;
-        let actor = caller.actor;
-        let job = service::run(&self.pool, &self.hooks, &self.registry, actor, id).await?;
+        let job = service::run(&self.vcs, caller.actor, id, git_ref).await?;
         Ok(Response::new(pb::RunPipelineResponse {
             job: Some(job.to_proto()),
         }))

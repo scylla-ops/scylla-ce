@@ -3,6 +3,10 @@
 
 use super::{named, VcsProvider};
 use crate::projects::pipelines::{EnvValue, EnvVar};
+use crate::DomainError;
+
+/// The longest title of a commit that a source keeps, in characters.
+pub const MAX_TITLE: usize = 255;
 
 named! {
     /// The event that started a job with a source.
@@ -92,6 +96,24 @@ impl JobSource {
         self.fork_repository.is_some()
     }
 
+    /// Returns the page of the commit on the provider.
+    pub fn commit_url(&self) -> String {
+        match self.provider {
+            VcsProvider::GitHub => format!("{}/commit/{}", self.url, self.sha),
+            VcsProvider::GitLab => format!("{}/-/commit/{}", self.url, self.sha),
+        }
+    }
+
+    /// Returns the page of the changes of the first pull request on the provider, or `None` for
+    /// a commit with no pull request.
+    pub fn changes_url(&self) -> Option<String> {
+        let first = self.pull_requests.first()?;
+        Some(match self.provider {
+            VcsProvider::GitHub => format!("{}/files", first.url),
+            VcsProvider::GitLab => format!("{}/diffs", first.url),
+        })
+    }
+
     /// Returns the variables that each node of the job gets: the commit, the ref, the first pull
     /// request, the repository, the event and the fork. A value that the job does not have is
     /// empty.
@@ -115,5 +137,76 @@ impl JobSource {
                 value: EnvValue::Literal(value.unwrap_or_default()),
             })
             .collect()
+    }
+}
+
+/// Returns the title of a commit: the first line of its message, cut at `MAX_TITLE` characters.
+pub fn title_of(message: &str) -> String {
+    let first = message.lines().next().unwrap_or_default().trim();
+    first.chars().take(MAX_TITLE).collect()
+}
+
+/// A commit of the linked repository that a person names: a branch, a tag or a SHA.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GitRef {
+    /// The head of a branch, for example `main`.
+    Branch(String),
+    /// A tag, for example `v1.2.0`.
+    Tag(String),
+    /// A commit: 7 to 40 hexadecimal characters, in lower case.
+    Sha(String),
+}
+
+impl GitRef {
+    /// The longest name of a branch or of a tag, in characters.
+    pub const MAX_NAME: usize = 255;
+
+    /// Reads the name of a branch.
+    pub fn branch(name: String) -> Result<Self, DomainError> {
+        check_name(&name)?;
+        Ok(Self::Branch(name))
+    }
+
+    /// Reads the name of a tag.
+    pub fn tag(name: String) -> Result<Self, DomainError> {
+        check_name(&name)?;
+        Ok(Self::Tag(name))
+    }
+
+    /// Reads a full or a short commit SHA.
+    pub fn sha(text: &str) -> Result<Self, DomainError> {
+        let hex = text.chars().all(|char| char.is_ascii_hexdigit());
+        if !hex || !(7..=40).contains(&text.len()) {
+            return Err(DomainError::NotASha);
+        }
+        Ok(Self::Sha(text.to_ascii_lowercase()))
+    }
+
+    /// Returns the full Git ref, `refs/heads/<branch>` or `refs/tags/<tag>`, or `None` for a SHA.
+    pub fn full_ref(&self) -> Option<String> {
+        match self {
+            Self::Branch(name) => Some(format!("refs/heads/{name}")),
+            Self::Tag(name) => Some(format!("refs/tags/{name}")),
+            Self::Sha(_) => None,
+        }
+    }
+}
+
+/// Checks the name of a branch or of a tag with the rules of `git check-ref-format`.
+fn check_name(name: &str) -> Result<(), DomainError> {
+    let bad = |char: char| char.is_whitespace() || char.is_control() || "~^:?*[\\".contains(char);
+    let refused = name.is_empty()
+        || name.chars().count() > GitRef::MAX_NAME
+        || name.chars().any(bad)
+        || name.starts_with(['-', '/', '.'])
+        || name.ends_with(['/', '.'])
+        || name.ends_with(".lock")
+        || ["..", "//", "/.", "@{"]
+            .iter()
+            .any(|part| name.contains(part))
+        || name == "@";
+    match refused {
+        true => Err(DomainError::NotARefName),
+        false => Ok(()),
     }
 }
