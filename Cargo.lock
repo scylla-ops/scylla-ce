@@ -3221,6 +3221,7 @@ dependencies = [
 name = "scylla-testkit"
 version = "0.7.0-rc.1"
 dependencies = [
+ "axum",
  "ed25519-dalek 3.0.0",
  "getrandom 0.4.3",
  "prost 0.14.4",

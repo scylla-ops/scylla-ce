@@ -9,6 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+axum.workspace = true
 ed25519-dalek.workspace = true
 getrandom.workspace = true
 prost.workspace = true
