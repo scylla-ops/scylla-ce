@@ -26,7 +26,7 @@ scylla-testkit (tests only) ──▶ scylla-core
 | `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, Apps, agents, tokens, projects, secrets, grants, capabilities, the GitHub and GitLab integration), mails, logs, the clients of the Git providers, the guard against the public dev keys, server, CLI |
 | `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC, a capture of the log lines, a fake Git provider and the rows of the Git integration |
 | `scylla-ce` | the Community edition binary |
-| `scylla-agent` | the agent binary: `join`, `run` and the Windows service, the stream, the order of the nodes, the processes and the containers, the logs with the secrets masked |
+| `scylla-agent` | the agent binary: `join`, `run` and the Windows service, the stream, the checkout of the code, the order of the nodes, the processes and the containers, the logs with the secrets masked |
 
 ## Access
 
@@ -196,6 +196,8 @@ scylla-agent run --capacity 2
 
 `join` makes the key pair and writes the file (mode 600 on Unix) with the private key; the key never leaves the machine. It checks that it can write the file before it uses the code, and it does not replace a file without `--force`; the old key stays on the App until you revoke it. `run` keeps the stream open, renews its token one minute before its expiry, and connects again after an end (1 to 60 seconds of wait). It exits with the code 78 when the server refuses the agent (a revoked key, a deleted App, an App that runs no job), and each other error exits with the code 1. `--container-runtime` is `auto` by default: at each start the agent looks for `docker`, then `podman`, in the `PATH`. `none` runs no container step, and another value is the name of a program. The settings are also environment values: `SCYLLA_AGENT_CONFIG`, `SCYLLA_AGENT_WORKSPACE_ROOT`, `SCYLLA_AGENT_CAPACITY`, `SCYLLA_AGENT_CONTAINER_RUNTIME`, `SCYLLA_AGENT_KEEP_WORKSPACE`. With `SCYLLA_URL` and `SCYLLA_JOIN_CODE`, `run` joins first when the file does not exist, and it does not use them when the file exists. `run --service` is the Windows service; its logs are `agent.<date>.log` next to the file.
 
+The agent tells the feature `checkout` in its hello only when `git --version` runs on the machine. Then it can fetch the code of a job from a linked repository into the work folder before the first node. The files of Git LFS also need `git-lfs`. Use git 2.31 or newer: an older git gets the token of the checkout in its arguments, which other users of the machine can see in the process list, and the agent logs a warning.
+
 ## Logs
 
 The server and the commands write their logs to stderr.
@@ -258,6 +260,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Agent: the join, the order of the nodes, a script with a secret masked in the logs, a retry, the skip after a failure, a cancel that stops the process and its children and deletes the work folder, on Unix and Windows, the name of the machine on the key, the join at a first start | `scylla-agent/tests/agent.rs` |
 | Command line of the agent: a used code, a file that cannot be written, a file that exists and `--force`, a closed port, a start with the URL alone, a revoked key and its exit code, the search for the container runtime | `scylla-agent/tests/cli.rs` |
 | A container step of the agent: the settings of the runtime stay out of the job, and a container empties a work folder that the agent cannot delete | `scylla-agent/tests/containers.rs` |
+| The checkout of the agent against a local bare repository: the commit at depth 1 with a new and an old git, the ref of a pull request, a ref that is not at the commit, no header in `.git/config`, the header masked in the logs, a failed checkout that starts no node, the feature `checkout` in the hello. The version of git, and no header in the arguments of git 2.31 or newer | `scylla-agent/src/jobs/checkout/tests.rs`, `scylla-agent/src/jobs/checkout/git.rs` |
 | The real path of an agent on a real machine for each system: install, connected, a job with its log, update, uninstall, both Docker commands | `.github/workflows/agent-install.yml`, `scripts/agent-install-test.sh` |
 | Import of the old product: its real schema, the users and their passwords, a disabled user, a user with no email, the workspaces and their owners, the roles, the project ids, the secrets sealed again, the pipelines and a pipeline with a cycle, a second import | `scylla-ce/tests/api/platform/import.rs` |
 | Web app: a file, a route of the web app gives `index.html`, the API on the same address, the files in the binary and a folder that comes first, the cache, the compression, an unknown gRPC call | `scylla-ce/tests/api/platform/web.rs` |

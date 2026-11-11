@@ -18,7 +18,7 @@ use super::host::host;
 use crate::agent::{AgentError, Settings};
 use crate::config::AgentConfig;
 use crate::identity::{connect, token};
-use crate::jobs::{JobSet, Outbox};
+use crate::jobs::{Git, JobSet, Outbox};
 
 /// The time before the expiry of a token when the agent renews it.
 const RENEW_BEFORE: i64 = 60;
@@ -45,7 +45,7 @@ pub(crate) async fn session(
     shared: &mut Shared,
     mut stop: watch::Receiver<bool>,
 ) -> Result<(), AgentError> {
-    // Get a token, and open the stream with the hello.
+    // Get a token, find the git of the machine, and open the stream with the hello.
     let channel = connect(&shared.config.url).await?;
     let mut current = token(channel.clone(), &shared.config).await?;
     let (up, messages) = mpsc::channel(64);
@@ -55,8 +55,9 @@ pub(crate) async fn session(
         .into_iter()
         .map(|value| Id { value })
         .collect();
+    let git = Git::detect().await;
     let hello = Hello {
-        host: Some(host(&shared.settings)),
+        host: Some(host(&shared.settings, git)),
         running_jobs: running,
     };
     let _ = up.send(message(Up::Hello(hello))).await;
@@ -76,7 +77,7 @@ pub(crate) async fn session(
         let renew = renew_at(current.expires_at);
         tokio::select! {
             received = down.message() => match received {
-                Ok(Some(response)) => answer(shared, response.message),
+                Ok(Some(response)) => answer(shared, git, response.message),
                 Ok(None) => return Ok(()),
                 Err(status) if matches!(status.code(), Code::Unauthenticated | Code::Aborted) => {
                     tracing::info!(reason = status.message(), "the server closed the stream");
@@ -101,8 +102,9 @@ pub(crate) async fn session(
     }
 }
 
-/// Acts on a message of the server: a dispatch starts a job, and a cancel stops one.
-fn answer(shared: &Shared, message: Option<Down>) {
+/// Acts on a message of the server: a dispatch starts a job with the git of the hello, and a
+/// cancel stops one.
+fn answer(shared: &Shared, git: Option<Git>, message: Option<Down>) {
     match message {
         Some(Down::Dispatch(dispatch)) => {
             let job = dispatch
@@ -111,9 +113,8 @@ fn answer(shared: &Shared, message: Option<Down>) {
                 .map(|id| id.value.clone())
                 .unwrap_or_default();
             tracing::info!(%job, "a job starts");
-            shared
-                .jobs
-                .start(dispatch, shared.settings.clone(), shared.outbox.clone());
+            let (settings, outbox) = (shared.settings.clone(), shared.outbox.clone());
+            shared.jobs.start(dispatch, settings, git, outbox);
         }
         Some(Down::Cancel(cancel)) => {
             let job = cancel.job_id.map(|id| id.value).unwrap_or_default();

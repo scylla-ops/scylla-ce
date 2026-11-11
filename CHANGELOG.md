@@ -145,6 +145,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `integrations` (workspace) and `repository` (project), and the cell `jobs.approve` for the runs
   from a fork. A project editor approves a run and links a repository, and a project viewer reads
   the link.
+- The agent fetches the code of a job into its work folder before the first node, when the dispatch
+  has a checkout. It sends the events of the checkout and its log on the node `.checkout`, and a
+  failed checkout fails the job with no node started. The token never goes to `.git/config`, a URL
+  or a log. With git 2.31 or newer it is not in the process list. The hello has the feature
+  `checkout` only when `git --version` runs.
 
 ### Fixed
 
