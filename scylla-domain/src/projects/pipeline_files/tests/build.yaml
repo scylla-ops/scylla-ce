@@ -1,0 +1,35 @@
+version: 1
+name: Build and deploy
+on:
+  push:
+    branches: [main, "release/*"]
+  pull_request:
+    branches: [main]
+  tag:
+    patterns: ["v*"]
+checkout:
+  depth: 1
+nodes:
+  - id: build
+    container: { image: "rust:1.97" }
+    script: cargo build --locked
+  - id: test
+    needs: [build]
+    container: { image: "rust:1.97" }
+    script: cargo test --locked
+    retries: 1
+    env:
+      RUST_LOG: info
+  - id: lint
+    needs: [build]
+    container: { image: "rust:1.97" }
+    exec: [cargo, clippy, "--", "-D", warnings]
+  - id: deploy
+    needs: [test, lint]
+    shell: bash
+    script: |
+      ./scripts/deploy.sh "$SCYLLA_GIT_SHA"
+    timeout_seconds: 900
+    env:
+      DEPLOY_TOKEN: { secret: deploy-token }
+      TARGET: production
