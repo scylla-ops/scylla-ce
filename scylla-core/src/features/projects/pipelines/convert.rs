@@ -8,6 +8,7 @@ use scylla_domain::projects::pipelines::{
 };
 use scylla_domain::projects::secrets::SecretName;
 use scylla_domain::DomainError;
+use scylla_proto::integrations::v1::PipelineSource;
 use scylla_proto::pipelines::v1 as pb;
 
 use crate::api::parse::{self, ToProto};
@@ -209,6 +210,13 @@ impl ToProto<pb::Pipeline> for Pipeline {
             version: self.version,
             created_at: Some(parse::timestamp(self.created_at)),
             updated_at: Some(parse::timestamp(self.updated_at)),
+            source: PipelineSource::Editor.into(),
+            file_key: String::new(),
+            file_path: String::new(),
+            checkout: None,
+            archived_at: None,
+            removed_at: None,
+            file_error_count: 0,
         }
     }
 }

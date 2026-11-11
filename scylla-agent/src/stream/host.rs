@@ -19,6 +19,7 @@ pub(super) fn host(settings: &Settings) -> Host {
         memory_bytes: memory(),
         capacity: settings.capacity,
         container_runtime: settings.container_runtime.clone().unwrap_or_default(),
+        features: Vec::new(),
     }
 }
 

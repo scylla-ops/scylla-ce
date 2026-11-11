@@ -1,4 +1,5 @@
-//! The gRPC handler of `JobService`. The tail of the logs is in `tail.rs`.
+//! The gRPC handler of `JobService`. The tail of the logs is in `tail.rs`, and the approval of a
+//! job from a fork in `approval.rs`.
 
 use std::sync::Arc;
 
@@ -123,6 +124,20 @@ impl JobService for JobsGrpc {
         Ok(Response::new(pb::RerunJobResponse {
             job: Some(job.to_proto()),
         }))
+    }
+
+    async fn approve_job(
+        &self,
+        request: Request<pb::ApproveJobRequest>,
+    ) -> Result<Response<pb::ApproveJobResponse>, Status> {
+        self.approve(request).await
+    }
+
+    async fn reject_job(
+        &self,
+        request: Request<pb::RejectJobRequest>,
+    ) -> Result<Response<pb::RejectJobResponse>, Status> {
+        self.reject(request).await
     }
 
     async fn list_pipeline_jobs(

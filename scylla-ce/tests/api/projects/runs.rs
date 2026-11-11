@@ -103,6 +103,7 @@ pub(super) async fn connect(
         memory_bytes: 1 << 30,
         capacity,
         container_runtime: runtime.to_owned(),
+        features: Vec::new(),
     };
     let hello = OpenStreamRequest {
         message: Some(Up::Hello(Hello {

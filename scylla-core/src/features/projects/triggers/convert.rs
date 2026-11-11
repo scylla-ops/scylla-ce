@@ -8,6 +8,9 @@ use scylla_proto::pipelines::v1 as pb;
 use crate::api::parse::{self, ToProto};
 use crate::Error;
 
+/// The reason of a kind of trigger that this server does not run.
+pub(super) const KIND_NOT_SUPPORTED: &str = "TRIGGER_KIND_NOT_SUPPORTED";
+
 /// Reads and checks the inputs of a request.
 pub(super) fn inputs(inputs: Vec<pb::TriggerInput>, webhook: bool) -> Result<Inputs, Error> {
     let inputs = inputs
@@ -75,6 +78,7 @@ impl ToProto<pb::Trigger> for Trigger {
             last_error: error,
             created_at: Some(parse::timestamp(self.created_at)),
             updated_at: Some(parse::timestamp(self.updated_at)),
+            from_file: false,
         }
     }
 }

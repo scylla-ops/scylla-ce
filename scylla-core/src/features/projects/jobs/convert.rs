@@ -23,6 +23,12 @@ impl ToProto<pb::Job> for Job {
             started_at: self.started_at.map(parse::timestamp),
             finished_at: self.finished_at.map(parse::timestamp),
             trigger_id: self.trigger_id.map(ToProto::to_proto),
+            source: None,
+            approval: None,
+            pipeline_file: None,
+            file_errors: Vec::new(),
+            checkout: None,
+            waiting_reason: String::new(),
         }
     }
 }

@@ -2,7 +2,9 @@
 //! the check of the access to an object of a project.
 
 pub(crate) mod access;
+mod checks;
 mod convert;
+mod files_grpc;
 mod grpc;
 pub(crate) mod json;
 mod plugin;

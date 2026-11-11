@@ -110,14 +110,16 @@ pub(super) async fn fill(stream: &Stream, out: &Outbox) -> Result<bool, Status> 
 }
 
 /// Applies an event of the agent. A job that the agent must not run gets a cancel, and the end
-/// of a job gives room for another job.
+/// of a job gives room for another job. An event of the checkout changes nothing.
 pub(super) async fn event(
     stream: &Stream,
     event: pb::JobEvent,
     out: &Outbox,
 ) -> Result<bool, Status> {
     let job: JobId = parse::required(event.job_id.clone(), "event.job_id")?;
-    let domain = event_of(event)?;
+    let Some(domain) = event_of(event)? else {
+        return Ok(true);
+    };
     match runs::apply(&stream.pool, stream.app, job, &domain).await? {
         Reply::Nothing => Ok(true),
         Reply::Cancel => Ok(send(out, cancel(job)).await),
@@ -168,13 +170,13 @@ pub(super) async fn logs(
     }
 }
 
-/// Reads an event of the agent.
-fn event_of(event: pb::JobEvent) -> Result<JobEvent, Status> {
+/// Reads an event of the agent. An event of the checkout gives `None`: the server ignores it.
+fn event_of(event: pb::JobEvent) -> Result<Option<JobEvent>, Status> {
     let node = || {
         NodeId::parse(event.node_id.clone())
             .map_err(|error| Status::invalid_argument(format!("event.node_id {error}")))
     };
-    Ok(match event.kind() {
+    Ok(Some(match event.kind() {
         pb::EventKind::JobStarted => JobEvent::JobStarted,
         pb::EventKind::NodeStarted => JobEvent::NodeStarted(node()?),
         pb::EventKind::NodeRetrying => JobEvent::NodeRetrying {
@@ -193,10 +195,13 @@ fn event_of(event: pb::JobEvent) -> Result<JobEvent, Status> {
         pb::EventKind::NodeSkipped => JobEvent::NodeSkipped(node()?),
         pb::EventKind::JobCompleted => JobEvent::JobCompleted,
         pb::EventKind::JobFailed => JobEvent::JobFailed(event.error.clone()),
+        pb::EventKind::CheckoutStarted
+        | pb::EventKind::CheckoutCompleted
+        | pb::EventKind::CheckoutFailed => return Ok(None),
         pb::EventKind::Unspecified => {
             return Err(Status::invalid_argument("event.kind is required"));
         }
-    })
+    }))
 }
 
 /// Makes the dispatch of a job, with the values of its secrets.
@@ -240,5 +245,6 @@ fn dispatch(assignment: Assignment) -> Down {
         pipeline_id: Some(job.pipeline_id.to_proto()),
         project_id: Some(job.project_id.to_proto()),
         nodes,
+        checkout: None,
     })
 }

@@ -3,6 +3,7 @@
 
 mod cast;
 mod disabled;
+mod git_contract;
 mod held;
 mod jobs;
 mod lifecycle;

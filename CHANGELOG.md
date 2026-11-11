@@ -138,6 +138,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   at most one year. With no period, it counts the last 30 days.
 - `ListMembers` and `ListRoleHolders` give `runner` for each actor: true for an App that runs jobs
   (an agent).
+- The API has the contract of the GitHub and GitLab integration. Until the integration is complete,
+  its new RPCs give `UNIMPLEMENTED`, and a push, pull request or tag trigger gives
+  `TRIGGER_KIND_NOT_SUPPORTED`.
 
 ### Fixed
 

@@ -87,6 +87,7 @@ impl TestApp {
             name: None,
             schedule: schedule.map(str::to_owned),
             inputs: inputs.map(|inputs| TriggerInputList { inputs }),
+            rules: None,
         };
         let request = self.authed(actor, request).await;
         let response = self.triggers().update_trigger(request).await?.into_inner();

@@ -42,6 +42,7 @@ fn host(host: Host) -> pb::Host {
         memory_bytes: host.memory_bytes,
         capacity: host.capacity,
         container_runtime: host.container_runtime.unwrap_or_default(),
+        features: Vec::new(),
     }
 }
 

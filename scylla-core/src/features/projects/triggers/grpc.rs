@@ -67,6 +67,11 @@ impl TriggerService for TriggersGrpc {
         let kind = match request.kind {
             Some(pb::create_trigger_request::Kind::Cron(cron)) => TriggerKind::Cron(cron.schedule),
             Some(pb::create_trigger_request::Kind::Webhook(_)) => TriggerKind::Webhook,
+            Some(
+                pb::create_trigger_request::Kind::Push(_)
+                | pb::create_trigger_request::Kind::PullRequest(_)
+                | pb::create_trigger_request::Kind::Tag(_),
+            ) => return Err(Error::invalid("kind", convert::KIND_NOT_SUPPORTED).into()),
             None => return Err(Error::invalid("kind", "is required").into()),
         };
         let webhook = kind == TriggerKind::Webhook;
@@ -122,6 +127,10 @@ impl TriggerService for TriggersGrpc {
             .await?
             .ok_or(Error::NotFound("trigger"))?;
         let webhook = current.kind == TriggerKind::Webhook;
+        if request.rules.is_some() {
+            let reason = "do not match the kind of the trigger";
+            return Err(Error::invalid("rules", reason).into());
+        }
         let change = TriggerChange {
             name: request
                 .name
