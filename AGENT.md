@@ -88,6 +88,7 @@ Load the skill of the task from `.claude/skills/`:
 - The places of the nodes are in `pipeline_layouts`, never in `Node` (decision 101): a field of `Node` goes into each job snapshot, and a drag would change the version of the pipeline.
 - Times of a job are in whole microseconds (`runs::now`), as the database keeps them.
 - A job of a trigger has the runner of the triggers of its workspace as its author (`fire::runner`), an actor of kind `trigger_runner` with no key and no role. Start a job with `pipelines::service::start` and a `StartJob` (a run, a fire of a trigger or a new run), which checks the secrets and adds the variables of a trigger. A job with a source keeps its commit in `job_sources`, in the transaction of the job. A job from a fork waits for an approval (`awaiting_approval`). At the dispatch, each node gets the `SCYLLA_GIT_*` variables of the source, not masked, and a job from a fork gets an empty value for each secret.
+- A project takes its pipelines from one source: the editor, or the files of its repository (decision 108). A file pipeline and an archived pipeline are read only: a change or a delete gives `PIPELINE_READ_ONLY`, and a save of the places works. A list of the pipelines hides the file pipelines of a project of the editor. A trigger of an archived pipeline, or of a file pipeline whose file left the default branch, does not fire. The file pipelines change only through `files::sync_default_branch` and `files::set_source`.
 
 ## Logs
 

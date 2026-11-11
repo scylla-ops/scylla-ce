@@ -1,6 +1,5 @@
 //! The RPCs of `PipelineService` for the pipeline files of the linked repository: validate,
-//! export, read, list, and the source of the pipelines of a project. Read, list and the source
-//! are not served yet.
+//! export, read, list, and the source of the pipelines of a project.
 
 use scylla_domain::projects::pipelines::PipelineAccess;
 use scylla_domain::projects::ProjectId;
@@ -56,30 +55,76 @@ impl PipelinesGrpc {
         }))
     }
 
-    /// Answers `GetFilePipeline`: the server does not serve it.
+    /// Answers `GetFilePipeline`: the file of a file pipeline at a commit, with its text, its
+    /// nodes and its errors.
     pub(super) async fn get_file(
         &self,
         request: Request<pb::GetFilePipelineRequest>,
     ) -> Result<Response<pb::GetFilePipelineResponse>, Status> {
-        self.gate.caller(&request).await.map_err(Error::from)?;
-        Err(Status::unimplemented("GetFilePipeline is not served"))
+        // Authenticate the caller, then read the request.
+        let caller = self.gate.caller(&request).await.map_err(Error::from)?;
+        let request = request.into_inner();
+        let git_ref = request.r#ref.map(|value| parse::field(value, "ref"));
+        let git_ref = git_ref.transpose()?;
+
+        // Check the route permission on the pipeline, then read its file.
+        let permission = PipelineAccess::GET_FILE_PIPELINE;
+        let id = self
+            .pipeline_of(&caller, request.pipeline_id, permission)
+            .await?;
+        let found = files_service::get_file(&self.vcs, id, git_ref).await?;
+        Ok(Response::new(pb::GetFilePipelineResponse {
+            file: Some(files_convert::file_at(found, true)),
+        }))
     }
 
-    /// Answers `ListPipelineFiles`: the server does not serve it.
+    /// Answers `ListPipelineFiles`: the pipeline files of the linked repository at a commit, with
+    /// no text.
     pub(super) async fn list_files(
         &self,
         request: Request<pb::ListPipelineFilesRequest>,
     ) -> Result<Response<pb::ListPipelineFilesResponse>, Status> {
-        self.gate.caller(&request).await.map_err(Error::from)?;
-        Err(Status::unimplemented("ListPipelineFiles is not served"))
+        // Authenticate the caller, then read the request.
+        let caller = self.gate.caller(&request).await.map_err(Error::from)?;
+        let request = request.into_inner();
+        let project: ProjectId = parse::required(request.project_id, "project_id")?;
+        let git_ref = request.r#ref.map(|value| parse::field(value, "ref"));
+        let git_ref = git_ref.transpose()?;
+
+        // Check the route permission on the project, then read the files.
+        let permission = PipelineAccess::LIST_PIPELINE_FILES;
+        self.authorize_in(&caller, permission, project).await?;
+        let found = files_service::list_files(&self.vcs, project, git_ref).await?;
+        Ok(Response::new(pb::ListPipelineFilesResponse {
+            files: found
+                .files
+                .into_iter()
+                .map(|file| files_convert::file_at(file, false))
+                .collect(),
+            errors: found
+                .rejected
+                .into_iter()
+                .map(files_convert::rejected_of)
+                .collect(),
+            commit_sha: found.commit_sha,
+        }))
     }
 
-    /// Answers `SetPipelineSource`: the server does not serve it.
+    /// Answers `SetPipelineSource`: the editor or the files of the linked repository.
     pub(super) async fn set_source(
         &self,
         request: Request<pb::SetPipelineSourceRequest>,
     ) -> Result<Response<pb::SetPipelineSourceResponse>, Status> {
-        self.gate.caller(&request).await.map_err(Error::from)?;
-        Err(Status::unimplemented("SetPipelineSource is not served"))
+        // Authenticate the caller, then read the request.
+        let caller = self.gate.caller(&request).await.map_err(Error::from)?;
+        let request = request.into_inner();
+        let project: ProjectId = parse::required(request.project_id, "project_id")?;
+        let source = files_convert::source(request.source)?;
+
+        // Check the route permission on the project, then move it.
+        let permission = PipelineAccess::SET_PIPELINE_SOURCE;
+        self.authorize_in(&caller, permission, project).await?;
+        files_service::set_source(&self.vcs, caller.actor.id, project, source).await?;
+        Ok(Response::new(pb::SetPipelineSourceResponse {}))
     }
 }

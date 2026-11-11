@@ -57,10 +57,10 @@ async fn approve_job_and_reject_job_are_not_served(pool: PgPool) {
     assert!(read.source.is_none() && read.approval.is_none() && read.checkout.is_none());
 }
 
-/// The RPCs that read the pipeline files and set their source answer `UNIMPLEMENTED`, and a
-/// pipeline comes from the editor, with the default checkout.
+/// With no linked repository, the RPCs that read the pipeline files and move to the files give
+/// `FAILED_PRECONDITION`, and a pipeline comes from the editor, with the default checkout.
 #[sqlx::test(migrations = false)]
-async fn the_rpcs_of_the_pipeline_files_are_not_served(pool: PgPool) {
+async fn the_rpcs_of_the_pipeline_files_need_a_link(pool: PgPool) {
     // given
     let app = app(pool).await;
     let (owner, _, project, pipeline) = pipeline(&app, vec![exec_node("build", &[])]).await;
@@ -88,9 +88,9 @@ async fn the_rpcs_of_the_pipeline_files_are_not_served(pool: PgPool) {
         .await;
 
     // then
-    assert_code(got, Code::Unimplemented);
-    assert_code(listed, Code::Unimplemented);
-    assert_code(moved, Code::Unimplemented);
+    assert_code(got, Code::FailedPrecondition);
+    assert_code(listed, Code::FailedPrecondition);
+    assert_code(moved, Code::FailedPrecondition);
     let read = app.get_pipeline(owner, &pipeline).await.unwrap();
     assert_eq!(read.source, PipelineSource::Editor as i32);
     assert!(read.file_key.is_empty() && read.archived_at.is_none());

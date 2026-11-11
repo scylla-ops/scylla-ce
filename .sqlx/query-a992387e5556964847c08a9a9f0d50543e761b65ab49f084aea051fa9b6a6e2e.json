@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, schedule AS \"schedule!\" FROM triggers\n           WHERE enabled AND kind = 'cron' AND next_fire_at <= now()\n           ORDER BY next_fire_at LIMIT $1 FOR UPDATE SKIP LOCKED",
+  "query": "SELECT t.id, t.schedule AS \"schedule!\",\n                  (SELECT p.archived_at IS NULL AND p.removed_at IS NULL\n                   FROM pipelines p WHERE p.id = t.pipeline_id) AS \"active!\"\n           FROM triggers t\n           WHERE t.enabled AND t.kind = 'cron' AND t.next_fire_at <= now()\n           ORDER BY t.next_fire_at LIMIT $1 FOR UPDATE OF t SKIP LOCKED",
   "describe": {
     "columns": [
       {
@@ -24,6 +24,12 @@
             "name": "schedule"
           }
         }
+      },
+      {
+        "ordinal": 2,
+        "name": "active!",
+        "type_info": "Bool",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -33,8 +39,9 @@
     },
     "nullable": [
       false,
-      true
+      true,
+      null
     ]
   },
-  "hash": "bb24135819788638879bfab49ca374e77ba710bd61d34e5421dbec7c63cde4a3"
+  "hash": "a992387e5556964847c08a9a9f0d50543e761b65ab49f084aea051fa9b6a6e2e"
 }

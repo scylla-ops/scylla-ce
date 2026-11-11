@@ -92,7 +92,7 @@ impl PipelineService for PipelinesGrpc {
                 PipelineAccess::GET_PIPELINE,
             )
             .await?;
-        let (pipeline, layout) = service::get_with_layout(&self.pool, id)
+        let (pipeline, layout) = service::get_with_layout(&self.vcs, id)
             .await?
             .ok_or(Error::NotFound("pipeline"))?;
         Ok(Response::new(pb::GetPipelineResponse {
@@ -189,7 +189,7 @@ impl PipelineService for PipelinesGrpc {
             scope: PipelineScope::Project(project),
             page,
         };
-        let page = service::list(&self.pool, query).await?;
+        let page = service::list(&self.vcs, query).await?;
         Ok(Response::new(pb::ListProjectPipelinesResponse {
             pipelines: page.items.into_iter().map(ToProto::to_proto).collect(),
             page: Some(page.next_after.to_proto()),
@@ -218,7 +218,7 @@ impl PipelineService for PipelinesGrpc {
             scope: PipelineScope::Workspace(workspace),
             page,
         };
-        let page = service::list(&self.pool, query).await?;
+        let page = service::list(&self.vcs, query).await?;
         Ok(Response::new(pb::ListWorkspacePipelinesResponse {
             pipelines: page.items.into_iter().map(ToProto::to_proto).collect(),
             page: Some(page.next_after.to_proto()),

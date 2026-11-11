@@ -170,6 +170,13 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   installation token of one hour on GitHub, or a GitLab deploy token that the server deletes at the
   end of the job. The job shows the state of its checkout, and `CreatePipeline` and `UpdatePipeline`
   take the checkout settings of a pipeline.
+- A project takes its pipelines from the editor or from the pipeline files of its linked repository.
+  `SetPipelineSource` reads the files in `.scylla/` at the head of the default branch, archives the
+  editor pipelines and writes one pipeline for each file. A file pipeline follows the default
+  branch, is read only (`PIPELINE_READ_ONLY`), and gets the triggers of the `on` table of its file.
+  A trigger of an archived pipeline does not fire. `ListPipelineFiles` and `GetFilePipeline` give
+  the files and their errors. A move back to the editor restores the editor pipelines, and the jobs
+  stay.
 
 ### Fixed
 

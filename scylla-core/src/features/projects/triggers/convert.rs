@@ -6,6 +6,7 @@ use scylla_domain::projects::triggers::{
 use scylla_proto::pipelines::v1 as pb;
 
 use crate::api::parse::{self, ToProto};
+use crate::features::projects::pipelines::files_convert;
 use crate::Error;
 
 /// The reason of a kind of trigger that this server does not run.
@@ -45,6 +46,11 @@ impl ToProto<pb::Trigger> for Trigger {
             TriggerKind::Webhook => pb::trigger::Kind::Webhook(pb::Webhook {
                 path: format!("/webhooks/{}", self.id),
             }),
+            TriggerKind::Push(rule) => pb::trigger::Kind::Push(files_convert::push_of(rule)),
+            TriggerKind::PullRequest(rule) => {
+                pb::trigger::Kind::PullRequest(files_convert::pull_request_of(rule))
+            }
+            TriggerKind::Tag(rule) => pb::trigger::Kind::Tag(files_convert::tag_of(rule)),
         };
         let inputs = self
             .inputs
@@ -78,7 +84,7 @@ impl ToProto<pb::Trigger> for Trigger {
             last_error: error,
             created_at: Some(parse::timestamp(self.created_at)),
             updated_at: Some(parse::timestamp(self.updated_at)),
-            from_file: false,
+            from_file: self.from_file,
         }
     }
 }

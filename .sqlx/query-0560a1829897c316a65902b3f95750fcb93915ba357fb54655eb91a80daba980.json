@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pipelines\n         SET removed_at = coalesce(removed_at, now()), archived_at = NULL, updated_at = now()\n         WHERE project_id = $1 AND source = 'file' AND NOT (file_key = ANY($2))\n           AND (removed_at IS NULL OR archived_at IS NOT NULL)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0560a1829897c316a65902b3f95750fcb93915ba357fb54655eb91a80daba980"
+}

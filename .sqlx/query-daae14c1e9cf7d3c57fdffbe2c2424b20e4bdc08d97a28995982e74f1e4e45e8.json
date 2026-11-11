@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT sealed_secret AS \"sealed_secret!\" FROM triggers\n           WHERE id = $1 AND enabled AND kind = 'webhook'",
+  "query": "SELECT t.sealed_secret AS \"sealed_secret!\"\n           FROM triggers t JOIN pipelines p ON p.id = t.pipeline_id\n           WHERE t.id = $1 AND t.enabled AND t.kind = 'webhook' AND p.archived_at IS NULL\n             AND p.removed_at IS NULL",
   "describe": {
     "columns": [
       {
@@ -24,5 +24,5 @@
       true
     ]
   },
-  "hash": "397a2b64a2b22536712be917122a1a53a64e8e566bd3d1989b335edf3d81d1df"
+  "hash": "daae14c1e9cf7d3c57fdffbe2c2424b20e4bdc08d97a28995982e74f1e4e45e8"
 }

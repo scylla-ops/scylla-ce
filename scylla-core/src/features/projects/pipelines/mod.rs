@@ -5,7 +5,7 @@
 pub(crate) mod access;
 mod checks;
 mod convert;
-mod files_convert;
+pub(crate) mod files_convert;
 mod files_grpc;
 mod files_service;
 mod grpc;

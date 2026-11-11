@@ -25,10 +25,6 @@ pub(crate) async fn insert(
     sealed_secret: Option<Vec<u8>>,
     next_fire_at: Option<OffsetDateTime>,
 ) -> Result<Option<Trigger>, Error> {
-    let (kind, schedule) = match &new.kind {
-        TriggerKind::Cron(schedule) => ("cron", Some(schedule.as_str())),
-        TriggerKind::Webhook => ("webhook", None),
-    };
     let row = sqlx::query_as!(
         Row,
         r#"INSERT INTO triggers (id, pipeline_id, project_id, workspace_id, created_by, name, kind,
@@ -42,8 +38,8 @@ pub(crate) async fn insert(
         new.pipeline_id.to_db(),
         new.created_by.to_db(),
         new.name.as_str(),
-        kind,
-        schedule,
+        new.kind.name(),
+        new.kind.schedule(),
         sealed_secret,
         inputs::json(new.inputs.as_slice()),
         next_fire_at,
@@ -75,14 +71,17 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: TriggerId) -> Result<Option<Trigge
     row.map(Row::into_trigger).transpose()
 }
 
-/// Returns the sealed secret of an enabled webhook trigger, or `None`.
+/// Returns the sealed secret of an enabled webhook trigger of an active pipeline, or `None`. A
+/// pipeline is not active when it is archived, or when its file left the default branch.
 pub(crate) async fn webhook_secret(
     tx: &mut Tx<'_>,
     id: TriggerId,
 ) -> Result<Option<Vec<u8>>, sqlx::Error> {
     let sealed = sqlx::query_scalar!(
-        r#"SELECT sealed_secret AS "sealed_secret!" FROM triggers
-           WHERE id = $1 AND enabled AND kind = 'webhook'"#,
+        r#"SELECT t.sealed_secret AS "sealed_secret!"
+           FROM triggers t JOIN pipelines p ON p.id = t.pipeline_id
+           WHERE t.id = $1 AND t.enabled AND t.kind = 'webhook' AND p.archived_at IS NULL
+             AND p.removed_at IS NULL"#,
         id.to_db(),
     )
     .fetch_optional(&mut **tx)
@@ -134,17 +133,13 @@ pub(crate) async fn list(
 /// Writes the changes of a trigger that the caller read in this transaction. A name in use gives
 /// `TRIGGER_NAME_IN_USE`.
 pub(crate) async fn save(tx: &mut Tx<'_>, trigger: &Trigger) -> Result<(), Error> {
-    let schedule = match &trigger.kind {
-        TriggerKind::Cron(schedule) => Some(schedule.as_str()),
-        TriggerKind::Webhook => None,
-    };
     sqlx::query!(
         "UPDATE triggers SET name = $2, schedule = $3, inputs = $4, enabled = $5,
                              next_fire_at = $6, updated_at = now()
          WHERE id = $1",
         trigger.id.to_db(),
         trigger.name,
-        schedule,
+        trigger.kind.schedule(),
         inputs::json(&trigger.inputs),
         trigger.enabled,
         trigger.next_fire_at,
@@ -169,23 +164,27 @@ pub(crate) async fn delete(tx: &mut Tx<'_>, id: TriggerId) -> Result<bool, sqlx:
     Ok(result.rows_affected() == 1)
 }
 
-/// Locks at most `limit` enabled cron triggers that are due, with their schedules. Another
+/// Locks at most `limit` enabled cron triggers that are due, with their schedules and `true`
+/// when their pipeline is active: not archived, and with its file on the default branch. Another
 /// server skips the locked rows.
 pub(crate) async fn due(
     tx: &mut Tx<'_>,
     limit: i64,
-) -> Result<Vec<(TriggerId, String)>, sqlx::Error> {
+) -> Result<Vec<(TriggerId, String, bool)>, sqlx::Error> {
     let rows = sqlx::query!(
-        r#"SELECT id, schedule AS "schedule!" FROM triggers
-           WHERE enabled AND kind = 'cron' AND next_fire_at <= now()
-           ORDER BY next_fire_at LIMIT $1 FOR UPDATE SKIP LOCKED"#,
+        r#"SELECT t.id, t.schedule AS "schedule!",
+                  (SELECT p.archived_at IS NULL AND p.removed_at IS NULL
+                   FROM pipelines p WHERE p.id = t.pipeline_id) AS "active!"
+           FROM triggers t
+           WHERE t.enabled AND t.kind = 'cron' AND t.next_fire_at <= now()
+           ORDER BY t.next_fire_at LIMIT $1 FOR UPDATE OF t SKIP LOCKED"#,
         limit,
     )
     .fetch_all(&mut **tx)
     .await?;
     Ok(rows
         .into_iter()
-        .map(|row| (TriggerId::from_db(row.id), row.schedule))
+        .map(|row| (TriggerId::from_db(row.id), row.schedule, row.active))
         .collect())
 }
 
@@ -292,6 +291,7 @@ impl Row {
             last_result,
             created_at: self.created_at,
             updated_at: self.updated_at,
+            from_file: false,
         })
     }
 }

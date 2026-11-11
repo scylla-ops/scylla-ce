@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,\n                created_at, updated_at\n         FROM pipelines\n         WHERE ($1::uuid IS NULL OR project_id = $1)\n           AND ($2::uuid IS NULL OR workspace_id = $2)\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
+  "query": "SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,\n                  created_at, updated_at, source, file_key, file_path,\n                  jsonb_array_length(coalesce(file_errors, '[]')) AS \"file_errors!\", archived_at,\n                  removed_at\n           FROM pipelines WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -112,14 +112,72 @@
             "name": "updated_at"
           }
         }
+      },
+      {
+        "ordinal": 10,
+        "name": "source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "source"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "file_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "file_key"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "file_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "file_path"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "file_errors!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
+        "name": "archived_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "archived_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "removed_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "removed_at"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Uuid",
-        "Uuid",
-        "Int8"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -132,8 +190,14 @@
       true,
       false,
       false,
-      false
+      false,
+      false,
+      true,
+      true,
+      null,
+      true,
+      true
     ]
   },
-  "hash": "711ec23e63c5a879ec02342c7ae756b11495fda34fc9780644b7dea95af498ab"
+  "hash": "237cb834b8e1a3b858102df60bed7dcbda25210d39d7bbfc0e59a0f1d6340d96"
 }

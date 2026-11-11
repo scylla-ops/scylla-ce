@@ -61,7 +61,8 @@ pub(crate) fn spawn(pool: PgPool, hooks: Arc<Hooks>, registry: Arc<Registry>) ->
 
 /// Fires the cron triggers that are due, one time each, and returns their count. Each trigger
 /// gets its next time in the same transaction, so a second server skips it. A missed time does
-/// not fire later.
+/// not fire later. A trigger of an archived pipeline, or of a file pipeline whose file left the
+/// default branch, gets its next time and does not fire.
 pub(crate) async fn tick(
     pool: &PgPool,
     hooks: &Hooks,
@@ -71,17 +72,18 @@ pub(crate) async fn tick(
     let now = OffsetDateTime::now_utc();
     let mut tx = pool.begin().await?;
     let due = triggers::due(&mut tx, BATCH).await?;
-    for (id, schedule) in &due {
+    for (id, schedule, _) in &due {
         triggers::set_next(&mut tx, *id, next(schedule, now)).await?;
     }
     deliveries::purge(&mut tx, now - DELIVERY_RETENTION).await?;
     tx.commit().await?;
 
-    // Fire each one. A failed fire is recorded on its trigger.
-    for (id, _) in &due {
+    // Fire each one of an active pipeline. A failed fire is recorded on its trigger.
+    let active: Vec<_> = due.iter().filter(|(_, _, active)| *active).collect();
+    for (id, _, _) in &active {
         if let Err(error) = fire::by_id(pool, hooks, registry, *id).await {
             tracing::warn!(%error, trigger = %id, "a cron trigger did not fire");
         }
     }
-    Ok(due.len())
+    Ok(active.len())
 }

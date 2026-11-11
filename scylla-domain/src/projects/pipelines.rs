@@ -12,6 +12,7 @@ pub use nodes::{env_name, EnvValue, EnvVar, Node, NodeError, NodeId, Runtime, Sh
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId};
+use crate::integrations::links::PipelineSource;
 use crate::projects::pipeline_files::CheckoutSettings;
 use crate::projects::{Project, ProjectId};
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
@@ -49,6 +50,27 @@ pub struct Pipeline {
     pub created_at: OffsetDateTime,
     /// The time of the last change.
     pub updated_at: OffsetDateTime,
+    /// Where the pipeline comes from: the editor, or a file of the linked repository.
+    pub source: PipelineSource,
+    /// The file of a file pipeline on the default branch, or `None` for an editor pipeline.
+    pub file: Option<FileOrigin>,
+    /// The time when the pipeline stopped: an editor pipeline when its project moved to the
+    /// files, a file pipeline when its project moved back to the editor. `None` while it is
+    /// active.
+    pub archived_at: Option<OffsetDateTime>,
+}
+
+/// The file of a file pipeline on the default branch of the linked repository.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FileOrigin {
+    /// The key: `pipeline`, or the name of the file with no extension.
+    pub key: String,
+    /// The path, for example `.scylla/pipelines/build.toml`.
+    pub path: String,
+    /// The number of errors of the file.
+    pub errors: u32,
+    /// The time when the file left the default branch, or `None` while it is there.
+    pub removed_at: Option<OffsetDateTime>,
 }
 
 /// The input of a pipeline creation.

@@ -1,9 +1,10 @@
-//! The triggers of a pipeline: a cron schedule or a webhook that starts a job, with inputs that
-//! each node of the job gets in its environment.
+//! The triggers of a pipeline: a cron schedule, a webhook or an event of the linked repository
+//! that starts a job, with inputs that each node of the job gets in its environment.
 
 use time::OffsetDateTime;
 
 use crate::identity::actors::{ActorId, ActorKind};
+use crate::projects::git_rules::{PullRequestRule, PushRule, TagRule};
 use crate::projects::pipelines::{env_name, PipelineId};
 use crate::projects::{Project, ProjectId};
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
@@ -25,6 +26,33 @@ pub enum TriggerKind {
     Cron(String),
     /// A signed request to the webhook route of the trigger.
     Webhook,
+    /// A push to a branch of the linked repository.
+    Push(PushRule),
+    /// A pull request of the linked repository.
+    PullRequest(PullRequestRule),
+    /// A new tag of the linked repository.
+    Tag(TagRule),
+}
+
+impl TriggerKind {
+    /// Returns the name of the kind, as the database keeps it.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Cron(_) => "cron",
+            Self::Webhook => "webhook",
+            Self::Push(_) => "push",
+            Self::PullRequest(_) => "pull_request",
+            Self::Tag(_) => "tag",
+        }
+    }
+
+    /// Returns the schedule of a cron trigger, or `None` for another kind.
+    pub fn schedule(&self) -> Option<&str> {
+        match self {
+            Self::Cron(schedule) => Some(schedule),
+            _ => None,
+        }
+    }
 }
 
 /// The value of an input.
@@ -132,6 +160,8 @@ pub struct Trigger {
     pub created_at: OffsetDateTime,
     /// The time of the last change.
     pub updated_at: OffsetDateTime,
+    /// `true` for a trigger from the `on` table of a pipeline file. It is read only.
+    pub from_file: bool,
 }
 
 /// The input of a trigger creation.

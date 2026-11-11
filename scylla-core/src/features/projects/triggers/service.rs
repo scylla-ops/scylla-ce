@@ -11,8 +11,9 @@ use scylla_extension::Rejection;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 
+use super::convert::KIND_NOT_SUPPORTED;
 use super::schedule;
-use super::store::{deliveries, triggers};
+use super::store::{deliveries, files, triggers};
 use crate::infra::secret::{self, Sealer};
 use crate::Error;
 
@@ -41,6 +42,9 @@ pub(crate) async fn create(
                 Some(secret),
                 None,
             )
+        }
+        TriggerKind::Push(_) | TriggerKind::PullRequest(_) | TriggerKind::Tag(_) => {
+            return Err(Error::invalid("kind", KIND_NOT_SUPPORTED));
         }
     };
 
@@ -73,14 +77,22 @@ pub(crate) async fn place(
     Ok(place)
 }
 
-/// Returns one page of the triggers of a pipeline, oldest first.
+/// Returns one page of the triggers of a pipeline, oldest first. The first page of a file
+/// pipeline starts with the read only triggers of the `on` table of its file.
 pub(crate) async fn list(pool: &PgPool, query: ListTriggers) -> Result<TriggerPage, Error> {
+    // Read the page, and the triggers of the file for the first page.
     let mut tx = pool.begin().await?;
     let items = triggers::list(&mut tx, query.pipeline_id, query.page).await?;
+    let from_file = match query.page.after {
+        None => files::list(&mut tx, query.pipeline_id).await?,
+        Some(_) => Vec::new(),
+    };
     tx.commit().await?;
-    Ok(Page::from_overfetch(items, query.page.size, |trigger| {
-        trigger.id
-    }))
+
+    // Put the triggers of the file first.
+    let mut page = Page::from_overfetch(items, query.page.size, |trigger| trigger.id);
+    page.items.splice(0..0, from_file);
+    Ok(page)
 }
 
 /// Changes the name, the schedule or the inputs of a trigger. A schedule of a webhook trigger

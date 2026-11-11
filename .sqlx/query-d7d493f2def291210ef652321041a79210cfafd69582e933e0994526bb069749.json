@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pipeline_source FROM repository_links WHERE project_id = $1 FOR SHARE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pipeline_source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "pipeline_source"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d7d493f2def291210ef652321041a79210cfafd69582e933e0994526bb069749"
+}
