@@ -212,7 +212,7 @@ async fn list_roles_shows_the_role_owner(pool: PgPool) {
     assert_eq!(role.grant_name, OWNER);
     assert_eq!(role.level, "workspace");
     assert_eq!(role.holder, "people");
-    assert_eq!(role.permissions.len(), 30);
+    assert_eq!(role.permissions.len(), 35);
     assert!(role.permissions.contains(&"workspace.delete".to_owned()));
     assert_eq!(role.holder_count, 2);
     assert_eq!(holders.total, 2);

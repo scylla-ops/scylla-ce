@@ -4,6 +4,9 @@
 use super::{areas, complete, find, Level, Route, VIEW_ALL_WORKSPACES};
 use crate::identity::admins::UserAdminHolder;
 use crate::identity::apps::AppHolder;
+use crate::integrations::apps::VcsAppHolder;
+use crate::integrations::connections::VcsConnectionHolder;
+use crate::integrations::links::RepositoryAccess;
 use crate::projects::pipelines::PipelineAccess;
 use crate::projects::triggers::TriggerAccess;
 use crate::projects::{Project, ProjectHolder};
@@ -42,6 +45,11 @@ const PAGES: &[Page] = &[
             Route::of(UserAdminHolder::LIST_USERS),
             Route::of(RoleAdmin::LIST_ROLES),
         ],
+    },
+    Page {
+        name: "the Git providers of the instance",
+        opens: Route::of(VcsAppHolder::GET_VCS_APP),
+        needs: &[Route::of(VcsAppHolder::START_GIT_HUB_MANIFEST)],
     },
     Page {
         name: "the members of a workspace",
@@ -90,6 +98,14 @@ const PAGES: &[Page] = &[
         ],
     },
     Page {
+        name: "the integrations of a workspace",
+        opens: Route::of(VcsConnectionHolder::GET_VCS_PROVIDERS),
+        needs: &[
+            Route::of(VcsConnectionHolder::LIST_VCS_CONNECTIONS),
+            Route::of(VcsConnectionHolder::GET_VCS_CONNECTION),
+        ],
+    },
+    Page {
         name: "the home of a project",
         opens: Route::of(Project::LIST_PROJECTS),
         needs: &A_PROJECT,
@@ -121,6 +137,36 @@ const PAGES: &[Page] = &[
         name: "the logs of a job",
         opens: Route::of(PipelineAccess::TAIL_JOB_LOGS),
         needs: &[Route::of(PipelineAccess::GET_JOB)],
+    },
+    Page {
+        name: "the reports of a job",
+        opens: Route::of(PipelineAccess::GET_JOB),
+        needs: &[Route::of(PipelineAccess::LIST_JOB_REPORTS)],
+    },
+    Page {
+        name: "the approval of a job from a fork",
+        opens: Route::of(PipelineAccess::APPROVE_JOB),
+        needs: &[
+            Route::of(PipelineAccess::REJECT_JOB),
+            Route::of(PipelineAccess::GET_JOB),
+        ],
+    },
+    Page {
+        name: "the repository of a project",
+        opens: Route::of(RepositoryAccess::GET_REPOSITORY_LINK),
+        needs: &[
+            Route::of(RepositoryAccess::LIST_REFS),
+            Route::of(RepositoryAccess::LIST_MERGE_BLOCKS),
+            Route::of(PipelineAccess::LIST_PIPELINE_FILES),
+        ],
+    },
+    Page {
+        name: "the link of a repository",
+        opens: Route::of(RepositoryAccess::LINK_REPOSITORY),
+        needs: &[
+            Route::of(VcsConnectionHolder::LIST_VCS_CONNECTIONS),
+            Route::of(RepositoryAccess::LIST_CONNECTION_REPOSITORIES),
+        ],
     },
     Page {
         name: "the secrets of a project",

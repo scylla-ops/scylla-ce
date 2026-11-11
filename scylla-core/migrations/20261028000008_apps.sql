@@ -14,6 +14,7 @@ CREATE TABLE apps (
     memory_bytes bigint CHECK (memory_bytes >= 0),
     capacity integer NOT NULL DEFAULT 1 CHECK (capacity >= 1),
     container_runtime text,
+    features text[] NOT NULL DEFAULT '{}',
     disabled_at timestamptz
 );
 

@@ -89,7 +89,7 @@ async fn list_roles_gives_the_built_in_roles(pool: PgPool) {
     let owner = find("instance-admin");
     assert!(owner.builtin && owner.full_control);
     assert_eq!(owner.holder_count, 1);
-    assert_eq!(owner.permissions.len(), 38);
+    assert_eq!(owner.permissions.len(), 44);
     assert!(!roles.iter().any(|role| role.key == "workspace-creator"));
     let viewer = find("project-viewer");
     assert_eq!(viewer.grant_name, "viewer");

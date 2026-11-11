@@ -16,4 +16,5 @@ mod pipeline_files;
 mod polling;
 mod reports;
 mod runtime;
+mod schema;
 mod sources;

@@ -10,9 +10,11 @@ CREATE TABLE triggers (
     workspace_id uuid NOT NULL REFERENCES workspaces (id),
     created_by uuid NOT NULL REFERENCES actors (id),
     name text NOT NULL,
-    kind text NOT NULL CHECK (kind IN ('cron', 'webhook')),
+    kind text NOT NULL CHECK (kind IN ('cron', 'webhook', 'push', 'pull_request', 'tag')),
     schedule text,
     sealed_secret bytea,
+    -- The rules of a Git kind: branches, events or tag patterns.
+    rules jsonb,
     inputs jsonb NOT NULL,
     enabled boolean NOT NULL DEFAULT true,
     next_fire_at timestamptz,
@@ -23,13 +25,16 @@ CREATE TABLE triggers (
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (pipeline_id, name),
     CHECK ((kind = 'cron') = (schedule IS NOT NULL)),
-    CHECK ((kind = 'webhook') = (sealed_secret IS NOT NULL))
+    CHECK ((kind = 'webhook') = (sealed_secret IS NOT NULL)),
+    CHECK ((kind IN ('push', 'pull_request', 'tag')) = (rules IS NOT NULL))
 );
 
 CREATE INDEX triggers_project_id_idx ON triggers (project_id);
 CREATE INDEX triggers_workspace_id_idx ON triggers (workspace_id);
 CREATE INDEX triggers_created_by_idx ON triggers (created_by);
 CREATE INDEX triggers_due_idx ON triggers (next_fire_at) WHERE enabled AND kind = 'cron';
+CREATE INDEX triggers_git_idx ON triggers (project_id)
+    WHERE enabled AND kind IN ('push', 'pull_request', 'tag');
 
 CREATE TABLE trigger_deliveries (
     trigger_id uuid NOT NULL REFERENCES triggers (id) ON DELETE CASCADE,

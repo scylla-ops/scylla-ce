@@ -141,6 +141,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - The API has the contract of the GitHub and GitLab integration. Until the integration is complete,
   its new RPCs give `UNIMPLEMENTED`, and a push, pull request or tag trigger gives
   `TRIGGER_KIND_NOT_SUPPORTED`.
+- The permission model of the Git integration: the catalog areas `git_providers` (instance),
+  `integrations` (workspace) and `repository` (project), and the cell `jobs.approve` for the runs
+  from a fork. A project editor approves a run and links a repository, and a project viewer reads
+  the link.
 
 ### Fixed
 

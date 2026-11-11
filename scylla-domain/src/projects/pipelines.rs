@@ -132,6 +132,24 @@ crate::authz! {
         permission list_pipeline_jobs = view;
         /// The route `TailJobLogs`, on each job of this project.
         permission tail_job_logs = view;
+        /// The route `SetPipelineSource`, on this project.
+        permission set_pipeline_source = edit;
+        /// The route `ApproveJob`, on each job of this project.
+        permission approve_job = edit;
+        /// The route `RejectJob`, on each job of this project.
+        permission reject_job = edit;
+        /// The route `ListJobReports`, on each job of this project.
+        permission list_job_reports = view;
+        /// The route `RetryJobReport`, on each job of this project.
+        permission retry_job_report = edit;
+        /// The route `ValidatePipelineFile`, in this project.
+        permission validate_pipeline_file = view;
+        /// The route `ExportPipeline`, on each pipeline of this project.
+        permission export_pipeline = view;
+        /// The route `GetFilePipeline`, on each pipeline of this project.
+        permission get_file_pipeline = view;
+        /// The route `ListPipelineFiles`, in this project.
+        permission list_pipeline_files = view;
     }
 
     /// The routes of the pipelines and of their jobs on a workspace, and the role of the agents.
@@ -170,5 +188,23 @@ crate::authz! {
         permission list_workspace_jobs = read;
         /// The route `TailJobLogs`, in each project of this workspace.
         permission tail_job_logs = read;
+        /// The route `SetPipelineSource`, in each project of this workspace.
+        permission set_pipeline_source = work;
+        /// The route `ApproveJob`, in each project of this workspace.
+        permission approve_job = work;
+        /// The route `RejectJob`, in each project of this workspace.
+        permission reject_job = work;
+        /// The route `ListJobReports`, in each project of this workspace.
+        permission list_job_reports = read;
+        /// The route `RetryJobReport`, in each project of this workspace.
+        permission retry_job_report = work;
+        /// The route `ValidatePipelineFile`, in each project of this workspace.
+        permission validate_pipeline_file = read;
+        /// The route `ExportPipeline`, in each project of this workspace.
+        permission export_pipeline = read;
+        /// The route `GetFilePipeline`, in each project of this workspace.
+        permission get_file_pipeline = read;
+        /// The route `ListPipelineFiles`, in each project of this workspace.
+        permission list_pipeline_files = read;
     }
 }

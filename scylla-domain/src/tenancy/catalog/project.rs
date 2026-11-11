@@ -1,6 +1,7 @@
 //! The areas of the catalog in a project, and the area of the machines. Each route is on the
 //! project and on its workspace.
 
+use super::integrations::JOBS_APPROVE;
 use super::{Area, CatalogPermission, Level, Route};
 use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
 use crate::projects::triggers::{TriggerAccess, TriggerHolder};
@@ -103,6 +104,14 @@ pub(super) const AREAS: &[Area] = &[
                     Route::of(PipelineHolder::LIST_WORKSPACE_PIPELINES),
                     Route::of(PipelineAccess::GET_PIPELINE),
                     Route::of(PipelineAccess::LIST_PROJECT_PIPELINES),
+                    Route::of(PipelineHolder::VALIDATE_PIPELINE_FILE),
+                    Route::of(PipelineHolder::EXPORT_PIPELINE),
+                    Route::of(PipelineHolder::GET_FILE_PIPELINE),
+                    Route::of(PipelineHolder::LIST_PIPELINE_FILES),
+                    Route::of(PipelineAccess::VALIDATE_PIPELINE_FILE),
+                    Route::of(PipelineAccess::EXPORT_PIPELINE),
+                    Route::of(PipelineAccess::GET_FILE_PIPELINE),
+                    Route::of(PipelineAccess::LIST_PIPELINE_FILES),
                 ],
             ),
             cell(
@@ -182,6 +191,8 @@ pub(super) const AREAS: &[Area] = &[
                     Route::of(PipelineHolder::LIST_WORKSPACE_JOBS),
                     Route::of(PipelineAccess::GET_JOB),
                     Route::of(PipelineAccess::LIST_PIPELINE_JOBS),
+                    Route::of(PipelineHolder::LIST_JOB_REPORTS),
+                    Route::of(PipelineAccess::LIST_JOB_REPORTS),
                 ],
             ),
             cell(
@@ -193,6 +204,8 @@ pub(super) const AREAS: &[Area] = &[
                     Route::of(PipelineHolder::RERUN_JOB),
                     Route::of(PipelineAccess::CANCEL_JOB),
                     Route::of(PipelineAccess::RERUN_JOB),
+                    Route::of(PipelineHolder::RETRY_JOB_REPORT),
+                    Route::of(PipelineAccess::RETRY_JOB_REPORT),
                 ],
             ),
             cell(
@@ -204,6 +217,7 @@ pub(super) const AREAS: &[Area] = &[
                     Route::of(PipelineAccess::DELETE_JOB),
                 ],
             ),
+            JOBS_APPROVE,
         ],
     ),
     area(
