@@ -1,10 +1,12 @@
-//! The mount of the repository link of a project. It adds nothing yet.
+//! The mount of the repository link of a project: `RepositoryService`.
 
 use tonic::service::RoutesBuilder;
 
+use super::grpc;
 use crate::features::integrations::{IntegrationContext, Part};
 
-/// Adds the services, the routes and the tasks of this part. It adds nothing yet.
-pub(crate) fn mount(_ctx: &IntegrationContext, _services: &mut RoutesBuilder) -> Part {
+/// Adds `RepositoryService`. This part has no public route and no task.
+pub(crate) fn mount(ctx: &IntegrationContext, services: &mut RoutesBuilder) -> Part {
+    services.add_service(grpc::server(ctx.clone()));
     Part::default()
 }

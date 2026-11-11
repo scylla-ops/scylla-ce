@@ -1,5 +1,6 @@
 //! The `TestApp` helpers of the commit context of the runs: a run on a branch, a tag or a SHA, the
-//! job lists with filters, a change of the source of a job, and the first dispatch to an agent.
+//! job lists with filters, a change of the source of a job, the GitHub App of the instance, and
+//! the first dispatch to an agent.
 
 use std::time::Duration;
 
@@ -19,6 +20,7 @@ use serde_json::json;
 use tokio::sync::mpsc::Sender;
 use tonic::Status;
 
+use super::{TEST_APP_CLIENT_SECRET, TEST_APP_PRIVATE_KEY, TEST_APP_WEBHOOK_SECRET};
 use crate::{id, TestApp};
 
 impl TestApp {
@@ -107,6 +109,38 @@ impl TestApp {
         .execute(&self.pool)
         .await
         .expect("change a job source");
+    }
+
+    /// Inserts the GitHub App of the instance with the keys of the test App, sealed with the id
+    /// of its row, and makes it the App of a connection.
+    pub async fn give_instance_app(&self, connection: &str, author: ActorId) {
+        let id = uuid::Uuid::now_v7();
+        let sealer = self
+            .sealer
+            .as_ref()
+            .expect("a server with a key of the secrets");
+        let seal = |text: &str| sealer.seal_with(text.as_bytes(), id.as_bytes());
+        sqlx::query(
+            "INSERT INTO vcs_apps (id, provider, app_id, slug, name, web_url, client_id,
+                                   sealed_client_secret, sealed_private_key,
+                                   sealed_webhook_secret, created_by)
+             VALUES ($1, 'github', 1, 'scylla-test', 'Scylla test',
+                     'https://github.com/apps/scylla-test', 'Iv1.test', $2, $3, $4, $5)",
+        )
+        .bind(id)
+        .bind(seal(TEST_APP_CLIENT_SECRET))
+        .bind(seal(TEST_APP_PRIVATE_KEY))
+        .bind(seal(TEST_APP_WEBHOOK_SECRET))
+        .bind(author.to_db())
+        .execute(&self.pool)
+        .await
+        .expect("insert the App of the instance");
+        sqlx::query("UPDATE vcs_connections SET app_id = $2 WHERE id = $1::uuid")
+            .bind(connection)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .expect("give the App to a connection");
     }
 
     /// Registers an agent with the role `runner` in a workspace, opens its stream, and returns

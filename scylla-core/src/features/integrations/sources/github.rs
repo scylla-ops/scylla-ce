@@ -2,11 +2,11 @@
 //! token narrowed to the repository and to `contents: read`.
 
 use scylla_domain::integrations::sources::GitRef;
-use scylla_extension::Rejection;
 use serde::Deserialize;
 
 use super::commits::{Commit, Failure};
 use super::store::Target;
+use crate::features::integrations::connections::credentials;
 use crate::features::integrations::IntegrationContext;
 use crate::infra::vcs::{Auth, ProviderError, TokenScope};
 use crate::Error;
@@ -44,13 +44,11 @@ pub(super) async fn commit(
     target: &Target,
     git_ref: &GitRef,
 ) -> Result<Commit, Failure> {
-    // Take the App of the connection: the App of the settings.
-    let app = match (target.app, &ctx.clients.github_app) {
-        (None, Some(app)) => app,
-        _ => {
-            let message = "the server has no GitHub App for the connection";
-            return Err(Error::Rejected(Rejection::new("APP_MISSING", message)).into());
-        }
+    // Take the App of the connection: the App of the settings, else the App of the instance.
+    let source = credentials::github_app(ctx).await?;
+    let app = match source {
+        Some(source) if target.app.is_none() || source.row == target.app => source.app,
+        _ => return Err(credentials::app_missing().into()),
     };
 
     // Get a token of the installation for the one repository.

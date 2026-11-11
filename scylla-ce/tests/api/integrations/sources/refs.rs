@@ -1,9 +1,10 @@
 //! The tests of a run on a branch, a tag or a SHA of the linked repository.
 
+use scylla_core::api::ServeOptions;
 use scylla_proto::integrations::v1::VcsProvider;
 use scylla_proto::pipelines::v1::git_ref::Kind;
 use scylla_proto::pipelines::v1::{JobStatus, SourceEvent};
-use scylla_testkit::{exec_node, text, FakeProvider};
+use scylla_testkit::{exec_node, text, FakeProvider, TestApp};
 use serde_json::json;
 use sqlx::PgPool;
 use tonic::{Code, Status};
@@ -175,6 +176,43 @@ async fn run_pipeline_on_a_ref_refuses_what_cannot_run(pool: PgPool) {
         .await
         .unwrap();
     assert!(listed.jobs.is_empty());
+}
+
+/// A connection of the GitHub App of the instance runs on a GitHub ref with the keys of the row
+/// of the App, on a server with no App in its settings.
+#[sqlx::test(migrations = false)]
+async fn run_pipeline_on_a_github_ref_uses_the_app_of_the_instance(pool: PgPool) {
+    // given
+    let fake = FakeProvider::start().await;
+    github_commit(&fake, "heads/main", SHA);
+    let options = ServeOptions {
+        vcs: fake.options(false),
+        ..ServeOptions::default()
+    };
+    let app = TestApp::spawn_with(pool, scylla_ce::edition(), options).await;
+    let linked = linked(&app, "github", vec![exec_node("build", &[])]).await;
+    let connection: String = sqlx::query_scalar(
+        "SELECT connection_id::text FROM repository_links WHERE project_id = $1::uuid",
+    )
+    .bind(&linked.project)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    app.give_instance_app(&connection, linked.owner).await;
+    let main = Kind::Branch("main".to_owned());
+
+    // when
+    let job = app
+        .run_pipeline_on(linked.owner, &linked.pipeline, main)
+        .await;
+
+    // then
+    let source = job.unwrap().source.expect("a source");
+    assert_eq!(source.sha, SHA);
+    let tokens = fake.requests_to("POST", "/app/installations/42/access_tokens");
+    assert_eq!(tokens.len(), 1);
+    let bearer = tokens[0].header("authorization").unwrap_or_default();
+    assert!(bearer.starts_with("Bearer "), "{bearer}");
 }
 
 /// A run on a GitHub ref on a server with no GitHub App gives `APP_MISSING`, and a run with no

@@ -194,3 +194,5 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   the workspaces, so its holder finds the workspaces where it acts. A custom role that was saved
   before a new dependency gets this dependency at once: the server adds what the permissions of a
   role need each time that it reads the role, checks a route or lists the objects of a role.
+- A run on a branch, a tag or a SHA works with a connection of the GitHub App of the instance. It
+  gave `APP_MISSING`.

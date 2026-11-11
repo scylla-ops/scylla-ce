@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE repository_links\n         SET reports_enabled = COALESCE($2, reports_enabled),\n             report_mode = COALESCE($3, report_mode),\n             poll_interval_seconds = COALESCE($4, poll_interval_seconds),\n             updated_at = now()\n         WHERE project_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "830e5af124a5514d1ca9ebb741364ccfa53f2d57fce38d169d41458baa368430"
+}

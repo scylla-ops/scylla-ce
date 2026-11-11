@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH counts AS (\n               SELECT (SELECT count(*) FROM triggers\n                       WHERE project_id = $1 AND enabled\n                         AND kind IN ('push', 'pull_request', 'tag')) AS git_triggers,\n                      (SELECT count(*) FROM merge_blocks WHERE project_id = $1) AS merge_blocks\n           )\n           DELETE FROM repository_links l USING counts\n           WHERE l.project_id = $1\n           RETURNING l.connection_id, l.external_id, l.full_name, l.hook_id,\n                     counts.git_triggers AS \"git_triggers!\", counts.merge_blocks AS \"merge_blocks!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "connection_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "connection_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "full_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "full_name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "hook_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "hook_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "git_triggers!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "merge_blocks!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "a35793479e621fbc75862f7cab0bda80d93affb60395008288bf90f5bfd20821"
+}

@@ -5,10 +5,9 @@ use std::time::Duration;
 
 use scylla_proto::agents::v1::EventKind;
 use scylla_proto::integrations::v1::merge_block_service_client::MergeBlockServiceClient;
-use scylla_proto::integrations::v1::repository_service_client::RepositoryServiceClient;
 use scylla_proto::integrations::v1::vcs_report_service_client::VcsReportServiceClient;
 use scylla_proto::integrations::v1::{
-    GetRepositoryLinkRequest, ListJobReportsRequest, ListMergeBlocksRequest, PipelineSource,
+    ListJobReportsRequest, ListMergeBlocksRequest, PipelineSource,
 };
 use scylla_proto::pipelines::v1::job_service_client::JobServiceClient;
 use scylla_proto::pipelines::v1::pipeline_service_client::PipelineServiceClient;
@@ -178,9 +177,6 @@ async fn the_services_of_the_integrations_are_not_served(pool: PgPool) {
     let app = app(pool).await;
     let (owner, _, project, _) = pipeline(&app, vec![exec_node("build", &[])]).await;
     let admin = app.admin().await;
-    let link = GetRepositoryLinkRequest {
-        project_id: Some(id(&project)),
-    };
     let blocks = ListMergeBlocksRequest {
         project_id: Some(id(&project)),
     };
@@ -189,9 +185,6 @@ async fn the_services_of_the_integrations_are_not_served(pool: PgPool) {
     };
 
     // when
-    let link = RepositoryServiceClient::new(app.channel.clone())
-        .get_repository_link(app.authed(owner, link).await)
-        .await;
     let blocks = MergeBlockServiceClient::new(app.channel.clone())
         .list_merge_blocks(app.authed(owner, blocks).await)
         .await;
@@ -203,7 +196,6 @@ async fn the_services_of_the_integrations_are_not_served(pool: PgPool) {
         .await;
 
     // then
-    assert_code(link, Code::Unimplemented);
     assert_code(blocks, Code::Unimplemented);
     assert_code(reports, Code::Unimplemented);
     assert_code(vcs_app, Code::Unimplemented);
