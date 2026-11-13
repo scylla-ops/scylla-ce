@@ -197,6 +197,15 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   it runs with no secret value. A rejection cancels the job with `Rejected by` and the name of the
   person. A job in another state gives `JOB_NOT_AWAITING_APPROVAL`. The report on the commit follows
   the decision.
+- The server takes the webhooks of GitHub and GitLab: `POST /integrations/github/webhook`, `POST
+  /integrations/github/{app}/webhook` and `POST /integrations/gitlab/{project}/webhook`. It checks
+  the signature before any write, keeps each delivery one time, and reads the pushes, the tags, the
+  pull requests and the changes of the installations. An uninstall disconnects the connection, a
+  suspend stops it, and a repository that leaves the installation stops its link. When the webhooks
+  do not arrive or GitLab disables the webhook, the link polls the branches and the open pull
+  requests at its interval. A link with webhooks polls each 15 minutes to find a lost delivery.
+  `TestDelivery` asks the provider for a webhook, tells if it arrived within 10 seconds, and sets
+  the mode of the link.
 
 ### Fixed
 

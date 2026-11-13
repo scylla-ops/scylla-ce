@@ -43,7 +43,7 @@ pub(crate) fn kinds() -> Vec<NotificationKind> {
 }
 
 /// Makes the fact of a connection that needs a person, with the reason.
-pub(super) fn broken(connection: &Changed, reason: &str) -> Event {
+pub(crate) fn broken(connection: &Changed, reason: &str) -> Event {
     about(CONNECTION_BROKEN, connection).param("reason", reason)
 }
 

@@ -82,9 +82,10 @@ async fn link_repository_refuses_a_connection_of_another_workspace(pool: PgPool)
     assert!(fake.requests().is_empty());
 }
 
-/// The test of a webhook needs a link, and the server does not serve it yet.
+/// The test of a webhook needs a link. A refusal of the provider is a failed test, with no
+/// wait.
 #[sqlx::test(migrations = false)]
-async fn test_delivery_is_not_served_yet(pool: PgPool) {
+async fn test_delivery_needs_a_link(pool: PgPool) {
     // given
     let (app, _fake) = app_with_fake(pool).await;
     let linked = project(&app, "github").await;
@@ -92,10 +93,12 @@ async fn test_delivery_is_not_served_yet(pool: PgPool) {
     let unlinked = project(&app, "github").await;
 
     // when
-    let served = app.test_delivery(linked.owner, &linked.id).await;
+    let refused = app.test_delivery(linked.owner, &linked.id).await;
     let none = app.test_delivery(unlinked.owner, &unlinked.id).await;
 
     // then
-    assert_code(served, Code::Unimplemented);
+    let refused = refused.unwrap();
+    assert!(!refused.delivered);
+    assert!(refused.error.starts_with("GitHub: "), "{}", refused.error);
     assert_reason(none, "NO_REPOSITORY_LINK");
 }

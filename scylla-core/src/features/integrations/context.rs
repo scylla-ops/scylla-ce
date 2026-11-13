@@ -16,7 +16,6 @@ use crate::Error;
 
 /// What the parts of the Git integration share.
 #[derive(Clone)]
-#[allow(dead_code, reason = "the parts of the integration read these fields")]
 pub(crate) struct IntegrationContext {
     /// The database pool.
     pub(crate) pool: PgPool,

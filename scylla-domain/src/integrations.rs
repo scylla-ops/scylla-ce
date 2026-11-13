@@ -1,10 +1,11 @@
 //! The Git integration: the GitHub App of the instance, the connections of a workspace to GitHub
-//! or GitLab, the repository of a project, the commit of a job, its checkout, its reports, and the
-//! merge rules.
+//! or GitLab, the repository of a project, its Git events, the commit of a job, its checkout, its
+//! reports, and the merge rules.
 
 pub mod apps;
 pub mod checkout;
 pub mod connections;
+pub mod events;
 pub mod links;
 pub mod merge_blocks;
 pub mod reports;

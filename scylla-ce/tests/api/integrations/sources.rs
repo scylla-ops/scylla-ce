@@ -44,7 +44,8 @@ async fn app_with(pool: PgPool, fake: &FakeProvider) -> TestApp {
 
 /// Makes a project with one pipeline of these nodes. On `github`, the project is linked to
 /// `octo/app` (id 7) through the installation 42. On `gitlab`, it is linked to `group/app` (id
-/// 7) through a service account. Else it has no link.
+/// 7) through a service account. Else it has no link. The reports of the link are off, so no
+/// commit status changes the connection before a dispatch.
 async fn linked(app: &TestApp, provider: &str, nodes: Vec<Node>) -> Linked {
     // Make the project and its pipeline.
     let owner = app.user().await;
@@ -83,6 +84,7 @@ async fn linked(app: &TestApp, provider: &str, nodes: Vec<Node>) -> Linked {
         default_branch: "main",
     };
     app.insert_repository_link(&link).await;
+    app.set_link_reports(&project, false).await;
     Linked {
         owner,
         workspace,

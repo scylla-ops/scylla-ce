@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE repository_links l\n         SET state = 'needs_attention', state_reason = $4, updated_at = now()\n         FROM vcs_connections c\n         WHERE c.id = l.connection_id AND c.provider = 'github' AND c.external_id = $1\n           AND c.app_id IS NOT DISTINCT FROM $2 AND l.external_id = ANY($3)\n           AND l.state = 'active'\n         RETURNING l.project_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "project_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "713483a4b3a96cc358a3dd1da8bb5b0a0fb0eb374d2921691602d4cc1aa4a9e3"
+}
