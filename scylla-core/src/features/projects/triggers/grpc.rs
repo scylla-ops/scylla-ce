@@ -64,16 +64,7 @@ impl TriggerService for TriggersGrpc {
         let caller = self.gate.caller(&request).await.map_err(Error::from)?;
         let request = request.into_inner();
         let pipeline: PipelineId = parse::required(request.pipeline_id, "pipeline_id")?;
-        let kind = match request.kind {
-            Some(pb::create_trigger_request::Kind::Cron(cron)) => TriggerKind::Cron(cron.schedule),
-            Some(pb::create_trigger_request::Kind::Webhook(_)) => TriggerKind::Webhook,
-            Some(
-                pb::create_trigger_request::Kind::Push(_)
-                | pb::create_trigger_request::Kind::PullRequest(_)
-                | pb::create_trigger_request::Kind::Tag(_),
-            ) => return Err(Error::invalid("kind", convert::KIND_NOT_SUPPORTED).into()),
-            None => return Err(Error::invalid("kind", "is required").into()),
-        };
+        let kind = convert::kind(request.kind)?;
         let webhook = kind == TriggerKind::Webhook;
         let new = NewTrigger {
             pipeline_id: pipeline,
@@ -127,16 +118,13 @@ impl TriggerService for TriggersGrpc {
             .await?
             .ok_or(Error::NotFound("trigger"))?;
         let webhook = current.kind == TriggerKind::Webhook;
-        if request.rules.is_some() {
-            let reason = "do not match the kind of the trigger";
-            return Err(Error::invalid("rules", reason).into());
-        }
         let change = TriggerChange {
             name: request
                 .name
                 .map(|name| parse::field(name, "name"))
                 .transpose()?,
             schedule: request.schedule,
+            rules: convert::rules(request.rules)?,
             inputs: request
                 .inputs
                 .map(|list| convert::inputs(list.inputs, webhook))

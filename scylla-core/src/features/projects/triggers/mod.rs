@@ -16,3 +16,4 @@ mod tests;
 
 pub(crate) use grpc::server;
 pub(crate) use plugin::Triggers;
+pub(crate) use service::git_rules;

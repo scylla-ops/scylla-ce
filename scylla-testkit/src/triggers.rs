@@ -3,10 +3,10 @@
 use scylla_domain::identity::actors::ActorId;
 use scylla_proto::pipelines::v1::trigger_service_client::TriggerServiceClient;
 use scylla_proto::pipelines::v1::{
-    create_trigger_request, trigger_input, CreateTriggerRequest, CreateTriggerResponse, Cron,
-    DeleteTriggerRequest, FireTriggerNowRequest, GetTriggerRequest, Job,
-    ListPipelineTriggersRequest, ListPipelineTriggersResponse, SetTriggerEnabledRequest, Trigger,
-    TriggerInput, TriggerInputList, UpdateTriggerRequest, Webhook,
+    create_trigger_request, trigger_input, update_trigger_request, CreateTriggerRequest,
+    CreateTriggerResponse, Cron, DeleteTriggerRequest, FireTriggerNowRequest, GetTriggerRequest,
+    Job, ListPipelineTriggersRequest, ListPipelineTriggersResponse, SetTriggerEnabledRequest,
+    Trigger, TriggerInput, TriggerInputList, UpdateTriggerRequest, Webhook,
 };
 use tonic::transport::Channel;
 use tonic::Status;
@@ -62,6 +62,45 @@ impl TestApp {
         };
         let request = self.authed(actor, request).await;
         Ok(self.triggers().create_trigger(request).await?.into_inner())
+    }
+
+    /// Calls `CreateTrigger` as `actor` for a push, pull request or tag trigger with no input,
+    /// and returns the new trigger.
+    pub async fn create_git_trigger(
+        &self,
+        actor: ActorId,
+        pipeline: &str,
+        name: &str,
+        kind: create_trigger_request::Kind,
+    ) -> Result<Trigger, Status> {
+        let request = CreateTriggerRequest {
+            pipeline_id: Some(id(pipeline)),
+            name: name.to_owned(),
+            kind: Some(kind),
+            inputs: Vec::new(),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.triggers().create_trigger(request).await?.into_inner();
+        Ok(response.trigger.expect("trigger in response"))
+    }
+
+    /// Calls `UpdateTrigger` as `actor` with new rules only.
+    pub async fn update_trigger_rules(
+        &self,
+        actor: ActorId,
+        trigger: &str,
+        rules: update_trigger_request::Rules,
+    ) -> Result<Trigger, Status> {
+        let request = UpdateTriggerRequest {
+            trigger_id: Some(id(trigger)),
+            name: None,
+            schedule: None,
+            inputs: None,
+            rules: Some(rules),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.triggers().update_trigger(request).await?.into_inner();
+        Ok(response.trigger.expect("trigger in response"))
     }
 
     /// Calls `GetTrigger` as `actor`.

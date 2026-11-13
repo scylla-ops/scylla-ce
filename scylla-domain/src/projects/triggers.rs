@@ -4,7 +4,7 @@
 use time::OffsetDateTime;
 
 use crate::identity::actors::{ActorId, ActorKind};
-use crate::projects::git_rules::{PullRequestRule, PushRule, TagRule};
+use crate::projects::git_rules::{GitRules, PullRequestRule, PushRule, TagRule};
 use crate::projects::pipelines::{env_name, PipelineId};
 use crate::projects::{Project, ProjectId};
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
@@ -51,6 +51,30 @@ impl TriggerKind {
         match self {
             Self::Cron(schedule) => Some(schedule),
             _ => None,
+        }
+    }
+
+    /// Returns the rule of a Git kind alone in `GitRules`, or `None` for a cron or webhook kind.
+    pub fn git_rules(&self) -> Option<GitRules> {
+        let mut rules = GitRules::default();
+        match self {
+            Self::Push(rule) => rules.push = Some(rule.clone()),
+            Self::PullRequest(rule) => rules.pull_request = Some(rule.clone()),
+            Self::Tag(rule) => rules.tag = Some(rule.clone()),
+            Self::Cron(_) | Self::Webhook => return None,
+        }
+        Some(rules)
+    }
+
+    /// Checks the globs of a Git kind: at most 32 in each list, each one valid. Returns the path
+    /// (for example `push.exclude[2]`) and the rule of the first refusal.
+    pub fn check_rules(&self) -> Result<(), (String, DomainError)> {
+        let refused = self
+            .git_rules()
+            .and_then(|rules| rules.check("").into_iter().next());
+        match refused {
+            Some((path, error)) => Err((path.trim_start_matches('.').to_owned(), error)),
+            None => Ok(()),
         }
     }
 }
@@ -186,6 +210,8 @@ pub struct TriggerChange {
     pub name: Option<TriggerName>,
     /// The new schedule of a cron trigger.
     pub schedule: Option<String>,
+    /// The new rule of a Git trigger, in a kind of the same name.
+    pub rules: Option<TriggerKind>,
     /// The new inputs.
     pub inputs: Option<Inputs>,
 }

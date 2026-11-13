@@ -1,5 +1,5 @@
 //! The tests of the contract of the Git integration while the server does not serve it: the new
-//! RPCs, the Git kinds of trigger, the events of a checkout and the new services.
+//! RPCs, the events of a checkout and the new services.
 
 use std::time::Duration;
 
@@ -11,21 +11,18 @@ use scylla_proto::integrations::v1::{
 };
 use scylla_proto::pipelines::v1::job_service_client::JobServiceClient;
 use scylla_proto::pipelines::v1::pipeline_service_client::PipelineServiceClient;
-use scylla_proto::pipelines::v1::trigger_service_client::TriggerServiceClient;
 use scylla_proto::pipelines::v1::{
-    create_trigger_request, update_trigger_request, ApproveJobRequest, CreateTriggerRequest,
-    GetFilePipelineRequest, JobStatus, ListPipelineFilesRequest, Push, RejectJobRequest,
-    SetPipelineSourceRequest, Tag, UpdateTriggerRequest,
+    ApproveJobRequest, GetFilePipelineRequest, JobStatus, ListPipelineFilesRequest,
+    RejectJobRequest, SetPipelineSourceRequest,
 };
 use scylla_proto::platform::v1::vcs_app_service_client::VcsAppServiceClient;
 use scylla_proto::platform::v1::GetVcsAppRequest;
 use scylla_testkit::{exec_node, id, text};
 use sqlx::PgPool;
 use tonic::Code;
-use tonic_types::StatusExt;
 
 use super::runs::{agent, pipeline};
-use crate::{app, assert_code, assert_invalid_field};
+use crate::{app, assert_code};
 
 /// `ApproveJob` and `RejectJob` need an authenticated actor, then answer `UNIMPLEMENTED`. The job
 /// does not change, and it has no source.
@@ -96,49 +93,6 @@ async fn the_rpcs_of_the_pipeline_files_need_a_link(pool: PgPool) {
     assert!(read.file_key.is_empty() && read.archived_at.is_none());
     let checkout = read.checkout.expect("the default checkout");
     assert!(checkout.enabled && checkout.depth == 1 && !checkout.submodules && !checkout.lfs);
-}
-
-/// A push, pull request or tag trigger gives `INVALID_ARGUMENT` with the reason
-/// `TRIGGER_KIND_NOT_SUPPORTED`. Git rules on a cron trigger give `INVALID_ARGUMENT` on rules.
-#[sqlx::test(migrations = false)]
-async fn create_trigger_refuses_a_git_kind(pool: PgPool) {
-    // given
-    let app = app(pool).await;
-    let (owner, _, _, pipeline) = pipeline(&app, vec![exec_node("build", &[])]).await;
-    let cron = app
-        .create_trigger(owner, &pipeline, "nightly", Some("0 3 * * *"), Vec::new())
-        .await
-        .unwrap()
-        .trigger
-        .unwrap();
-    let mut client = TriggerServiceClient::new(app.channel.clone());
-    let push = CreateTriggerRequest {
-        pipeline_id: Some(id(&pipeline)),
-        name: "push".to_owned(),
-        kind: Some(create_trigger_request::Kind::Push(Push::default())),
-        inputs: Vec::new(),
-    };
-    let rules = UpdateTriggerRequest {
-        trigger_id: cron.id.clone(),
-        name: None,
-        schedule: None,
-        inputs: None,
-        rules: Some(update_trigger_request::Rules::Tag(Tag::default())),
-    };
-
-    // when
-    let created = client.create_trigger(app.authed(owner, push).await).await;
-    let updated = client.update_trigger(app.authed(owner, rules).await).await;
-
-    // then
-    let status = created.unwrap_err();
-    assert_invalid_field(&status, "kind");
-    let violations = status.get_details_bad_request().unwrap().field_violations;
-    assert_eq!(violations[0].description, "TRIGGER_KIND_NOT_SUPPORTED");
-    assert_invalid_field(&updated.unwrap_err(), "rules");
-    let listed = app.list_pipeline_triggers(owner, &pipeline).await;
-    assert_eq!(listed.unwrap().triggers.len(), 1);
-    assert!(!cron.from_file);
 }
 
 /// A job with no source gets no checkout, and the events of a checkout change nothing: the job

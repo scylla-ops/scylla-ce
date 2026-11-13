@@ -1,5 +1,6 @@
 //! The logic of the triggers that people call: one transaction for each call.
 
+use scylla_domain::projects::git_rules::GitRules;
 use scylla_domain::projects::pipelines::PipelineId;
 use scylla_domain::projects::triggers::{
     ListTriggers, NewTrigger, Trigger, TriggerChange, TriggerId, TriggerKind, TriggerPage,
@@ -7,18 +8,18 @@ use scylla_domain::projects::triggers::{
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Page;
-use scylla_extension::Rejection;
+use scylla_extension::{Rejection, Tx};
 use sqlx::PgPool;
 use time::OffsetDateTime;
 
-use super::convert::KIND_NOT_SUPPORTED;
 use super::schedule;
 use super::store::{deliveries, files, triggers};
 use crate::infra::secret::{self, Sealer};
 use crate::Error;
 
 /// Creates a trigger. A webhook trigger gets a new secret, encrypted with the id of the
-/// trigger, and the secret in clear comes back one time.
+/// trigger, and the secret in clear comes back one time. A Git trigger needs a linked repository
+/// and an editor pipeline.
 pub(crate) async fn create(
     pool: &PgPool,
     sealer: Option<&Sealer>,
@@ -44,12 +45,15 @@ pub(crate) async fn create(
             )
         }
         TriggerKind::Push(_) | TriggerKind::PullRequest(_) | TriggerKind::Tag(_) => {
-            return Err(Error::invalid("kind", KIND_NOT_SUPPORTED));
+            (None, None, None)
         }
     };
 
-    // Store the trigger.
+    // Refuse a Git trigger with no linked repository or on a file pipeline, then store it.
     let mut tx = pool.begin().await?;
+    if new.kind.git_rules().is_some() {
+        check_git_place(&mut tx, new.pipeline_id).await?;
+    }
     let trigger = triggers::insert(&mut tx, id, &new, sealed, next)
         .await?
         .ok_or(Error::NotFound("pipeline"))?;
@@ -95,8 +99,9 @@ pub(crate) async fn list(pool: &PgPool, query: ListTriggers) -> Result<TriggerPa
     Ok(page)
 }
 
-/// Changes the name, the schedule or the inputs of a trigger. A schedule of a webhook trigger
-/// gives `INVALID_ARGUMENT`.
+/// Changes the name, the schedule, the rule or the inputs of a trigger. A schedule of another
+/// kind than cron, or a rule of another kind than the kind of the trigger, gives
+/// `INVALID_ARGUMENT`.
 pub(crate) async fn update(
     pool: &PgPool,
     id: TriggerId,
@@ -119,6 +124,15 @@ pub(crate) async fn update(
         schedule::check(&text)?;
         trigger.next_fire_at = schedule::next(&text, OffsetDateTime::now_utc());
         *current = text;
+    }
+    if let Some(rules) = change.rules {
+        if rules.name() != trigger.kind.name() {
+            return Err(Error::invalid(
+                "rules",
+                "do not match the kind of the trigger",
+            ));
+        }
+        trigger.kind = rules;
     }
     if let Some(inputs) = change.inputs {
         trigger.inputs = inputs.as_slice().to_vec();
@@ -158,6 +172,49 @@ pub(crate) async fn delete(pool: &PgPool, id: TriggerId) -> Result<(), Error> {
     tx.commit().await?;
     tracing::info!(event = "trigger.deleted", trigger = %id);
     Ok(())
+}
+
+/// Returns the rules of the enabled Git triggers of a pipeline, for the `on` table of its file:
+/// the oldest trigger of each kind.
+pub(crate) async fn git_rules(pool: &PgPool, pipeline: PipelineId) -> Result<GitRules, Error> {
+    let mut tx = pool.begin().await?;
+    let kinds = triggers::git_kinds(&mut tx, pipeline).await?;
+    tx.commit().await?;
+    let mut rules = GitRules::default();
+    for kind in kinds {
+        match kind {
+            TriggerKind::Push(rule) => rules.push = rules.push.or(Some(rule)),
+            TriggerKind::PullRequest(rule) => {
+                rules.pull_request = rules.pull_request.or(Some(rule));
+            }
+            TriggerKind::Tag(rule) => rules.tag = rules.tag.or(Some(rule)),
+            TriggerKind::Cron(_) | TriggerKind::Webhook => {}
+        }
+    }
+    Ok(rules)
+}
+
+/// Refuses a Git trigger of a project with no linked repository with `NO_REPOSITORY_LINK`, and
+/// one of a file pipeline with `PIPELINE_READ_ONLY`: its `on` table gives its Git triggers.
+async fn check_git_place(tx: &mut Tx<'_>, pipeline: PipelineId) -> Result<(), Error> {
+    match triggers::git_place(tx, pipeline).await? {
+        None => Err(Error::NotFound("pipeline")),
+        Some((true, _)) => {
+            let message = "the Git triggers of a file pipeline come from the on table of its file";
+            Err(Error::Rejected(Rejection::new(
+                "PIPELINE_READ_ONLY",
+                message,
+            )))
+        }
+        Some((false, false)) => {
+            let message = "the project has no linked repository";
+            Err(Error::Rejected(Rejection::new(
+                "NO_REPOSITORY_LINK",
+                message,
+            )))
+        }
+        Some((false, true)) => Ok(()),
+    }
 }
 
 /// Returns the project and the workspace of a pipeline, or `None` if no pipeline has this id.

@@ -4,5 +4,6 @@
 
 pub(crate) mod deliveries;
 pub(crate) mod files;
+mod row;
 pub(crate) mod runners;
 pub(crate) mod triggers;

@@ -177,6 +177,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   A trigger of an archived pipeline does not fire. `ListPipelineFiles` and `GetFilePipeline` give
   the files and their errors. A move back to the editor restores the editor pipelines, and the jobs
   stay.
+- `CreateTrigger` and `UpdateTrigger` take the push, pull request and tag triggers with their rules:
+  the globs of the branches or of the tags (at most 32 in each list), the events of a pull request,
+  the drafts and `[skip ci]`. A project with no linked repository gives `NO_REPOSITORY_LINK`, and a
+  file pipeline gives `PIPELINE_READ_ONLY`. `ExportPipeline` writes the enabled Git triggers in the
+  `on` table of the file.
 
 ### Fixed
 

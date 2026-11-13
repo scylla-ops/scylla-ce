@@ -5,7 +5,6 @@ use scylla_domain::identity::actors::ActorId;
 use scylla_domain::integrations::links::PipelineSource;
 use scylla_domain::integrations::reports::pipeline_key;
 use scylla_domain::integrations::sources::GitRef;
-use scylla_domain::projects::git_rules::GitRules;
 use scylla_domain::projects::pipeline_files::{
     self, FileError, FileFormat, FilePipeline, FileRef, PipelineFile, Rejected, TreeEntry,
     MAX_BYTES,
@@ -17,7 +16,7 @@ use sqlx::PgPool;
 
 use super::{service, store};
 use crate::features::integrations::{files, IntegrationContext};
-use crate::features::projects::secrets;
+use crate::features::projects::{secrets, triggers};
 use crate::Error;
 
 /// The folder of the exported files.
@@ -120,26 +119,23 @@ pub(crate) async fn validate(
 }
 
 /// Writes a pipeline as a file in a format, with the path of the file in the folder of the
-/// pipeline files. The key of the file comes from the name of the pipeline.
+/// pipeline files. The key of the file comes from the name of the pipeline, and its `on` table
+/// from its enabled Git triggers.
 pub(crate) async fn export(
     pool: &PgPool,
     id: PipelineId,
     format: FileFormat,
 ) -> Result<ExportedFile, Error> {
-    // Read the pipeline.
+    // Read the pipeline and the rules of its Git triggers.
     let mut tx = pool.begin().await?;
     let pipeline = store::find(&mut tx, id)
         .await?
         .ok_or(Error::NotFound("pipeline"))?;
     tx.commit().await?;
+    let rules = triggers::git_rules(pool, id).await?;
 
     // Write its document in the format, and the path of its file.
-    let document = PipelineFile::of(
-        &pipeline.name,
-        &pipeline.nodes,
-        &GitRules::default(),
-        &pipeline.checkout,
-    );
+    let document = PipelineFile::of(&pipeline.name, &pipeline.nodes, &rules, &pipeline.checkout);
     Ok(ExportedFile {
         content: document.write(format),
         path: format!(

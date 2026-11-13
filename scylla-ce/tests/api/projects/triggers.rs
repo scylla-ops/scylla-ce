@@ -1,5 +1,7 @@
-//! The tests of the triggers: the schedules, the inputs, the roles, a fire now, and the public
-//! webhook route with its signature, its deliveries and its limits.
+//! The tests of the triggers: the schedules, the inputs, the roles, a fire now, the public webhook
+//! route with its signature, its deliveries and its limits, and the Git triggers.
+
+mod git;
 
 use hmac::{Hmac, KeyInit, Mac};
 use scylla_domain::identity::actors::ActorId;
