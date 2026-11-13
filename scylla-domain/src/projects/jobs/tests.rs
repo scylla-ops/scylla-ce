@@ -1,5 +1,6 @@
 //! Unit tests of the state machine of a job.
 
+mod approval;
 mod checkout;
 
 use time::OffsetDateTime;

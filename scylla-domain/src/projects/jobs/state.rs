@@ -1,9 +1,11 @@
-//! The state machine of a job, of its checkout and of its nodes: the events of the agent, and the
-//! end of a job.
+//! The state machine of a job, of its checkout and of its nodes: the events of the agent, the
+//! approval of a job from a fork, and the end of a job.
 
 use time::OffsetDateTime;
 
-use super::{error_text, Job, JobStatus, NodeStatus};
+use super::{error_text, Job, JobApproval, JobStatus, NodeStatus};
+use crate::identity::actors::ActorId;
+use crate::integrations::sources::ApprovalState;
 use crate::projects::pipelines::{Node, NodeId};
 use crate::DomainError;
 
@@ -208,6 +210,37 @@ impl Job {
         Ok(())
     }
 
+    /// Approves a job from a fork that waits: it becomes pending, with the actor and the time of
+    /// the approval. A job in another state gives `NotAllowed` and does not change.
+    pub fn approve(&mut self, by: ActorId, now: OffsetDateTime) -> Result<(), DomainError> {
+        if self.status != JobStatus::AwaitingApproval {
+            return Err(DomainError::NotAllowed);
+        }
+        self.status = JobStatus::Pending;
+        self.approval = Some(decided(ApprovalState::Approved, by, now));
+        Ok(())
+    }
+
+    /// Rejects a job from a fork that waits: it becomes cancelled with the error `Rejected by`
+    /// and the name of the actor. A job in another state gives `NotAllowed` and does not change.
+    pub fn reject(
+        &mut self,
+        by: ActorId,
+        name: &str,
+        now: OffsetDateTime,
+    ) -> Result<(), DomainError> {
+        if self.status != JobStatus::AwaitingApproval {
+            return Err(DomainError::NotAllowed);
+        }
+        self.approval = Some(decided(ApprovalState::Rejected, by, now));
+        self.end(
+            JobStatus::Cancelled,
+            Some(&format!("Rejected by {name}")),
+            now,
+        );
+        Ok(())
+    }
+
     /// Ends a job that is not final: the checkout and the nodes that did not end become
     /// `Cancelled`. A final job does not change. Returns `true` if the job changed.
     pub fn end(&mut self, status: JobStatus, error: Option<&str>, now: OffsetDateTime) -> bool {
@@ -226,5 +259,14 @@ impl Job {
             run.finished_at = Some(now);
         }
         true
+    }
+}
+
+/// Makes the approval of a job that an actor approved or rejected at `now`.
+fn decided(state: ApprovalState, by: ActorId, now: OffsetDateTime) -> JobApproval {
+    JobApproval {
+        state,
+        decided_by: Some(by),
+        decided_at: Some(now),
     }
 }

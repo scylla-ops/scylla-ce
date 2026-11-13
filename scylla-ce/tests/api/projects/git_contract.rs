@@ -1,15 +1,13 @@
-//! The tests of the contract of the Git integration while the server does not serve it: the new
-//! RPCs, the events of a checkout and the new services.
+//! The tests of the contract of the Git integration while the server does not serve it: the RPCs
+//! of the pipeline files with no link, the events of a checkout and the new services.
 
 use std::time::Duration;
 
 use scylla_proto::agents::v1::EventKind;
 use scylla_proto::integrations::v1::PipelineSource;
-use scylla_proto::pipelines::v1::job_service_client::JobServiceClient;
 use scylla_proto::pipelines::v1::pipeline_service_client::PipelineServiceClient;
 use scylla_proto::pipelines::v1::{
-    ApproveJobRequest, GetFilePipelineRequest, JobStatus, ListPipelineFilesRequest,
-    RejectJobRequest, SetPipelineSourceRequest,
+    GetFilePipelineRequest, JobStatus, ListPipelineFilesRequest, SetPipelineSourceRequest,
 };
 use scylla_proto::platform::v1::vcs_app_service_client::VcsAppServiceClient;
 use scylla_proto::platform::v1::GetVcsAppRequest;
@@ -19,36 +17,6 @@ use tonic::Code;
 
 use super::runs::{agent, pipeline};
 use crate::{app, assert_code};
-
-/// `ApproveJob` and `RejectJob` need an authenticated actor, then answer `UNIMPLEMENTED`. The job
-/// does not change, and it has no source.
-#[sqlx::test(migrations = false)]
-async fn approve_job_and_reject_job_are_not_served(pool: PgPool) {
-    // given
-    let app = app(pool).await;
-    let (owner, _, _, pipeline) = pipeline(&app, vec![exec_node("build", &[])]).await;
-    let job = app.run_pipeline(owner, &pipeline).await.unwrap();
-    let mut jobs = JobServiceClient::new(app.channel.clone());
-    let approve = || ApproveJobRequest {
-        job_id: job.id.clone(),
-    };
-    let reject = RejectJobRequest {
-        job_id: job.id.clone(),
-    };
-
-    // when
-    let anonymous = jobs.approve_job(approve()).await;
-    let approved = jobs.approve_job(app.authed(owner, approve()).await).await;
-    let rejected = jobs.reject_job(app.authed(owner, reject).await).await;
-
-    // then
-    assert_code(anonymous, Code::Unauthenticated);
-    assert_code(approved, Code::Unimplemented);
-    assert_code(rejected, Code::Unimplemented);
-    let read = app.get_job(owner, text(&job.id)).await.unwrap();
-    assert_eq!(read.status, JobStatus::Pending as i32);
-    assert!(read.source.is_none() && read.approval.is_none() && read.checkout.is_none());
-}
 
 /// With no linked repository, the RPCs that read the pipeline files and move to the files give
 /// `FAILED_PRECONDITION`, and a pipeline comes from the editor, with the default checkout.

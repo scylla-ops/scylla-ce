@@ -45,7 +45,7 @@ pub(crate) struct JobsGrpc {
     /// The access gate.
     pub(super) gate: Arc<dyn Gate>,
     /// The open streams of the agents.
-    registry: Arc<Registry>,
+    pub(super) registry: Arc<Registry>,
 }
 
 #[tonic::async_trait]

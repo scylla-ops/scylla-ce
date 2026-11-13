@@ -1,5 +1,6 @@
 //! The logic of the jobs that people call: one transaction for each call, with the hooks. A
-//! change of a job that an agent holds also tells its stream.
+//! change of a job that an agent holds also tells its stream. An editor approves or rejects a job
+//! from a fork.
 
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::projects::jobs::{
@@ -13,7 +14,7 @@ use scylla_extension::{CreateContext, DeleteContext, Hooks, Rejection};
 use sqlx::PgPool;
 
 use super::runs::now;
-use super::store::{jobs, logs};
+use super::store::{approvals, jobs, logs};
 use crate::features::identity::agents::Registry;
 use crate::features::integrations::reports;
 use crate::features::projects::pipelines::service as pipelines;
@@ -89,6 +90,57 @@ pub(crate) async fn cancel(pool: &PgPool, registry: &Registry, id: JobId) -> Res
         tracing::info!(event = "job.cancelled", job = %id);
     }
     Ok(job)
+}
+
+/// Approves a job from a fork that waits, then wakes the agents. It runs with no secret value.
+/// A job in another state gives `JOB_NOT_AWAITING_APPROVAL`.
+pub(crate) async fn approve(
+    pool: &PgPool,
+    registry: &Registry,
+    actor: Actor,
+    id: JobId,
+) -> Result<Job, Error> {
+    // Make the job pending in one transaction, with the row locked.
+    let mut tx = pool.begin().await?;
+    let mut job = jobs::find(&mut tx, id, true)
+        .await?
+        .ok_or(Error::NotFound("job"))?;
+    job.approve(actor.id, now()).map_err(|_| not_awaiting())?;
+    jobs::save(&mut tx, &mut job).await?;
+    reports::job_changed(&mut tx, &job).await?;
+    tx.commit().await?;
+
+    // Wake the agents, after the commit.
+    registry.wake_all();
+    tracing::info!(event = "job.approved", job = %id, pipeline = %job.pipeline_id);
+    Ok(job)
+}
+
+/// Rejects a job from a fork that waits: it is cancelled with the name of the actor. A job in
+/// another state gives `JOB_NOT_AWAITING_APPROVAL`.
+pub(crate) async fn reject(pool: &PgPool, actor: Actor, id: JobId) -> Result<Job, Error> {
+    // Read the job with its row locked, and the name of the actor.
+    let mut tx = pool.begin().await?;
+    let mut job = jobs::find(&mut tx, id, true)
+        .await?
+        .ok_or(Error::NotFound("job"))?;
+    let name = approvals::name_of(&mut tx, actor.id).await?;
+    let name = name.unwrap_or_else(|| actor.id.to_string());
+
+    // Cancel the job, and record its report.
+    job.reject(actor.id, &name, now())
+        .map_err(|_| not_awaiting())?;
+    jobs::save(&mut tx, &mut job).await?;
+    reports::job_changed(&mut tx, &job).await?;
+    tx.commit().await?;
+    tracing::info!(event = "job.rejected", job = %id, pipeline = %job.pipeline_id);
+    Ok(job)
+}
+
+/// The refusal of a decision on a job that does not wait for an approval.
+fn not_awaiting() -> Error {
+    let message = "only a job that waits for an approval takes a decision";
+    Error::Rejected(Rejection::new("JOB_NOT_AWAITING_APPROVAL", message))
 }
 
 /// Deletes a job with its logs, runs the `AfterDelete` hooks, then tells its agent.

@@ -192,6 +192,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   and sends a report again. A refused call or an expired GitLab token moves the connection to "Needs
   attention", and the owners and the admins of the workspace get a notification. A warning comes 14
   days before a GitLab token expires.
+- `ApproveJob` and `RejectJob` decide on a job from a fork that waits for an approval. Only a person
+  with the edit of the project calls them. An approval makes the job pending, the agents get it, and
+  it runs with no secret value. A rejection cancels the job with `Rejected by` and the name of the
+  person. A job in another state gives `JOB_NOT_AWAITING_APPROVAL`. The report on the commit follows
+  the decision.
 
 ### Fixed
 
