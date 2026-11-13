@@ -19,6 +19,7 @@ mod polling;
 mod reports;
 mod sources;
 
+pub use apps::{MANIFEST_CLIENT_SECRET, MANIFEST_WEBHOOK_SECRET};
 pub use checkout::TestAgent;
 pub use checks::RunAgent;
 pub use events::{DeliveryRow, ModeRow};

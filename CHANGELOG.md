@@ -217,6 +217,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   event on the commit adds its branch or its pull request to that run. A pull request from a fork
   makes a run that waits for an approval, and the approval tells if the pull request changes
   `.scylla/`. A new commit of the pull request cancels the run of its old commit that waits.
+- `VcsAppService` is served. An instance admin makes the GitHub App of a self-hosted instance with
+  the GitHub manifest flow (`StartGitHubManifest`, `CompleteGitHubManifest`), and the server seals
+  its key and its secrets with the id of its row. `GetVcsApp` gives the App with its webhook URL and
+  its last webhook, and gives the App of the settings as managed. `DeleteVcsApp` removes the App,
+  and each of its connections becomes disconnected with `APP_UNINSTALLED`.
 
 ### Fixed
 

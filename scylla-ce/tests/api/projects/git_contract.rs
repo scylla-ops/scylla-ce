@@ -1,5 +1,5 @@
 //! The tests of the contract of the Git integration while the server does not serve it: the RPCs
-//! of the pipeline files with no link, the events of a checkout and the new services.
+//! of the pipeline files with no link, and the events of a checkout.
 
 use std::time::Duration;
 
@@ -9,8 +9,6 @@ use scylla_proto::pipelines::v1::pipeline_service_client::PipelineServiceClient;
 use scylla_proto::pipelines::v1::{
     GetFilePipelineRequest, JobStatus, ListPipelineFilesRequest, SetPipelineSourceRequest,
 };
-use scylla_proto::platform::v1::vcs_app_service_client::VcsAppServiceClient;
-use scylla_proto::platform::v1::GetVcsAppRequest;
 use scylla_testkit::{exec_node, id, text};
 use sqlx::PgPool;
 use tonic::Code;
@@ -88,20 +86,4 @@ async fn the_events_of_a_checkout_change_nothing(pool: PgPool) {
     assert!(dispatch.checkout.is_none());
     assert_eq!(read.status, JobStatus::Running as i32);
     assert!(read.error.is_empty() && read.checkout.is_none());
-}
-
-/// The service of the GitHub App of the instance answers `UNIMPLEMENTED`.
-#[sqlx::test(migrations = false)]
-async fn the_service_of_the_github_app_is_not_served(pool: PgPool) {
-    // given
-    let app = app(pool).await;
-    let admin = app.admin().await;
-
-    // when
-    let vcs_app = VcsAppServiceClient::new(app.channel.clone())
-        .get_vcs_app(app.authed(admin, GetVcsAppRequest {}).await)
-        .await;
-
-    // then
-    assert_code(vcs_app, Code::Unimplemented);
 }
