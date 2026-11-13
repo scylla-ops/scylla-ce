@@ -1,6 +1,6 @@
-//! The tests of a commit status on a real repository on GitHub.com and GitLab.com. They are
-//! ignored: they read the accounts of the `SCYLLA_LIVE_*` variables, and the dev GitHub App of
-//! the `SCYLLA_GITHUB_APP_*` variables.
+//! The tests of a commit status and a check run on a real repository on GitHub.com and
+//! GitLab.com. They are ignored: they read the accounts of the `SCYLLA_LIVE_*` variables, and the
+//! dev GitHub App of the `SCYLLA_GITHUB_APP_*` variables.
 
 use scylla_core::api::ServeOptions;
 use scylla_core::infra::vcs::{GitHubAppSettings, Hidden, VcsOptions};
@@ -45,12 +45,10 @@ async fn link(app: &TestApp, project: &mut Linked, connection: String, id: &str,
     project.connection = connection;
 }
 
-/// A run on the default branch of the test repository of the dev GitHub App posts its commit
-/// status.
-#[ignore = "needs the dev GitHub App and SCYLLA_LIVE_GITHUB_*"]
-#[sqlx::test(migrations = false)]
-async fn a_live_github_commit_gets_the_status_of_a_run(pool: PgPool) {
-    // given
+/// Runs the pipeline of a project linked to the test repository of the dev GitHub App in a
+/// report mode, and returns the state that GitHub got first.
+async fn live_github_report(pool: PgPool, mode: &str) -> String {
+    // Start a server with the dev GitHub App.
     let vcs = VcsOptions {
         github_app: Some(github_app()),
         ..VcsOptions::default()
@@ -60,6 +58,8 @@ async fn a_live_github_commit_gets_the_status_of_a_run(pool: PgPool) {
         ..ServeOptions::default()
     };
     let app = TestApp::spawn_with(pool, scylla_ce::edition(), options).await;
+
+    // Link a project to the test repository in the report mode.
     let mut project = linked(&app, "none").await;
     let installation = var("SCYLLA_LIVE_GITHUB_INSTALLATION")
         .parse()
@@ -71,15 +71,44 @@ async fn a_live_github_commit_gets_the_status_of_a_run(pool: PgPool) {
         .await;
     let id = var("SCYLLA_LIVE_GITHUB_REPOSITORY_ID");
     link(&app, &mut project, connection, &id, &repository).await;
+    app.set_link_report_mode(&project.project, mode).await;
 
-    // when
+    // Run the pipeline, and wait for the report.
     let job = run_on_main(&app, &project).await;
     let report = app
         .wait_for_report(project.owner, &job, ReportState::Sent)
         .await;
+    report.sent_state
+}
+
+/// A run on the default branch of the test repository of the dev GitHub App posts its commit
+/// status.
+#[ignore = "needs the dev GitHub App and SCYLLA_LIVE_GITHUB_*"]
+#[sqlx::test(migrations = false)]
+async fn a_live_github_commit_gets_the_status_of_a_run(pool: PgPool) {
+    // given
+    let mode = "commit_status";
+
+    // when
+    let state = live_github_report(pool, mode).await;
 
     // then
-    assert_eq!(report.sent_state, "pending");
+    assert_eq!(state, "pending");
+}
+
+/// A run on the default branch of the test repository of the dev GitHub App makes its check
+/// run.
+#[ignore = "needs the dev GitHub App and SCYLLA_LIVE_GITHUB_*"]
+#[sqlx::test(migrations = false)]
+async fn a_live_github_commit_gets_the_check_run_of_a_run(pool: PgPool) {
+    // given
+    let mode = "check_run";
+
+    // when
+    let state = live_github_report(pool, mode).await;
+
+    // then
+    assert_eq!(state, "queued");
 }
 
 /// A run on the default branch of the test project of the GitLab service account posts its

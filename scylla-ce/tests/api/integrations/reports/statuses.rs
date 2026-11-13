@@ -57,7 +57,7 @@ async fn a_run_on_github_reports_its_states_on_its_commit(pool: PgPool) {
     );
     assert_eq!(report.context, "scylla/build");
     assert_eq!(report.provider(), VcsProvider::Github);
-    assert_eq!(report.mode(), ReportMode::CheckRun);
+    assert_eq!(report.mode(), ReportMode::CommitStatus);
     assert_eq!(report.sent_state, "error");
     assert_eq!(
         report.external_url,

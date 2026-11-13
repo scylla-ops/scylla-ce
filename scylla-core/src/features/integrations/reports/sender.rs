@@ -1,8 +1,10 @@
 //! The sender of the reports: a task that wakes each 2 seconds or after a retry, takes the due
-//! reports, and posts the latest state of each one to its provider.
+//! reports, and posts the latest state of each one to its provider, as a check run or a commit
+//! status.
 
 use std::time::Duration;
 
+use scylla_domain::integrations::links::ReportMode;
 use scylla_domain::integrations::reports::ReportedStatus;
 use scylla_domain::integrations::VcsProvider;
 use time::OffsetDateTime;
@@ -10,7 +12,7 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use super::failures::{Failure, Next};
 use super::store::queue::{self, Claimed, Facts};
-use super::{github, gitlab, health, states};
+use super::{checks, github, gitlab, health, states};
 use crate::features::integrations::IntegrationContext;
 use crate::Error;
 
@@ -105,11 +107,17 @@ async fn send(ctx: &IntegrationContext, claimed: Claimed) -> Result<(), Error> {
     let provider = VcsProvider::parse(&facts.provider)
         .ok_or_else(|| Error::Internal("unknown provider of a connection".to_owned()))?;
 
-    // Post the state.
+    // Post the state: a check run or a commit status on GitHub, a commit status on GitLab.
     let outgoing = outgoing(ctx, provider, &claimed, &facts);
-    let result = match provider {
-        VcsProvider::GitHub => github::send(ctx, &facts, &outgoing).await,
-        VcsProvider::GitLab => {
+    let result = match (provider, claimed.mode) {
+        (VcsProvider::GitHub, ReportMode::CheckRun) => {
+            let output = checks::output(ctx, &claimed, &facts, &outgoing.target_url).await?;
+            checks::send(ctx, &claimed, &facts, &outgoing, &output).await
+        }
+        (VcsProvider::GitHub, ReportMode::CommitStatus) => {
+            github::send(ctx, &facts, &outgoing).await
+        }
+        (VcsProvider::GitLab, _) => {
             let pipeline = claimed.external_id.as_deref();
             gitlab::send(ctx, claimed.connection, &facts, &outgoing, pipeline).await
         }

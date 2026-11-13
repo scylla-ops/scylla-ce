@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT j.started_at, j.finished_at,\n                  j.pipeline_file->>'path' AS file_path,\n                  (SELECT run->>'node' FROM jsonb_array_elements(j.runs) run\n                   WHERE run->>'status' = 'failed' LIMIT 1) AS failed_node,\n                  s.sha, s.branch, s.tag,\n                  s.pull_requests->0->>'source_branch' AS pull_branch,\n                  s.repository, s.url, j.pipeline_id::text AS \"pipeline!\",\n                  j.project_id::text AS \"project!\", w.slug, c.provider, c.app_id,\n                  c.external_id AS account_id, c.sealed_token, c.token_expires_at,\n                  l.external_id AS repository_id\n           FROM jobs j\n           JOIN job_sources s ON s.job_id = j.id\n           JOIN workspaces w ON w.id = j.workspace_id\n           JOIN vcs_connections c ON c.id = $2\n           JOIN repository_links l ON l.project_id = j.project_id AND l.connection_id = c.id\n           WHERE j.id = $1",
+  "query": "SELECT j.started_at, j.finished_at,\n                  j.pipeline_file->>'path' AS file_path,\n                  (SELECT run->>'node' FROM jsonb_array_elements(j.runs) run\n                   WHERE run->>'status' = 'failed' LIMIT 1) AS failed_node,\n                  s.sha, s.branch, s.tag,\n                  s.pull_requests->0->>'source_branch' AS pull_branch,\n                  s.repository, s.url, j.pipeline_id::text AS \"pipeline!\",\n                  p.name AS pipeline_name, j.project_id::text AS \"project!\", w.slug, c.provider,\n                  c.app_id,\n                  c.external_id AS account_id, c.sealed_token, c.token_expires_at,\n                  l.external_id AS repository_id\n           FROM jobs j\n           JOIN job_sources s ON s.job_id = j.id\n           JOIN pipelines p ON p.id = j.pipeline_id\n           JOIN workspaces w ON w.id = j.workspace_id\n           JOIN vcs_connections c ON c.id = $2\n           JOIN repository_links l ON l.project_id = j.project_id AND l.connection_id = c.id\n           WHERE j.id = $1",
   "describe": {
     "columns": [
       {
@@ -106,12 +106,23 @@
       },
       {
         "ordinal": 11,
+        "name": "pipeline_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
         "name": "project!",
         "type_info": "Text",
         "origin": "Expression"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "slug",
         "type_info": "Text",
         "origin": {
@@ -122,7 +133,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "provider",
         "type_info": "Text",
         "origin": {
@@ -133,7 +144,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "app_id",
         "type_info": "Uuid",
         "origin": {
@@ -144,7 +155,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "account_id",
         "type_info": "Text",
         "origin": {
@@ -155,7 +166,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "sealed_token",
         "type_info": "Bytea",
         "origin": {
@@ -166,7 +177,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "token_expires_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -177,7 +188,7 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "repository_id",
         "type_info": "Text",
         "origin": {
@@ -206,6 +217,7 @@
       false,
       false,
       null,
+      false,
       null,
       false,
       false,
@@ -216,5 +228,5 @@
       false
     ]
   },
-  "hash": "c18f35ab3c7a68052f7d14ac6bbb4f9d9bd17182caa8a4b1793aa3adf66cdfaa"
+  "hash": "e7dcfb9561a8dfadff86b2c038136dd24b6af427c4eeabf6d5199364bc0316a4"
 }

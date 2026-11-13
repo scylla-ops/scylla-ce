@@ -16,4 +16,4 @@ mod tail;
 pub(crate) mod tests;
 
 pub(crate) use grpc::server;
-pub(crate) use service::create;
+pub(crate) use service::{create, get, rerun};

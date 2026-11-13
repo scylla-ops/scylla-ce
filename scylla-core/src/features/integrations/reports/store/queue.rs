@@ -2,6 +2,7 @@
 //! pass takes, what a call needs, and the result of a call.
 
 use scylla_domain::integrations::connections::VcsConnectionId;
+use scylla_domain::integrations::links::ReportMode;
 use scylla_domain::integrations::reports::ReportedStatus;
 use scylla_domain::projects::jobs::JobId;
 use scylla_extension::Tx;
@@ -20,13 +21,16 @@ pub(crate) struct Claimed {
     pub(crate) context: String,
     /// The connection that sends it.
     pub(crate) connection: VcsConnectionId,
+    /// A check run or a commit status.
+    pub(crate) mode: ReportMode,
     /// The latest state of the run.
     pub(crate) status: ReportedStatus,
     /// The number of this state.
     pub(crate) sequence: i64,
     /// The failed calls for this state.
     pub(crate) attempts: i32,
-    /// The id that the provider gave to the report: the GitLab pipeline of the status.
+    /// The id that the provider gave to the report: the GitHub check run, or the GitLab
+    /// pipeline of the status.
     pub(crate) external_id: Option<String>,
 }
 
@@ -54,6 +58,8 @@ pub(crate) struct Facts {
     pub(crate) url: String,
     /// The pipeline of the job, as the text of its id.
     pub(crate) pipeline: String,
+    /// The name of the pipeline of the job.
+    pub(crate) pipeline_name: String,
     /// The project of the job, as the text of its id.
     pub(crate) project: String,
     /// The slug of the workspace.
@@ -107,8 +113,8 @@ pub(crate) async fn claim(
                LIMIT $1
                FOR UPDATE SKIP LOCKED) due
          WHERE r.job_id = due.job_id AND r.context = due.context
-         RETURNING r.job_id, r.context, r.connection_id, r.wanted_state, r.sequence, r.attempts,
-                   r.external_id",
+         RETURNING r.job_id, r.context, r.connection_id, r.mode, r.wanted_state, r.sequence,
+                   r.attempts, r.external_id",
         limit,
         lease_seconds,
     )
@@ -118,10 +124,13 @@ pub(crate) async fn claim(
         .map(|row| {
             let status = ReportedStatus::parse(&row.wanted_state)
                 .ok_or_else(|| Error::Internal("unknown state of a report".to_owned()))?;
+            let mode = ReportMode::parse(&row.mode)
+                .ok_or_else(|| Error::Internal("unknown mode of a report".to_owned()))?;
             Ok(Claimed {
                 job: JobId::from_db(row.job_id),
                 context: row.context,
                 connection: VcsConnectionId::from_db(row.connection_id),
+                mode,
                 status,
                 sequence: row.sequence,
                 attempts: row.attempts,
@@ -143,11 +152,13 @@ pub(crate) async fn facts(tx: &mut Tx<'_>, claimed: &Claimed) -> Result<Option<F
                   s.sha, s.branch, s.tag,
                   s.pull_requests->0->>'source_branch' AS pull_branch,
                   s.repository, s.url, j.pipeline_id::text AS "pipeline!",
-                  j.project_id::text AS "project!", w.slug, c.provider, c.app_id,
+                  p.name AS pipeline_name, j.project_id::text AS "project!", w.slug, c.provider,
+                  c.app_id,
                   c.external_id AS account_id, c.sealed_token, c.token_expires_at,
                   l.external_id AS repository_id
            FROM jobs j
            JOIN job_sources s ON s.job_id = j.id
+           JOIN pipelines p ON p.id = j.pipeline_id
            JOIN workspaces w ON w.id = j.workspace_id
            JOIN vcs_connections c ON c.id = $2
            JOIN repository_links l ON l.project_id = j.project_id AND l.connection_id = c.id

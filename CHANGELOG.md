@@ -206,6 +206,12 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   requests at its interval. A link with webhooks polls each 15 minutes to find a lost delivery.
   `TestDelivery` asks the provider for a webhook, tells if it arrived within 10 seconds, and sets
   the mode of the link.
+- On GitHub, each run on a commit now reports its state as the check run `scylla/<pipeline>` by
+  default: a title with the nodes that passed, a table of the checkout and the nodes with their
+  state, duration and attempts, the errors of an invalid pipeline file, and the last 50 log lines of
+  the failed node. A link in the commit status mode still posts commit statuses. "Re-run" of a check
+  run or of all the checks on GitHub starts a new run of the job, with the event of a re-run on the
+  provider.
 
 ### Fixed
 

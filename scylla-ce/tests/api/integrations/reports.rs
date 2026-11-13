@@ -57,7 +57,7 @@ async fn app_with(pool: PgPool, fake: &FakeProvider) -> TestApp {
 
 /// Makes a project with the pipeline `build`. On `github`, the project is linked to `octo/app`
 /// (id 7) through the installation 42. On `gitlab`, it is linked to `group/app` (id 7) through a
-/// service account. Else it has no link.
+/// service account. Else it has no link. A link reports with commit statuses.
 async fn linked(app: &TestApp, provider: &str) -> Linked {
     // Make the project and its pipeline.
     let owner = app.user().await;
@@ -91,6 +91,7 @@ async fn linked(app: &TestApp, provider: &str) -> Linked {
             default_branch: "main",
         };
         app.insert_repository_link(&link).await;
+        app.set_link_report_mode(&project, "commit_status").await;
     }
     Linked {
         owner,

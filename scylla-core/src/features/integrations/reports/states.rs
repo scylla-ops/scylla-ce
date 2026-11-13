@@ -1,5 +1,5 @@
-//! The map from the state of a run to the state of a commit status on GitHub and on GitLab, and
-//! the short description of the report.
+//! The map from the state of a run to the state of a commit status on GitHub and on GitLab, to
+//! the status and the conclusion of a GitHub check run, and the short description of the report.
 
 use scylla_domain::integrations::reports::ReportedStatus;
 use scylla_domain::integrations::VcsProvider;
@@ -33,6 +33,20 @@ pub(super) fn github(status: ReportedStatus) -> &'static str {
         ReportedStatus::Completed => "success",
         ReportedStatus::Failed | ReportedStatus::InvalidFile => "failure",
         ReportedStatus::Cancelled | ReportedStatus::Orphaned => "error",
+    }
+}
+
+/// Returns the status of a GitHub check run (`queued`, `in_progress` or `completed`), and the
+/// conclusion of a completed one (`success`, `failure` or `cancelled`).
+pub(super) fn check_run(status: ReportedStatus) -> (&'static str, Option<&'static str>) {
+    match status {
+        ReportedStatus::AwaitingApproval | ReportedStatus::Pending => ("queued", None),
+        ReportedStatus::Running => ("in_progress", None),
+        ReportedStatus::Completed => ("completed", Some("success")),
+        ReportedStatus::Failed | ReportedStatus::Orphaned | ReportedStatus::InvalidFile => {
+            ("completed", Some("failure"))
+        }
+        ReportedStatus::Cancelled => ("completed", Some("cancelled")),
     }
 }
 

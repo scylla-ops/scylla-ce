@@ -61,7 +61,7 @@ fn statuses(sha: &str) -> String {
 }
 
 /// Makes a project with one pipeline of these nodes, linked to `octo/app` (id 7) through the
-/// installation 42.
+/// installation 42 in the commit status mode.
 async fn linked(app: &TestApp, nodes: Vec<Node>) -> Linked {
     let owner = app.user().await;
     let workspace = app.workspace_of(owner).await;
@@ -80,6 +80,7 @@ async fn linked(app: &TestApp, nodes: Vec<Node>) -> Linked {
         default_branch: "main",
     };
     app.insert_repository_link(&link).await;
+    app.set_link_report_mode(&project, "commit_status").await;
     Linked {
         owner,
         workspace,

@@ -1,5 +1,7 @@
 //! Unit tests of the reports: the map of the states, the descriptions, the waits and what comes
-//! after a failed call.
+//! after a failed call. The output of the check runs is in `output`.
+
+mod output;
 
 use scylla_domain::integrations::reports::ReportedStatus;
 use scylla_domain::integrations::VcsProvider;
