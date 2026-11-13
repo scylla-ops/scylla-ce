@@ -99,3 +99,9 @@ debug = 1
 
 [profile.dev.package.sqlx-macros]
 opt-level = 3
+
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

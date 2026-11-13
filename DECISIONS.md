@@ -149,8 +149,8 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 27. One SpiceDB store for each test
 
-- **Decision:** the tests use `spicedb serve-testing` (`spicedb-test`, port 55052). Each `TestApp` uses a new key, and serve-testing gives an empty store in memory to each key. `.cargo/config.toml` runs the tests on 8 threads.
-- **Why:** the tests run in parallel with different schemas (an edition extends a definition) and with no shared relationships, as `sqlx::test` gives a new database to each test. The dev SpiceDB keeps only dev data. `sqlx::test` shares 20 database connections between the tests that run at the same time. With 16 threads, a test waited 30 seconds for a connection.
+- **Decision:** the tests use `spicedb serve-testing` (`spicedb-test`, port 55052). Each `TestApp` uses a new key, and serve-testing gives an empty store in memory to each key. `TestApp` gives its server a pool of its own on the test database, and closes it when sqlx closes the pool of the test. `.cargo/config.toml` runs the tests on 16 threads.
+- **Why:** the tests run in parallel with different schemas (an edition extends a definition) and with no shared relationships, as `sqlx::test` gives a new database to each test. The dev SpiceDB keeps only dev data. `sqlx::test` shares 20 database connections between the tests that run at the same time, and the pool of a test keeps each connection that it took until the end of the test. A server and its tasks on that pool took up to 5, and with 8 threads a test waited 30 seconds for a connection.
 - **Not kept:** the dev SpiceDB for the tests: the schema write of one test changes the schema of all the tests, and the relationships stay after the tests.
 
 ## 28. One permission for each route
