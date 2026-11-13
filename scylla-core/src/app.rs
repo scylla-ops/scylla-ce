@@ -12,6 +12,7 @@ use scylla_extension::{Edition, EditionBuilder};
 
 use crate::features::identity::apps::Apps;
 use crate::features::identity::user_state::UserState;
+use crate::features::integrations::Integrations;
 use crate::features::notifications::Notifications;
 use crate::features::platform::capabilities::Capabilities;
 use crate::features::projects::pipelines::Pipelines;
@@ -47,4 +48,5 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .authz::<VcsConnectionHolder>()
         .authz::<RepositoryAccess>()
         .authz::<RepositoryHolder>()
+        .plugin(Integrations)
 }

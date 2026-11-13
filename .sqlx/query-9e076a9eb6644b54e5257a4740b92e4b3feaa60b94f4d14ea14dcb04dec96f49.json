@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_reports r\n         SET state = 'not_sent', next_attempt_at = NULL, last_error = $1, updated_at = now()\n         WHERE r.next_attempt_at IS NOT NULL\n           AND (r.state <> 'sending' OR r.next_attempt_at <= now())\n           AND NOT EXISTS (\n               SELECT 1 FROM repository_links l JOIN vcs_connections c ON c.id = l.connection_id\n               WHERE l.project_id = r.project_id AND c.id = r.connection_id\n                 AND l.reports_enabled AND l.state = 'active' AND c.state = 'active')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9e076a9eb6644b54e5257a4740b92e4b3feaa60b94f4d14ea14dcb04dec96f49"
+}

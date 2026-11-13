@@ -1,7 +1,8 @@
 //! The SQL of the connections: one file for the reads of `vcs_connections`, one for its writes,
-//! and one for the states of the installs.
+//! one for the health of the connections, and one for the states of the installs.
 
 mod connections;
+pub(crate) mod health;
 mod row;
 pub(crate) mod states;
 mod writes;

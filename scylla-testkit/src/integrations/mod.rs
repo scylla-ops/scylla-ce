@@ -26,3 +26,4 @@ pub use keys::{
     test_github_app, TEST_APP_CLIENT_SECRET, TEST_APP_PRIVATE_KEY, TEST_APP_PUBLIC_KEY,
     TEST_APP_WEBHOOK_SECRET,
 };
+pub use reports::wait_for_requests;

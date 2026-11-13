@@ -6,6 +6,7 @@ use super::merge_blocks::MergeBlockState;
 use super::reports::{pipeline_key, report_context, ReportState, ReportedStatus, MAX_KEY};
 use super::sources::{title_of, ApprovalState, GitRef, JobSource, PullRequestRef, SourceEvent};
 use super::VcsProvider;
+use crate::projects::jobs::JobStatus;
 use crate::projects::pipelines::EnvValue;
 
 /// Returns the names of a list of values, then reads each name back.
@@ -106,6 +107,44 @@ fn a_reported_status_is_final_after_the_run() {
     // then
     assert!(open.iter().all(|status| !status.is_final()));
     assert_eq!(finals.len(), ReportedStatus::ALL.len() - open.len());
+}
+
+/// A report tells the state of its job, and a failed job with errors of its file is an invalid
+/// file.
+#[test]
+fn a_reported_status_follows_the_state_of_the_job() {
+    // given
+    let failed = JobStatus::Failed;
+
+    // when
+    let invalid = ReportedStatus::of_job(failed, true);
+    let plain = ReportedStatus::of_job(failed, false);
+    let waiting = ReportedStatus::of_job(JobStatus::AwaitingApproval, true);
+
+    // then
+    assert_eq!(invalid, ReportedStatus::InvalidFile);
+    assert_eq!(plain, ReportedStatus::Failed);
+    assert_eq!(waiting, ReportedStatus::AwaitingApproval);
+}
+
+/// A report takes a new state, and never a state that is not final after a final one.
+#[test]
+fn a_report_never_goes_back_from_a_final_state() {
+    // given
+    let running = ReportedStatus::Running;
+    let completed = ReportedStatus::Completed;
+
+    // when
+    let forward = running.takes(completed);
+    let back = completed.takes(ReportedStatus::Pending);
+    let same = running.takes(running);
+    let other_final = completed.takes(ReportedStatus::Failed);
+
+    // then
+    assert!(forward);
+    assert!(!back);
+    assert!(!same);
+    assert!(other_final);
 }
 
 /// The name of a report is `scylla/` and the key, and the key of an editor pipeline is the slug

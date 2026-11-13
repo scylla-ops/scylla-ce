@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_reports r\n         SET state = 'sending', next_attempt_at = now() + make_interval(secs => $2),\n             updated_at = now()\n         FROM (SELECT job_id, context FROM vcs_reports\n               WHERE next_attempt_at <= now()\n               ORDER BY next_attempt_at\n               LIMIT $1\n               FOR UPDATE SKIP LOCKED) due\n         WHERE r.job_id = due.job_id AND r.context = due.context\n         RETURNING r.job_id, r.context, r.connection_id, r.wanted_state, r.sequence, r.attempts,\n                   r.external_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "job_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "context",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "context"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "connection_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "connection_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "wanted_state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "wanted_state"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "sequence",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "sequence"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "attempts",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "attempts"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "external_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "261b66e592fc5071269930de2f9707c0f0719bdde712a32e6f8ad7585a7d48ba"
+}

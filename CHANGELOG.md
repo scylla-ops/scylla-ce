@@ -187,6 +187,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   must succeed" on GitLab. `ListMergeBlocks` gives the state of each rule, with `out_of_sync` when a
   person changed the rule on the provider, and the reason and the page to open when the provider
   refuses.
+- Each run on a commit reports its state to GitHub or GitLab as the commit status
+  `scylla/<pipeline>`, through an outbox with retries. `VcsReportService` lists the reports of jobs
+  and sends a report again. A refused call or an expired GitLab token moves the connection to "Needs
+  attention", and the owners and the admins of the workspace get a notification. A warning comes 14
+  days before a GitLab token expires.
 
 ### Fixed
 

@@ -6,7 +6,7 @@ use time::OffsetDateTime;
 use super::connections::VcsConnectionId;
 use super::links::ReportMode;
 use super::named;
-use crate::projects::jobs::JobId;
+use crate::projects::jobs::{JobId, JobStatus};
 use crate::projects::ProjectId;
 
 /// The most characters of the key of a pipeline.
@@ -52,10 +52,31 @@ named! {
 }
 
 impl ReportedStatus {
+    /// Returns the state that a report tells for a job: `InvalidFile` for a failed job with
+    /// errors of its pipeline file, else the state of the job.
+    pub fn of_job(status: JobStatus, invalid_file: bool) -> Self {
+        match status {
+            JobStatus::Failed if invalid_file => Self::InvalidFile,
+            JobStatus::AwaitingApproval => Self::AwaitingApproval,
+            JobStatus::Pending => Self::Pending,
+            JobStatus::Running => Self::Running,
+            JobStatus::Completed => Self::Completed,
+            JobStatus::Failed => Self::Failed,
+            JobStatus::Cancelled => Self::Cancelled,
+            JobStatus::Orphaned => Self::Orphaned,
+        }
+    }
+
     /// Returns `true` for a state that does not change again. The sender never sends a state
     /// that is not final after a final one.
     pub fn is_final(self) -> bool {
         !matches!(self, Self::AwaitingApproval | Self::Pending | Self::Running)
+    }
+
+    /// Returns `true` when a report that wants this state takes the state `next`: a new state,
+    /// and never a state that is not final after a final one.
+    pub fn takes(self, next: Self) -> bool {
+        self != next && (!self.is_final() || next.is_final())
     }
 }
 

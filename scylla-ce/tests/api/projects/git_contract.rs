@@ -4,8 +4,7 @@
 use std::time::Duration;
 
 use scylla_proto::agents::v1::EventKind;
-use scylla_proto::integrations::v1::vcs_report_service_client::VcsReportServiceClient;
-use scylla_proto::integrations::v1::{ListJobReportsRequest, PipelineSource};
+use scylla_proto::integrations::v1::PipelineSource;
 use scylla_proto::pipelines::v1::job_service_client::JobServiceClient;
 use scylla_proto::pipelines::v1::pipeline_service_client::PipelineServiceClient;
 use scylla_proto::pipelines::v1::{
@@ -123,27 +122,18 @@ async fn the_events_of_a_checkout_change_nothing(pool: PgPool) {
     assert!(read.error.is_empty() && read.checkout.is_none());
 }
 
-/// The services of the integrations that are not done yet and of the GitHub App answer
-/// `UNIMPLEMENTED`.
+/// The service of the GitHub App of the instance answers `UNIMPLEMENTED`.
 #[sqlx::test(migrations = false)]
-async fn the_services_of_the_integrations_are_not_served(pool: PgPool) {
+async fn the_service_of_the_github_app_is_not_served(pool: PgPool) {
     // given
     let app = app(pool).await;
-    let (owner, _, _, _) = pipeline(&app, vec![exec_node("build", &[])]).await;
     let admin = app.admin().await;
-    let reports = ListJobReportsRequest {
-        job_ids: Vec::new(),
-    };
 
     // when
-    let reports = VcsReportServiceClient::new(app.channel.clone())
-        .list_job_reports(app.authed(owner, reports).await)
-        .await;
     let vcs_app = VcsAppServiceClient::new(app.channel.clone())
         .get_vcs_app(app.authed(admin, GetVcsAppRequest {}).await)
         .await;
 
     // then
-    assert_code(reports, Code::Unimplemented);
     assert_code(vcs_app, Code::Unimplemented);
 }
