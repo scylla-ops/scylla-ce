@@ -2,6 +2,7 @@
 //! their stream, and the background task of the lost agents and of the old logs.
 
 mod approval;
+pub(crate) mod commits;
 mod convert;
 mod env;
 mod grpc;

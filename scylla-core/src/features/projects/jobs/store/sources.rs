@@ -1,5 +1,6 @@
-//! The SQL of the `job_sources` table: the commit of a job in the linked repository, and the event
-//! that started the job.
+//! The SQL of the `job_sources` table: the commit of a job in the linked repository, the event
+//! that started the job, the join of an automatic event to the job of its commit, and the jobs of
+//! a pull request that wait for an approval.
 
 use std::collections::HashMap;
 
@@ -7,11 +8,15 @@ use scylla_domain::integrations::sources::{JobSource, PullRequestRef, SourceEven
 use scylla_domain::integrations::VcsProvider;
 use scylla_domain::projects::jobs::JobId;
 use scylla_domain::projects::pipelines::PipelineId;
+use scylla_domain::projects::ProjectId;
 use scylla_extension::Tx;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::Error;
+
+/// The unique index of the automatic sources: one job for each pipeline and commit.
+pub(crate) const COMMIT_KEY: &str = "job_sources_commit_idx";
 
 /// A pull request in JSON.
 #[derive(Serialize, Deserialize)]
@@ -124,6 +129,60 @@ pub(crate) async fn of_jobs(
     rows.into_iter()
         .map(|row| Ok((JobId::from_db(row.job_id), row.into_source()?)))
         .collect()
+}
+
+/// Adds the branch and the pull requests of a source to the automatic source of the same
+/// pipeline and commit: the branch goes to a source with no branch and no tag, and each pull
+/// request that the source does not have goes at the end. Returns the job of that source, or
+/// `None` when the pipeline has no automatic job of the commit.
+pub(crate) async fn join(
+    tx: &mut Tx<'_>,
+    pipeline: PipelineId,
+    source: &JobSource,
+) -> Result<Option<JobId>, Error> {
+    let job = sqlx::query_scalar!(
+        r#"UPDATE job_sources s
+           SET branch = CASE WHEN s.branch IS NULL AND s.tag IS NULL THEN $3 ELSE s.branch END,
+               pull_requests = s.pull_requests || COALESCE(
+                   (SELECT jsonb_agg(added.value)
+                    FROM jsonb_array_elements($4::jsonb) AS added
+                    WHERE NOT s.pull_requests @> jsonb_build_array(
+                        jsonb_build_object('number', added.value -> 'number'))),
+                   '[]'::jsonb)
+           WHERE s.pipeline_id = $1 AND s.sha = $2 AND s.automatic
+           RETURNING s.job_id"#,
+        pipeline.to_db(),
+        source.sha,
+        source.branch,
+        pulls(&source.pull_requests),
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(job.map(JobId::from_db))
+}
+
+/// Returns the jobs of a project that wait for an approval on another commit than `sha` of the
+/// pull request `number` of a repository, in id order.
+pub(crate) async fn waiting_of_pull(
+    tx: &mut Tx<'_>,
+    project: ProjectId,
+    repository: &str,
+    number: u32,
+    sha: &str,
+) -> Result<Vec<JobId>, Error> {
+    let ids = sqlx::query_scalar!(
+        "SELECT s.job_id FROM job_sources s JOIN jobs j ON j.id = s.job_id
+         WHERE j.project_id = $1 AND j.status = 'awaiting_approval' AND s.repository = $2
+           AND s.sha <> $3 AND s.pull_requests @> $4
+         ORDER BY s.job_id",
+        project.to_db(),
+        repository,
+        sha,
+        json!([{ "number": number }]),
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(ids.into_iter().map(JobId::from_db).collect())
 }
 
 impl Row {

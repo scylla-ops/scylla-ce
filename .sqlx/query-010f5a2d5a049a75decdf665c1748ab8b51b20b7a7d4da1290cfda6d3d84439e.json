@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE job_sources s\n           SET branch = CASE WHEN s.branch IS NULL AND s.tag IS NULL THEN $3 ELSE s.branch END,\n               pull_requests = s.pull_requests || COALESCE(\n                   (SELECT jsonb_agg(added.value)\n                    FROM jsonb_array_elements($4::jsonb) AS added\n                    WHERE NOT s.pull_requests @> jsonb_build_array(\n                        jsonb_build_object('number', added.value -> 'number'))),\n                   '[]'::jsonb)\n           WHERE s.pipeline_id = $1 AND s.sha = $2 AND s.automatic\n           RETURNING s.job_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "job_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "010f5a2d5a049a75decdf665c1748ab8b51b20b7a7d4da1290cfda6d3d84439e"
+}

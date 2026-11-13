@@ -212,6 +212,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   the failed node. A link in the commit status mode still posts commit statuses. "Re-run" of a check
   run or of all the checks on GitHub starts a new run of the job, with the event of a re-run on the
   provider.
+- A push, a pull request or a tag of the linked repository starts the editor pipelines whose Git
+  triggers match it, as the runner of the triggers. A pipeline has one run for each commit: a second
+  event on the commit adds its branch or its pull request to that run. A pull request from a fork
+  makes a run that waits for an approval, and the approval tells if the pull request changes
+  `.scylla/`. A new commit of the pull request cancels the run of its old commit that waits.
 
 ### Fixed
 

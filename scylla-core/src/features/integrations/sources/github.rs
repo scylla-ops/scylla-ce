@@ -1,5 +1,8 @@
-//! The commit of a ref on GitHub: `GET /repos/{owner}/{repo}/commits/{ref}`, with an installation
-//! token narrowed to the repository and to `contents: read`.
+//! The commit of a ref on GitHub (`GET /repos/{owner}/{repo}/commits/{ref}`, with an installation
+//! token narrowed to the repository and to `contents: read`), and the files of a pull request
+//! (`GET /repos/{owner}/{repo}/pulls/{number}/files`, with `pull_requests: read`).
+
+use std::sync::Arc;
 
 use scylla_domain::integrations::sources::GitRef;
 use serde::Deserialize;
@@ -8,8 +11,11 @@ use super::commits::{Commit, Failure};
 use super::store::Target;
 use crate::features::integrations::connections::credentials;
 use crate::features::integrations::IntegrationContext;
-use crate::infra::vcs::{Auth, ProviderError, TokenScope};
+use crate::infra::vcs::{Auth, GitHubApp, Hidden, ProviderError, TokenScope};
 use crate::Error;
+
+/// The most files of one page of GitHub.
+const PAGE: u32 = 100;
 
 /// The answer of `GET /repos/{owner}/{repo}/commits/{ref}`.
 #[derive(Deserialize)]
@@ -38,12 +44,76 @@ struct Author {
     avatar_url: Option<String>,
 }
 
+/// A file of a pull request.
+#[derive(Deserialize)]
+struct ChangedFile {
+    /// The path of the file.
+    filename: String,
+    /// The old path of a renamed file.
+    previous_filename: Option<String>,
+}
+
+/// An installation token of the App of a connection, narrowed to one repository.
+struct Token {
+    /// The App, which forgets the token after a 401.
+    app: Arc<GitHubApp>,
+    /// The installation.
+    installation: u64,
+    /// The token.
+    token: Hidden,
+}
+
 /// Returns the commit of a ref of the repository of a GitHub connection.
 pub(super) async fn commit(
     ctx: &IntegrationContext,
     target: &Target,
     git_ref: &GitRef,
 ) -> Result<Commit, Failure> {
+    let token = token(ctx, target, "contents").await?;
+    let path = format!("/repos/{}/commits/{}", target.full_name, path_of(git_ref));
+    let call = ctx
+        .clients
+        .github
+        .get(&path)
+        .auth(Auth::Bearer(&token.token));
+    let answer: Answer = read(&token, call.read()).await?;
+    Ok(Commit {
+        sha: answer.sha,
+        message: answer.commit.message,
+        author_login: answer.author.as_ref().map(|author| author.login.clone()),
+        avatar: answer.author.and_then(|author| author.avatar_url),
+    })
+}
+
+/// Returns the paths that a pull request of the repository of a GitHub connection changes, with
+/// the old path of each renamed file.
+pub(super) async fn changed_paths(
+    ctx: &IntegrationContext,
+    target: &Target,
+    number: u32,
+) -> Result<Vec<String>, Failure> {
+    let token = token(ctx, target, "pull_requests").await?;
+    let path = format!("/repos/{}/pulls/{number}/files", target.full_name);
+    let call = ctx
+        .clients
+        .github
+        .get(&path)
+        .auth(Auth::Bearer(&token.token))
+        .query("per_page", PAGE);
+    let files: Vec<ChangedFile> = read(&token, call.list(None)).await?;
+    Ok(files
+        .into_iter()
+        .flat_map(|file| std::iter::once(file.filename).chain(file.previous_filename))
+        .collect())
+}
+
+/// Returns a token of the installation of a connection for its repository, with the `read`
+/// access of one permission.
+async fn token(
+    ctx: &IntegrationContext,
+    target: &Target,
+    permission: &str,
+) -> Result<Token, Failure> {
     // Take the App of the connection: the App of the settings, else the App of the instance.
     let source = credentials::github_app(ctx).await?;
     let app = match source {
@@ -56,26 +126,24 @@ pub(super) async fn commit(
     let repository = number(&target.repository_id, "repository")?;
     let scope = TokenScope::default()
         .repository(repository)
-        .permission("contents", "read");
-    let token = app.installation_token(installation, &scope).await?;
+        .permission(permission, "read");
+    let token = app.installation_token(installation, &scope).await?.token;
+    Ok(Token {
+        app,
+        installation,
+        token,
+    })
+}
 
-    // Read the commit.
-    let path = format!("/repos/{}/commits/{}", target.full_name, path_of(git_ref));
-    let call = ctx
-        .clients
-        .github
-        .get(&path)
-        .auth(Auth::Bearer(&token.token));
-    let answer: Answer = call.read().await.inspect_err(|error| {
+/// Waits for a call with a token, and makes the App forget the token after a 401.
+async fn read<T>(
+    token: &Token,
+    call: impl std::future::Future<Output = Result<T, ProviderError>>,
+) -> Result<T, ProviderError> {
+    call.await.inspect_err(|error| {
         if matches!(error, ProviderError::Unauthorized) {
-            app.forget(installation);
+            token.app.forget(token.installation);
         }
-    })?;
-    Ok(Commit {
-        sha: answer.sha,
-        message: answer.commit.message,
-        author_login: answer.author.as_ref().map(|author| author.login.clone()),
-        avatar: answer.author.and_then(|author| author.avatar_url),
     })
 }
 
