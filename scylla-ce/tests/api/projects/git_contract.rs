@@ -4,11 +4,8 @@
 use std::time::Duration;
 
 use scylla_proto::agents::v1::EventKind;
-use scylla_proto::integrations::v1::merge_block_service_client::MergeBlockServiceClient;
 use scylla_proto::integrations::v1::vcs_report_service_client::VcsReportServiceClient;
-use scylla_proto::integrations::v1::{
-    ListJobReportsRequest, ListMergeBlocksRequest, PipelineSource,
-};
+use scylla_proto::integrations::v1::{ListJobReportsRequest, PipelineSource};
 use scylla_proto::pipelines::v1::job_service_client::JobServiceClient;
 use scylla_proto::pipelines::v1::pipeline_service_client::PipelineServiceClient;
 use scylla_proto::pipelines::v1::{
@@ -132,19 +129,13 @@ async fn the_events_of_a_checkout_change_nothing(pool: PgPool) {
 async fn the_services_of_the_integrations_are_not_served(pool: PgPool) {
     // given
     let app = app(pool).await;
-    let (owner, _, project, _) = pipeline(&app, vec![exec_node("build", &[])]).await;
+    let (owner, _, _, _) = pipeline(&app, vec![exec_node("build", &[])]).await;
     let admin = app.admin().await;
-    let blocks = ListMergeBlocksRequest {
-        project_id: Some(id(&project)),
-    };
     let reports = ListJobReportsRequest {
         job_ids: Vec::new(),
     };
 
     // when
-    let blocks = MergeBlockServiceClient::new(app.channel.clone())
-        .list_merge_blocks(app.authed(owner, blocks).await)
-        .await;
     let reports = VcsReportServiceClient::new(app.channel.clone())
         .list_job_reports(app.authed(owner, reports).await)
         .await;
@@ -153,7 +144,6 @@ async fn the_services_of_the_integrations_are_not_served(pool: PgPool) {
         .await;
 
     // then
-    assert_code(blocks, Code::Unimplemented);
     assert_code(reports, Code::Unimplemented);
     assert_code(vcs_app, Code::Unimplemented);
 }

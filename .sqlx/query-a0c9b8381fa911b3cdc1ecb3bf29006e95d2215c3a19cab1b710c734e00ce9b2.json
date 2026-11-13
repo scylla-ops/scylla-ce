@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE merge_blocks\n         SET state = CASE WHEN enabled THEN 'on' ELSE 'off' END, state_reason = NULL,\n             updated_at = now()\n         WHERE project_id = $1 AND pipeline_id IS NOT NULL\n           AND (pipeline_id = ANY($2::uuid[])) = enabled\n           AND (state <> CASE WHEN enabled THEN 'on' ELSE 'off' END OR state_reason IS NOT NULL)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a0c9b8381fa911b3cdc1ecb3bf29006e95d2215c3a19cab1b710c734e00ce9b2"
+}

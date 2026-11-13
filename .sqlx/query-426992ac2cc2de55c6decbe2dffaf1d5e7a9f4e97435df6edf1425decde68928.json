@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE merge_blocks b SET context = w.context\n         FROM unnest($2::uuid[], $3::text[]) AS w (id, context)\n         WHERE b.project_id = $1 AND b.pipeline_id = w.id AND b.enabled\n           AND b.context IS DISTINCT FROM w.context",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "426992ac2cc2de55c6decbe2dffaf1d5e7a9f4e97435df6edf1425decde68928"
+}

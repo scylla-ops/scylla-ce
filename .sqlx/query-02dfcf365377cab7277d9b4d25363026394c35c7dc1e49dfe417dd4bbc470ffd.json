@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO merge_blocks (project_id, pipeline_id, context, enabled, state, updated_by)\n         VALUES ($1, $2, $3, $4, 'applying', $5)\n         ON CONFLICT (project_id, pipeline_id) DO UPDATE\n         SET context = EXCLUDED.context, enabled = EXCLUDED.enabled, state = 'applying',\n             state_reason = NULL, updated_by = EXCLUDED.updated_by, updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Bool",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "02dfcf365377cab7277d9b4d25363026394c35c7dc1e49dfe417dd4bbc470ffd"
+}

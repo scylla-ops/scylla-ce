@@ -182,6 +182,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   the drafts and `[skip ci]`. A project with no linked repository gives `NO_REPOSITORY_LINK`, and a
   file pipeline gives `PIPELINE_READ_ONLY`. `ExportPipeline` writes the enabled Git triggers in the
   `on` table of the file.
+- `SetMergeBlock` turns on or off the rule that blocks the merge of a pull request until a pipeline
+  passes: one ruleset of Scylla with a required check for each pipeline on GitHub, and "Pipelines
+  must succeed" on GitLab. `ListMergeBlocks` gives the state of each rule, with `out_of_sync` when a
+  person changed the rule on the provider, and the reason and the page to open when the provider
+  refuses.
 
 ### Fixed
 

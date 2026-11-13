@@ -1,0 +1,124 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.id, p.name, p.file_key, b.context AS \"context?\", b.enabled AS \"enabled?\",\n                  b.state AS \"state?\", b.state_reason AS \"state_reason?\",\n                  b.updated_by AS \"updated_by?\", b.updated_at AS \"updated_at?\"\n           FROM pipelines p\n           LEFT JOIN merge_blocks b ON b.project_id = p.project_id AND b.pipeline_id = p.id\n           WHERE p.project_id = $1\n             AND ((p.removed_at IS NULL AND p.archived_at IS NULL) OR b.enabled)\n           ORDER BY p.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "file_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "file_key"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "context?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "context"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "enabled?",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "state?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "state_reason?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "state_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_by?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "updated_by"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at?",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "a5672d17ad04f8726e865297fc7647f5f7c37e77756855b40122e3a95263f949"
+}
