@@ -14,14 +14,11 @@ use axum::routing::post;
 use axum::{Json, Router};
 use hmac::{Hmac, KeyInit, Mac};
 use scylla_domain::projects::triggers::TriggerId;
-use scylla_extension::Hooks;
 use serde_json::{json, Value};
 use sha2::Sha256;
-use sqlx::PgPool;
 
 use super::{fire, service};
-use crate::features::identity::agents::Registry;
-use crate::infra::secret::Sealer;
+use crate::features::integrations::IntegrationContext;
 
 /// The largest body, in bytes.
 const MAX_BODY: usize = 1 << 20;
@@ -41,16 +38,21 @@ const DELIVERIES: [&str; 2] = ["x-scylla-delivery", "x-github-delivery"];
 /// What the route uses.
 #[derive(Clone)]
 pub(crate) struct Webhooks {
-    /// The database pool.
-    pub(crate) pool: PgPool,
-    /// The hooks of the edition.
-    pub(crate) hooks: Arc<Hooks>,
-    /// The open streams of the agents.
-    pub(crate) registry: Arc<Registry>,
-    /// The key of the secrets.
-    pub(crate) sealer: Option<Arc<Sealer>>,
+    /// What the Git integration shares: the pool, the hooks, the open streams of the agents, the
+    /// key of the secrets, and the commit of a fire of a file pipeline.
+    vcs: IntegrationContext,
     /// The requests of each trigger in the current window.
-    pub(crate) rates: Arc<Mutex<HashMap<TriggerId, (Instant, u32)>>>,
+    rates: Arc<Mutex<HashMap<TriggerId, (Instant, u32)>>>,
+}
+
+impl Webhooks {
+    /// Makes what the route uses, with no request counted.
+    pub(crate) fn new(vcs: &IntegrationContext) -> Self {
+        Self {
+            vcs: vcs.clone(),
+            rates: Arc::default(),
+        }
+    }
 }
 
 /// Makes the route, with its limit of the body.
@@ -80,8 +82,8 @@ async fn receive(
             json!({ "error": "too many requests" }),
         );
     }
-    let secret = match service::webhook_secret(&webhooks.pool, webhooks.sealer.as_deref(), id).await
-    {
+    let (pool, sealer) = (&webhooks.vcs.pool, webhooks.vcs.sealer.as_deref());
+    let secret = match service::webhook_secret(pool, sealer, id).await {
         Ok(Some(secret)) => secret,
         Ok(None) => return answer(StatusCode::NOT_FOUND, json!({ "error": "unknown trigger" })),
         Err(error) => return failure(error),
@@ -112,7 +114,7 @@ async fn receive(
         .find_map(|name| header(&headers, name))
         .map(str::to_owned)
         .unwrap_or_else(|| hex::encode(&signature));
-    match service::deliver(&webhooks.pool, id, &key).await {
+    match service::deliver(pool, id, &key).await {
         Ok(true) => {}
         Ok(false) => return answer(StatusCode::OK, json!({ "duplicate": true })),
         Err(error) => return failure(error),
@@ -120,17 +122,8 @@ async fn receive(
 
     // Fire the trigger. A failure forgets the key, so a retry of the sender fires.
     let payload: Option<Value> = serde_json::from_slice(&body).ok();
-    let result = match service::get(&webhooks.pool, id).await {
-        Ok(Some(trigger)) => {
-            let fired = fire::fire(
-                &webhooks.pool,
-                &webhooks.hooks,
-                &webhooks.registry,
-                &trigger,
-                payload.as_ref(),
-            );
-            fired.await
-        }
+    let result = match service::get(pool, id).await {
+        Ok(Some(trigger)) => fire::fire(&webhooks.vcs, &trigger, payload.as_ref()).await,
         Ok(None) => Err(fire::FireError::Failed(crate::Error::NotFound("trigger"))),
         Err(error) => Err(fire::FireError::Failed(error)),
     };
@@ -140,7 +133,7 @@ async fn receive(
             json!({ "job_id": job.id.to_string() }),
         ),
         Err(error) => {
-            if let Err(forget) = service::forget(&webhooks.pool, id, &key).await {
+            if let Err(forget) = service::forget(pool, id, &key).await {
                 tracing::warn!(error = %forget, trigger = %id, "the key of a failed delivery stays");
             }
             match error {

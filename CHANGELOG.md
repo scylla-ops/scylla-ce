@@ -222,6 +222,14 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   its key and its secrets with the id of its row. `GetVcsApp` gives the App with its webhook URL and
   its last webhook, and gives the App of the settings as managed. `DeleteVcsApp` removes the App,
   and each of its connections becomes disconnected with `APP_UNINSTALLED`.
+- A project of files runs its pipeline files at the commit of each push, pull request and tag: each
+  file whose `on` table matches the event gets one run for the commit, with the nodes and the
+  checkout of the file at that commit. A push to the default branch first syncs the file pipelines.
+  A file with errors gives a failed run with no node on each push and pull request, with its errors
+  and the report "Invalid pipeline file" (the commit status gives the line of the first error).
+  `RunPipeline` of a file pipeline reads its file at the ref, or at the head of the default branch
+  with no ref. A schedule or a webhook of a file pipeline, and a Git trigger that a person fires
+  now, run at the head of the default branch with the event `trigger`.
 
 ### Fixed
 

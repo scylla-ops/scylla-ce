@@ -1,5 +1,5 @@
-//! The read of the pipeline files of the linked repository at a commit: the folders, the lookup,
-//! the blobs (from the memory when the server read them before), and the parse of each file.
+//! The read of the pipeline files of the linked repository at a commit: the folders and the blobs
+//! (from the memory when the server read them before), the lookup, and the parse of each file.
 
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use scylla_domain::projects::ProjectId;
 use scylla_extension::Rejection;
 
 use super::cache;
-use super::repo::Repo;
+use super::repo::{Entry, Repo};
 use crate::features::integrations::links::store::{self as links, Linked};
 use crate::features::integrations::{sources, IntegrationContext};
 use crate::Error;
@@ -89,10 +89,17 @@ pub(super) async fn read_commit(
     linked: Linked,
     commit: &str,
 ) -> Result<Snapshot, Error> {
-    // List the folders, and find the pipeline files.
+    // List the folders, from the memory when the server read them before, and find the files.
     let project = linked.link.project_id;
     let repo = Repo::open(ctx, linked).await?;
-    let entries = repo.entries(ctx, commit).await?;
+    let entries = match cache::tree(project, commit) {
+        Some(entries) => entries,
+        None => {
+            let entries: Arc<[Entry]> = repo.entries(ctx, commit).await?.into();
+            cache::keep_tree(project, commit, Arc::clone(&entries));
+            entries
+        }
+    };
     let tree: Vec<TreeEntry> = entries
         .iter()
         .map(|entry| TreeEntry {

@@ -1,17 +1,20 @@
 //! The tests of the pipelines from the files of a repository: the source of the pipelines of a
 //! project, the sync with the default branch, the read of the files at a commit, the read only
-//! pipelines, and the triggers of a file.
+//! pipelines, the triggers of a file, and the runs of the files at a commit.
 
+mod events;
 mod gitlab;
 mod live;
 mod reads;
 mod rules;
+mod runs;
 mod source;
 
 use scylla_core::api::ServeOptions;
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_proto::pipelines::v1::Pipeline;
+use scylla_proto::integrations::v1::PipelineSource;
+use scylla_proto::pipelines::v1::{Job, Pipeline};
 use scylla_testkit::{exec_node, text, FakeProvider, LinkRow, TestApp};
 use sqlx::PgPool;
 use tonic::{Code, Status};
@@ -74,6 +77,11 @@ const LINT: &str = r#"{
 }
 "#;
 
+/// The file of the pipeline `build` with a fifth node, `bench`, as a pull request adds it.
+fn bench() -> String {
+    format!("{BUILD}\n[[nodes]]\nid = \"bench\"\nneeds = [\"test\"]\nexec = [\"make\"]\n")
+}
+
 /// A linked project of a test.
 struct Linked {
     /// The owner of the workspace.
@@ -97,7 +105,8 @@ async fn app_with(pool: PgPool, fake: &FakeProvider) -> TestApp {
 
 /// Makes a project with one editor pipeline. On `github`, the project is linked to `octo/app`
 /// (id 7) through the installation 42. On `gitlab`, it is linked to `group/app` (id 7) through a
-/// service account. Else it has no link. The default branch is `main`.
+/// service account. Else it has no link. The default branch is `main`, and the link reports
+/// nothing.
 async fn linked(app: &TestApp, provider: &str) -> Linked {
     // Make the project and its editor pipeline.
     let owner = app.user().await;
@@ -136,12 +145,40 @@ async fn linked(app: &TestApp, provider: &str) -> Linked {
         default_branch: "main",
     };
     app.insert_repository_link(&link).await;
+    app.set_link_reports(&project, false).await;
     Linked {
         owner,
         workspace,
         project,
         editor,
     }
+}
+
+/// A project of files of a test, linked to `octo/app` on GitHub.
+struct FilesProject {
+    /// The linked project.
+    linked: Linked,
+    /// The file pipeline `build`.
+    build: String,
+}
+
+/// Makes a project linked on GitHub with the reports on or off, and moves it to the files of the
+/// default branch, which must have the file of `build`.
+async fn files_project(app: &TestApp, reports: bool) -> FilesProject {
+    let linked = linked(app, "github").await;
+    let (owner, project) = (linked.owner, linked.project.as_str());
+    app.set_link_reports(project, reports).await;
+    app.set_pipeline_source(owner, project, PipelineSource::File)
+        .await
+        .unwrap();
+    let build = text(&by_key(&pipelines(app, owner, project).await, "build").id).to_owned();
+    FilesProject { linked, build }
+}
+
+/// Returns the jobs of the first page of a pipeline, newest first.
+async fn jobs_of(app: &TestApp, actor: ActorId, pipeline: &str) -> Vec<Job> {
+    let page = app.list_pipeline_jobs(actor, pipeline, 0, "").await;
+    page.unwrap().jobs
 }
 
 /// Returns the pipelines of the first page of a project.

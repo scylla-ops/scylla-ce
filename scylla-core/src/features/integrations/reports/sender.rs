@@ -197,6 +197,7 @@ fn outgoing(
         finished_at: facts.finished_at,
         failed_node: facts.failed_node.as_deref(),
         file_path: facts.file_path.as_deref(),
+        file_line: facts.file_line.and_then(|line| u32::try_from(line).ok()),
     };
     let status: ReportedStatus = claimed.status;
     let target_url = format!(

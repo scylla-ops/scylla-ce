@@ -138,6 +138,49 @@ pub(super) async fn upsert(
     Ok(())
 }
 
+/// Returns the file pipeline of the key of a row. A project with no pipeline of the key gets one
+/// from the row, marked as removed: its file is not on the default branch.
+pub(super) async fn key_pipeline(
+    tx: &mut Tx<'_>,
+    project: ProjectId,
+    actor: ActorId,
+    row: &FileRow<'_>,
+) -> Result<PipelineId, Error> {
+    // Make the pipeline of the key, if the project has none.
+    sqlx::query!(
+        "INSERT INTO pipelines (id, project_id, workspace_id, created_by, name, nodes, source,
+                                file_key, file_path, file_sha, file_rules, file_errors, checkout,
+                                removed_at)
+         SELECT $1, p.id, p.workspace_id, $3, $4, $5, 'file', $6, $7, $8, $9, $10, $11, now()
+         FROM projects p WHERE p.id = $2
+         ON CONFLICT (project_id, file_key) DO NOTHING",
+        PipelineId::generate().to_db(),
+        project.to_db(),
+        actor.to_db(),
+        row.name,
+        row.nodes,
+        row.key,
+        row.path,
+        row.blob_sha,
+        row.rules,
+        row.errors,
+        row.checkout,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Read the pipeline of the key.
+    let id = sqlx::query_scalar!(
+        "SELECT id FROM pipelines WHERE project_id = $1 AND file_key = $2",
+        project.to_db(),
+        row.key,
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    id.map(PipelineId::from_db)
+        .ok_or(Error::NotFound("project"))
+}
+
 /// Marks as removed each file pipeline of a project with a key that is not in a list, and shows
 /// it again. Its jobs stay.
 pub(super) async fn mark_removed(

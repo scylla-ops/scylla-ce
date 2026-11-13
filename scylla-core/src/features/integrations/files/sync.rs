@@ -6,10 +6,11 @@ use std::time::Duration;
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::integrations::links::PipelineSource;
+use scylla_domain::projects::pipeline_files::{FileKey, Rejected};
 use scylla_domain::projects::ProjectId;
 
 use super::cache;
-use super::read::{self, Snapshot};
+use super::read::{self, ReadFile, Snapshot};
 use super::store::{self, FileRow};
 use crate::features::integrations::IntegrationContext;
 use crate::features::projects::pipelines::json;
@@ -75,29 +76,8 @@ pub(super) async fn apply(
     // Write the pipeline of each file that the lookup takes.
     let mut keys = Vec::new();
     for read in &snapshot.files {
-        let key = read.file.key.as_str();
-        let (name, nodes, rules, checkout, errors) = match &read.pipeline {
-            Ok(pipeline) => (
-                pipeline.name.as_str(),
-                json::nodes(pipeline.nodes.as_slice()),
-                Some(to_json(&pipeline.rules)?),
-                Some(to_json(&pipeline.checkout)?),
-                None,
-            ),
-            Err(errors) => (key, json::nodes(&[]), None, None, Some(to_json(errors)?)),
-        };
-        let row = FileRow {
-            key,
-            path: &read.file.path,
-            blob_sha: Some(&read.blob_sha),
-            name,
-            nodes,
-            rules,
-            checkout,
-            errors,
-        };
-        store::upsert(tx, project, author, &row).await?;
-        keys.push(key.to_owned());
+        store::upsert(tx, project, author, &row_of(read)?).await?;
+        keys.push(read.file.key.as_str().to_owned());
     }
 
     // Write a pipeline with its error for each refused file of a key.
@@ -105,23 +85,56 @@ pub(super) async fn apply(
         let Some(key) = &rejected.key else {
             continue;
         };
-        let row = FileRow {
-            key: key.as_str(),
-            path: &rejected.error.path,
-            blob_sha: None,
-            name: key.as_str(),
-            nodes: json::nodes(&[]),
-            rules: None,
-            checkout: None,
-            errors: Some(to_json(&[&rejected.error])?),
-        };
-        store::upsert(tx, project, author, &row).await?;
+        store::upsert(tx, project, author, &refused_row(key, rejected)?).await?;
         keys.push(key.as_str().to_owned());
     }
 
     // Mark the pipelines of the other keys as removed.
     store::mark_removed(tx, project, &keys).await?;
     Ok(())
+}
+
+/// Returns the row of the pipeline of a file that the lookup takes: its nodes, its rules and its
+/// checkout, or its errors and no node.
+pub(super) fn row_of(read: &ReadFile) -> Result<FileRow<'_>, Error> {
+    let key = read.file.key.as_str();
+    let (name, nodes, rules, checkout, errors) = match &read.pipeline {
+        Ok(pipeline) => (
+            pipeline.name.as_str(),
+            json::nodes(pipeline.nodes.as_slice()),
+            Some(to_json(&pipeline.rules)?),
+            Some(to_json(&pipeline.checkout)?),
+            None,
+        ),
+        Err(errors) => (key, json::nodes(&[]), None, None, Some(to_json(errors)?)),
+    };
+    Ok(FileRow {
+        key,
+        path: &read.file.path,
+        blob_sha: Some(&read.blob_sha),
+        name,
+        nodes,
+        rules,
+        checkout,
+        errors,
+    })
+}
+
+/// Returns the row of the pipeline of a key whose file the lookup refuses: the error and no node.
+pub(super) fn refused_row<'a>(
+    key: &'a FileKey,
+    rejected: &'a Rejected,
+) -> Result<FileRow<'a>, Error> {
+    Ok(FileRow {
+        key: key.as_str(),
+        path: &rejected.error.path,
+        blob_sha: None,
+        name: key.as_str(),
+        nodes: json::nodes(&[]),
+        rules: None,
+        checkout: None,
+        errors: Some(to_json(&[&rejected.error])?),
+    })
 }
 
 /// Returns the JSON of a value that the store keeps.

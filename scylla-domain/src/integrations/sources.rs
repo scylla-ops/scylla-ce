@@ -21,8 +21,8 @@ named! {
         Manual = "manual",
         /// A person asked for a new run on the provider.
         ProviderRerun = "provider_rerun",
-        /// A cron or webhook trigger of Scylla started a file pipeline at the head of the default
-        /// branch.
+        /// A trigger of Scylla started the job at the head of the default branch: a cron or
+        /// webhook trigger of a file pipeline, or a Git trigger that a person fired now.
         Trigger = "trigger",
     }
 }

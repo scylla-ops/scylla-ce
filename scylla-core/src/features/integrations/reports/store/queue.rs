@@ -42,6 +42,8 @@ pub(crate) struct Facts {
     pub(crate) finished_at: Option<OffsetDateTime>,
     /// The path of the pipeline file of the job.
     pub(crate) file_path: Option<String>,
+    /// The line of the first error of an invalid pipeline file.
+    pub(crate) file_line: Option<i32>,
     /// The first node that failed.
     pub(crate) failed_node: Option<String>,
     /// The commit.
@@ -147,6 +149,7 @@ pub(crate) async fn facts(tx: &mut Tx<'_>, claimed: &Claimed) -> Result<Option<F
         Facts,
         r#"SELECT j.started_at, j.finished_at,
                   j.pipeline_file->>'path' AS file_path,
+                  (j.file_errors->0->'location'->>'line')::int AS file_line,
                   (SELECT run->>'node' FROM jsonb_array_elements(j.runs) run
                    WHERE run->>'status' = 'failed' LIMIT 1) AS failed_node,
                   s.sha, s.branch, s.tag,

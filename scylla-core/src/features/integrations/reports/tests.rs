@@ -32,8 +32,8 @@ fn each_state_of_a_run_has_a_state_on_each_provider() {
     assert_eq!(gitlab, gitlab_map);
 }
 
-/// A description tells the state with its duration, its failed node or its file, and stays in
-/// the limit of the provider.
+/// A description tells the state with its duration, its failed node or its file and the line of
+/// its first error, and stays in the limit of the provider.
 #[test]
 fn a_description_tells_the_state_of_the_run() {
     // given
@@ -43,6 +43,11 @@ fn a_description_tells_the_state_of_the_run() {
         finished_at: Some(start + Duration::seconds(134)),
         failed_node: Some("test"),
         file_path: Some(".scylla/pipelines/build.toml"),
+        file_line: Some(12),
+    };
+    let unplaced = Run {
+        file_path: Some(".scylla/pipelines/build.toml"),
+        ..Run::default()
     };
     let long = "x".repeat(300);
     let invalid = Run {
@@ -68,6 +73,10 @@ fn a_description_tells_the_state_of_the_run() {
     assert_eq!(text(ReportedStatus::Orphaned), "Agent lost");
     assert_eq!(
         text(ReportedStatus::InvalidFile),
+        "Invalid .scylla/pipelines/build.toml: line 12"
+    );
+    assert_eq!(
+        states::description(VcsProvider::GitLab, ReportedStatus::InvalidFile, &unplaced),
         "Invalid .scylla/pipelines/build.toml"
     );
     assert_eq!(cut_github.chars().count(), 140);

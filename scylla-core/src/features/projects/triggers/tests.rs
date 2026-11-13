@@ -1,11 +1,41 @@
 //! Unit tests of the loop of the cron schedules, which the API shows only after 15 seconds.
 
-use scylla_extension::Hooks;
+use std::sync::Arc;
+use std::time::Duration;
+
 use sqlx::PgPool;
 use time::OffsetDateTime;
 
 use super::schedule;
-use crate::features::identity::agents::Registry;
+use crate::features::identity::accounts::AccountSettings;
+use crate::features::integrations::IntegrationContext;
+use crate::features::projects::no_gate::NoGate;
+use crate::infra::vcs::{VcsClients, VcsOptions};
+use crate::SignUpMode;
+
+/// Returns what the loop shares with the Git integration: the pool, no hook, no agent, and the
+/// public providers.
+fn context(pool: PgPool) -> IntegrationContext {
+    let settings = VcsOptions::default();
+    IntegrationContext {
+        pool,
+        gate: Arc::new(NoGate),
+        hooks: Arc::default(),
+        registry: Arc::default(),
+        sealer: None,
+        clients: VcsClients::new(&settings).unwrap(),
+        settings: Arc::new(settings),
+        urls: Arc::new(AccountSettings {
+            api_url: "http://127.0.0.1".to_owned(),
+            app_url: "http://127.0.0.1".to_owned(),
+            sign_up_mode: SignUpMode::Closed,
+            session_ttl: Duration::from_secs(60),
+            web_origins: Vec::new(),
+            trust_forwarded: false,
+        }),
+        wake: Arc::default(),
+    }
+}
 
 /// The next time of a schedule is after the start, and a bad schedule is refused.
 #[test]
@@ -70,12 +100,9 @@ async fn tick_fires_the_due_triggers(pool: PgPool) {
     }
 
     // when
-    let first = schedule::tick(&pool, &Hooks::default(), &Registry::default())
-        .await
-        .unwrap();
-    let second = schedule::tick(&pool, &Hooks::default(), &Registry::default())
-        .await
-        .unwrap();
+    let vcs = context(pool.clone());
+    let first = schedule::tick(&vcs).await.unwrap();
+    let second = schedule::tick(&vcs).await.unwrap();
 
     // then
     assert_eq!((first, second), (1, 0));
@@ -114,9 +141,7 @@ async fn tick_skips_the_triggers_of_an_archived_pipeline(pool: PgPool) {
     .unwrap();
 
     // when
-    let fired = schedule::tick(&pool, &Hooks::default(), &Registry::default())
-        .await
-        .unwrap();
+    let fired = schedule::tick(&context(pool.clone())).await.unwrap();
 
     // then
     assert_eq!(fired, 0);

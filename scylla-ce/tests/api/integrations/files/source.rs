@@ -3,6 +3,7 @@
 
 use scylla_domain::projects::{Project, ProjectId};
 use scylla_proto::integrations::v1::PipelineSource;
+use scylla_proto::pipelines::v1::git_ref::Kind;
 use scylla_proto::pipelines::v1::{PipelineLayout, Position};
 use scylla_testkit::{exec_node, text, FakeProvider};
 use sqlx::PgPool;
@@ -176,6 +177,7 @@ async fn a_file_removed_from_the_default_branch_marks_its_pipeline(pool: PgPool)
     let fake = FakeProvider::start().await;
     let first = [(BUILD_PATH, BUILD), (DEPLOY_PATH, DEPLOY)];
     fake.github_files("heads/main", MAIN_SHA, &first);
+    fake.github_files(MAIN_SHA, MAIN_SHA, &first);
     let renamed = BUILD.replace("name = \"Build\"", "name = \"Build all\"");
     fake.github_files("heads/main", NEXT_SHA, &[(BUILD_PATH, &renamed)]);
     let app = app_with(pool, &fake).await;
@@ -186,7 +188,8 @@ async fn a_file_removed_from_the_default_branch_marks_its_pipeline(pool: PgPool)
         .unwrap();
     let before = pipelines(&app, owner, project).await;
     let deploy = text(&by_key(&before, "deploy").id).to_owned();
-    let job = app.run_pipeline(owner, &deploy).await.unwrap();
+    let first = Kind::Sha(MAIN_SHA.to_owned());
+    let job = app.run_pipeline_on(owner, &deploy, first).await.unwrap();
 
     // when
     let synced = app.set_pipeline_source(owner, project, PipelineSource::File);

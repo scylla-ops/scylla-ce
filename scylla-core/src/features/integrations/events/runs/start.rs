@@ -7,12 +7,14 @@ use std::collections::HashSet;
 
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::integrations::events::GitEvent;
+use scylla_domain::integrations::links::PipelineSource;
 use scylla_domain::integrations::sources::JobSource;
 use scylla_domain::projects::git_rules::TriggerEvent;
 use scylla_domain::projects::jobs::{Job, StartJob};
 use scylla_domain::projects::pipelines::{EnvValue, EnvVar};
 use scylla_domain::projects::triggers::{FireResult, Input, InputValue, RUNNER_KIND};
 
+use super::file_pipelines;
 use super::store::{self, GitTrigger};
 use crate::features::integrations::links::store::Linked;
 use crate::features::integrations::{sources, IntegrationContext};
@@ -21,8 +23,9 @@ use crate::features::projects::pipelines::service as pipelines;
 use crate::features::projects::triggers::fire;
 use crate::Error;
 
-/// Starts the runs of a Git event for one active link. A pull request from a fork first cancels
-/// the runs of its older commits that wait for an approval. A closed pull request starts nothing.
+/// Starts the runs of a Git event for one active link: of the editor pipelines, or of the file
+/// pipelines in a project of files. A pull request from a fork first cancels the runs of its older
+/// commits that wait for an approval. A closed pull request starts nothing.
 pub(crate) async fn handle(
     ctx: &IntegrationContext,
     linked: &Linked,
@@ -37,6 +40,11 @@ pub(crate) async fn handle(
     // Cancel the runs of the older commits of a pull request from a fork that wait.
     if source.from_fork() {
         commits::replace_waiting(&ctx.pool, project, &source).await?;
+    }
+
+    // Start the file pipelines of a project of files.
+    if linked.link.pipeline_source == PipelineSource::File {
+        return file_pipelines::handle(ctx, linked, &checked, source).await;
     }
 
     // Find the first trigger of each pipeline that the event starts.

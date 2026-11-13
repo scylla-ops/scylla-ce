@@ -1,6 +1,7 @@
 //! The memory of the pipeline files: the bytes of the blobs that the server read, by project and
-//! blob SHA, and the last check of the head of the default branch of each project. The server is
-//! one instance, so a restart only reads the files again.
+//! blob SHA, the files of the folders at each commit that the server read, and the last check of
+//! the head of the default branch of each project. The server is one instance, so a restart only
+//! reads the files again.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
@@ -8,11 +9,19 @@ use std::time::{Duration, Instant};
 
 use scylla_domain::projects::ProjectId;
 
+use super::repo::Entry;
+
 /// The most bytes of blobs that the memory keeps. The oldest blobs go first.
 const MAX_BYTES: usize = 32 << 20;
 
+/// The most commits whose folders the memory keeps. The oldest commits go first.
+const MAX_TREES: usize = 1024;
+
 /// The blobs that the server read.
 static BLOBS: LazyLock<Mutex<Blobs>> = LazyLock::new(Mutex::default);
+
+/// The files of the folders at each commit that the server read.
+static TREES: LazyLock<Mutex<Trees>> = LazyLock::new(Mutex::default);
 
 /// The last check of the head of the default branch of each project.
 static HEADS: LazyLock<Mutex<HashMap<ProjectId, Seen>>> = LazyLock::new(Mutex::default);
@@ -26,6 +35,15 @@ struct Blobs {
     order: VecDeque<(ProjectId, String)>,
     /// The sum of the bytes.
     total: usize,
+}
+
+/// The files of the folders at the commits, in the order of their reads.
+#[derive(Default)]
+struct Trees {
+    /// The files of each project and commit.
+    entries: HashMap<(ProjectId, String), Arc<[Entry]>>,
+    /// The keys, oldest first.
+    order: VecDeque<(ProjectId, String)>,
 }
 
 /// The last check of the head of the default branch of a project.
@@ -59,6 +77,27 @@ pub(super) fn keep(project: ProjectId, sha: &str, bytes: Arc<[u8]>) {
         };
         if let Some(gone) = blobs.bytes.remove(&oldest) {
             blobs.total -= gone.len();
+        }
+    }
+}
+
+/// Returns the files of the folders of a project at a commit that the server read.
+pub(super) fn tree(project: ProjectId, commit: &str) -> Option<Arc<[Entry]>> {
+    let trees = TREES.lock().unwrap_or_else(PoisonError::into_inner);
+    trees.entries.get(&(project, commit.to_owned())).cloned()
+}
+
+/// Keeps the files of the folders of a project at a commit, and forgets the oldest commits over
+/// the limit.
+pub(super) fn keep_tree(project: ProjectId, commit: &str, entries: Arc<[Entry]>) {
+    let mut trees = TREES.lock().unwrap_or_else(PoisonError::into_inner);
+    let key = (project, commit.to_owned());
+    if trees.entries.insert(key.clone(), entries).is_none() {
+        trees.order.push_back(key);
+    }
+    while trees.order.len() > MAX_TREES {
+        if let Some(oldest) = trees.order.pop_front() {
+            trees.entries.remove(&oldest);
         }
     }
 }

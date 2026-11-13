@@ -16,6 +16,7 @@ use crate::infra::vcs::{GitHubApp, Hidden, ProviderError, TokenScope};
 use crate::Error;
 
 /// A file of the folders of the pipeline files, as the provider lists it.
+#[derive(Clone)]
 pub(super) struct Entry {
     /// The path from the root of the repository.
     pub(super) path: String,
@@ -112,11 +113,7 @@ impl Repo {
 
     /// Returns the page of a file at a commit on the provider.
     pub(super) fn page_of(&self, commit: &str, path: &str) -> String {
-        let web = self.linked.link.web_url.trim_end_matches('/');
-        match self.linked.provider {
-            VcsProvider::GitHub => format!("{web}/blob/{commit}/{path}"),
-            VcsProvider::GitLab => format!("{web}/-/blob/{commit}/{path}"),
-        }
+        page(&self.linked, commit, path)
     }
 
     /// Returns the refusal of a failed call, and forgets a GitHub token that the provider
@@ -154,6 +151,15 @@ fn decode(content: &str, encoding: &str) -> Result<Vec<u8>, ProviderError> {
     base64::engine::general_purpose::STANDARD
         .decode(clean)
         .map_err(|error| ProviderError::Invalid(format!("a blob is not base64: {error}")))
+}
+
+/// Returns the page of a file at a commit in the repository of a link.
+pub(super) fn page(linked: &Linked, commit: &str, path: &str) -> String {
+    let web = linked.link.web_url.trim_end_matches('/');
+    match linked.provider {
+        VcsProvider::GitHub => format!("{web}/blob/{commit}/{path}"),
+        VcsProvider::GitLab => format!("{web}/-/blob/{commit}/{path}"),
+    }
 }
 
 /// Returns the refusal of a failed call to the provider of a link.

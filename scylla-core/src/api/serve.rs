@@ -212,34 +212,20 @@ pub async fn serve(
     let registry = Arc::new(Registry::default());
     let (hooks, share) = (edition.hooks(), || Arc::clone(&registry));
     routes.add_service(apps::server(pool.clone(), Arc::clone(&gate), share()));
-    let sealer = || options.sealer.clone();
     let vcs = IntegrationContext::new(&ctx, share(), options.vcs)?;
     routes.add_service(agents::server(&vcs));
     routes.add_service(pipelines::server(&vcs));
     let jobs = jobs::server(pool.clone(), Arc::clone(&hooks), Arc::clone(&gate), share());
     routes.add_service(jobs);
-    let triggers = triggers::server(
-        pool.clone(),
-        Arc::clone(&hooks),
-        Arc::clone(&gate),
-        share(),
-        sealer(),
-    );
-    routes.add_service(triggers);
+    routes.add_service(triggers::server(&vcs));
 
     // Mount the Git integration: its services, its public routes and its tasks.
     let (vcs_routes, vcs_tasks) = integrations::mount(&vcs, &mut routes);
 
     // Start the background tasks: the lost agents, the old logs, and the cron triggers.
     let housekeeping = housekeeping::spawn(pool.clone(), share(), options.log_retention);
-    let schedules = schedule::spawn(pool.clone(), Arc::clone(&hooks), share());
-    let webhooks = Webhooks {
-        pool: pool.clone(),
-        hooks,
-        registry: share(),
-        sealer: sealer(),
-        rates: Arc::default(),
-    };
+    let schedules = schedule::spawn(vcs.clone());
+    let webhooks = Webhooks::new(&vcs);
     let notifier: Arc<dyn Notifier> = Arc::new(PgNotifier { pool: pool.clone() });
     edition.add_services(&mut routes, &pool, &gate, &notifier, &options.agent_image);
     let notifications = notifications::spawn(

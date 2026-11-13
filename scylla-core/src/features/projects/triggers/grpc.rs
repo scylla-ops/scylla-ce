@@ -9,7 +9,7 @@ use scylla_domain::projects::triggers::{
     ListTriggers, NewTrigger, TriggerAccess, TriggerChange, TriggerId, TriggerKind,
 };
 use scylla_domain::projects::Project;
-use scylla_extension::{Gate, Hooks, Principal};
+use scylla_extension::{Gate, Principal};
 use scylla_proto::common::v1::Id;
 use scylla_proto::pipelines::v1 as pb;
 use scylla_proto::pipelines::v1::trigger_service_server::{TriggerService, TriggerServiceServer};
@@ -18,25 +18,18 @@ use tonic::{Request, Response, Status};
 
 use super::{convert, fire, service};
 use crate::api::parse::{self, ToProto};
-use crate::features::identity::agents::Registry;
+use crate::features::integrations::IntegrationContext;
 use crate::features::projects::pipelines::access;
 use crate::infra::secret::Sealer;
 use crate::Error;
 
-/// Makes the service.
-pub(crate) fn server(
-    pool: PgPool,
-    hooks: Arc<Hooks>,
-    gate: Arc<dyn Gate>,
-    registry: Arc<Registry>,
-    sealer: Option<Arc<Sealer>>,
-) -> TriggerServiceServer<TriggersGrpc> {
+/// Makes the service, with what the Git integration shares.
+pub(crate) fn server(ctx: &IntegrationContext) -> TriggerServiceServer<TriggersGrpc> {
     TriggerServiceServer::new(TriggersGrpc {
-        pool,
-        hooks,
-        gate,
-        registry,
-        sealer,
+        pool: ctx.pool.clone(),
+        gate: Arc::clone(&ctx.gate),
+        sealer: ctx.sealer.clone(),
+        vcs: ctx.clone(),
     })
 }
 
@@ -44,14 +37,13 @@ pub(crate) fn server(
 pub(crate) struct TriggersGrpc {
     /// The database pool.
     pool: PgPool,
-    /// The hooks of the edition.
-    hooks: Arc<Hooks>,
     /// The access gate.
     gate: Arc<dyn Gate>,
-    /// The open streams of the agents.
-    registry: Arc<Registry>,
     /// The key of the secrets of the webhooks.
     sealer: Option<Arc<Sealer>>,
+    /// What the Git integration shares: the commit of a fire of a file pipeline or of a Git
+    /// trigger.
+    vcs: IntegrationContext,
 }
 
 #[tonic::async_trait]
@@ -202,7 +194,7 @@ impl TriggerService for TriggersGrpc {
         let id = self
             .trigger_of(&caller, request.into_inner().trigger_id, permission)
             .await?;
-        let job = match fire::by_id(&self.pool, &self.hooks, &self.registry, id).await {
+        let job = match fire::by_id(&self.vcs, id).await {
             Ok(job) => job,
             Err(fire::FireError::Failed(error)) => return Err(error.into()),
             Err(fire::FireError::Payload(reason)) => {

@@ -22,6 +22,8 @@ pub(super) struct Run<'a> {
     pub(super) failed_node: Option<&'a str>,
     /// The path of the pipeline file of the job.
     pub(super) file_path: Option<&'a str>,
+    /// The line of the first error of an invalid pipeline file.
+    pub(super) file_line: Option<u32>,
 }
 
 /// Returns the state of a GitHub commit status: `pending`, `success`, `failure` or `error`.
@@ -83,9 +85,10 @@ pub(super) fn description(provider: VcsProvider, status: ReportedStatus, run: &R
         },
         ReportedStatus::Cancelled => "Cancelled".to_owned(),
         ReportedStatus::Orphaned => "Agent lost".to_owned(),
-        ReportedStatus::InvalidFile => match run.file_path {
-            Some(path) => format!("Invalid {path}"),
-            None => "Invalid pipeline file".to_owned(),
+        ReportedStatus::InvalidFile => match (run.file_path, run.file_line) {
+            (Some(path), Some(line)) => format!("Invalid {path}: line {line}"),
+            (Some(path), None) => format!("Invalid {path}"),
+            (None, _) => "Invalid pipeline file".to_owned(),
         },
     };
 

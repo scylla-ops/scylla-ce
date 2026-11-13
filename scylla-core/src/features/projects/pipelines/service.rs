@@ -1,7 +1,7 @@
 //! The logic of the pipelines: one transaction for each call, with the hooks.
 
 use scylla_domain::identity::actors::Actor;
-use scylla_domain::integrations::sources::GitRef;
+use scylla_domain::integrations::sources::{GitRef, SourceEvent};
 use scylla_domain::projects::jobs::{Job, StartJob};
 use scylla_domain::projects::pipelines::{
     ListPipelines, NewPipeline, Node, Pipeline, PipelineChange, PipelineId, PipelineLayout,
@@ -224,8 +224,9 @@ pub(crate) async fn delete(
 }
 
 /// Starts a job of a pipeline with a snapshot of its nodes, with no source, or on a commit of the
-/// linked repository. A secret that a node names and that the project does not have gives
-/// `NOT_FOUND`.
+/// linked repository. A file pipeline takes the file of its key at the ref, or at the head of the
+/// default branch with no ref. A secret that a node names and that the project does not have
+/// gives `NOT_FOUND`.
 pub(crate) async fn run(
     ctx: &IntegrationContext,
     actor: Actor,
@@ -235,13 +236,13 @@ pub(crate) async fn run(
     let pipeline = get(&ctx.pool, id)
         .await?
         .ok_or(Error::NotFound("pipeline"))?;
-    let source = match &git_ref {
-        Some(git_ref) => Some(sources::resolve(ctx, pipeline.project_id, git_ref).await?),
-        None => None,
-    };
-    let start = StartJob {
-        source,
-        ..StartJob::of(pipeline)
+    let start = match (&pipeline.file, &git_ref) {
+        (Some(_), _) => files::start_at(ctx, pipeline, git_ref, SourceEvent::Manual).await?,
+        (None, Some(git_ref)) => StartJob {
+            source: Some(sources::resolve(ctx, pipeline.project_id, git_ref).await?),
+            ..StartJob::of(pipeline)
+        },
+        (None, None) => StartJob::of(pipeline),
     };
     self::start(&ctx.pool, &ctx.hooks, &ctx.registry, actor, start).await
 }
