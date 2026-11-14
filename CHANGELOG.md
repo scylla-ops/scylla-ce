@@ -230,6 +230,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `RunPipeline` of a file pipeline reads its file at the ref, or at the head of the default branch
   with no ref. A schedule or a webhook of a file pipeline, and a Git trigger that a person fires
   now, run at the head of the default branch with the event `trigger`.
+- `ListConnectionRepositories` accepts a workspace in place of a project, and then checks the
+  permission on the workspace. The page of a new project uses it to list the repositories before it
+  creates the project.
 
 ### Removed
 

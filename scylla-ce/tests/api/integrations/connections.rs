@@ -6,6 +6,7 @@ mod access;
 mod github;
 mod gitlab;
 mod lists;
+mod new_projects;
 mod redirects;
 mod reinstall;
 

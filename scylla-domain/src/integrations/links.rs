@@ -103,7 +103,8 @@ crate::authz! {
         permission list_refs = read;
         /// The route `ListMergeBlocks`, on each project of this workspace.
         permission list_merge_blocks = read;
-        /// The route `ListConnectionRepositories`, for a link of each project of this workspace.
+        /// The route `ListConnectionRepositories`, for a link of each project of this workspace or
+        /// of a project to create in it.
         permission list_connection_repositories = work;
         /// The route `LinkRepository`, on each project of this workspace.
         permission link_repository = work;

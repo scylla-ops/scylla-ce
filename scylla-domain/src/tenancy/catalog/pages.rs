@@ -6,7 +6,7 @@ use crate::identity::admins::UserAdminHolder;
 use crate::identity::apps::AppHolder;
 use crate::integrations::apps::VcsAppHolder;
 use crate::integrations::connections::VcsConnectionHolder;
-use crate::integrations::links::RepositoryAccess;
+use crate::integrations::links::{RepositoryAccess, RepositoryHolder};
 use crate::projects::pipelines::PipelineAccess;
 use crate::projects::triggers::TriggerAccess;
 use crate::projects::{Project, ProjectHolder};
@@ -171,6 +171,14 @@ const PAGES: &[Page] = &[
         needs: &[
             Route::of(VcsConnectionHolder::LIST_VCS_CONNECTIONS),
             Route::of(RepositoryAccess::LIST_CONNECTION_REPOSITORIES),
+        ],
+    },
+    Page {
+        name: "a new project linked to a repository",
+        opens: Route::of(RepositoryHolder::LINK_REPOSITORY),
+        needs: &[
+            Route::of(VcsConnectionHolder::LIST_VCS_CONNECTIONS),
+            Route::of(RepositoryHolder::LIST_CONNECTION_REPOSITORIES),
         ],
     },
     Page {
