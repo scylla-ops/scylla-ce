@@ -2,7 +2,7 @@
 //! branch or a tag, and the values of a request.
 
 use scylla_domain::integrations::connections::{ConnectionState, DeliveryMode};
-use scylla_domain::integrations::links::{PipelineSource, ReportMode};
+use scylla_domain::integrations::links::PipelineSource;
 use scylla_domain::integrations::VcsProvider;
 use scylla_proto::integrations::v1 as pb;
 
@@ -31,7 +31,6 @@ impl ToProto<pb::RepositoryLink> for Linked {
             private: link.private,
             pipeline_source: pipeline_source(link.pipeline_source) as i32,
             reports_enabled: link.reports_enabled,
-            report_mode: report_mode(link.report_mode) as i32,
             delivery_mode: delivery_mode(link.delivery_mode) as i32,
             poll_interval_seconds: link.poll_interval_seconds,
             last_event_at: link.last_event_at.map(parse::timestamp),
@@ -68,15 +67,6 @@ pub(super) fn ref_kind(value: i32) -> Option<Option<RefKind>> {
     }
 }
 
-/// Reads a report mode of a request: not set keeps the mode.
-pub(super) fn report_mode_of(value: i32) -> Option<Option<ReportMode>> {
-    match pb::ReportMode::try_from(value).ok()? {
-        pb::ReportMode::Unspecified => Some(None),
-        pb::ReportMode::CheckRun => Some(Some(ReportMode::CheckRun)),
-        pb::ReportMode::CommitStatus => Some(Some(ReportMode::CommitStatus)),
-    }
-}
-
 /// Returns the proto value of a provider.
 fn provider_of(value: VcsProvider) -> pb::VcsProvider {
     match value {
@@ -90,14 +80,6 @@ fn pipeline_source(value: PipelineSource) -> pb::PipelineSource {
     match value {
         PipelineSource::Editor => pb::PipelineSource::Editor,
         PipelineSource::File => pb::PipelineSource::File,
-    }
-}
-
-/// Returns the proto value of a report mode.
-fn report_mode(value: ReportMode) -> pb::ReportMode {
-    match value {
-        ReportMode::CheckRun => pb::ReportMode::CheckRun,
-        ReportMode::CommitStatus => pb::ReportMode::CommitStatus,
     }
 }
 

@@ -3,7 +3,7 @@
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::integrations::connections::{ConnectionState, DeliveryMode, VcsConnectionId};
-use scylla_domain::integrations::links::{GitLabRole, PipelineSource, ReportMode, RepositoryLink};
+use scylla_domain::integrations::links::{GitLabRole, PipelineSource, RepositoryLink};
 use scylla_domain::integrations::VcsProvider;
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -33,8 +33,6 @@ pub(super) struct NewLink<'a> {
     pub(super) connection: VcsConnectionId,
     /// The repository, as the provider gives it.
     pub(super) repository: &'a Repository,
-    /// How Scylla reports.
-    pub(super) report_mode: ReportMode,
     /// How the provider tells Scylla about the new commits.
     pub(super) delivery_mode: DeliveryMode,
     /// The time between two polls, in seconds.
@@ -69,8 +67,6 @@ pub(super) struct Repository {
 pub(super) struct Changes {
     /// `true` reports the results to the provider.
     pub(super) reports_enabled: Option<bool>,
-    /// The report mode.
-    pub(super) report_mode: Option<ReportMode>,
     /// The time between two polls, in seconds.
     pub(super) poll_interval_seconds: Option<u32>,
 }
@@ -96,7 +92,7 @@ pub(crate) async fn find(tx: &mut Tx<'_>, project: ProjectId) -> Result<Option<L
     let row = sqlx::query!(
         "SELECT l.project_id, l.workspace_id, l.connection_id, l.external_id, l.full_name,
                 l.web_url, l.default_branch, l.private, l.role, l.pipeline_source,
-                l.reports_enabled, l.report_mode, l.delivery_mode, l.poll_interval_seconds,
+                l.reports_enabled, l.delivery_mode, l.poll_interval_seconds,
                 l.last_event_at, l.state, l.state_reason, l.created_by, l.created_at,
                 c.provider, c.account, c.state AS connection_state,
                 c.state_reason AS connection_reason
@@ -133,7 +129,6 @@ pub(crate) async fn find(tx: &mut Tx<'_>, project: ProjectId) -> Result<Option<L
         pipeline_source: PipelineSource::parse(&row.pipeline_source)
             .ok_or_else(|| unknown("pipeline source"))?,
         reports_enabled: row.reports_enabled,
-        report_mode: ReportMode::parse(&row.report_mode).ok_or_else(|| unknown("report mode"))?,
         delivery_mode: DeliveryMode::parse(&row.delivery_mode)
             .ok_or_else(|| unknown("delivery mode"))?,
         poll_interval_seconds: u32::try_from(row.poll_interval_seconds)
@@ -170,11 +165,10 @@ pub(super) async fn insert(tx: &mut Tx<'_>, new: &NewLink<'_>) -> Result<bool, E
     let inserted = sqlx::query!(
         "INSERT INTO repository_links (project_id, workspace_id, connection_id, external_id,
                                        full_name, web_url, default_branch, private, role,
-                                       report_mode, delivery_mode, poll_interval_seconds,
-                                       next_poll_at, hook_id, sealed_hook_secret, state_reason,
-                                       created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                 CASE WHEN $11 = 'polling' THEN now() END, $13, $14, $15, $16)
+                                       delivery_mode, poll_interval_seconds, next_poll_at,
+                                       hook_id, sealed_hook_secret, state_reason, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                 CASE WHEN $10 = 'polling' THEN now() END, $12, $13, $14, $15)
          ON CONFLICT (project_id) DO NOTHING",
         new.project.to_db(),
         new.workspace.to_db(),
@@ -185,7 +179,6 @@ pub(super) async fn insert(tx: &mut Tx<'_>, new: &NewLink<'_>) -> Result<bool, E
         repository.default_branch,
         repository.private,
         repository.role.map(GitLabRole::as_str),
-        new.report_mode.as_str(),
         new.delivery_mode.as_str(),
         i32::try_from(new.poll_interval_seconds).unwrap_or(i32::MAX),
         hook_id,
@@ -208,13 +201,11 @@ pub(super) async fn update(
     let updated = sqlx::query!(
         "UPDATE repository_links
          SET reports_enabled = COALESCE($2, reports_enabled),
-             report_mode = COALESCE($3, report_mode),
-             poll_interval_seconds = COALESCE($4, poll_interval_seconds),
+             poll_interval_seconds = COALESCE($3, poll_interval_seconds),
              updated_at = now()
          WHERE project_id = $1",
         project.to_db(),
         changes.reports_enabled,
-        changes.report_mode.map(ReportMode::as_str),
         changes
             .poll_interval_seconds
             .map(|seconds| i32::try_from(seconds).unwrap_or(i32::MAX)),

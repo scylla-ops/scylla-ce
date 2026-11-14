@@ -1,9 +1,9 @@
 //! The outbox of the reports: a change of a job records the state that its report must send, in
 //! the transaction of the change. The sender posts it later.
 
-use scylla_domain::integrations::links::ReportMode;
-use scylla_domain::integrations::reports::{pipeline_key, report_context, ReportedStatus};
-use scylla_domain::integrations::VcsProvider;
+use scylla_domain::integrations::reports::{
+    pipeline_key, report_context, ReportMode, ReportedStatus,
+};
 use scylla_domain::projects::jobs::Job;
 use scylla_extension::Tx;
 
@@ -34,10 +34,7 @@ pub(crate) async fn job_changed(tx: &mut Tx<'_>, job: &Job) -> Result<(), Error>
         context: report_context(&key),
         project: job.project_id,
         connection: target.connection,
-        mode: match target.provider {
-            VcsProvider::GitHub => target.mode,
-            VcsProvider::GitLab => ReportMode::CommitStatus,
-        },
+        mode: ReportMode::of(target.provider),
         status: ReportedStatus::of_job(job.status, !job.file_errors.is_empty()),
         active: target.active,
     };

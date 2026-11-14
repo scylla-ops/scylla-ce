@@ -1,7 +1,6 @@
 //! The proto values of the reports: a report of a job, and the reports of one job.
 
-use scylla_domain::integrations::links::ReportMode;
-use scylla_domain::integrations::reports::ReportState;
+use scylla_domain::integrations::reports::{ReportMode, ReportState};
 use scylla_domain::integrations::VcsProvider;
 use scylla_proto::integrations::v1 as pb;
 

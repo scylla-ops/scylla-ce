@@ -1,6 +1,6 @@
-//! The tests of the reports of the runs on the commits: the commit statuses on GitHub and
-//! GitLab, the failed calls, the access to the reports, the health of the connections, and the
-//! live providers.
+//! The tests of the reports of the runs on the commits: the commit statuses on GitLab, the failed
+//! calls, the access to the reports, the health of the connections, and the live providers. The
+//! check runs on GitHub are in `checks`.
 
 mod access;
 mod failures;
@@ -22,11 +22,8 @@ const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 /// The token of the GitLab service account of the tests.
 const GITLAB_TOKEN: &str = "glpat-reports";
 
-/// The token of the installation 42 of the test GitHub App.
-const GITHUB_TOKEN: &str = "ghs_reports";
-
-/// The path of the commit statuses of the commit on GitHub.
-const GITHUB_STATUSES: &str = "/repos/octo/app/statuses/0123456789abcdef0123456789abcdef01234567";
+/// The path of the check runs of `octo/app` on GitHub.
+const CHECK_RUNS: &str = "/repos/octo/app/check-runs";
 
 /// The path of the commit statuses of the commit on GitLab.
 const GITLAB_STATUSES: &str =
@@ -57,7 +54,7 @@ async fn app_with(pool: PgPool, fake: &FakeProvider) -> TestApp {
 
 /// Makes a project with the pipeline `build`. On `github`, the project is linked to `octo/app`
 /// (id 7) through the installation 42. On `gitlab`, it is linked to `group/app` (id 7) through a
-/// service account. Else it has no link. A link reports with commit statuses.
+/// service account. Else it has no link.
 async fn linked(app: &TestApp, provider: &str) -> Linked {
     // Make the project and its pipeline.
     let owner = app.user().await;
@@ -91,7 +88,6 @@ async fn linked(app: &TestApp, provider: &str) -> Linked {
             default_branch: "main",
         };
         app.insert_repository_link(&link).await;
-        app.set_link_report_mode(&project, "commit_status").await;
     }
     Linked {
         owner,
@@ -103,9 +99,9 @@ async fn linked(app: &TestApp, provider: &str) -> Linked {
 }
 
 /// Programs a fake GitHub: the installation 42 gets a token, `main` is the commit `SHA`, and
-/// each commit status gets `status`.
+/// each new check run gets `status`.
 fn github(fake: &FakeProvider, status: u16) {
-    let token = json!({ "token": GITHUB_TOKEN, "expires_at": "2099-01-01T00:00:00Z" });
+    let token = json!({ "token": "ghs_reports", "expires_at": "2099-01-01T00:00:00Z" });
     fake.respond(
         "POST",
         "/app/installations/42/access_tokens",
@@ -125,8 +121,8 @@ fn github(fake: &FakeProvider, status: u16) {
         commit,
         &[],
     );
-    let answer = json!({ "id": 1, "state": "pending" });
-    fake.respond("POST", GITHUB_STATUSES, status, answer, &[]);
+    let answer = json!({ "id": 99, "html_url": "https://github.com/octo/app/runs/99" });
+    fake.respond("POST", CHECK_RUNS, status, answer, &[]);
 }
 
 /// Programs a fake GitLab: `main` is the commit `SHA`, and each commit status gets the GitLab

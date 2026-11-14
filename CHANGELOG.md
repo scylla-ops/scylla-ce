@@ -231,6 +231,12 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   with no ref. A schedule or a webhook of a file pipeline, and a Git trigger that a person fires
   now, run at the head of the default branch with the event `trigger`.
 
+### Removed
+
+- A GitHub repository reports only with a check run. The commit status mode of a link and the field
+  `report_mode` of `UpdateRepositoryLink` are removed. GitLab continues to report with a commit
+  status.
+
 ### Fixed
 
 - A join code never starts with `-`. A command line read such a code as a flag, so about one code in

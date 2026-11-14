@@ -20,16 +20,6 @@ named! {
 }
 
 named! {
-    /// How Scylla reports the result of a pipeline to the provider.
-    pub enum ReportMode {
-        /// A check run with a summary of the nodes, on GitHub only.
-        CheckRun = "check_run",
-        /// A commit status.
-        CommitStatus = "commit_status",
-    }
-}
-
-named! {
     /// The role of a GitLab service account on a project.
     pub enum GitLabRole {
         /// It can report, but not make the webhook or the merge rule.
@@ -66,8 +56,6 @@ pub struct RepositoryLink {
     pub pipeline_source: PipelineSource,
     /// `true` when Scylla reports the results to the provider.
     pub reports_enabled: bool,
-    /// How Scylla reports.
-    pub report_mode: ReportMode,
     /// How the provider tells Scylla about the new commits.
     pub delivery_mode: DeliveryMode,
     /// The time between two polls in polling mode, in seconds.

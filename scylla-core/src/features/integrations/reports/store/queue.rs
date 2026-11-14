@@ -2,7 +2,6 @@
 //! pass takes, what a call needs, and the result of a call.
 
 use scylla_domain::integrations::connections::VcsConnectionId;
-use scylla_domain::integrations::links::ReportMode;
 use scylla_domain::integrations::reports::ReportedStatus;
 use scylla_domain::projects::jobs::JobId;
 use scylla_extension::Tx;
@@ -21,8 +20,6 @@ pub(crate) struct Claimed {
     pub(crate) context: String,
     /// The connection that sends it.
     pub(crate) connection: VcsConnectionId,
-    /// A check run or a commit status.
-    pub(crate) mode: ReportMode,
     /// The latest state of the run.
     pub(crate) status: ReportedStatus,
     /// The number of this state.
@@ -115,7 +112,7 @@ pub(crate) async fn claim(
                LIMIT $1
                FOR UPDATE SKIP LOCKED) due
          WHERE r.job_id = due.job_id AND r.context = due.context
-         RETURNING r.job_id, r.context, r.connection_id, r.mode, r.wanted_state, r.sequence,
+         RETURNING r.job_id, r.context, r.connection_id, r.wanted_state, r.sequence,
                    r.attempts, r.external_id",
         limit,
         lease_seconds,
@@ -126,13 +123,10 @@ pub(crate) async fn claim(
         .map(|row| {
             let status = ReportedStatus::parse(&row.wanted_state)
                 .ok_or_else(|| Error::Internal("unknown state of a report".to_owned()))?;
-            let mode = ReportMode::parse(&row.mode)
-                .ok_or_else(|| Error::Internal("unknown mode of a report".to_owned()))?;
             Ok(Claimed {
                 job: JobId::from_db(row.job_id),
                 context: row.context,
                 connection: VcsConnectionId::from_db(row.connection_id),
-                mode,
                 status,
                 sequence: row.sequence,
                 attempts: row.attempts,

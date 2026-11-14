@@ -162,8 +162,6 @@ impl LinksGrpc {
         let caller = self.ctx.gate.caller(&request).await?;
         let request = request.into_inner();
         let project = parse::required(request.project_id, "project_id")?;
-        let report_mode = convert::report_mode_of(request.report_mode)
-            .ok_or_else(|| Error::invalid("report_mode", "is not a report mode"))?;
         let poll_interval_seconds = request.poll_interval_seconds;
         if poll_interval_seconds.is_some_and(|seconds| !POLL_INTERVAL.contains(&seconds)) {
             let reason = "must be from 60 to 900 seconds";
@@ -171,7 +169,6 @@ impl LinksGrpc {
         }
         let changes = Changes {
             reports_enabled: request.reports_enabled,
-            report_mode,
             poll_interval_seconds,
         };
 
