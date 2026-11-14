@@ -26,6 +26,9 @@ const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 /// Another commit.
 const OTHER_SHA: &str = "89abcdef0123456789abcdef0123456789abcdef";
 
+/// The path of the check runs of `octo/app`.
+const CHECK_RUNS: &str = "/repos/octo/app/check-runs";
+
 /// A linked project of a test.
 struct Linked {
     /// The owner of the workspace.
@@ -39,15 +42,13 @@ struct Linked {
 }
 
 /// Starts a server that calls a fake GitHub with the test GitHub App: the installation 42 gets a
-/// token, and the commit statuses of both commits are created.
+/// token, and a new check run gets the id 99.
 async fn app_with(pool: PgPool, fake: &FakeProvider) -> TestApp {
     let token = json!({ "token": "ghs_approvals", "expires_at": "2099-01-01T00:00:00Z" });
     let path = "/app/installations/42/access_tokens";
     fake.respond("POST", path, 201, token, &[]);
-    for sha in [SHA, OTHER_SHA] {
-        let answer = json!({ "id": 1, "state": "pending" });
-        fake.respond("POST", &statuses(sha), 201, answer, &[]);
-    }
+    let check = json!({ "id": 99, "html_url": "https://github.com/octo/app/runs/99" });
+    fake.respond("POST", CHECK_RUNS, 201, check, &[]);
     let options = ServeOptions {
         vcs: fake.options(true),
         ..ServeOptions::default()
@@ -55,13 +56,8 @@ async fn app_with(pool: PgPool, fake: &FakeProvider) -> TestApp {
     TestApp::spawn_with(pool, scylla_ce::edition(), options).await
 }
 
-/// Returns the path of the commit statuses of a commit of `octo/app`.
-fn statuses(sha: &str) -> String {
-    format!("/repos/octo/app/statuses/{sha}")
-}
-
 /// Makes a project with one pipeline of these nodes, linked to `octo/app` (id 7) through the
-/// installation 42 in the commit status mode.
+/// installation 42.
 async fn linked(app: &TestApp, nodes: Vec<Node>) -> Linked {
     let owner = app.user().await;
     let workspace = app.workspace_of(owner).await;
@@ -80,7 +76,6 @@ async fn linked(app: &TestApp, nodes: Vec<Node>) -> Linked {
         default_branch: "main",
     };
     app.insert_repository_link(&link).await;
-    app.set_link_report_mode(&project, "commit_status").await;
     Linked {
         owner,
         workspace,
@@ -264,8 +259,8 @@ async fn approve_job_refuses_a_job_that_does_not_wait(pool: PgPool) {
     assert_eq!(state, Some(ApprovalState::Approved as i32));
 }
 
-/// The report of a job on its commit follows the decision: `Queued` after an approval, and
-/// `Cancelled` after a rejection.
+/// The check run of a job on its commit follows the decision: queued after an approval, and
+/// completed as cancelled after a rejection.
 #[sqlx::test(migrations = false)]
 async fn a_decision_changes_the_report_of_the_job(pool: PgPool) {
     // given
@@ -278,16 +273,21 @@ async fn a_decision_changes_the_report_of_the_job(pool: PgPool) {
     // when
     app.approve_job(linked.owner, &approved).await.unwrap();
     app.reject_job(linked.owner, &rejected).await.unwrap();
-    let queued = wait_for_requests(&fake, "POST", &statuses(SHA), 1).await;
-    let cancelled = wait_for_requests(&fake, "POST", &statuses(OTHER_SHA), 1).await;
+    let created = wait_for_requests(&fake, "POST", CHECK_RUNS, 2).await;
 
     // then
-    let queued = &queued[0].body;
-    assert_eq!(queued["state"], "pending");
-    assert_eq!(queued["context"], "scylla/build");
-    assert_eq!(queued["description"], "Queued");
-    let cancelled = &cancelled[0].body;
-    assert_eq!(cancelled["state"], "error");
-    assert_eq!(cancelled["context"], "scylla/build");
-    assert_eq!(cancelled["description"], "Cancelled");
+    let of = |sha: &str| {
+        let found = created
+            .iter()
+            .find(|request| request.body["head_sha"] == sha);
+        found.expect("a check run of the commit").body.clone()
+    };
+    let queued = of(SHA);
+    assert_eq!(queued["name"], "scylla/build");
+    assert_eq!(queued["status"], "queued");
+    assert_eq!(queued["output"]["title"], "Queued");
+    let cancelled = of(OTHER_SHA);
+    assert_eq!(cancelled["name"], "scylla/build");
+    assert_eq!(cancelled["status"], "completed");
+    assert_eq!(cancelled["conclusion"], "cancelled");
 }

@@ -1,9 +1,7 @@
 //! The tests of the link of a GitHub repository: the check that the installation sees the
 //! repository, and the refusals of a second link and of a repository that it does not see.
 
-use scylla_proto::integrations::v1::{
-    ConnectionState, DeliveryMode, PipelineSource, ReportMode, VcsProvider,
-};
+use scylla_proto::integrations::v1::{ConnectionState, DeliveryMode, PipelineSource, VcsProvider};
 use serde_json::json;
 use sqlx::PgPool;
 
@@ -16,8 +14,7 @@ fn permissions() -> serde_json::Value {
 }
 
 /// Story 8.1, step 4: an editor links a repository that the installation sees. The link has the
-/// default branch, the check run mode and the webhook mode, and the readers of the project read
-/// it.
+/// default branch and the webhook mode, and the readers of the project read it.
 #[sqlx::test(migrations = false)]
 async fn link_repository_links_a_github_repository(pool: PgPool) {
     // given
@@ -44,7 +41,6 @@ async fn link_repository_links_a_github_repository(pool: PgPool) {
     assert_eq!(linked.web_url, "https://github.com/octo/api");
     assert_eq!(linked.default_branch, "main");
     assert!(linked.private && linked.reports_enabled);
-    assert_eq!(linked.report_mode, ReportMode::CheckRun as i32);
     assert_eq!(linked.delivery_mode, DeliveryMode::Webhook as i32);
     assert_eq!(linked.pipeline_source, PipelineSource::Editor as i32);
     assert_eq!(linked.state, ConnectionState::Active as i32);

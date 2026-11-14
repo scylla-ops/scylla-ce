@@ -162,7 +162,7 @@ fn token_scope_body_narrows_the_token() {
     let scope = TokenScope::default()
         .repository(9)
         .repository(3)
-        .permission("statuses", "write")
+        .permission("checks", "write")
         .permission("contents", "read");
 
     // when
@@ -173,7 +173,7 @@ fn token_scope_body_narrows_the_token() {
         body,
         json!({
             "repository_ids": [3, 9],
-            "permissions": { "contents": "read", "statuses": "write" },
+            "permissions": { "checks": "write", "contents": "read" },
         })
     );
     assert_eq!(TokenScope::default().body(), json!({}));

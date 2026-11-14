@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT l.project_id, l.workspace_id, l.connection_id, l.external_id, l.full_name,\n                l.web_url, l.default_branch, l.private, l.role, l.pipeline_source,\n                l.reports_enabled, l.report_mode, l.delivery_mode, l.poll_interval_seconds,\n                l.last_event_at, l.state, l.state_reason, l.created_by, l.created_at,\n                c.provider, c.account, c.state AS connection_state,\n                c.state_reason AS connection_reason\n         FROM repository_links l JOIN vcs_connections c ON c.id = l.connection_id\n         WHERE l.project_id = $1",
+  "query": "SELECT l.project_id, l.workspace_id, l.connection_id, l.external_id, l.full_name,\n                l.web_url, l.default_branch, l.private, l.role, l.pipeline_source,\n                l.reports_enabled, l.delivery_mode, l.poll_interval_seconds,\n                l.last_event_at, l.state, l.state_reason, l.created_by, l.created_at,\n                c.provider, c.account, c.state AS connection_state,\n                c.state_reason AS connection_reason\n         FROM repository_links l JOIN vcs_connections c ON c.id = l.connection_id\n         WHERE l.project_id = $1",
   "describe": {
     "columns": [
       {
@@ -126,17 +126,6 @@
       },
       {
         "ordinal": 11,
-        "name": "report_mode",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "repository_links",
-            "name": "report_mode"
-          }
-        }
-      },
-      {
-        "ordinal": 12,
         "name": "delivery_mode",
         "type_info": "Text",
         "origin": {
@@ -147,7 +136,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 12,
         "name": "poll_interval_seconds",
         "type_info": "Int4",
         "origin": {
@@ -158,7 +147,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 13,
         "name": "last_event_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -169,7 +158,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 14,
         "name": "state",
         "type_info": "Text",
         "origin": {
@@ -180,7 +169,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 15,
         "name": "state_reason",
         "type_info": "Text",
         "origin": {
@@ -191,7 +180,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 16,
         "name": "created_by",
         "type_info": "Uuid",
         "origin": {
@@ -202,7 +191,7 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 17,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -213,7 +202,7 @@
         }
       },
       {
-        "ordinal": 19,
+        "ordinal": 18,
         "name": "provider",
         "type_info": "Text",
         "origin": {
@@ -224,7 +213,7 @@
         }
       },
       {
-        "ordinal": 20,
+        "ordinal": 19,
         "name": "account",
         "type_info": "Text",
         "origin": {
@@ -235,7 +224,7 @@
         }
       },
       {
-        "ordinal": 21,
+        "ordinal": 20,
         "name": "connection_state",
         "type_info": "Text",
         "origin": {
@@ -246,7 +235,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 21,
         "name": "connection_reason",
         "type_info": "Text",
         "origin": {
@@ -276,7 +265,6 @@
       false,
       false,
       false,
-      false,
       true,
       false,
       true,
@@ -288,5 +276,5 @@
       true
     ]
   },
-  "hash": "45816bab531d33c19dd81ea2a239facdbe83125f58b8df5a6ff85932394938a6"
+  "hash": "72168f3f003afbdb5a5b7c4d7a11b3cd41504425a568ad992d2765f6e6e9396b"
 }

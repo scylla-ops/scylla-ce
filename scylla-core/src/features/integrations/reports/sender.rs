@@ -1,10 +1,9 @@
 //! The sender of the reports: a task that wakes each 2 seconds or after a retry, takes the due
-//! reports, and posts the latest state of each one to its provider, as a check run or a commit
-//! status.
+//! reports, and posts the latest state of each one to its provider, as a check run on GitHub or a
+//! commit status on GitLab.
 
 use std::time::Duration;
 
-use scylla_domain::integrations::links::ReportMode;
 use scylla_domain::integrations::reports::ReportedStatus;
 use scylla_domain::integrations::VcsProvider;
 use time::OffsetDateTime;
@@ -12,7 +11,7 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use super::failures::{Failure, Next};
 use super::store::queue::{self, Claimed, Facts};
-use super::{checks, github, gitlab, health, states};
+use super::{checks, gitlab, health, states};
 use crate::features::integrations::IntegrationContext;
 use crate::Error;
 
@@ -28,9 +27,9 @@ const LEASE_SECONDS: f64 = 120.0;
 /// The failed calls after which a report stops.
 pub(super) const MAX_ATTEMPTS: i32 = 10;
 
-/// What a call posts.
+/// What a commit status on GitLab posts.
 pub(super) struct Outgoing {
-    /// The state on the provider.
+    /// The state on GitLab.
     pub(super) state: &'static str,
     /// The name of the report.
     pub(super) context: String,
@@ -107,17 +106,15 @@ async fn send(ctx: &IntegrationContext, claimed: Claimed) -> Result<(), Error> {
     let provider = VcsProvider::parse(&facts.provider)
         .ok_or_else(|| Error::Internal("unknown provider of a connection".to_owned()))?;
 
-    // Post the state: a check run or a commit status on GitHub, a commit status on GitLab.
-    let outgoing = outgoing(ctx, provider, &claimed, &facts);
-    let result = match (provider, claimed.mode) {
-        (VcsProvider::GitHub, ReportMode::CheckRun) => {
-            let output = checks::output(ctx, &claimed, &facts, &outgoing.target_url).await?;
-            checks::send(ctx, &claimed, &facts, &outgoing, &output).await
+    // Post the state: a check run on GitHub, a commit status on GitLab.
+    let target_url = target_url(ctx, &claimed, &facts);
+    let result = match provider {
+        VcsProvider::GitHub => {
+            let output = checks::output(ctx, &claimed, &facts, &target_url).await?;
+            checks::send(ctx, &claimed, &facts, &target_url, &output).await
         }
-        (VcsProvider::GitHub, ReportMode::CommitStatus) => {
-            github::send(ctx, &facts, &outgoing).await
-        }
-        (VcsProvider::GitLab, _) => {
+        VcsProvider::GitLab => {
+            let outgoing = outgoing(&claimed, &facts, target_url);
             let pipeline = claimed.external_id.as_deref();
             gitlab::send(ctx, claimed.connection, &facts, &outgoing, pipeline).await
         }
@@ -185,13 +182,17 @@ async fn keep(
     Ok(())
 }
 
-/// Makes what a call posts: the state of the provider, the description and the page of the run.
-fn outgoing(
-    ctx: &IntegrationContext,
-    provider: VcsProvider,
-    claimed: &Claimed,
-    facts: &Facts,
-) -> Outgoing {
+/// Returns the page of the run of a report in Scylla.
+fn target_url(ctx: &IntegrationContext, claimed: &Claimed, facts: &Facts) -> String {
+    format!(
+        "{}/{}/projects/{}/pipelines/{}/jobs/{}",
+        ctx.urls.app_url, facts.slug, facts.project, facts.pipeline, claimed.job
+    )
+}
+
+/// Makes what a commit status on GitLab posts: the state, the description and the page of the
+/// run.
+fn outgoing(claimed: &Claimed, facts: &Facts, target_url: String) -> Outgoing {
     let run = states::Run {
         started_at: facts.started_at,
         finished_at: facts.finished_at,
@@ -200,17 +201,10 @@ fn outgoing(
         file_line: facts.file_line.and_then(|line| u32::try_from(line).ok()),
     };
     let status: ReportedStatus = claimed.status;
-    let target_url = format!(
-        "{}/{}/projects/{}/pipelines/{}/jobs/{}",
-        ctx.urls.app_url, facts.slug, facts.project, facts.pipeline, claimed.job
-    );
     Outgoing {
-        state: match provider {
-            VcsProvider::GitHub => states::github(status),
-            VcsProvider::GitLab => states::gitlab(status),
-        },
+        state: states::gitlab(status),
         context: claimed.context.clone(),
-        description: states::description(provider, status, &run),
+        description: states::description(status, &run),
         target_url,
     }
 }

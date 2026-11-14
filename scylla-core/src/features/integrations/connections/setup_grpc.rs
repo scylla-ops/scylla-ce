@@ -3,11 +3,12 @@
 
 use scylla_domain::authz::Object;
 use scylla_domain::integrations::connections::VcsConnectionHolder;
-use scylla_domain::integrations::links::RepositoryAccess;
+use scylla_domain::integrations::links::{RepositoryAccess, RepositoryHolder};
 use scylla_domain::projects::ProjectId;
+use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::PageSize;
 use scylla_extension::{AccessError, Principal};
-use scylla_proto::common::v1::PageResponse;
+use scylla_proto::common::v1::{Id, PageResponse};
 use scylla_proto::integrations::v1 as pb;
 use tonic::Request;
 
@@ -175,8 +176,8 @@ impl ConnectionsGrpc {
         })
     }
 
-    /// Handles `ListConnectionRepositories`, for the link of a project: one page of the
-    /// repositories of a connection of the workspace of the project.
+    /// Handles `ListConnectionRepositories`, for the link of a project or of a project to create:
+    /// one page of the repositories of a connection of the workspace.
     pub(super) async fn repositories(
         &self,
         request: Request<pb::ListConnectionRepositoriesRequest>,
@@ -184,7 +185,6 @@ impl ConnectionsGrpc {
         // Authenticate the caller, then read the request.
         let caller = self.ctx.gate.caller(&request).await?;
         let request = request.into_inner();
-        let project: ProjectId = parse::required(request.project_id, "project_id")?;
         let id = parse::required(request.connection_id, "connection_id")?;
         let search = request.search.trim().to_owned();
         if search.chars().count() > MAX_SEARCH {
@@ -192,15 +192,9 @@ impl ConnectionsGrpc {
         }
         let (offset, size) = page(request.page.unwrap_or_default())?;
 
-        // Check the route permission on the project. An unknown project gets a refusal.
-        let check = RepositoryAccess::LIST_CONNECTION_REPOSITORIES.on(project);
-        let Some(workspace) = service::project_workspace(&self.ctx, project).await? else {
-            return Err(AccessError::denied(&caller, &check).into());
-        };
-        self.ctx
-            .gate
-            .authorize(&caller, check.within(workspace))
-            .await?;
+        // Check the route permission on the project or on the workspace.
+        let target = (request.project_id, request.workspace_id);
+        let workspace = self.repositories_workspace(&caller, target).await?;
 
         // Refuse a connection of another workspace as an unknown one.
         let found = service::get(&self.ctx, id).await?;
@@ -221,6 +215,40 @@ impl ConnectionsGrpc {
                 next_token: next.unwrap_or_default(),
             }),
         })
+    }
+
+    /// Checks `list_connection_repositories` on the project, or on the workspace of a project to
+    /// create, and returns the workspace. An unknown project gets a refusal.
+    async fn repositories_workspace(
+        &self,
+        caller: &Principal,
+        target: (Option<Id>, Option<Id>),
+    ) -> Result<WorkspaceId, Error> {
+        match target {
+            (Some(project), None) => {
+                let project: ProjectId = parse::field(project, "project_id")?;
+                let check = RepositoryAccess::LIST_CONNECTION_REPOSITORIES.on(project);
+                let Some(workspace) = service::project_workspace(&self.ctx, project).await? else {
+                    return Err(AccessError::denied(caller, &check).into());
+                };
+                self.ctx
+                    .gate
+                    .authorize(caller, check.within(workspace))
+                    .await?;
+                Ok(workspace)
+            }
+            (None, Some(workspace)) => {
+                let workspace = parse::field(workspace, "workspace_id")?;
+                let permission = RepositoryHolder::LIST_CONNECTION_REPOSITORIES;
+                self.authorize(caller, permission, workspace).await?;
+                Ok(workspace)
+            }
+            (Some(_), Some(_)) => Err(Error::invalid(
+                "workspace_id",
+                "must not be set with project_id",
+            )),
+            (None, None) => Err(Error::invalid("project_id", "is required")),
+        }
     }
 }
 

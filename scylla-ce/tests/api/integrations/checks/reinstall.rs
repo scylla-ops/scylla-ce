@@ -28,7 +28,6 @@ fn uninstalled() -> Value {
 fn permissions() -> Value {
     json!({
         "checks": "write",
-        "statuses": "write",
         "contents": "read",
         "pull_requests": "read",
         "metadata": "read",
