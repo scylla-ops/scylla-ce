@@ -11,7 +11,6 @@ use time::{Date, Duration, Month, OffsetDateTime};
 /// The permissions that Scylla asks of the GitHub App, with their access.
 pub(crate) const WANTED: &[(&str, &str)] = &[
     ("checks", "write"),
-    ("statuses", "write"),
     ("contents", "read"),
     ("pull_requests", "read"),
     ("metadata", "read"),

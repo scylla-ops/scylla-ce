@@ -51,7 +51,6 @@ async fn start_git_hub_manifest_gives_the_manifest_and_the_page_of_github(pool: 
     );
     let permissions = json!({
         "checks": "write",
-        "statuses": "write",
         "contents": "read",
         "pull_requests": "read",
         "metadata": "read",

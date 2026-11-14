@@ -40,7 +40,6 @@ fn assert_reason<T: std::fmt::Debug>(result: Result<T, Status>, reason: &str) {
 fn permissions() -> Value {
     json!({
         "checks": "write",
-        "statuses": "write",
         "contents": "read",
         "pull_requests": "read",
         "metadata": "read",

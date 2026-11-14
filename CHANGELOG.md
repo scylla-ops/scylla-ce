@@ -281,3 +281,5 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `APP_HAS_NO_WEBHOOK`, and its connection polls too. `TestDelivery` tells it and moves an existing
   link to the polling mode. Before, a push started a run only at the safety poll after 15 minutes,
   and the test gave a raw error of GitHub.
+- The GitHub App does not ask for the permission `statuses: write`: a GitHub report is a check run.
+  An App or an installation that still has this permission stays active, with no warning.
