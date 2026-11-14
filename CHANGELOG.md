@@ -138,9 +138,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   at most one year. With no period, it counts the last 30 days.
 - `ListMembers` and `ListRoleHolders` give `runner` for each actor: true for an App that runs jobs
   (an agent).
-- The API has the contract of the GitHub and GitLab integration. Until the integration is complete,
-  its new RPCs give `UNIMPLEMENTED`, and a push, pull request or tag trigger gives
-  `TRIGGER_KIND_NOT_SUPPORTED`.
+- The API has the contract of the GitHub and GitLab integration. A push, pull request or tag
+  trigger needs a linked repository (`NO_REPOSITORY_LINK`), and a file pipeline gets its Git
+  triggers from its file (`PIPELINE_READ_ONLY`).
 - The permission model of the Git integration: the catalog areas `git_providers` (instance),
   `integrations` (workspace) and `repository` (project), and the cell `jobs.approve` for the runs
   from a fork. A project editor approves a run and links a repository, and a project viewer reads
