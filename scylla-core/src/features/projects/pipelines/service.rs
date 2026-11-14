@@ -1,26 +1,30 @@
 //! The logic of the pipelines: one transaction for each call, with the hooks.
 
 use scylla_domain::identity::actors::Actor;
-use scylla_domain::projects::jobs::{Job, NewJob};
+use scylla_domain::integrations::sources::{GitRef, SourceEvent};
+use scylla_domain::projects::jobs::{Job, StartJob};
 use scylla_domain::projects::pipelines::{
-    EnvValue, EnvVar, ListPipelines, NewPipeline, Node, Pipeline, PipelineChange, PipelineId,
-    PipelineLayout, PipelinePage, KIND,
+    ListPipelines, NewPipeline, Node, Pipeline, PipelineChange, PipelineId, PipelineLayout,
+    PipelinePage, PipelineScope, KIND,
 };
-use scylla_domain::projects::triggers::TriggerId;
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Page;
-use scylla_extension::{CreateContext, DeleteContext, Hooks, Tx};
+use scylla_extension::{CreateContext, DeleteContext, Hooks, Rejection, Tx};
 use sqlx::PgPool;
 
 use super::store::{self, Changed};
 use crate::features::identity::agents::Registry;
+use crate::features::integrations::{files, sources, IntegrationContext};
 use crate::features::projects::jobs::{self, runs};
 use crate::features::projects::{secrets, service as projects};
 use crate::Error;
 
 /// The largest JSON of the nodes of a pipeline, in bytes.
 const MAX_NODES_JSON: usize = 8 << 20;
+
+/// The code of a change of a pipeline that is read only.
+const READ_ONLY: &str = "PIPELINE_READ_ONLY";
 
 /// Creates a pipeline in a project if each `BeforeCreate` hook accepts it.
 pub(crate) async fn create(
@@ -30,9 +34,13 @@ pub(crate) async fn create(
     workspace: WorkspaceId,
     new: NewPipeline,
 ) -> Result<Pipeline, Error> {
-    // Check the size of the nodes, then run the hooks.
+    // Check the size of the nodes, refuse a project of files, then run the hooks.
     check_size(&new.nodes)?;
     let mut tx = pool.begin().await?;
+    if store::uses_files(&mut tx, new.project_id).await? {
+        let message = "the project takes its pipelines from the files of its repository";
+        return Err(Error::Rejected(Rejection::new(READ_ONLY, message)));
+    }
     hooks
         .before_create(&mut tx, &CreateContext::new(KIND, actor, workspace))
         .await?;
@@ -62,12 +70,20 @@ pub(crate) async fn get(pool: &PgPool, id: PipelineId) -> Result<Option<Pipeline
     Ok(pipeline)
 }
 
-/// Returns a pipeline with its saved places, or `None` if no pipeline has this id.
+/// Returns a pipeline with its saved places, or `None` if no pipeline has this id. An active file
+/// pipeline first reads the default branch again when it changed, at most each 30 seconds.
 pub(crate) async fn get_with_layout(
-    pool: &PgPool,
+    ctx: &IntegrationContext,
     id: PipelineId,
 ) -> Result<Option<(Pipeline, Option<PipelineLayout>)>, Error> {
-    let mut tx = pool.begin().await?;
+    // Read the default branch again for an active file pipeline.
+    let pipeline = get(&ctx.pool, id).await?;
+    if let Some(pipeline) = pipeline.as_ref().filter(|found| found.file.is_some()) {
+        files::refresh(ctx, pipeline.project_id).await;
+    }
+
+    // Read the pipeline and its places.
+    let mut tx = ctx.pool.begin().await?;
     let pipeline = store::find(&mut tx, id).await?;
     let layout = store::find_layout(&mut tx, id).await?;
     tx.commit().await?;
@@ -124,9 +140,16 @@ pub(crate) async fn place(
     Ok(place)
 }
 
-/// Returns one page of pipelines, oldest first.
-pub(crate) async fn list(pool: &PgPool, query: ListPipelines) -> Result<PipelinePage, Error> {
-    let mut tx = pool.begin().await?;
+/// Returns one page of pipelines, oldest first. A project of files first reads its default
+/// branch again when it changed, at most each 30 seconds.
+pub(crate) async fn list(
+    ctx: &IntegrationContext,
+    query: ListPipelines,
+) -> Result<PipelinePage, Error> {
+    if let (PipelineScope::Project(project), None) = (query.scope, query.page.after) {
+        files::refresh(ctx, project).await;
+    }
+    let mut tx = ctx.pool.begin().await?;
     let items = store::list(&mut tx, query.scope, query.page).await?;
     tx.commit().await?;
     Ok(Page::from_overfetch(items, query.page.size, |pipeline| {
@@ -146,8 +169,9 @@ pub(crate) async fn update(
         check_size(nodes)?;
     }
 
-    // Change the pipeline and its places.
+    // Refuse a read only pipeline, then change the pipeline and its places.
     let mut tx = pool.begin().await?;
+    refuse_read_only(&mut tx, id).await?;
     let changed = store::update(&mut tx, id, &change).await?;
     if let Changed::Done(pipeline) = &changed {
         let nodes = ids_of(&pipeline.nodes);
@@ -160,7 +184,7 @@ pub(crate) async fn update(
 
     // Answer the result of the change.
     match changed {
-        Changed::Done(pipeline) => Ok(pipeline),
+        Changed::Done(pipeline) => Ok(*pipeline),
         Changed::Stale => Err(Error::Conflict("the pipeline changed: read it again")),
         Changed::Missing => Err(Error::NotFound("pipeline")),
     }
@@ -175,8 +199,9 @@ pub(crate) async fn delete(
     actor: Actor,
     id: PipelineId,
 ) -> Result<(), Error> {
-    // Delete the row and run the hooks in one transaction.
+    // Refuse a read only pipeline, then delete the row and run the hooks in one transaction.
     let mut tx = pool.begin().await?;
+    refuse_read_only(&mut tx, id).await?;
     let (_, workspace) = store::place(&mut tx, id)
         .await?
         .ok_or(Error::NotFound("pipeline"))?;
@@ -198,65 +223,60 @@ pub(crate) async fn delete(
     Ok(())
 }
 
-/// Starts a pending job of a pipeline with a snapshot of its nodes. A secret that a node names
-/// and that the project does not have gives `NOT_FOUND`.
+/// Starts a job of a pipeline with a snapshot of its nodes, with no source, or on a commit of the
+/// linked repository. A file pipeline takes the file of its key at the ref, or at the head of the
+/// default branch with no ref. A secret that a node names and that the project does not have
+/// gives `NOT_FOUND`.
 pub(crate) async fn run(
-    pool: &PgPool,
-    hooks: &Hooks,
-    registry: &Registry,
+    ctx: &IntegrationContext,
     actor: Actor,
     id: PipelineId,
+    git_ref: Option<GitRef>,
 ) -> Result<Job, Error> {
-    let pipeline = get(pool, id).await?.ok_or(Error::NotFound("pipeline"))?;
-    start(pool, hooks, registry, actor, pipeline, &[], None).await
+    let pipeline = get(&ctx.pool, id)
+        .await?
+        .ok_or(Error::NotFound("pipeline"))?;
+    let start = match (&pipeline.file, &git_ref) {
+        (Some(_), _) => files::start_at(ctx, pipeline, git_ref, SourceEvent::Manual).await?,
+        (None, Some(git_ref)) => StartJob {
+            source: Some(sources::resolve(ctx, pipeline.project_id, git_ref).await?),
+            ..StartJob::of(pipeline)
+        },
+        (None, None) => StartJob::of(pipeline),
+    };
+    self::start(&ctx.pool, &ctx.hooks, &ctx.registry, actor, start).await
 }
 
-/// Starts a pending job of a pipeline, with more variables in each node and the trigger of the
-/// job. A variable of a node with the same name wins. A secret that a node names and that the
-/// project does not have gives `NOT_FOUND`.
+/// Starts a job: a run, a fire of a trigger or a new run of a job. Each node gets the variables
+/// that it does not have, and a job from a fork waits for an approval. A secret that a node names
+/// and that the project does not have gives `NOT_FOUND`.
 pub(crate) async fn start(
     pool: &PgPool,
     hooks: &Hooks,
     registry: &Registry,
     actor: Actor,
-    pipeline: Pipeline,
-    extra: &[EnvVar],
-    trigger_id: Option<TriggerId>,
+    start: StartJob,
 ) -> Result<Job, Error> {
-    // Refuse a missing secret.
-    let names: Vec<String> = pipeline
-        .nodes
-        .iter()
-        .flat_map(|node| &node.env)
-        .filter_map(|var| match &var.value {
-            EnvValue::Secret(name) => Some(name.as_str().to_owned()),
-            EnvValue::Literal(_) => None,
-        })
-        .collect();
-    if let Some(name) = secrets::missing(pool, pipeline.project_id, &names).await? {
-        tracing::info!(pipeline = %pipeline.id, secret = name, "a pipeline names a missing secret");
+    if let Some(name) = secrets::missing(pool, start.project_id, &start.secrets()).await? {
+        let pipeline = start.pipeline_id;
+        tracing::info!(%pipeline, secret = name, "a pipeline names a missing secret");
         return Err(Error::NotFound("secret"));
     }
-
-    // Add the variables that a node does not have, then create the job.
-    let mut nodes = pipeline.nodes;
-    for node in &mut nodes {
-        for var in extra {
-            if !node.env.iter().any(|own| own.name == var.name) {
-                node.env.push(var.clone());
-            }
-        }
-    }
-    let new = NewJob {
-        pipeline_id: pipeline.id,
-        project_id: pipeline.project_id,
-        workspace_id: pipeline.workspace_id,
-        created_by: actor.id,
-        rerun_of: None,
-        trigger_id,
-        nodes,
-    };
+    let new = start.into_new(actor.id);
     jobs::create(pool, hooks, registry, actor, new).await
+}
+
+/// Locks a pipeline, and refuses a file pipeline or an archived pipeline with
+/// `PIPELINE_READ_ONLY`.
+async fn refuse_read_only(tx: &mut Tx<'_>, id: PipelineId) -> Result<(), Error> {
+    match store::lock_read_only(tx, id).await? {
+        Some(true) => {
+            let message = "the pipeline comes from a file or is archived: it is read only";
+            Err(Error::Rejected(Rejection::new(READ_ONLY, message)))
+        }
+        Some(false) => Ok(()),
+        None => Err(Error::NotFound("pipeline")),
+    }
 }
 
 /// Refuses nodes whose JSON is larger than 8 MiB.

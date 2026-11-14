@@ -1,0 +1,239 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.started_at, j.finished_at,\n                  j.pipeline_file->>'path' AS file_path,\n                  (j.file_errors->0->'location'->>'line')::int AS file_line,\n                  (SELECT run->>'node' FROM jsonb_array_elements(j.runs) run\n                   WHERE run->>'status' = 'failed' LIMIT 1) AS failed_node,\n                  s.sha, s.branch, s.tag,\n                  s.pull_requests->0->>'source_branch' AS pull_branch,\n                  s.repository, s.url, j.pipeline_id::text AS \"pipeline!\",\n                  p.name AS pipeline_name, j.project_id::text AS \"project!\", w.slug, c.provider,\n                  c.app_id,\n                  c.external_id AS account_id, c.sealed_token, c.token_expires_at,\n                  l.external_id AS repository_id\n           FROM jobs j\n           JOIN job_sources s ON s.job_id = j.id\n           JOIN pipelines p ON p.id = j.pipeline_id\n           JOIN workspaces w ON w.id = j.workspace_id\n           JOIN vcs_connections c ON c.id = $2\n           JOIN repository_links l ON l.project_id = j.project_id AND l.connection_id = c.id\n           WHERE j.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "file_path",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "file_line",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "failed_node",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "sha",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "sha"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "branch",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "branch"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "tag",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "tag"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "pull_branch",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "repository",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "repository"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "url"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "pipeline!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "pipeline_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "project!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
+        "name": "slug",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "app_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "app_id"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "account_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "sealed_token",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "sealed_token"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "token_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "token_expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "repository_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "external_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null,
+      null,
+      null,
+      false,
+      true,
+      true,
+      null,
+      false,
+      false,
+      null,
+      false,
+      null,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "85d3d962dca9ca7e16aabc540df7e9badd7055ac994cd6c790d0e186c1146258"
+}

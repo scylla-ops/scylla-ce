@@ -33,6 +33,7 @@ fn host() -> Host {
         memory_bytes: 16 << 30,
         capacity: 0,
         container_runtime: "docker".to_owned(),
+        features: Vec::new(),
     }
 }
 

@@ -108,6 +108,18 @@ pub(crate) async fn reveal(
     SecretValue::parse(text).map_err(|error| Error::Internal(format!("secret {id}: {error}")))
 }
 
+/// Returns the names of a list that the project has as secrets.
+pub(crate) async fn known(
+    pool: &PgPool,
+    project: ProjectId,
+    names: &[String],
+) -> Result<Vec<String>, Error> {
+    let mut tx = pool.begin().await?;
+    let known = store::known(&mut tx, project, names).await?;
+    tx.commit().await?;
+    Ok(known)
+}
+
 /// Returns the first name of a list that the project does not have as a secret, or `None` if
 /// the project has each one.
 pub(crate) async fn missing(

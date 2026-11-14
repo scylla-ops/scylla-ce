@@ -5,6 +5,8 @@ use crate::identity::actors::{Actor, ActorId};
 use crate::identity::agents::AgentCaller;
 use crate::identity::apps::{App, AppHolder};
 use crate::identity::user_state::UserStateCaller;
+use crate::integrations::connections::VcsConnectionHolder;
+use crate::integrations::links::{RepositoryAccess, RepositoryHolder};
 use crate::notifications::NotificationCaller;
 use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
 use crate::projects::triggers::{TriggerAccess, TriggerHolder};
@@ -46,6 +48,9 @@ fn core() -> Schema {
         AccessCaller::part(),
         NotificationCaller::part(),
         UserStateCaller::part(),
+        VcsConnectionHolder::part(),
+        RepositoryAccess::part(),
+        RepositoryHolder::part(),
     ];
     for part in parts {
         schema.add(part).expect("core part fits");
@@ -79,7 +84,7 @@ fn an_extension_adds_to_its_definition() {
     let text = schema.to_string();
     assert!(text.contains("    relation runner: actor\n    relation auditor: actor\n"));
     assert!(text.contains(
-        "    permission list_pipeline_triggers = view\n    \
+        "    permission set_merge_block = edit\n    \
          permission audit = auditor + delete\n}"
     ));
 }

@@ -1,19 +1,25 @@
 //! The jobs: one run of a pipeline on an agent, with a snapshot of its nodes and the state of
 //! each node.
 
+mod git;
 mod logs;
+mod start;
 mod state;
 mod stats;
 #[cfg(test)]
 mod tests;
 
+pub use git::{CheckoutRun, JobApproval, PipelineFileRef};
 pub use logs::{LogBatch, LogBatchId, LogLine, LogStream};
+pub use start::{RerunOrigin, StartJob, INVALID_FILE};
 pub use state::{JobEvent, NodeRun};
 pub use stats::{AgentStats, DayOutcomes, Outcomes, StatsPeriod, MAX_STATS_DAYS, STATS_DAYS};
 use time::OffsetDateTime;
 
 use crate::identity::actors::ActorId;
 use crate::identity::apps::AppId;
+use crate::integrations::sources::{JobSource, SourceEvent};
+use crate::projects::pipeline_files::{CheckoutSettings, FileError};
 use crate::projects::pipelines::{Node, PipelineId};
 use crate::projects::ProjectId;
 use crate::tenancy::workspaces::WorkspaceId;
@@ -31,6 +37,9 @@ pub const MAX_ERROR: usize = 4096;
 /// The state of a job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobStatus {
+    /// A job from a fork waits for an editor of the project to approve or reject it. No agent
+    /// gets it.
+    AwaitingApproval,
     /// The job waits for an agent, or for the start of its agent.
     Pending,
     /// The agent runs the job.
@@ -49,6 +58,7 @@ impl JobStatus {
     /// Returns the name of the state, as the database keeps it.
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::AwaitingApproval => "awaiting_approval",
             Self::Pending => "pending",
             Self::Running => "running",
             Self::Completed => "completed",
@@ -61,6 +71,7 @@ impl JobStatus {
     /// Reads the name of a state.
     pub fn parse(name: &str) -> Option<Self> {
         [
+            Self::AwaitingApproval,
             Self::Pending,
             Self::Running,
             Self::Completed,
@@ -74,7 +85,7 @@ impl JobStatus {
 
     /// Returns `true` for a state that does not change again.
     pub fn is_final(self) -> bool {
-        !matches!(self, Self::Pending | Self::Running)
+        !matches!(self, Self::AwaitingApproval | Self::Pending | Self::Running)
     }
 }
 
@@ -163,6 +174,16 @@ pub struct Job {
     pub started_at: Option<OffsetDateTime>,
     /// The end.
     pub finished_at: Option<OffsetDateTime>,
+    /// The commit and the event of the job, or `None` for a job with no source.
+    pub source: Option<JobSource>,
+    /// The approval of a job from a fork, or `None` for another job.
+    pub approval: Option<JobApproval>,
+    /// The pipeline file of a job of a file pipeline, or `None` for an editor pipeline.
+    pub pipeline_file: Option<PipelineFileRef>,
+    /// The errors of an invalid pipeline file. The job failed with no node.
+    pub file_errors: Vec<FileError>,
+    /// The checkout of the code before the first node, or `None` for a job with no checkout.
+    pub checkout: Option<CheckoutRun>,
 }
 
 /// The input of a job creation: a run or a rerun.
@@ -182,6 +203,30 @@ pub struct NewJob {
     pub trigger_id: Option<crate::projects::triggers::TriggerId>,
     /// The nodes to run.
     pub nodes: Vec<Node>,
+    /// The commit and the event of the job.
+    pub source: Option<JobSource>,
+    /// `true` for a job that waits for an approval before an agent gets it.
+    pub awaiting: bool,
+    /// The pipeline file of a job of a file pipeline.
+    pub pipeline_file: Option<PipelineFileRef>,
+    /// The errors of an invalid pipeline file: the job fails at its creation.
+    pub file_errors: Vec<FileError>,
+    /// The checkout of the code before the first node, or `None` for a job with no checkout.
+    pub checkout: Option<CheckoutSettings>,
+}
+
+impl NewJob {
+    /// Returns the state of the new job: failed for an invalid pipeline file, awaiting approval,
+    /// or pending.
+    pub fn status(&self) -> JobStatus {
+        if !self.file_errors.is_empty() {
+            JobStatus::Failed
+        } else if self.awaiting {
+            JobStatus::AwaitingApproval
+        } else {
+            JobStatus::Pending
+        }
+    }
 }
 
 /// Where a job list looks.
@@ -193,13 +238,29 @@ pub enum JobScope {
     Workspace(WorkspaceId, Option<AppId>),
 }
 
+/// The filters of a job list. A job must match each filter that is set, and a job with no
+/// source matches no filter.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct JobFilter {
+    /// Only the jobs of this branch.
+    pub branch: Option<String>,
+    /// Only the jobs of this event.
+    pub event: Option<SourceEvent>,
+    /// Only the jobs of the commits of this author login.
+    pub author_login: Option<String>,
+    /// Only the jobs of this pull request number.
+    pub pull_request: Option<u32>,
+}
+
 /// The input of a job list: newest first.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ListJobs {
     /// Where to look.
     pub scope: JobScope,
     /// The page to return: the jobs before the key of the page.
     pub page: PageRequest<JobId>,
+    /// The filters.
+    pub filter: JobFilter,
 }
 
 /// One page of jobs.

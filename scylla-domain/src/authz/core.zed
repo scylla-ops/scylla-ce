@@ -80,6 +80,15 @@ definition workspace {
     permission list_pipeline_jobs = read
     permission list_workspace_jobs = read
     permission tail_job_logs = read
+    permission set_pipeline_source = work
+    permission approve_job = work
+    permission reject_job = work
+    permission list_job_reports = read
+    permission retry_job_report = work
+    permission validate_pipeline_file = read
+    permission export_pipeline = read
+    permission get_file_pipeline = read
+    permission list_pipeline_files = read
     permission create_trigger = work
     permission get_trigger = read
     permission update_trigger = work
@@ -87,6 +96,23 @@ definition workspace {
     permission set_trigger_enabled = work
     permission fire_trigger_now = work
     permission list_pipeline_triggers = read
+    permission get_vcs_providers = read
+    permission list_vcs_connections = read
+    permission get_vcs_connection = read
+    permission start_git_hub_install = manage
+    permission complete_git_hub_install = manage
+    permission connect_git_lab = manage
+    permission replace_git_lab_token = manage
+    permission delete_vcs_connection = manage
+    permission get_repository_link = read
+    permission list_refs = read
+    permission list_merge_blocks = read
+    permission list_connection_repositories = work
+    permission link_repository = work
+    permission update_repository_link = work
+    permission unlink_repository = work
+    permission test_delivery = work
+    permission set_merge_block = work
 }
 
 definition app {
@@ -141,6 +167,15 @@ definition project {
     permission rerun_job = edit
     permission list_pipeline_jobs = view
     permission tail_job_logs = view
+    permission set_pipeline_source = edit
+    permission approve_job = edit
+    permission reject_job = edit
+    permission list_job_reports = view
+    permission retry_job_report = edit
+    permission validate_pipeline_file = view
+    permission export_pipeline = view
+    permission get_file_pipeline = view
+    permission list_pipeline_files = view
     permission create_trigger = edit
     permission get_trigger = view
     permission update_trigger = edit
@@ -148,4 +183,13 @@ definition project {
     permission set_trigger_enabled = edit
     permission fire_trigger_now = edit
     permission list_pipeline_triggers = view
+    permission get_repository_link = view
+    permission list_refs = view
+    permission list_merge_blocks = view
+    permission list_connection_repositories = edit
+    permission link_repository = edit
+    permission update_repository_link = edit
+    permission unlink_repository = edit
+    permission test_delivery = edit
+    permission set_merge_block = edit
 }

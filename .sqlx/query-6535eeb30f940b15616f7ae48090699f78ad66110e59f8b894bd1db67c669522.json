@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.source = 'file' AS \"file!\",\n                  EXISTS (SELECT 1 FROM repository_links l WHERE l.project_id = p.project_id)\n                      AS \"linked!\"\n           FROM pipelines p WHERE p.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "linked!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "6535eeb30f940b15616f7ae48090699f78ad66110e59f8b894bd1db67c669522"
+}

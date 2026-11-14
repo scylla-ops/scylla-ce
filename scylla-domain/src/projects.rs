@@ -1,7 +1,10 @@
 //! The projects: the unit of work in a workspace. Their secrets, pipelines, jobs and triggers
-//! are in `secrets`, `pipelines`, `jobs` and `triggers`.
+//! are in `secrets`, `pipelines`, `jobs` and `triggers`, the pipeline files of a repository in
+//! `pipeline_files`, and the rules of the Git triggers in `git_rules`.
 
+pub mod git_rules;
 pub mod jobs;
+pub mod pipeline_files;
 pub mod pipelines;
 pub mod secrets;
 pub mod triggers;

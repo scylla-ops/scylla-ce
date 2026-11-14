@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_connections\n         SET all_repositories = $3,\n             repository_count = GREATEST(repository_count + $4 - $5, 0), updated_at = now()\n         WHERE provider = 'github' AND external_id = $1 AND app_id IS NOT DISTINCT FROM $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Bool",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a909b26a92524411325c54e30efc98a1925cd8a95037716eb3d0e4d62de95c6b"
+}

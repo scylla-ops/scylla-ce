@@ -1,11 +1,41 @@
 //! Unit tests of the loop of the cron schedules, which the API shows only after 15 seconds.
 
-use scylla_extension::Hooks;
+use std::sync::Arc;
+use std::time::Duration;
+
 use sqlx::PgPool;
 use time::OffsetDateTime;
 
 use super::schedule;
-use crate::features::identity::agents::Registry;
+use crate::features::identity::accounts::AccountSettings;
+use crate::features::integrations::IntegrationContext;
+use crate::features::projects::no_gate::NoGate;
+use crate::infra::vcs::{VcsClients, VcsOptions};
+use crate::SignUpMode;
+
+/// Returns what the loop shares with the Git integration: the pool, no hook, no agent, and the
+/// public providers.
+fn context(pool: PgPool) -> IntegrationContext {
+    let settings = VcsOptions::default();
+    IntegrationContext {
+        pool,
+        gate: Arc::new(NoGate),
+        hooks: Arc::default(),
+        registry: Arc::default(),
+        sealer: None,
+        clients: VcsClients::new(&settings).unwrap(),
+        settings: Arc::new(settings),
+        urls: Arc::new(AccountSettings {
+            api_url: "http://127.0.0.1".to_owned(),
+            app_url: "http://127.0.0.1".to_owned(),
+            sign_up_mode: SignUpMode::Closed,
+            session_ttl: Duration::from_secs(60),
+            web_origins: Vec::new(),
+            trust_forwarded: false,
+        }),
+        wake: Arc::default(),
+    }
+}
 
 /// The next time of a schedule is after the start, and a bad schedule is refused.
 #[test]
@@ -70,12 +100,9 @@ async fn tick_fires_the_due_triggers(pool: PgPool) {
     }
 
     // when
-    let first = schedule::tick(&pool, &Hooks::default(), &Registry::default())
-        .await
-        .unwrap();
-    let second = schedule::tick(&pool, &Hooks::default(), &Registry::default())
-        .await
-        .unwrap();
+    let vcs = context(pool.clone());
+    let first = schedule::tick(&vcs).await.unwrap();
+    let second = schedule::tick(&vcs).await.unwrap();
 
     // then
     assert_eq!((first, second), (1, 0));
@@ -87,4 +114,43 @@ async fn tick_fires_the_due_triggers(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(jobs, 1);
+}
+
+/// A due trigger of an archived pipeline does not fire, and it gets its next time.
+#[sqlx::test(migrator = "crate::infra::db::MIGRATOR")]
+async fn tick_skips_the_triggers_of_an_archived_pipeline(pool: PgPool) {
+    // given
+    let (_, _, _, pipeline) = crate::features::projects::jobs::tests::place(&pool).await;
+    sqlx::query!(
+        "UPDATE pipelines SET archived_at = now() WHERE id = $1",
+        pipeline.to_db()
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query!(
+        "INSERT INTO triggers (id, pipeline_id, project_id, workspace_id, created_by, name, kind,
+                               schedule, inputs, next_fire_at)
+         SELECT gen_random_uuid(), p.id, p.project_id, p.workspace_id, p.created_by, 'due', 'cron',
+                '* * * * *', '[]', now() - interval '1 minute'
+         FROM pipelines p WHERE p.id = $1",
+        pipeline.to_db(),
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // when
+    let fired = schedule::tick(&context(pool.clone())).await.unwrap();
+
+    // then
+    assert_eq!(fired, 0);
+    let next = sqlx::query_scalar!(
+        r#"SELECT next_fire_at > now() AS "later!" FROM triggers WHERE pipeline_id = $1"#,
+        pipeline.to_db()
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(next);
 }

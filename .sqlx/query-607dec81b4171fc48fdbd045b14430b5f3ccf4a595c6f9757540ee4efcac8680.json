@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_connections SET last_event_at = now(), delivery_mode = 'webhook'\n         WHERE provider = 'github' AND external_id = $1 AND app_id IS NOT DISTINCT FROM $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "607dec81b4171fc48fdbd045b14430b5f3ccf4a595c6f9757540ee4efcac8680"
+}

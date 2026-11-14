@@ -1,18 +1,21 @@
 //! The fire of a trigger: a job of its pipeline with its inputs, as the runner of the triggers
-//! of its workspace, and the record of the result on the trigger.
+//! of its workspace, and the record of the result on the trigger. A file pipeline runs its file
+//! at the head of the default branch, and a Git trigger runs its pipeline on that head.
 
 use scylla_domain::identity::actors::{Actor, ActorId};
-use scylla_domain::projects::jobs::Job;
+use scylla_domain::integrations::sources::SourceEvent;
+use scylla_domain::projects::jobs::{Job, StartJob};
 use scylla_domain::projects::pipelines::{EnvValue, EnvVar};
-use scylla_domain::projects::triggers::{FireResult, InputValue, Trigger, TriggerId, RUNNER_KIND};
+use scylla_domain::projects::triggers::{
+    FireResult, InputValue, Trigger, TriggerId, TriggerKind, RUNNER_KIND,
+};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_extension::Hooks;
 use serde_json::Value;
 use sqlx::PgPool;
 
 use super::store::{runners, triggers};
 use crate::features::identity::actors;
-use crate::features::identity::agents::Registry;
+use crate::features::integrations::{files, IntegrationContext};
 use crate::features::projects::pipelines::service as pipelines;
 use crate::Error;
 
@@ -34,35 +37,28 @@ impl From<Error> for FireError {
 }
 
 /// Fires a trigger by its id, with no body.
-pub(crate) async fn by_id(
-    pool: &PgPool,
-    hooks: &Hooks,
-    registry: &Registry,
-    id: TriggerId,
-) -> Result<Job, FireError> {
-    let mut tx = pool.begin().await.map_err(Error::from)?;
+pub(crate) async fn by_id(vcs: &IntegrationContext, id: TriggerId) -> Result<Job, FireError> {
+    let mut tx = vcs.pool.begin().await.map_err(Error::from)?;
     let trigger = triggers::find(&mut tx, id)
         .await?
         .ok_or(Error::NotFound("trigger"))?;
     tx.commit().await.map_err(Error::from)?;
-    fire(pool, hooks, registry, &trigger, None).await
+    fire(vcs, &trigger, None).await
 }
 
 /// Fires a trigger with the body of a webhook, if one came, and records the result.
 pub(crate) async fn fire(
-    pool: &PgPool,
-    hooks: &Hooks,
-    registry: &Registry,
+    vcs: &IntegrationContext,
     trigger: &Trigger,
     body: Option<&Value>,
 ) -> Result<Job, FireError> {
-    let result = start(pool, hooks, registry, trigger, body).await;
+    let result = start(vcs, trigger, body).await;
     let record = match &result {
         Ok(_) => FireResult::Ok,
         Err(FireError::Payload(reason)) => FireResult::Error(reason.clone()),
         Err(FireError::Failed(error)) => FireResult::Error(error.to_string()),
     };
-    let mut tx = pool.begin().await.map_err(Error::from)?;
+    let mut tx = vcs.pool.begin().await.map_err(Error::from)?;
     triggers::record(&mut tx, trigger.id, &record)
         .await
         .map_err(Error::from)?;
@@ -74,32 +70,49 @@ pub(crate) async fn fire(
     result
 }
 
-/// Starts the job of a fire.
+/// Starts the job of a fire. A file pipeline takes its file at the head of the default branch,
+/// and a Git trigger runs its pipeline on that head.
 async fn start(
-    pool: &PgPool,
-    hooks: &Hooks,
-    registry: &Registry,
+    vcs: &IntegrationContext,
     trigger: &Trigger,
     body: Option<&Value>,
 ) -> Result<Job, FireError> {
+    // Read the inputs, the pipeline and the runner of the triggers.
     let vars = inputs(trigger, body)?;
-    let pipeline = pipelines::get(pool, trigger.pipeline_id)
+    let pipeline = pipelines::get(&vcs.pool, trigger.pipeline_id)
         .await?
         .ok_or(Error::NotFound("pipeline"))?;
     let actor = Actor {
-        id: runner(pool, trigger.workspace_id).await?,
+        id: runner(&vcs.pool, trigger.workspace_id).await?,
         kind: RUNNER_KIND,
     };
-    let job = pipelines::start(
-        pool,
-        hooks,
-        registry,
-        actor,
-        pipeline,
-        &vars,
-        Some(trigger.id),
+
+    // Take the commit at the head of the default branch, when the pipeline or the trigger needs it.
+    let git = matches!(
+        trigger.kind,
+        TriggerKind::Push(_) | TriggerKind::PullRequest(_) | TriggerKind::Tag(_)
     );
-    Ok(job.await?)
+    let start = if pipeline.file.is_some() {
+        files::start_at(vcs, pipeline, None, SourceEvent::Trigger).await?
+    } else if git {
+        let project = pipeline.project_id;
+        let source = files::head_source(vcs, project, SourceEvent::Trigger).await?;
+        StartJob {
+            source: Some(source),
+            ..StartJob::of(pipeline)
+        }
+    } else {
+        StartJob::of(pipeline)
+    };
+
+    // Start the job with the inputs, as the runner.
+    let start = StartJob {
+        variables: vars,
+        trigger_id: Some(trigger.id),
+        ..start
+    };
+    let (pool, hooks, registry) = (&vcs.pool, &vcs.hooks, &vcs.registry);
+    Ok(pipelines::start(pool, hooks, registry, actor, start).await?)
 }
 
 /// Returns the variables of the inputs of a trigger. A pointer reads the body: a text gives the

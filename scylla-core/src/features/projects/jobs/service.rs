@@ -1,9 +1,11 @@
 //! The logic of the jobs that people call: one transaction for each call, with the hooks. A
-//! change of a job that an agent holds also tells its stream.
+//! change of a job that an agent holds also tells its stream. An editor approves or rejects a job
+//! from a fork.
 
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::projects::jobs::{
-    Job, JobId, JobPage, JobStatus, ListJobs, LogBatch, LogBatchId, NewJob, KIND,
+    Job, JobId, JobPage, JobStatus, ListJobs, LogBatch, LogBatchId, NewJob, RerunOrigin, StartJob,
+    KIND,
 };
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -12,11 +14,13 @@ use scylla_extension::{CreateContext, DeleteContext, Hooks, Rejection};
 use sqlx::PgPool;
 
 use super::runs::now;
-use super::store::{jobs, logs};
+use super::store::{approvals, jobs, logs};
 use crate::features::identity::agents::Registry;
+use crate::features::integrations::reports;
+use crate::features::projects::pipelines::service as pipelines;
 use crate::Error;
 
-/// Creates a pending job if each `BeforeCreate` hook accepts it, then wakes the agents.
+/// Creates a job with its source if each `BeforeCreate` hook accepts it, then wakes the agents.
 pub(crate) async fn create(
     pool: &PgPool,
     hooks: &Hooks,
@@ -29,6 +33,7 @@ pub(crate) async fn create(
         .before_create(&mut tx, &CreateContext::new(KIND, actor, new.workspace_id))
         .await?;
     let job = jobs::insert(&mut tx, &new).await?;
+    reports::job_changed(&mut tx, &job).await?;
     tx.commit().await?;
     registry.wake_all();
     tracing::info!(event = "job.created", job = %job.id, pipeline = %job.pipeline_id);
@@ -54,10 +59,10 @@ pub(crate) async fn place(
     Ok(place)
 }
 
-/// Returns one page of jobs, newest first.
+/// Returns one page of the jobs that match the filter, newest first.
 pub(crate) async fn list(pool: &PgPool, query: ListJobs) -> Result<JobPage, Error> {
     let mut tx = pool.begin().await?;
-    let items = jobs::list(&mut tx, query.scope, query.page).await?;
+    let items = jobs::list(&mut tx, query.scope, query.page, &query.filter).await?;
     tx.commit().await?;
     Ok(Page::from_overfetch(items, query.page.size, |job| job.id))
 }
@@ -72,6 +77,7 @@ pub(crate) async fn cancel(pool: &PgPool, registry: &Registry, id: JobId) -> Res
     let changed = job.end(JobStatus::Cancelled, None, now());
     if changed {
         jobs::save(&mut tx, &mut job).await?;
+        reports::job_changed(&mut tx, &job).await?;
     }
     tx.commit().await?;
 
@@ -84,6 +90,57 @@ pub(crate) async fn cancel(pool: &PgPool, registry: &Registry, id: JobId) -> Res
         tracing::info!(event = "job.cancelled", job = %id);
     }
     Ok(job)
+}
+
+/// Approves a job from a fork that waits, then wakes the agents. It runs with no secret value.
+/// A job in another state gives `JOB_NOT_AWAITING_APPROVAL`.
+pub(crate) async fn approve(
+    pool: &PgPool,
+    registry: &Registry,
+    actor: Actor,
+    id: JobId,
+) -> Result<Job, Error> {
+    // Make the job pending in one transaction, with the row locked.
+    let mut tx = pool.begin().await?;
+    let mut job = jobs::find(&mut tx, id, true)
+        .await?
+        .ok_or(Error::NotFound("job"))?;
+    job.approve(actor.id, now()).map_err(|_| not_awaiting())?;
+    jobs::save(&mut tx, &mut job).await?;
+    reports::job_changed(&mut tx, &job).await?;
+    tx.commit().await?;
+
+    // Wake the agents, after the commit.
+    registry.wake_all();
+    tracing::info!(event = "job.approved", job = %id, pipeline = %job.pipeline_id);
+    Ok(job)
+}
+
+/// Rejects a job from a fork that waits: it is cancelled with the name of the actor. A job in
+/// another state gives `JOB_NOT_AWAITING_APPROVAL`.
+pub(crate) async fn reject(pool: &PgPool, actor: Actor, id: JobId) -> Result<Job, Error> {
+    // Read the job with its row locked, and the name of the actor.
+    let mut tx = pool.begin().await?;
+    let mut job = jobs::find(&mut tx, id, true)
+        .await?
+        .ok_or(Error::NotFound("job"))?;
+    let name = approvals::name_of(&mut tx, actor.id).await?;
+    let name = name.unwrap_or_else(|| actor.id.to_string());
+
+    // Cancel the job, and record its report.
+    job.reject(actor.id, &name, now())
+        .map_err(|_| not_awaiting())?;
+    jobs::save(&mut tx, &mut job).await?;
+    reports::job_changed(&mut tx, &job).await?;
+    tx.commit().await?;
+    tracing::info!(event = "job.rejected", job = %id, pipeline = %job.pipeline_id);
+    Ok(job)
+}
+
+/// The refusal of a decision on a job that does not wait for an approval.
+fn not_awaiting() -> Error {
+    let message = "only a job that waits for an approval takes a decision";
+    Error::Rejected(Rejection::new("JOB_NOT_AWAITING_APPROVAL", message))
 }
 
 /// Deletes a job with its logs, runs the `AfterDelete` hooks, then tells its agent.
@@ -110,29 +167,23 @@ pub(crate) async fn delete(
     Ok(())
 }
 
-/// Starts a new pending job with the nodes and the pipeline of a job that ended.
+/// Starts a new job with the nodes, the pipeline and the source of a job that ended. A job from
+/// a fork waits for an approval again.
 pub(crate) async fn rerun(
     pool: &PgPool,
     hooks: &Hooks,
     registry: &Registry,
     actor: Actor,
     id: JobId,
+    origin: RerunOrigin,
 ) -> Result<Job, Error> {
     let old = get(pool, id).await?.ok_or(Error::NotFound("job"))?;
     if !old.status.is_final() {
         let message = "only a job that ended runs again";
         return Err(Error::Rejected(Rejection::new("JOB_NOT_ENDED", message)));
     }
-    let new = NewJob {
-        pipeline_id: old.pipeline_id,
-        project_id: old.project_id,
-        workspace_id: old.workspace_id,
-        created_by: actor.id,
-        rerun_of: Some(old.id),
-        trigger_id: old.trigger_id,
-        nodes: old.nodes,
-    };
-    create(pool, hooks, registry, actor, new).await
+    let start = StartJob::rerun(old, origin);
+    pipelines::start(pool, hooks, registry, actor, start).await
 }
 
 /// Returns at most `limit` batches of the logs of a job after a cursor, of one node if it is

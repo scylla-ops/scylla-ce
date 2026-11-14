@@ -1,8 +1,11 @@
-//! The state machine of a job and of its nodes: the events of the agent, and the end of a job.
+//! The state machine of a job, of its checkout and of its nodes: the events of the agent, the
+//! approval of a job from a fork, and the end of a job.
 
 use time::OffsetDateTime;
 
-use super::{error_text, Job, JobStatus, NodeStatus};
+use super::{error_text, Job, JobApproval, JobStatus, NodeStatus};
+use crate::identity::actors::ActorId;
+use crate::integrations::sources::ApprovalState;
 use crate::projects::pipelines::{Node, NodeId};
 use crate::DomainError;
 
@@ -76,6 +79,12 @@ pub enum JobEvent {
     JobCompleted,
     /// The job failed.
     JobFailed(String),
+    /// The agent starts the checkout of the code.
+    CheckoutStarted,
+    /// The checkout completed: the agent starts the nodes.
+    CheckoutCompleted,
+    /// The checkout failed, with the error.
+    CheckoutFailed(String),
 }
 
 impl Job {
@@ -109,8 +118,37 @@ impl Job {
             {
                 self.apply_node(event, now)
             }
+            JobEvent::CheckoutStarted
+            | JobEvent::CheckoutCompleted
+            | JobEvent::CheckoutFailed(_)
+                if self.status == JobStatus::Running =>
+            {
+                self.apply_checkout(event, now)
+            }
             _ => Err(DomainError::NotAllowed),
         }
+    }
+
+    /// Applies an event of the checkout of a running job. A job with no checkout refuses it.
+    fn apply_checkout(&mut self, event: &JobEvent, now: OffsetDateTime) -> Result<(), DomainError> {
+        let checkout = self.checkout.as_mut().ok_or(DomainError::NotAllowed)?;
+        match (event, checkout.status) {
+            (JobEvent::CheckoutStarted, NodeStatus::Pending) => {
+                checkout.status = NodeStatus::Running;
+                checkout.started_at = Some(now);
+            }
+            (JobEvent::CheckoutCompleted, NodeStatus::Running) => {
+                checkout.status = NodeStatus::Completed;
+                checkout.finished_at = Some(now);
+            }
+            (JobEvent::CheckoutFailed(error), NodeStatus::Pending | NodeStatus::Running) => {
+                checkout.status = NodeStatus::Failed;
+                checkout.error = Some(error_text(error));
+                checkout.finished_at = Some(now);
+            }
+            _ => return Err(DomainError::NotAllowed),
+        }
+        Ok(())
     }
 
     /// Applies an event of a node of a running job.
@@ -172,8 +210,39 @@ impl Job {
         Ok(())
     }
 
-    /// Ends a job that is not final: the nodes that did not end become `Cancelled`. A final
-    /// job does not change. Returns `true` if the job changed.
+    /// Approves a job from a fork that waits: it becomes pending, with the actor and the time of
+    /// the approval. A job in another state gives `NotAllowed` and does not change.
+    pub fn approve(&mut self, by: ActorId, now: OffsetDateTime) -> Result<(), DomainError> {
+        if self.status != JobStatus::AwaitingApproval {
+            return Err(DomainError::NotAllowed);
+        }
+        self.status = JobStatus::Pending;
+        self.approval = Some(decided(ApprovalState::Approved, by, now));
+        Ok(())
+    }
+
+    /// Rejects a job from a fork that waits: it becomes cancelled with the error `Rejected by`
+    /// and the name of the actor. A job in another state gives `NotAllowed` and does not change.
+    pub fn reject(
+        &mut self,
+        by: ActorId,
+        name: &str,
+        now: OffsetDateTime,
+    ) -> Result<(), DomainError> {
+        if self.status != JobStatus::AwaitingApproval {
+            return Err(DomainError::NotAllowed);
+        }
+        self.approval = Some(decided(ApprovalState::Rejected, by, now));
+        self.end(
+            JobStatus::Cancelled,
+            Some(&format!("Rejected by {name}")),
+            now,
+        );
+        Ok(())
+    }
+
+    /// Ends a job that is not final: the checkout and the nodes that did not end become
+    /// `Cancelled`. A final job does not change. Returns `true` if the job changed.
     pub fn end(&mut self, status: JobStatus, error: Option<&str>, now: OffsetDateTime) -> bool {
         if self.status.is_final() || !status.is_final() {
             return false;
@@ -181,10 +250,23 @@ impl Job {
         self.status = status;
         self.error = error.map(error_text);
         self.finished_at = Some(now);
+        if let Some(checkout) = self.checkout.as_mut().filter(|run| !run.status.is_final()) {
+            checkout.status = NodeStatus::Cancelled;
+            checkout.finished_at = Some(now);
+        }
         for run in self.runs.iter_mut().filter(|run| !run.status.is_final()) {
             run.status = NodeStatus::Cancelled;
             run.finished_at = Some(now);
         }
         true
+    }
+}
+
+/// Makes the approval of a job that an actor approved or rejected at `now`.
+fn decided(state: ApprovalState, by: ActorId, now: OffsetDateTime) -> JobApproval {
+    JobApproval {
+        state,
+        decided_by: Some(by),
+        decided_at: Some(now),
     }
 }

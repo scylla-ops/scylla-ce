@@ -10,7 +10,13 @@ workspace = true
 
 [dependencies]
 deunicode.workspace = true
+globset.workspace = true
+schemars.workspace = true
 scylla-macros.workspace = true
+serde.workspace = true
+serde-saphyr.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true
+toml.workspace = true
 uuid.workspace = true

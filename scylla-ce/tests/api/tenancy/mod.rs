@@ -7,6 +7,7 @@ mod authz;
 mod checks;
 mod deletion;
 mod escalation;
+mod git_roles;
 mod grants;
 mod hidden_instance_roles;
 mod invitation_races;

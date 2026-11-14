@@ -1,5 +1,6 @@
 //! The gRPC server: gate, operations, gRPC-Web, CORS, TLS, health, the core services, the
-//! browser routes of the sign-in, the log of each call, timeout and graceful shutdown.
+//! browser routes of the sign-in, the Git integration, the log of each call, timeout and graceful
+//! shutdown.
 
 use std::fs;
 use std::future::Future;
@@ -22,6 +23,7 @@ use crate::features::identity::agents::{self, Registry};
 use crate::features::identity::providers::{self, Providers};
 use crate::features::identity::tokens;
 use crate::features::identity::{admins, apps, personal_tokens};
+use crate::features::integrations::{self, IntegrationContext};
 use crate::features::notifications::{self, PgNotifier};
 use crate::features::platform::settings;
 use crate::features::projects::jobs::{self, housekeeping};
@@ -31,7 +33,7 @@ use crate::features::projects::{pipelines, secrets};
 use crate::features::tenancy::invitations;
 use crate::infra::mail::{LogMailer, SmtpMailer};
 use crate::infra::secret::Sealer;
-use crate::infra::{db, dev_keys};
+use crate::infra::{db, dev_keys, vcs::VcsOptions};
 use crate::{Config, Error, SignUpMode};
 
 /// The options of `serve`.
@@ -60,6 +62,8 @@ pub struct ServeOptions {
     pub agent_downloads: String,
     /// The image of the agent, with its tag, that `GetCapabilities` gives.
     pub agent_image: String,
+    /// The settings of the Git providers: their URLs and the GitHub App of the server.
+    pub vcs: VcsOptions,
 }
 
 impl Default for ServeOptions {
@@ -84,6 +88,7 @@ impl Default for ServeOptions {
             web_dir: None,
             agent_downloads: agents::AGENT_DOWNLOADS.to_owned(),
             agent_image: agents::AGENT_IMAGE.to_owned(),
+            vcs: VcsOptions::default(),
         }
     }
 }
@@ -93,7 +98,7 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
     // Refuse a public dev key on an address that other machines can reach.
     dev_keys::guard(config)?;
 
-    // Read the optional parts: TLS, SMTP and the key of the secrets.
+    // Read the optional parts: TLS, SMTP, the key of the secrets and the Git providers.
     let tls = match (&config.tls_cert, &config.tls_key) {
         (Some(cert), Some(key)) => Some(Identity::from_pem(fs::read(cert)?, fs::read(key)?)),
         _ => None,
@@ -109,6 +114,7 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
             None => Arc::new(LogMailer),
         };
     let sealer = sealer(config)?;
+    let vcs = config.vcs.resolve()?;
 
     // Connect, refuse a database with a missing migration, and make the gate.
     let pool = db::connect(config).await?;
@@ -137,6 +143,7 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
         web_dir: config.web_dir.clone(),
         agent_downloads: config.agent_downloads_url.trim_end_matches('/').to_owned(),
         agent_image: config.agent_image.clone(),
+        vcs,
     };
     let stop = super::layers::stop_signal();
     serve(listener, pool.clone(), edition, access, options, stop).await?;
@@ -194,7 +201,7 @@ pub async fn serve(
     routes.add_service(admins::server(ctx.clone()));
     routes.add_service(personal_tokens::server(ctx.clone()));
     routes.add_service(settings::server(pool.clone(), Arc::clone(&gate)));
-    routes.add_service(invitations::server(ctx));
+    routes.add_service(invitations::server(ctx.clone()));
     routes.add_service(secrets::server(
         pool.clone(),
         Arc::clone(&gate),
@@ -205,32 +212,20 @@ pub async fn serve(
     let registry = Arc::new(Registry::default());
     let (hooks, share) = (edition.hooks(), || Arc::clone(&registry));
     routes.add_service(apps::server(pool.clone(), Arc::clone(&gate), share()));
-    let sealer = || options.sealer.clone();
-    let agents = agents::server(pool.clone(), Arc::clone(&gate), share(), sealer());
-    routes.add_service(agents);
-    let pipelines = pipelines::server(pool.clone(), Arc::clone(&hooks), Arc::clone(&gate), share());
-    routes.add_service(pipelines);
+    let vcs = IntegrationContext::new(&ctx, share(), options.vcs)?;
+    routes.add_service(agents::server(&vcs));
+    routes.add_service(pipelines::server(&vcs));
     let jobs = jobs::server(pool.clone(), Arc::clone(&hooks), Arc::clone(&gate), share());
     routes.add_service(jobs);
-    let triggers = triggers::server(
-        pool.clone(),
-        Arc::clone(&hooks),
-        Arc::clone(&gate),
-        share(),
-        sealer(),
-    );
-    routes.add_service(triggers);
+    routes.add_service(triggers::server(&vcs));
+
+    // Mount the Git integration: its services, its public routes and its tasks.
+    let (vcs_routes, vcs_tasks) = integrations::mount(&vcs, &mut routes);
 
     // Start the background tasks: the lost agents, the old logs, and the cron triggers.
     let housekeeping = housekeeping::spawn(pool.clone(), share(), options.log_retention);
-    let schedules = schedule::spawn(pool.clone(), Arc::clone(&hooks), share());
-    let webhooks = Webhooks {
-        pool: pool.clone(),
-        hooks,
-        registry: share(),
-        sealer: sealer(),
-        rates: Arc::default(),
-    };
+    let schedules = schedule::spawn(vcs.clone());
+    let webhooks = Webhooks::new(&vcs);
     let notifier: Arc<dyn Notifier> = Arc::new(PgNotifier { pool: pool.clone() });
     edition.add_services(&mut routes, &pool, &gate, &notifier, &options.agent_image);
     let notifications = notifications::spawn(
@@ -252,6 +247,7 @@ pub async fn serve(
         .merge(providers::router(providers).layer(log))
         .merge(webhook::router(webhooks).layer(log))
         .merge(install.layer(log))
+        .merge(vcs_routes.layer(log))
         .merge(gateway);
 
     // Serve the web app for each other GET: the folder of the settings, or the files of the binary.
@@ -282,5 +278,6 @@ pub async fn serve(
     housekeeping.abort();
     schedules.abort();
     notifications.abort();
+    vcs_tasks.stop();
     Ok(())
 }

@@ -1,5 +1,5 @@
-//! The run of one job: the agent starts each node whose needs completed, at once, and stops the
-//! job at the first failure.
+//! The run of one job: the agent fetches its code, starts each node whose needs completed, at
+//! once, and stops the job at the first failure.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -10,6 +10,7 @@ use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
+use super::checkout::{self, Failure, Git};
 use super::events::{self, Event, Outbox};
 use super::step::{self, NodeContext, Outcome};
 use crate::agent::Settings;
@@ -27,11 +28,12 @@ enum State {
     Ended,
 }
 
-/// Runs a job until its end, then deletes its work folder. A stop of the server ends it with no
-/// more event.
+/// Runs a job until its end, then deletes its work folder. A failed checkout fails the job before
+/// the first node. A stop of the server ends it with no more event.
 pub(super) async fn run(
     dispatch: Dispatch,
     settings: &Settings,
+    git: Option<Git>,
     outbox: &Outbox,
     mut stopped: watch::Receiver<bool>,
 ) {
@@ -48,7 +50,7 @@ pub(super) async fn run(
     }
     events::send(outbox, &job, EventKind::JobStarted, Event::default()).await;
 
-    // Run the nodes in the order of their needs.
+    // Fetch the code, then run the nodes in the order of their needs.
     let image = dispatch.nodes.iter().find_map(|node| {
         node.container
             .as_ref()
@@ -62,7 +64,20 @@ pub(super) async fn run(
         runtime: settings.container_runtime.clone(),
         outbox: outbox.clone(),
     };
-    let (failure, cancelled) = drive(dispatch.nodes, &context, &mut stopped).await;
+    let fetched = match &dispatch.checkout {
+        Some(spec) => checkout::run(spec, git, &dir, &job, outbox, stopped.clone()).await,
+        None => Ok(()),
+    };
+    let (failure, cancelled) = match fetched {
+        Ok(()) => drive(dispatch.nodes, &context, &mut stopped).await,
+        Err(Failure::Failed(error)) => {
+            for node in &dispatch.nodes {
+                skip(&context, &node.id).await;
+            }
+            (Some(format!("the checkout failed: {error}")), false)
+        }
+        Err(Failure::Halted) => (None, true),
+    };
 
     // Report the end, unless the server stopped the job.
     if !cancelled {

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO vcs_setup_states (hash, kind, created_by, expires_at)\n         VALUES ($1, 'github_manifest', $2, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b33588ba30789194c3482903bbfe1b634c4ccdeec39b922600d775dc83ce9de9"
+}

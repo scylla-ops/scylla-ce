@@ -138,6 +138,98 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   at most one year. With no period, it counts the last 30 days.
 - `ListMembers` and `ListRoleHolders` give `runner` for each actor: true for an App that runs jobs
   (an agent).
+- The API has the contract of the GitHub and GitLab integration. A push, pull request or tag
+  trigger needs a linked repository (`NO_REPOSITORY_LINK`), and a file pipeline gets its Git
+  triggers from its file (`PIPELINE_READ_ONLY`).
+- The permission model of the Git integration: the catalog areas `git_providers` (instance),
+  `integrations` (workspace) and `repository` (project), and the cell `jobs.approve` for the runs
+  from a fork. A project editor approves a run and links a repository, and a project viewer reads
+  the link.
+- The agent fetches the code of a job into its work folder before the first node, when the dispatch
+  has a checkout. It sends the events of the checkout and its log on the node `.checkout`, and a
+  failed checkout fails the job with no node started. The token never goes to `.git/config`, a URL
+  or a log. With git 2.31 or newer it is not in the process list. The hello has the feature
+  `checkout` only when `git --version` runs.
+- A job can have a source: the commit, the branch or the tag, the pull requests and the author in
+  the linked repository. `RunPipeline` takes a `ref` (a branch, a tag or a SHA) and gets its commit
+  from GitHub or GitLab. Each node gets the `SCYLLA_GIT_*` variables. A job from a fork waits for an
+  approval and gets no secret value. `RerunJob` keeps the source and checks the secrets.
+  `ListPipelineJobs` and `ListWorkspaceJobs` filter on the branch, the event, the author and the
+  pull request.
+- The API connects a workspace to GitHub (install of the GitHub App) and to GitLab (the token of a
+  service account). It lists, gets and deletes the connections, and lists the repositories of a
+  connection. Only the admins of the workspace add, change or delete a connection. No answer and no
+  log line has a token.
+- `ValidatePipelineFile` reads a pipeline file that a client sends. It gives each error with its
+  line and column, and a warning for each secret that the project does not have. `ExportPipeline`
+  writes a pipeline as a TOML, YAML or JSON file, with its path in `.scylla/pipelines/`. `GET
+  /schemas/pipeline-v1.json` gives the JSON Schema of the pipeline files.
+- A job on a commit gets the code of its commit on the agent before the first node. Only an agent
+  with the feature `checkout` gets such a job, and a job that waits for one has the `waiting_reason`
+  `NO_AGENT_WITH_CHECKOUT`. The dispatch has a token that can only read the repository: an
+  installation token of one hour on GitHub, or a GitLab deploy token that the server deletes at the
+  end of the job. The job shows the state of its checkout, and `CreatePipeline` and `UpdatePipeline`
+  take the checkout settings of a pipeline.
+- A project takes its pipelines from the editor or from the pipeline files of its linked repository.
+  `SetPipelineSource` reads the files in `.scylla/` at the head of the default branch, archives the
+  editor pipelines and writes one pipeline for each file. A file pipeline follows the default
+  branch, is read only (`PIPELINE_READ_ONLY`), and gets the triggers of the `on` table of its file.
+  A trigger of an archived pipeline does not fire. `ListPipelineFiles` and `GetFilePipeline` give
+  the files and their errors. A move back to the editor restores the editor pipelines, and the jobs
+  stay.
+- `CreateTrigger` and `UpdateTrigger` take the push, pull request and tag triggers with their rules:
+  the globs of the branches or of the tags (at most 32 in each list), the events of a pull request,
+  the drafts and `[skip ci]`. A project with no linked repository gives `NO_REPOSITORY_LINK`, and a
+  file pipeline gives `PIPELINE_READ_ONLY`. `ExportPipeline` writes the enabled Git triggers in the
+  `on` table of the file.
+- `SetMergeBlock` turns on or off the rule that blocks the merge of a pull request until a pipeline
+  passes: one ruleset of Scylla with a required check for each pipeline on GitHub, and "Pipelines
+  must succeed" on GitLab. `ListMergeBlocks` gives the state of each rule, with `out_of_sync` when a
+  person changed the rule on the provider, and the reason and the page to open when the provider
+  refuses.
+- Each run on a commit reports its state to GitHub or GitLab as the commit status
+  `scylla/<pipeline>`, through an outbox with retries. `VcsReportService` lists the reports of jobs
+  and sends a report again. A refused call or an expired GitLab token moves the connection to "Needs
+  attention", and the owners and the admins of the workspace get a notification. A warning comes 14
+  days before a GitLab token expires.
+- `ApproveJob` and `RejectJob` decide on a job from a fork that waits for an approval. Only a person
+  with the edit of the project calls them. An approval makes the job pending, the agents get it, and
+  it runs with no secret value. A rejection cancels the job with `Rejected by` and the name of the
+  person. A job in another state gives `JOB_NOT_AWAITING_APPROVAL`. The report on the commit follows
+  the decision.
+- The server takes the webhooks of GitHub and GitLab: `POST /integrations/github/webhook`, `POST
+  /integrations/github/{app}/webhook` and `POST /integrations/gitlab/{project}/webhook`. It checks
+  the signature before any write, keeps each delivery one time, and reads the pushes, the tags, the
+  pull requests and the changes of the installations. An uninstall disconnects the connection, a
+  suspend stops it, and a repository that leaves the installation stops its link. When the webhooks
+  do not arrive or GitLab disables the webhook, the link polls the branches and the open pull
+  requests at its interval. A link with webhooks polls each 15 minutes to find a lost delivery.
+  `TestDelivery` asks the provider for a webhook, tells if it arrived within 10 seconds, and sets
+  the mode of the link.
+- On GitHub, each run on a commit now reports its state as the check run `scylla/<pipeline>` by
+  default: a title with the nodes that passed, a table of the checkout and the nodes with their
+  state, duration and attempts, the errors of an invalid pipeline file, and the last 50 log lines of
+  the failed node. A link in the commit status mode still posts commit statuses. "Re-run" of a check
+  run or of all the checks on GitHub starts a new run of the job, with the event of a re-run on the
+  provider.
+- A push, a pull request or a tag of the linked repository starts the editor pipelines whose Git
+  triggers match it, as the runner of the triggers. A pipeline has one run for each commit: a second
+  event on the commit adds its branch or its pull request to that run. A pull request from a fork
+  makes a run that waits for an approval, and the approval tells if the pull request changes
+  `.scylla/`. A new commit of the pull request cancels the run of its old commit that waits.
+- `VcsAppService` is served. An instance admin makes the GitHub App of a self-hosted instance with
+  the GitHub manifest flow (`StartGitHubManifest`, `CompleteGitHubManifest`), and the server seals
+  its key and its secrets with the id of its row. `GetVcsApp` gives the App with its webhook URL and
+  its last webhook, and gives the App of the settings as managed. `DeleteVcsApp` removes the App,
+  and each of its connections becomes disconnected with `APP_UNINSTALLED`.
+- A project of files runs its pipeline files at the commit of each push, pull request and tag: each
+  file whose `on` table matches the event gets one run for the commit, with the nodes and the
+  checkout of the file at that commit. A push to the default branch first syncs the file pipelines.
+  A file with errors gives a failed run with no node on each push and pull request, with its errors
+  and the report "Invalid pipeline file" (the commit status gives the line of the first error).
+  `RunPipeline` of a file pipeline reads its file at the ref, or at the head of the default branch
+  with no ref. A schedule or a webhook of a file pipeline, and a Git trigger that a person fires
+  now, run at the head of the default branch with the event `trigger`.
 
 ### Fixed
 
@@ -168,3 +260,15 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   the workspaces, so its holder finds the workspaces where it acts. A custom role that was saved
   before a new dependency gets this dependency at once: the server adds what the permissions of a
   role need each time that it reads the role, checks a route or lists the objects of a role.
+- A run on a branch, a tag or a SHA works with a connection of the GitHub App of the instance. It
+  gave `APP_MISSING`.
+- A new install of the GitHub App on the account of a connection that stopped (an uninstall, a
+  suspend or a refused call) takes over this connection in the workspace. The connection keeps its
+  id, so its repository links, merge rules and reports work again. Before, the install made a second
+  connection, and the links stayed on the old one. A report keeps the latest state of its run while
+  the link or its connection is not active, so `RetryJobReport` sends the final state after the
+  repair.
+- A new GitHub link polls at once when the GitHub App has no active webhook, with the reason
+  `APP_HAS_NO_WEBHOOK`, and its connection polls too. `TestDelivery` tells it and moves an existing
+  link to the polling mode. Before, a push started a run only at the safety poll after 15 minutes,
+  and the test gave a raw error of GitHub.

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_deliveries SET processed_at = now(), error = $3\n         WHERE provider = $1 AND delivery_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d6ab5733e53b1b4352032071d1172b498c0520f60d24892a0c69420946f72e7e"
+}

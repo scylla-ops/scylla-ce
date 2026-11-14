@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE repository_links SET next_poll_at = GREATEST(next_poll_at, $2)\n         WHERE project_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "28ead3718046daf04b310f65dab2cb9b87cb327f5fc6802bb3b8e2e267275c43"
+}

@@ -3,9 +3,10 @@
 use scylla_proto::apps::v1::Host;
 
 use crate::agent::Settings;
+use crate::jobs::{features, Git};
 
-/// Reads the facts of the machine.
-pub(super) fn host(settings: &Settings) -> Host {
+/// Reads the facts of the machine, and the features of the git that it has.
+pub(super) fn host(settings: &Settings, git: Option<Git>) -> Host {
     let hostname = hostname().unwrap_or_else(|| "unknown".to_owned());
     let cpu_count = std::thread::available_parallelism()
         .map(|count| count.get() as u32)
@@ -19,6 +20,7 @@ pub(super) fn host(settings: &Settings) -> Host {
         memory_bytes: memory(),
         capacity: settings.capacity,
         container_runtime: settings.container_runtime.clone().unwrap_or_default(),
+        features: features(git),
     }
 }
 

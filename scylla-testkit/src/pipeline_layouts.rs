@@ -23,6 +23,7 @@ impl TestApp {
             name: "build".to_owned(),
             nodes,
             layout: Some(layout),
+            checkout: None,
         };
         let request = self.authed(actor, request).await;
         let response = self.pipelines().create_pipeline(request).await?;
@@ -61,6 +62,7 @@ impl TestApp {
             name: None,
             nodes: nodes.map(|nodes| NodeList { nodes }),
             layout: Some(layout),
+            checkout: None,
         };
         let request = self.authed(actor, request).await;
         let response = self.pipelines().update_pipeline(request).await?;

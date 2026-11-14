@@ -2,18 +2,15 @@
 //! triggers that are due in each server.
 
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
 
 use croner::Cron;
-use scylla_extension::Hooks;
-use sqlx::PgPool;
 use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 
 use super::fire;
 use super::store::{deliveries, triggers};
-use crate::features::identity::agents::Registry;
+use crate::features::integrations::IntegrationContext;
 use crate::Error;
 
 /// The time between two rounds of the loop.
@@ -47,12 +44,12 @@ pub(crate) fn next(schedule: &str, after: OffsetDateTime) -> Option<OffsetDateTi
 
 /// Starts the loop: each 15 seconds, it fires the cron triggers that are due and forgets the
 /// old deliveries of the webhooks.
-pub(crate) fn spawn(pool: PgPool, hooks: Arc<Hooks>, registry: Arc<Registry>) -> JoinHandle<()> {
+pub(crate) fn spawn(vcs: IntegrationContext) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticks = tokio::time::interval_at(tokio::time::Instant::now() + TICK, TICK);
         loop {
             ticks.tick().await;
-            if let Err(error) = tick(&pool, &hooks, &registry).await {
+            if let Err(error) = tick(&vcs).await {
                 tracing::warn!(%error, "the cron triggers did not fire");
             }
         }
@@ -61,27 +58,26 @@ pub(crate) fn spawn(pool: PgPool, hooks: Arc<Hooks>, registry: Arc<Registry>) ->
 
 /// Fires the cron triggers that are due, one time each, and returns their count. Each trigger
 /// gets its next time in the same transaction, so a second server skips it. A missed time does
-/// not fire later.
-pub(crate) async fn tick(
-    pool: &PgPool,
-    hooks: &Hooks,
-    registry: &Registry,
-) -> Result<usize, Error> {
+/// not fire later. A trigger of an archived pipeline, or of a file pipeline whose file left the
+/// default branch, gets its next time and does not fire. A file pipeline runs its file at the
+/// head of the default branch.
+pub(crate) async fn tick(vcs: &IntegrationContext) -> Result<usize, Error> {
     // Take the due triggers and move each to its next time.
     let now = OffsetDateTime::now_utc();
-    let mut tx = pool.begin().await?;
+    let mut tx = vcs.pool.begin().await?;
     let due = triggers::due(&mut tx, BATCH).await?;
-    for (id, schedule) in &due {
+    for (id, schedule, _) in &due {
         triggers::set_next(&mut tx, *id, next(schedule, now)).await?;
     }
     deliveries::purge(&mut tx, now - DELIVERY_RETENTION).await?;
     tx.commit().await?;
 
-    // Fire each one. A failed fire is recorded on its trigger.
-    for (id, _) in &due {
-        if let Err(error) = fire::by_id(pool, hooks, registry, *id).await {
+    // Fire each one of an active pipeline. A failed fire is recorded on its trigger.
+    let active: Vec<_> = due.iter().filter(|(_, _, active)| *active).collect();
+    for (id, _, _) in &active {
+        if let Err(error) = fire::by_id(vcs, *id).await {
             tracing::warn!(%error, trigger = %id, "a cron trigger did not fire");
         }
     }
-    Ok(due.len())
+    Ok(active.len())
 }

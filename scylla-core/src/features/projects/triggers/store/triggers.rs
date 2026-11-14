@@ -1,15 +1,14 @@
 //! The SQL of the `triggers` table.
 
-use scylla_domain::identity::actors::ActorId;
 use scylla_domain::projects::pipelines::PipelineId;
 use scylla_domain::projects::triggers::{FireResult, NewTrigger, Trigger, TriggerId, TriggerKind};
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::PageRequest;
 use scylla_extension::{Rejection, Tx};
-use serde_json::Value;
 use time::OffsetDateTime;
 
+use super::row::{self, Row};
 use crate::features::projects::triggers::inputs;
 use crate::Error;
 
@@ -25,26 +24,23 @@ pub(crate) async fn insert(
     sealed_secret: Option<Vec<u8>>,
     next_fire_at: Option<OffsetDateTime>,
 ) -> Result<Option<Trigger>, Error> {
-    let (kind, schedule) = match &new.kind {
-        TriggerKind::Cron(schedule) => ("cron", Some(schedule.as_str())),
-        TriggerKind::Webhook => ("webhook", None),
-    };
     let row = sqlx::query_as!(
         Row,
         r#"INSERT INTO triggers (id, pipeline_id, project_id, workspace_id, created_by, name, kind,
-                                schedule, sealed_secret, inputs, next_fire_at)
-           SELECT $1, p.id, p.project_id, p.workspace_id, $3, $4, $5, $6, $7, $8, $9
+                                schedule, sealed_secret, rules, inputs, next_fire_at)
+           SELECT $1, p.id, p.project_id, p.workspace_id, $3, $4, $5, $6, $7, $8, $9, $10
            FROM pipelines p WHERE p.id = $2
            RETURNING id, pipeline_id, project_id, workspace_id, created_by, name, kind, schedule,
-                     inputs, enabled, next_fire_at, last_fired_at, last_status, last_error,
+                     rules, inputs, enabled, next_fire_at, last_fired_at, last_status, last_error,
                      created_at, updated_at"#,
         id.to_db(),
         new.pipeline_id.to_db(),
         new.created_by.to_db(),
         new.name.as_str(),
-        kind,
-        schedule,
+        new.kind.name(),
+        new.kind.schedule(),
         sealed_secret,
+        row::rules_json(&new.kind),
         inputs::json(new.inputs.as_slice()),
         next_fire_at,
     )
@@ -64,8 +60,8 @@ pub(crate) async fn insert(
 pub(crate) async fn find(tx: &mut Tx<'_>, id: TriggerId) -> Result<Option<Trigger>, Error> {
     let row = sqlx::query_as!(
         Row,
-        "SELECT id, pipeline_id, project_id, workspace_id, created_by, name, kind, schedule, inputs,
-                enabled, next_fire_at, last_fired_at, last_status, last_error, created_at,
+        "SELECT id, pipeline_id, project_id, workspace_id, created_by, name, kind, schedule, rules,
+                inputs, enabled, next_fire_at, last_fired_at, last_status, last_error, created_at,
                 updated_at
          FROM triggers WHERE id = $1",
         id.to_db(),
@@ -75,14 +71,17 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: TriggerId) -> Result<Option<Trigge
     row.map(Row::into_trigger).transpose()
 }
 
-/// Returns the sealed secret of an enabled webhook trigger, or `None`.
+/// Returns the sealed secret of an enabled webhook trigger of an active pipeline, or `None`. A
+/// pipeline is not active when it is archived, or when its file left the default branch.
 pub(crate) async fn webhook_secret(
     tx: &mut Tx<'_>,
     id: TriggerId,
 ) -> Result<Option<Vec<u8>>, sqlx::Error> {
     let sealed = sqlx::query_scalar!(
-        r#"SELECT sealed_secret AS "sealed_secret!" FROM triggers
-           WHERE id = $1 AND enabled AND kind = 'webhook'"#,
+        r#"SELECT t.sealed_secret AS "sealed_secret!"
+           FROM triggers t JOIN pipelines p ON p.id = t.pipeline_id
+           WHERE t.id = $1 AND t.enabled AND t.kind = 'webhook' AND p.archived_at IS NULL
+             AND p.removed_at IS NULL"#,
         id.to_db(),
     )
     .fetch_optional(&mut **tx)
@@ -109,6 +108,45 @@ pub(crate) async fn place(
     }))
 }
 
+/// Returns two flags of a pipeline: it comes from a file, and its project has a linked
+/// repository. `None` if no pipeline has this id.
+pub(crate) async fn git_place(
+    tx: &mut Tx<'_>,
+    pipeline: PipelineId,
+) -> Result<Option<(bool, bool)>, sqlx::Error> {
+    let row = sqlx::query!(
+        r#"SELECT p.source = 'file' AS "file!",
+                  EXISTS (SELECT 1 FROM repository_links l WHERE l.project_id = p.project_id)
+                      AS "linked!"
+           FROM pipelines p WHERE p.id = $1"#,
+        pipeline.to_db(),
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(row.map(|row| (row.file, row.linked)))
+}
+
+/// Returns the kinds of the enabled Git triggers of a pipeline, oldest first.
+pub(crate) async fn git_kinds(
+    tx: &mut Tx<'_>,
+    pipeline: PipelineId,
+) -> Result<Vec<TriggerKind>, Error> {
+    let rows = sqlx::query!(
+        "SELECT kind, rules FROM triggers
+         WHERE pipeline_id = $1 AND enabled AND kind IN ('push', 'pull_request', 'tag')
+         ORDER BY id",
+        pipeline.to_db(),
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            row::kind_of(&row.kind, None, row.rules)
+                .ok_or_else(|| Error::Internal("bad trigger data: rules".to_owned()))
+        })
+        .collect()
+}
+
 /// Returns the triggers of a pipeline after the page id, in id order, with one extra row.
 pub(crate) async fn list(
     tx: &mut Tx<'_>,
@@ -117,8 +155,8 @@ pub(crate) async fn list(
 ) -> Result<Vec<Trigger>, Error> {
     let rows = sqlx::query_as!(
         Row,
-        "SELECT id, pipeline_id, project_id, workspace_id, created_by, name, kind, schedule, inputs,
-                enabled, next_fire_at, last_fired_at, last_status, last_error, created_at,
+        "SELECT id, pipeline_id, project_id, workspace_id, created_by, name, kind, schedule, rules,
+                inputs, enabled, next_fire_at, last_fired_at, last_status, last_error, created_at,
                 updated_at
          FROM triggers WHERE pipeline_id = $1 AND ($2::uuid IS NULL OR id > $2)
          ORDER BY id LIMIT $3",
@@ -134,17 +172,14 @@ pub(crate) async fn list(
 /// Writes the changes of a trigger that the caller read in this transaction. A name in use gives
 /// `TRIGGER_NAME_IN_USE`.
 pub(crate) async fn save(tx: &mut Tx<'_>, trigger: &Trigger) -> Result<(), Error> {
-    let schedule = match &trigger.kind {
-        TriggerKind::Cron(schedule) => Some(schedule.as_str()),
-        TriggerKind::Webhook => None,
-    };
     sqlx::query!(
-        "UPDATE triggers SET name = $2, schedule = $3, inputs = $4, enabled = $5,
-                             next_fire_at = $6, updated_at = now()
+        "UPDATE triggers SET name = $2, schedule = $3, rules = $4, inputs = $5, enabled = $6,
+                             next_fire_at = $7, updated_at = now()
          WHERE id = $1",
         trigger.id.to_db(),
         trigger.name,
-        schedule,
+        trigger.kind.schedule(),
+        row::rules_json(&trigger.kind),
         inputs::json(&trigger.inputs),
         trigger.enabled,
         trigger.next_fire_at,
@@ -169,23 +204,27 @@ pub(crate) async fn delete(tx: &mut Tx<'_>, id: TriggerId) -> Result<bool, sqlx:
     Ok(result.rows_affected() == 1)
 }
 
-/// Locks at most `limit` enabled cron triggers that are due, with their schedules. Another
+/// Locks at most `limit` enabled cron triggers that are due, with their schedules and `true`
+/// when their pipeline is active: not archived, and with its file on the default branch. Another
 /// server skips the locked rows.
 pub(crate) async fn due(
     tx: &mut Tx<'_>,
     limit: i64,
-) -> Result<Vec<(TriggerId, String)>, sqlx::Error> {
+) -> Result<Vec<(TriggerId, String, bool)>, sqlx::Error> {
     let rows = sqlx::query!(
-        r#"SELECT id, schedule AS "schedule!" FROM triggers
-           WHERE enabled AND kind = 'cron' AND next_fire_at <= now()
-           ORDER BY next_fire_at LIMIT $1 FOR UPDATE SKIP LOCKED"#,
+        r#"SELECT t.id, t.schedule AS "schedule!",
+                  (SELECT p.archived_at IS NULL AND p.removed_at IS NULL
+                   FROM pipelines p WHERE p.id = t.pipeline_id) AS "active!"
+           FROM triggers t
+           WHERE t.enabled AND t.kind = 'cron' AND t.next_fire_at <= now()
+           ORDER BY t.next_fire_at LIMIT $1 FOR UPDATE OF t SKIP LOCKED"#,
         limit,
     )
     .fetch_all(&mut **tx)
     .await?;
     Ok(rows
         .into_iter()
-        .map(|row| (TriggerId::from_db(row.id), row.schedule))
+        .map(|row| (TriggerId::from_db(row.id), row.schedule, row.active))
         .collect())
 }
 
@@ -224,74 +263,4 @@ pub(crate) async fn record(
     .execute(&mut **tx)
     .await?;
     Ok(())
-}
-
-/// A row of the `triggers` table, with no secret.
-struct Row {
-    /// The id.
-    id: uuid::Uuid,
-    /// The pipeline.
-    pipeline_id: uuid::Uuid,
-    /// The project.
-    project_id: uuid::Uuid,
-    /// The workspace.
-    workspace_id: uuid::Uuid,
-    /// The author.
-    created_by: uuid::Uuid,
-    /// The display name.
-    name: String,
-    /// The kind.
-    kind: String,
-    /// The schedule of a cron trigger.
-    schedule: Option<String>,
-    /// The inputs in JSON.
-    inputs: Value,
-    /// `true` if the trigger fires.
-    enabled: bool,
-    /// The next fire.
-    next_fire_at: Option<OffsetDateTime>,
-    /// The last fire.
-    last_fired_at: Option<OffsetDateTime>,
-    /// The result of the last fire.
-    last_status: Option<String>,
-    /// The reason of a failed fire.
-    last_error: Option<String>,
-    /// The creation time.
-    created_at: OffsetDateTime,
-    /// The time of the last change.
-    updated_at: OffsetDateTime,
-}
-
-impl Row {
-    /// Makes the trigger of the row.
-    fn into_trigger(self) -> Result<Trigger, Error> {
-        let bad = |what: &str| Error::Internal(format!("bad trigger data: {what}"));
-        let kind = match (self.kind.as_str(), self.schedule) {
-            ("cron", Some(schedule)) => TriggerKind::Cron(schedule),
-            ("webhook", None) => TriggerKind::Webhook,
-            _ => return Err(bad("kind")),
-        };
-        let inputs = inputs::read(self.inputs).ok_or_else(|| bad("inputs"))?;
-        let last_result = match self.last_status.as_deref() {
-            Some("ok") => Some(FireResult::Ok),
-            Some(_) => Some(FireResult::Error(self.last_error.unwrap_or_default())),
-            None => None,
-        };
-        Ok(Trigger {
-            id: TriggerId::from_db(self.id),
-            pipeline_id: PipelineId::from_db(self.pipeline_id),
-            project_id: ProjectId::from_db(self.project_id),
-            workspace_id: WorkspaceId::from_db(self.workspace_id),
-            created_by: ActorId::from_db(self.created_by),
-            name: self.name,
-            kind,
-            inputs,
-            enabled: self.enabled,
-            next_fire_at: self.next_fire_at,
-            last_fired_at: self.last_fired_at,
-            last_result,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-        })
-    }
 }

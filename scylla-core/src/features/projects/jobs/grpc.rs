@@ -1,10 +1,11 @@
-//! The gRPC handler of `JobService`. The tail of the logs is in `tail.rs`.
+//! The gRPC handler of `JobService`. The tail of the logs is in `tail.rs`, and the approval of a
+//! job from a fork in `approval.rs`.
 
 use std::sync::Arc;
 
 use scylla_domain::authz::Permission;
 use scylla_domain::identity::apps::AppId;
-use scylla_domain::projects::jobs::{JobId, JobScope, ListJobs};
+use scylla_domain::projects::jobs::{JobId, JobScope, ListJobs, RerunOrigin};
 use scylla_domain::projects::pipelines::{PipelineAccess, PipelineHolder, PipelineId};
 use scylla_domain::projects::{Project, ProjectId};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -14,7 +15,7 @@ use scylla_proto::pipelines::v1::job_service_server::{JobService, JobServiceServ
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
-use super::{service, tail};
+use super::{convert, service, tail};
 use crate::api::parse::{self, ToProto};
 use crate::features::identity::agents::Registry;
 use crate::features::projects::pipelines::{access, service as pipelines};
@@ -44,7 +45,7 @@ pub(crate) struct JobsGrpc {
     /// The access gate.
     pub(super) gate: Arc<dyn Gate>,
     /// The open streams of the agents.
-    registry: Arc<Registry>,
+    pub(super) registry: Arc<Registry>,
 }
 
 #[tonic::async_trait]
@@ -67,7 +68,7 @@ impl JobService for JobsGrpc {
             .await?
             .ok_or(Error::NotFound("job"))?;
         Ok(Response::new(pb::GetJobResponse {
-            job: Some(job.to_proto()),
+            job: Some(convert::job_of(job, &self.registry)),
         }))
     }
 
@@ -85,7 +86,7 @@ impl JobService for JobsGrpc {
             .await?;
         let job = service::cancel(&self.pool, &self.registry, id).await?;
         Ok(Response::new(pb::CancelJobResponse {
-            job: Some(job.to_proto()),
+            job: Some(convert::job_of(job, &self.registry)),
         }))
     }
 
@@ -118,11 +119,26 @@ impl JobService for JobsGrpc {
                 PipelineAccess::RERUN_JOB,
             )
             .await?;
-        let actor = caller.actor;
-        let job = service::rerun(&self.pool, &self.hooks, &self.registry, actor, id).await?;
+        let (actor, origin) = (caller.actor, RerunOrigin::Person);
+        let job = service::rerun(&self.pool, &self.hooks, &self.registry, actor, id, origin);
+        let job = job.await?;
         Ok(Response::new(pb::RerunJobResponse {
-            job: Some(job.to_proto()),
+            job: Some(convert::job_of(job, &self.registry)),
         }))
+    }
+
+    async fn approve_job(
+        &self,
+        request: Request<pb::ApproveJobRequest>,
+    ) -> Result<Response<pb::ApproveJobResponse>, Status> {
+        self.approve(request).await
+    }
+
+    async fn reject_job(
+        &self,
+        request: Request<pb::RejectJobRequest>,
+    ) -> Result<Response<pb::RejectJobResponse>, Status> {
+        self.reject(request).await
     }
 
     async fn list_pipeline_jobs(
@@ -134,6 +150,7 @@ impl JobService for JobsGrpc {
         let request = request.into_inner();
         let id: PipelineId = parse::required(request.pipeline_id, "pipeline_id")?;
         let page = parse::optional(request.page, "page")?;
+        let filter = parse::optional(request.filter, "filter")?;
         let place = pipelines::place(&self.pool, id).await?;
         let permission = PipelineAccess::LIST_PIPELINE_JOBS;
         access::authorize(
@@ -149,10 +166,15 @@ impl JobService for JobsGrpc {
         let query = ListJobs {
             scope: JobScope::Pipeline(id),
             page,
+            filter,
         };
         let page = service::list(&self.pool, query).await?;
         Ok(Response::new(pb::ListPipelineJobsResponse {
-            jobs: page.items.into_iter().map(ToProto::to_proto).collect(),
+            jobs: page
+                .items
+                .into_iter()
+                .map(|job| convert::job_of(job, &self.registry))
+                .collect(),
             page: Some(page.next_after.to_proto()),
         }))
     }
@@ -170,6 +192,7 @@ impl JobService for JobsGrpc {
             .map(|id| parse::field(id, "agent_id"))
             .transpose()?;
         let page = parse::optional(request.page, "page")?;
+        let filter = parse::optional(request.filter, "filter")?;
         self.gate
             .authorize(&caller, PipelineHolder::LIST_WORKSPACE_JOBS.on(workspace))
             .await
@@ -179,10 +202,15 @@ impl JobService for JobsGrpc {
         let query = ListJobs {
             scope: JobScope::Workspace(workspace, agent),
             page,
+            filter,
         };
         let page = service::list(&self.pool, query).await?;
         Ok(Response::new(pb::ListWorkspaceJobsResponse {
-            jobs: page.items.into_iter().map(ToProto::to_proto).collect(),
+            jobs: page
+                .items
+                .into_iter()
+                .map(|job| convert::job_of(job, &self.registry))
+                .collect(),
             page: Some(page.next_after.to_proto()),
         }))
     }

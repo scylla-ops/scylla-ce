@@ -1,0 +1,92 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_connections c\n           SET state = $3, state_reason = $4, updated_at = now()\n           FROM (SELECT id, state FROM vcs_connections\n                 WHERE provider = 'github' AND external_id = $1\n                   AND app_id IS NOT DISTINCT FROM $2 AND state = ANY($5)\n                 FOR UPDATE) old\n           WHERE c.id = old.id\n           RETURNING c.id, c.workspace_id, c.provider, c.account, c.token_expires_at,\n                     old.state AS \"from_state!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "account",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "account"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "token_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "token_expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "from_state!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "state"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "1a618a78984b0a7d7f756e19867c43a98bdf6fe6d3e27c20b7ed39d629ae99c0"
+}

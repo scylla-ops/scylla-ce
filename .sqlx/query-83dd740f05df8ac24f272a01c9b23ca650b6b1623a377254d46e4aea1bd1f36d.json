@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT l.project_id FROM repository_links l\n         JOIN vcs_connections c ON c.id = l.connection_id\n         WHERE c.provider = 'github' AND c.external_id = $1 AND c.app_id IS NOT DISTINCT FROM $2\n           AND l.external_id = $3\n         ORDER BY l.project_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "project_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "83dd740f05df8ac24f272a01c9b23ca650b6b1623a377254d46e4aea1bd1f36d"
+}

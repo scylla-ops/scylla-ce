@@ -83,6 +83,12 @@ pub enum DomainError {
     /// The needs of the nodes make a cycle.
     #[error("must not make a cycle")]
     Cycle,
+    /// The text is not a glob of branches or tags.
+    #[error("must be a glob of 1 to 255 characters, for example release/*")]
+    NotAGlob,
+    /// The text is not the key of a pipeline file.
+    #[error("must be 1 to 64 lower case letters, digits, dashes or underscores")]
+    NotAFileKey,
     /// The text is not the name of an environment variable.
     #[error("must be a letter or an underscore, then letters, digits or underscores")]
     NotAnEnvName,
@@ -122,4 +128,10 @@ pub enum DomainError {
     /// The end of a period is before its start.
     #[error("must not be before the start of the period")]
     BeforeStart,
+    /// The text is not the name of a branch or of a tag.
+    #[error("must be a branch or tag name of 1 to 255 characters, with no space")]
+    NotARefName,
+    /// The text is not a commit.
+    #[error("must be 7 to 40 hexadecimal characters")]
+    NotASha,
 }

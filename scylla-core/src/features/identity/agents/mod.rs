@@ -2,6 +2,7 @@
 //! stream, the job stats of the agents, their install scripts, and the registry of the open
 //! streams of this server.
 
+mod dispatch;
 mod grpc;
 mod install;
 mod registry;

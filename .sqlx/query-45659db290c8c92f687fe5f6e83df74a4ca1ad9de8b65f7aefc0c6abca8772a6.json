@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO vcs_reports (job_id, context, project_id, connection_id, mode,\n                                      wanted_state, sequence, next_attempt_at)\n             VALUES ($1, $2, $3, $4, $5, $6, 1, now())\n             ON CONFLICT (job_id, context) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "45659db290c8c92f687fe5f6e83df74a4ca1ad9de8b65f7aefc0c6abca8772a6"
+}

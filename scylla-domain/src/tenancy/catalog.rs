@@ -2,6 +2,7 @@
 //! area, and it gives a list of route permissions.
 
 mod instance;
+mod integrations;
 #[cfg(test)]
 mod pages;
 mod project;
@@ -103,8 +104,16 @@ pub struct Area {
     pub permissions: &'static [CatalogPermission],
 }
 
-/// The areas, from the platform down to the project.
-pub const AREAS: [&[Area]; 3] = [instance::AREAS, workspace::AREAS, project::AREAS];
+/// The areas, from the platform down to the project. The areas of the Git integration close each
+/// level.
+pub const AREAS: [&[Area]; 6] = [
+    instance::AREAS,
+    integrations::INSTANCE,
+    workspace::AREAS,
+    integrations::WORKSPACE,
+    project::AREAS,
+    integrations::PROJECT,
+];
 
 /// The permission that gives the view of all the workspaces in a list.
 pub const VIEW_ALL_WORKSPACES: &str = "workspaces.view";

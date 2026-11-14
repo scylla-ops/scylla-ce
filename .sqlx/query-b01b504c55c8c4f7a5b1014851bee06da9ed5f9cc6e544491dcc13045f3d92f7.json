@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO vcs_deliveries (provider, delivery_id, app_id, connection_id, project_id,\n                                     event, action, status)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, 202)\n         ON CONFLICT (provider, delivery_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b01b504c55c8c4f7a5b1014851bee06da9ed5f9cc6e544491dcc13045f3d92f7"
+}

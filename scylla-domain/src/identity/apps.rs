@@ -78,6 +78,8 @@ pub struct Host {
     pub capacity: u32,
     /// The container runtime, or `None` if the agent has none.
     pub container_runtime: Option<String>,
+    /// The features of the agent, for example `checkout`.
+    pub features: Vec<String>,
 }
 
 impl Host {
@@ -85,10 +87,39 @@ impl Host {
     pub const MAX_TEXT: usize = 100;
     /// The largest capacity.
     pub const MAX_CAPACITY: u32 = 256;
+    /// The largest number of features.
+    pub const MAX_FEATURES: usize = 16;
+    /// The feature of an agent that gets the code of a job before its first node.
+    pub const CHECKOUT: &'static str = "checkout";
 
-    /// Trims and checks each text (one line, at most `MAX_TEXT` characters), and the capacity.
-    /// A capacity of 0 gives 1.
+    /// Returns `true` if the agent gets the code of a job before its first node.
+    pub fn can_check_out(&self) -> bool {
+        self.features
+            .iter()
+            .any(|feature| feature == Self::CHECKOUT)
+    }
+
+    /// Trims and checks each text (one line, at most `MAX_TEXT` characters), the features (at
+    /// most `MAX_FEATURES`, with no empty and no double one) and the capacity. A capacity of 0
+    /// gives 1.
     pub fn parse(mut host: Host) -> Result<Self, (&'static str, DomainError)> {
+        // Keep each feature one time.
+        let mut features: Vec<String> = Vec::new();
+        for feature in &host.features {
+            let feature = host_text(feature).map_err(|error| ("features", error))?;
+            if !feature.is_empty() && !features.contains(&feature) {
+                features.push(feature);
+            }
+        }
+        if features.len() > Self::MAX_FEATURES {
+            let error = DomainError::TooMany {
+                max: Self::MAX_FEATURES,
+            };
+            return Err(("features", error));
+        }
+        host.features = features;
+
+        // Check each text and the capacity.
         for (field, text) in [
             ("version", &mut host.version),
             ("os", &mut host.os),

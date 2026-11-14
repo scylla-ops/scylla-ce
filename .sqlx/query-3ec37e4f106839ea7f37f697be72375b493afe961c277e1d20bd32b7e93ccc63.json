@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE repository_links\n         SET delivery_mode = 'polling', state_reason = $2, updated_at = now(),\n             next_poll_at = now() + make_interval(secs => poll_interval_seconds::float8)\n         WHERE project_id = $1 AND delivery_mode = 'webhook' AND state = 'active'\n         RETURNING connection_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "connection_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "connection_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3ec37e4f106839ea7f37f697be72375b493afe961c277e1d20bd32b7e93ccc63"
+}

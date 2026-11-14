@@ -18,6 +18,16 @@ pub mod common {
     }
 }
 
+/// The integrations API: the connections to GitHub and GitLab, the repository of a project, the
+/// merge rules and the reports of the jobs.
+pub mod integrations {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.integrations.v1");
+    }
+}
+
 /// The notifications API: the inbox of a user.
 pub mod notifications {
     /// Version 1.
@@ -100,7 +110,7 @@ pub mod accounts {
     }
 }
 
-/// The platform API: the settings of the instance.
+/// The platform API: the settings and the GitHub App of the instance.
 pub mod platform {
     /// Version 1.
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]

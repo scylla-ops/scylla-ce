@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.job_id FROM job_sources s JOIN jobs j ON j.id = s.job_id\n         WHERE j.project_id = $1 AND j.status = 'awaiting_approval' AND s.repository = $2\n           AND s.sha <> $3 AND s.pull_requests @> $4\n         ORDER BY s.job_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "job_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0b50a654faf82793975502cf3fe0b53d0555d3b971b03536b7b5a270487f2bf1"
+}

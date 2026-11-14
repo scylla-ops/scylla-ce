@@ -4,11 +4,15 @@ use scylla_domain::identity::actors::Actor;
 use scylla_domain::identity::admins::UserAdminHolder;
 use scylla_domain::identity::api_tokens::TokenOwner;
 use scylla_domain::identity::users::AccountCaller;
+use scylla_domain::integrations::apps::VcsAppHolder;
+use scylla_domain::integrations::connections::VcsConnectionHolder;
+use scylla_domain::integrations::links::{RepositoryAccess, RepositoryHolder};
 use scylla_domain::platform::{Platform, SettingsHolder};
 use scylla_extension::{Edition, EditionBuilder};
 
 use crate::features::identity::apps::Apps;
 use crate::features::identity::user_state::UserState;
+use crate::features::integrations::Integrations;
 use crate::features::notifications::Notifications;
 use crate::features::platform::capabilities::Capabilities;
 use crate::features::projects::pipelines::Pipelines;
@@ -40,4 +44,9 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .plugin(Roles)
         .plugin(Notifications)
         .plugin(UserState)
+        .authz::<VcsAppHolder>()
+        .authz::<VcsConnectionHolder>()
+        .authz::<RepositoryAccess>()
+        .authz::<RepositoryHolder>()
+        .plugin(Integrations)
 }

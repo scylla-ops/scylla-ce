@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT newest.job_id AS \"job_id!\"\n           FROM (SELECT DISTINCT ON (r.context) r.job_id, j.status\n                 FROM vcs_reports r\n                 JOIN jobs j ON j.id = r.job_id\n                 JOIN job_sources s ON s.job_id = r.job_id\n                 WHERE r.project_id = $1 AND r.mode = 'check_run' AND s.sha = $2\n                   AND ($3::uuid IS NULL OR r.job_id = $3)\n                 ORDER BY r.context, j.created_at DESC, j.id DESC) newest\n           WHERE newest.status NOT IN ('awaiting_approval', 'pending', 'running')\n           ORDER BY newest.job_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "job_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "af144f7e02a6b9410c9d14fc9c8ffe1e43a735d9aeaffc5d2572efebf0471562"
+}

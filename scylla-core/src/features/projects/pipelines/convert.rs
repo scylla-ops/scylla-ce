@@ -3,15 +3,29 @@
 
 use std::collections::BTreeMap;
 
+use scylla_domain::integrations::links::PipelineSource as DomainSource;
+use scylla_domain::projects::pipeline_files::CheckoutSettings;
 use scylla_domain::projects::pipelines::{
     EnvValue, EnvVar, Node, NodeId, Nodes, Pipeline, PipelineLayout, Position, Runtime, Shell, Step,
 };
 use scylla_domain::projects::secrets::SecretName;
 use scylla_domain::DomainError;
+use scylla_proto::integrations::v1::PipelineSource;
 use scylla_proto::pipelines::v1 as pb;
 
+use super::files_convert::checkout_of;
 use crate::api::parse::{self, ToProto};
 use crate::Error;
+
+/// Reads the checkout settings of a request.
+pub(crate) fn checkout(checkout: pb::CheckoutSettings) -> CheckoutSettings {
+    CheckoutSettings {
+        enabled: checkout.enabled,
+        depth: checkout.depth,
+        submodules: checkout.submodules,
+        lfs: checkout.lfs,
+    }
+}
 
 /// Reads and checks the places of a request. A key that cannot be the id of a node is ignored, as
 /// each id that is not a node of the pipeline is.
@@ -199,6 +213,11 @@ impl ToProto<pb::PipelineLayout> for PipelineLayout {
 
 impl ToProto<pb::Pipeline> for Pipeline {
     fn to_proto(self) -> pb::Pipeline {
+        let source = match self.source {
+            DomainSource::Editor => PipelineSource::Editor,
+            DomainSource::File => PipelineSource::File,
+        };
+        let file = self.file.unwrap_or_default();
         pb::Pipeline {
             id: Some(self.id.to_proto()),
             project_id: Some(self.project_id.to_proto()),
@@ -209,6 +228,13 @@ impl ToProto<pb::Pipeline> for Pipeline {
             version: self.version,
             created_at: Some(parse::timestamp(self.created_at)),
             updated_at: Some(parse::timestamp(self.updated_at)),
+            source: source.into(),
+            file_key: file.key,
+            file_path: file.path,
+            checkout: Some(checkout_of(self.checkout)),
+            archived_at: self.archived_at.map(parse::timestamp),
+            removed_at: file.removed_at.map(parse::timestamp),
+            file_error_count: file.errors,
         }
     }
 }

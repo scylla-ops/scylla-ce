@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE repository_links SET ruleset_id = $2, updated_at = now() WHERE project_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5555523a364b8d12bc5f63d391c0b4fb7abc922d465fbe297befc632f1e3a6c6"
+}

@@ -4,7 +4,7 @@ use super::{
     areas, complete, covering, find, giving, held, needs, permissions_of, Level, PermissionError,
 };
 
-/// A role holds at most 38, 30 or 18 permissions, and the machine area is apart.
+/// A role holds at most 44, 35 or 21 permissions, and the machine area is apart.
 #[test]
 fn the_catalog_has_the_counts_of_the_model() {
     // given
@@ -19,7 +19,7 @@ fn the_catalog_has_the_counts_of_the_model() {
     let counts = [Level::Platform, Level::Workspace, Level::Project].map(human);
 
     // then
-    assert_eq!(counts, [38, 30, 18]);
+    assert_eq!(counts, [44, 35, 21]);
 }
 
 /// Each dependency names a permission of the catalog, and each id has its area in front.
@@ -97,6 +97,45 @@ fn complete_adds_the_dependencies_and_the_implicit_permissions() {
     assert_eq!(
         on_project,
         ["project.view", "pipelines.view", "pipelines.edit"]
+    );
+}
+
+/// The edit of the repository, the approval of a job and the manage of the connections bring
+/// what they need, in the order of the catalog.
+#[test]
+fn complete_adds_what_the_git_integration_needs() {
+    // given
+    let repository = ["repository.edit".to_owned()];
+    let approve = ["jobs.approve".to_owned()];
+    let connections = ["integrations.manage".to_owned()];
+
+    // when
+    let on_project = complete(Level::Project, false, &repository).expect("valid");
+    let approver = complete(Level::Project, false, &approve).expect("valid");
+    let on_workspace = complete(Level::Workspace, false, &connections).expect("valid");
+
+    // then
+    assert_eq!(
+        on_project,
+        [
+            "project.view",
+            "pipelines.view",
+            "repository.view",
+            "repository.edit"
+        ]
+    );
+    assert_eq!(
+        approver,
+        [
+            "project.view",
+            "pipelines.view",
+            "jobs.view",
+            "jobs.approve"
+        ]
+    );
+    assert_eq!(
+        on_workspace,
+        ["workspace.view", "integrations.view", "integrations.manage"]
     );
 }
 

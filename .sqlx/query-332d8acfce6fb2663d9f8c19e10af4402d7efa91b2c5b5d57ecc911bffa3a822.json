@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO vcs_poll_state (project_id, ref, etag, updated_after)\n         VALUES ($1, $2, $3, $4)\n         ON CONFLICT (project_id, ref) DO UPDATE\n         SET etag = $3, updated_after = $4, polled_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "332d8acfce6fb2663d9f8c19e10af4402d7efa91b2c5b5d57ecc911bffa3a822"
+}

@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_reports\n         SET sent_state = $3, sent_sequence = $4, sent_at = now(),\n             external_id = COALESCE($5, external_id), external_url = COALESCE($6, external_url),\n             attempts = 0, last_error = NULL,\n             state = CASE WHEN sequence = $4 THEN 'sent' ELSE 'sending' END,\n             next_attempt_at = CASE WHEN sequence = $4 THEN NULL ELSE now() END,\n             updated_at = now()\n         WHERE job_id = $1 AND context = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "908d4b4c45ccc2c69f96041cc6102652d3e0552bc50c35fab623fec3e92bd3e6"
+}

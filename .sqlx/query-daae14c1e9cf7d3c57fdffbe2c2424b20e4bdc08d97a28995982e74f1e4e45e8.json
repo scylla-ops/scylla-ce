@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.sealed_secret AS \"sealed_secret!\"\n           FROM triggers t JOIN pipelines p ON p.id = t.pipeline_id\n           WHERE t.id = $1 AND t.enabled AND t.kind = 'webhook' AND p.archived_at IS NULL\n             AND p.removed_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sealed_secret!",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "sealed_secret"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "daae14c1e9cf7d3c57fdffbe2c2424b20e4bdc08d97a28995982e74f1e4e45e8"
+}
