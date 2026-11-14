@@ -171,9 +171,10 @@ impl TestApp {
 }
 
 impl FakeProvider {
-    /// Answers the deliveries of the webhook of the App (the last one first) and a new delivery
-    /// of each one. `deliveries` has the id and the installation of each delivery.
+    /// Answers the webhook of the App, its deliveries (the last one first) and a new delivery of
+    /// each one. `deliveries` has the id and the installation of each delivery.
     pub fn answer_github_deliveries(&self, deliveries: &[(u64, u64)]) {
+        self.answer_github_app_hook(true);
         let listed: Vec<Value> = deliveries
             .iter()
             .map(|(id, installation)| {

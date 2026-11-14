@@ -1,18 +1,19 @@
 //! The gRPC routes of `VcsConnectionService` that make a connection (the install of the GitHub
-//! App, the token of GitLab) and that list the repositories of a connection.
+//! App and its refresh, the token of GitLab) and that list the repositories of a connection.
 
+use scylla_domain::authz::Object;
 use scylla_domain::integrations::connections::VcsConnectionHolder;
 use scylla_domain::integrations::links::RepositoryAccess;
 use scylla_domain::projects::ProjectId;
 use scylla_domain::PageSize;
-use scylla_extension::AccessError;
+use scylla_extension::{AccessError, Principal};
 use scylla_proto::common::v1::PageResponse;
 use scylla_proto::integrations::v1 as pb;
 use tonic::Request;
 
 use super::grpc::ConnectionsGrpc;
 use super::install::{self, Redirect};
-use super::{convert, repositories, service, tokens};
+use super::{convert, redirects, repositories, service, tokens};
 use crate::api::parse;
 use crate::infra::vcs::Hidden;
 use crate::Error;
@@ -43,7 +44,9 @@ impl ConnectionsGrpc {
         })
     }
 
-    /// Handles `CompleteGitHubInstall`, on the workspace of the state.
+    /// Handles `CompleteGitHubInstall`, on the workspace of the state. An install with no code
+    /// goes to the authorize page of GitHub first, and a redirect with no state refreshes a
+    /// connection.
     pub(super) async fn complete_install(
         &self,
         request: Request<pb::CompleteGitHubInstallRequest>,
@@ -51,34 +54,79 @@ impl ConnectionsGrpc {
         // Authenticate the caller, then read the request.
         let caller = self.ctx.gate.caller(&request).await?;
         let request = request.into_inner();
+        let installation = installation(&request.installation_id)?;
         if request.state.is_empty() {
-            return Err(Error::invalid("state", "is required"));
+            return self
+                .refresh_install(&caller, installation, request.code)
+                .await;
         }
-        let installation = match request.installation_id.trim() {
-            "" => None,
-            id => Some(
-                id.parse::<u64>()
-                    .map_err(|_| Error::invalid("installation_id", "must be a number"))?,
-            ),
-        };
-        let install = installation.is_some() && request.setup_action != "request";
-        if install && request.code.is_empty() {
-            return Err(Error::invalid("code", "is required"));
-        }
+        let (state, carried) = redirects::split(&request.state)?;
+        let installation = installation.or(carried);
+        let authorize = installation.is_some()
+            && carried.is_none()
+            && request.code.is_empty()
+            && request.setup_action != "request";
 
         // Find the workspace of the state, and check the route permission there.
         let actor = caller.actor.id;
-        let workspace = install::workspace_of(&self.ctx, &request.state, actor).await?;
+        let workspace = install::workspace_of(&self.ctx, state, actor).await?;
         let permission = VcsConnectionHolder::COMPLETE_GIT_HUB_INSTALL;
         self.authorize(&caller, permission, workspace).await?;
 
-        // Connect the installation.
+        // Send an install with no code to the authorize page, else connect the installation.
+        if let (true, Some(installation)) = (authorize, installation) {
+            return Err(redirects::authorize(&self.ctx, state, installation).await);
+        }
         let redirect = Redirect {
             installation,
             code: request.code,
             setup_action: request.setup_action,
         };
-        let counted = install::complete(&self.ctx, &request.state, actor, redirect).await?;
+        let counted = install::complete(&self.ctx, state, actor, redirect).await?;
+        Ok(pb::CompleteGitHubInstallResponse {
+            connection: Some(self.answer(counted)),
+        })
+    }
+
+    /// Handles `CompleteGitHubInstall` with no state: the redirect after a change of an
+    /// installation on GitHub. It refreshes the connection of the installation in the first
+    /// workspace where the caller completes an install.
+    async fn refresh_install(
+        &self,
+        caller: &Principal,
+        installation: Option<u64>,
+        code: String,
+    ) -> Result<pb::CompleteGitHubInstallResponse, Error> {
+        // Refuse a redirect with no installation or no code.
+        let (Some(installation), false) = (installation, code.is_empty()) else {
+            return Err(Error::invalid("state", "is required"));
+        };
+
+        // Find a workspace of the installation where the caller can complete an install.
+        let permission = VcsConnectionHolder::COMPLETE_GIT_HUB_INSTALL;
+        let mut found = None;
+        for workspace in redirects::workspaces(&self.ctx, installation).await? {
+            let object = Object::of(workspace);
+            let names = [permission.name()];
+            let gate = &self.ctx.gate;
+            let held = gate
+                .permissions(caller, &object, Some(workspace), &names)
+                .await?;
+            if held.first().copied().unwrap_or(false) {
+                found = Some(workspace);
+                break;
+            }
+        }
+        let Some(workspace) = found else {
+            let object = format!("installation:{installation}");
+            let reason = format!("{} on {object} is denied", permission.name());
+            return Err(AccessError::refused(caller, permission.name(), &object, reason).into());
+        };
+
+        // Check the route permission there, then refresh the connection.
+        self.authorize(caller, permission, workspace).await?;
+        let actor = caller.actor.id;
+        let counted = install::connect(&self.ctx, workspace, actor, installation, &code).await?;
         Ok(pb::CompleteGitHubInstallResponse {
             connection: Some(self.answer(counted)),
         })
@@ -173,6 +221,17 @@ impl ConnectionsGrpc {
                 next_token: next.unwrap_or_default(),
             }),
         })
+    }
+}
+
+/// Reads the id of an installation of a request, or `None` for an empty text.
+fn installation(text: &str) -> Result<Option<u64>, Error> {
+    match text.trim() {
+        "" => Ok(None),
+        id => id
+            .parse()
+            .map(Some)
+            .map_err(|_| Error::invalid("installation_id", "must be a number")),
     }
 }
 

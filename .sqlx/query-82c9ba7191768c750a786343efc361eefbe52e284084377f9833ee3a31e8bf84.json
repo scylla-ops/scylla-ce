@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE repository_links\n         SET delivery_mode = 'polling', state_reason = $2, updated_at = now(),\n             next_poll_at = CASE WHEN delivery_mode = 'webhook' THEN now() ELSE next_poll_at END\n         WHERE project_id = $1 AND state = 'active'\n           AND (delivery_mode = 'webhook' OR state_reason IS NULL OR state_reason = ANY($3))\n         RETURNING connection_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "connection_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "connection_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "82c9ba7191768c750a786343efc361eefbe52e284084377f9833ee3a31e8bf84"
+}

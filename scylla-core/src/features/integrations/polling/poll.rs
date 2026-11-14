@@ -27,6 +27,9 @@ const WINDOW: Duration = Duration::minutes(15);
 /// The reason of a link in polling mode because the webhooks do not arrive.
 pub(crate) const WEBHOOKS_NOT_ARRIVING: &str = "WEBHOOKS_NOT_ARRIVING";
 
+/// The reason of a GitHub link in polling mode because its App has no active webhook.
+pub(crate) const APP_HAS_NO_WEBHOOK: &str = "APP_HAS_NO_WEBHOOK";
+
 /// The reason of a link in polling mode because GitLab disabled its webhook.
 const WEBHOOK_DISABLED: &str = "WEBHOOK_DISABLED";
 

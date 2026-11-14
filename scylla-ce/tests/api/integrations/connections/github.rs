@@ -118,7 +118,7 @@ async fn complete_github_install_makes_the_connection(pool: PgPool) {
 }
 
 /// A state of another user, an unknown state, or a code that GitHub refuses give
-/// `STATE_EXPIRED`. A bad installation id and a missing code are bad requests.
+/// `STATE_EXPIRED`. A bad installation id is a bad request.
 #[sqlx::test(migrations = false)]
 async fn complete_github_install_refuses_a_foreign_state_or_a_bad_code(pool: PgPool) {
     // given
@@ -129,10 +129,7 @@ async fn complete_github_install_refuses_a_foreign_state_or_a_bad_code(pool: PgP
     let refused = json!({ "error": "bad_verification_code" });
     fake.respond("POST", "/login/oauth/access_token", 200, refused, &[]);
     let first = app.start_github_install(owner, &workspace).await.unwrap();
-    let second = app.start_github_install(owner, &workspace).await.unwrap();
-    let (first, second) = (state_of(&first.install_url), state_of(&second.install_url));
-    let mut no_code = redirect(&second, "7", "install");
-    no_code.code = String::new();
+    let first = state_of(&first.install_url);
 
     // when
     let foreign = app
@@ -145,10 +142,6 @@ async fn complete_github_install_refuses_a_foreign_state_or_a_bad_code(pool: PgP
         .complete_github_install(owner, redirect(&first, "seven", "install"))
         .await
         .unwrap_err();
-    let missing = app
-        .complete_github_install(owner, no_code)
-        .await
-        .unwrap_err();
     let bad_code = app
         .complete_github_install(owner, redirect(&first, "7", "install"))
         .await;
@@ -157,7 +150,6 @@ async fn complete_github_install_refuses_a_foreign_state_or_a_bad_code(pool: PgP
     assert_reason(foreign, "STATE_EXPIRED");
     assert_reason(unknown, "STATE_EXPIRED");
     assert_invalid_field(&bad_id, "installation_id");
-    assert_invalid_field(&missing, "code");
     assert_reason(bad_code, "STATE_EXPIRED");
 }
 

@@ -1,5 +1,5 @@
 //! The link of a project to a repository: the check that the connection sees the repository,
-//! the webhook of a GitLab project, then the row of the link.
+//! the webhook of the GitHub App or of a GitLab project, then the row of the link.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::integrations::connections::{DeliveryMode, VcsConnection};
@@ -8,11 +8,12 @@ use scylla_domain::integrations::VcsProvider;
 use scylla_domain::projects::ProjectId;
 use scylla_extension::Rejection;
 
-use super::calls::gitlab;
+use super::calls::{github, gitlab};
 use super::service;
 use super::store::{self, Linked, NewLink, Repository};
 use crate::features::integrations::connections::calls::github as connections_github;
 use crate::features::integrations::connections::{checks, credentials};
+use crate::features::integrations::polling::{self, store as polls};
 use crate::features::integrations::IntegrationContext;
 use crate::infra::vcs::{gitlab_signing_token, Hidden, ProviderError};
 use crate::Error;
@@ -45,8 +46,8 @@ struct Found {
 
 /// Links a project to a repository of a connection of its workspace. A project with a link gives
 /// `REPOSITORY_ALREADY_LINKED`, and a repository that the connection cannot see gives
-/// `REPOSITORY_NOT_VISIBLE`. On GitLab, a Maintainer gets a webhook, and a Developer gets the
-/// polling mode.
+/// `REPOSITORY_NOT_VISIBLE`. On GitHub, an App with no webhook gives the polling mode. On GitLab,
+/// a Maintainer gets a webhook, and a Developer gets the polling mode.
 pub(super) async fn link(
     ctx: &IntegrationContext,
     project: ProjectId,
@@ -117,19 +118,23 @@ pub(super) async fn link(
     Ok(linked)
 }
 
-/// Inserts a link, and reads it back. Returns `None` when the project has a link.
+/// Inserts a link, and reads it back. Returns `None` when the project has a link. A link of a
+/// GitHub App with no webhook moves its connection to the polling mode too.
 async fn save(ctx: &IntegrationContext, new: &NewLink<'_>) -> Result<Option<Linked>, Error> {
     let mut tx = ctx.pool.begin().await?;
     if !store::insert(&mut tx, new).await? {
         return Ok(None);
+    }
+    if new.reason == Some(polling::APP_HAS_NO_WEBHOOK) {
+        polls::links::connection_to_polling(&mut tx, new.connection).await?;
     }
     let linked = store::find(&mut tx, new.project).await?;
     tx.commit().await?;
     Ok(linked)
 }
 
-/// Finds a repository of a GitHub installation. The link takes the delivery mode of the
-/// connection.
+/// Finds a repository of a GitHub installation. The link polls at once when the App has no
+/// webhook, else it takes the delivery mode of the connection.
 async fn github(
     ctx: &IntegrationContext,
     connection: &VcsConnection,
@@ -149,6 +154,17 @@ async fn github(
         .into_iter()
         .find(|repository| repository.id.to_string() == external_id)
         .ok_or_else(not_visible)?;
+
+    // Read the webhook of the App. A failed read keeps the mode of the connection.
+    let (delivery_mode, reason) = match github::app_has_webhook(&ctx.clients, &app).await {
+        Ok(false) => (DeliveryMode::Polling, Some(polling::APP_HAS_NO_WEBHOOK)),
+        Ok(true) => (connection.delivery_mode, None),
+        Err(error) => {
+            let id = connection.id;
+            tracing::warn!(connection = %id, %error, "the webhook of the GitHub App is unknown");
+            (connection.delivery_mode, None)
+        }
+    };
     Ok(Found {
         repository: Repository {
             external_id: repository.id.to_string(),
@@ -159,9 +175,9 @@ async fn github(
             role: None,
         },
         report_mode: ReportMode::CheckRun,
-        delivery_mode: connection.delivery_mode,
+        delivery_mode,
         hook: None,
-        reason: None,
+        reason,
     })
 }
 

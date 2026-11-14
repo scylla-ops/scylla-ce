@@ -1,7 +1,7 @@
 //! The SQL of the changes of an installation of the GitHub App that its webhooks tell: the state
 //! and the permissions of its connections, the repositories that it sees, and the state of the
 //! links of these repositories. The connections of one installation are in one or more
-//! workspaces, and the App of the instance or of the settings filters them.
+//! workspaces (a read gives them), and the App of the instance or of the settings filters them.
 
 use scylla_domain::integrations::apps::VcsAppId;
 use scylla_domain::integrations::connections::{ConnectionState, VcsConnectionId};
@@ -180,4 +180,22 @@ pub(crate) async fn set_visible(
     .await?;
     let ids = |rows: Vec<uuid::Uuid>| rows.into_iter().map(ProjectId::from_db).collect();
     Ok((ids(stopped), ids(restored)))
+}
+
+/// Returns the workspaces of the connections of an installation, the oldest connection first.
+pub(crate) async fn workspaces(
+    tx: &mut Tx<'_>,
+    app: Option<VcsAppId>,
+    installation: &str,
+) -> Result<Vec<WorkspaceId>, Error> {
+    let rows = sqlx::query_scalar!(
+        "SELECT workspace_id FROM vcs_connections
+         WHERE provider = 'github' AND external_id = $1 AND app_id IS NOT DISTINCT FROM $2
+         ORDER BY created_at, id",
+        installation,
+        app.map(VcsAppId::to_db),
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows.into_iter().map(WorkspaceId::from_db).collect())
 }

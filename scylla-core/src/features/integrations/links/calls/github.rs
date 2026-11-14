@@ -1,7 +1,9 @@
 //! The calls of the repository links to GitHub: the branches and the tags of a repository, with
-//! an installation token narrowed to the repository and to `contents: read`.
+//! an installation token narrowed to the repository and to `contents: read`, and the webhook of
+//! the App, with its JWT.
 
 use serde::Deserialize;
+use time::OffsetDateTime;
 
 use crate::infra::vcs::{Auth, GitHubApp, ProviderError, TokenScope, VcsClients};
 
@@ -22,6 +24,13 @@ pub(crate) struct GitHubRef {
 pub(crate) struct Commit {
     /// The full SHA.
     pub(crate) sha: String,
+}
+
+/// The webhook of the App, from `GET /app/hook/config`.
+#[derive(Deserialize)]
+struct HookConfig {
+    /// The URL of the webhook, or `None`.
+    url: Option<String>,
 }
 
 /// The repository of a call: the installation that sees it, its id and its full name.
@@ -60,4 +69,24 @@ pub(crate) async fn refs(
         app.forget(repository.installation);
     }
     listed
+}
+
+/// Returns `true` when the App has an active webhook with a URL. GitHub gives 404 for an App
+/// with no active webhook.
+pub(crate) async fn app_has_webhook(
+    clients: &VcsClients,
+    app: &GitHubApp,
+) -> Result<bool, ProviderError> {
+    let jwt = app.jwt(OffsetDateTime::now_utc())?;
+    let config = clients
+        .github
+        .get("/app/hook/config")
+        .auth(Auth::Bearer(&jwt))
+        .read::<HookConfig>()
+        .await;
+    match config {
+        Ok(config) => Ok(config.url.is_some_and(|url| !url.trim().is_empty())),
+        Err(ProviderError::NotFound) => Ok(false),
+        Err(error) => Err(error),
+    }
 }

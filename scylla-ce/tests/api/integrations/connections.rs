@@ -1,10 +1,12 @@
 //! The tests of the GitHub and GitLab connections of a workspace: the install of the GitHub
-//! App, the GitLab tokens, and the reads, the delete and the access of the connections.
+//! App and the redirects of GitHub, the GitLab tokens, and the reads, the delete and the access
+//! of the connections.
 
 mod access;
 mod github;
 mod gitlab;
 mod lists;
+mod redirects;
 mod reinstall;
 
 use scylla_core::api::ServeOptions;

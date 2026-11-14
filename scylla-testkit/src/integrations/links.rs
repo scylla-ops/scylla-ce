@@ -158,6 +158,24 @@ impl FakeProvider {
         self.respond("DELETE", &route, 204, Value::Null, &[]);
     }
 
+    /// Answers the webhook of the GitHub App: its config with a URL when `active`, else 404, as
+    /// GitHub answers for an App with no active webhook.
+    pub fn answer_github_app_hook(&self, active: bool) {
+        match active {
+            true => {
+                let config = json!({
+                    "url": "https://scylla.example/integrations/github/webhook",
+                    "content_type": "json",
+                });
+                self.respond("GET", "/app/hook/config", 200, config, &[]);
+            }
+            false => {
+                let missing = json!({ "message": "Not Found" });
+                self.respond("GET", "/app/hook/config", 404, missing, &[]);
+            }
+        }
+    }
+
     /// Answers the branches and the tags of the GitHub repository `full_name` (`(name, sha)`),
     /// with the installation token `ghs_refs` of the installation.
     pub fn answer_github_refs(

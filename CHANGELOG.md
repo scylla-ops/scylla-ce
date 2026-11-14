@@ -268,3 +268,7 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   connection, and the links stayed on the old one. A report keeps the latest state of its run while
   the link or its connection is not active, so `RetryJobReport` sends the final state after the
   repair.
+- A new GitHub link polls at once when the GitHub App has no active webhook, with the reason
+  `APP_HAS_NO_WEBHOOK`, and its connection polls too. `TestDelivery` tells it and moves an existing
+  link to the polling mode. Before, a push started a run only at the safety poll after 15 minutes,
+  and the test gave a raw error of GitHub.

@@ -87,10 +87,12 @@ async fn link_repository_refuses_a_connection_of_another_workspace(pool: PgPool)
 #[sqlx::test(migrations = false)]
 async fn test_delivery_needs_a_link(pool: PgPool) {
     // given
-    let (app, _fake) = app_with_fake(pool).await;
+    let (app, fake) = app_with_fake(pool).await;
     let linked = project(&app, "github").await;
     insert_link(&app, &linked, "octo/app").await;
     let unlinked = project(&app, "github").await;
+    let bad_credentials = serde_json::json!({ "message": "Bad credentials" });
+    fake.respond("GET", "/app/hook/config", 401, bad_credentials, &[]);
 
     // when
     let refused = app.test_delivery(linked.owner, &linked.id).await;

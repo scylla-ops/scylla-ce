@@ -10,7 +10,11 @@ use time::OffsetDateTime;
 use crate::Error;
 
 /// The reasons of the polling mode that end when a webhook arrives.
-const ENDED_BY_A_WEBHOOK: [&str; 2] = ["WEBHOOKS_NOT_ARRIVING", "WEBHOOK_DISABLED"];
+const ENDED_BY_A_WEBHOOK: [&str; 3] = [
+    "WEBHOOKS_NOT_ARRIVING",
+    "WEBHOOK_DISABLED",
+    "APP_HAS_NO_WEBHOOK",
+];
 
 /// Takes at most `limit` active links whose poll is due, oldest first, and moves their next poll
 /// after their interval: the interval of the link in polling mode, else `safety_seconds`. A link
@@ -84,6 +88,30 @@ pub(crate) async fn to_polling(
          RETURNING connection_id",
         project.to_db(),
         reason,
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(connection.map(VcsConnectionId::from_db))
+}
+
+/// Moves the active link of a project to the polling mode with a reason, from the webhook mode,
+/// or from the polling mode with no reason or a reason that a webhook ends. A link that moves
+/// from the webhook mode polls at once. Returns its connection, or `None` when it did not move.
+pub(crate) async fn to_polling_for(
+    tx: &mut Tx<'_>,
+    project: ProjectId,
+    reason: &str,
+) -> Result<Option<VcsConnectionId>, Error> {
+    let connection = sqlx::query_scalar!(
+        "UPDATE repository_links
+         SET delivery_mode = 'polling', state_reason = $2, updated_at = now(),
+             next_poll_at = CASE WHEN delivery_mode = 'webhook' THEN now() ELSE next_poll_at END
+         WHERE project_id = $1 AND state = 'active'
+           AND (delivery_mode = 'webhook' OR state_reason IS NULL OR state_reason = ANY($3))
+         RETURNING connection_id",
+        project.to_db(),
+        reason,
+        &ENDED_BY_A_WEBHOOK.map(str::to_owned),
     )
     .fetch_optional(&mut **tx)
     .await?;

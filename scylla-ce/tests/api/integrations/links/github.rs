@@ -25,6 +25,7 @@ async fn link_repository_links_a_github_repository(pool: PgPool) {
     let project = project(&app, "github").await;
     let repositories = [(5, "octo/web", false), (7, "octo/api", true)];
     fake.answer_github_install(42, "octo", permissions(), &repositories);
+    fake.answer_github_app_hook(true);
 
     // when
     let linked = app
@@ -55,6 +56,42 @@ async fn link_repository_links_a_github_repository(pool: PgPool) {
         tokens[0].body,
         json!({ "permissions": { "metadata": "read" } })
     );
+}
+
+/// Bug F074, story "Polling mode": a GitHub App with no active webhook gives a link in polling
+/// mode at once, with the reason `APP_HAS_NO_WEBHOOK` and its first poll due now. Its connection
+/// moves to the polling mode too.
+#[sqlx::test(migrations = false)]
+async fn link_repository_polls_when_the_github_app_has_no_webhook(pool: PgPool) {
+    // given
+    let (app, fake) = app_with_fake(pool).await;
+    let project = project(&app, "github").await;
+    fake.answer_github_install(42, "octo", permissions(), &[(7, "octo/api", false)]);
+    fake.answer_github_app_hook(false);
+
+    // when
+    let linked = app
+        .link_repository(project.owner, &project.id, &project.connection, "7")
+        .await
+        .unwrap();
+
+    // then
+    assert_eq!(linked.delivery_mode, DeliveryMode::Polling as i32);
+    assert_eq!(linked.state_reason, "APP_HAS_NO_WEBHOOK");
+    assert_eq!(linked.state, ConnectionState::Active as i32);
+    let connection = app.connection_mode(&project.connection).await;
+    assert_eq!(connection.delivery_mode, "polling");
+    let due: bool = sqlx::query_scalar(
+        "SELECT next_poll_at <= now() FROM repository_links WHERE project_id = $1::uuid",
+    )
+    .bind(&project.id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert!(due);
+    let read = &fake.requests_to("GET", "/app/hook/config")[0];
+    let jwt = read.header("authorization").unwrap_or_default();
+    assert!(jwt.starts_with("Bearer ey"), "{jwt}");
 }
 
 /// A repository that the installation does not see gives `REPOSITORY_NOT_VISIBLE`, a second link

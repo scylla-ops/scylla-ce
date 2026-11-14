@@ -81,7 +81,8 @@ pub(super) async fn workspace_of(
 }
 
 /// Completes an install: uses the state, checks that the user sees the installation, reads it,
-/// and makes or refreshes its connection.
+/// and makes or refreshes its connection. A redirect of the authorize page with no code is a
+/// cancelled install.
 pub(super) async fn complete(
     ctx: &IntegrationContext,
     state: &str,
@@ -102,7 +103,7 @@ pub(super) async fn complete(
             message,
         )));
     }
-    let Some(installation) = redirect.installation else {
+    let Some(installation) = redirect.installation.filter(|_| !redirect.code.is_empty()) else {
         let message = "the install was cancelled";
         return Err(Error::Rejected(Rejection::new(
             "INSTALL_CANCELLED",
@@ -110,12 +111,25 @@ pub(super) async fn complete(
         )));
     };
 
+    // Connect the installation.
+    connect(ctx, workspace, caller, installation, &redirect.code).await
+}
+
+/// Checks that the user of a code sees an installation on GitHub, reads the installation, and
+/// makes or refreshes its connection in a workspace.
+pub(super) async fn connect(
+    ctx: &IntegrationContext,
+    workspace: WorkspaceId,
+    caller: ActorId,
+    installation: u64,
+    code: &str,
+) -> Result<Counted, Error> {
     // Check that the user sees the installation on GitHub.
     let source = credentials::github_app(ctx).await?;
     let source = source.ok_or_else(credentials::app_missing)?;
     let user = source
         .app
-        .exchange_code(&redirect.code)
+        .exchange_code(code)
         .await
         .map_err(|error| match error {
             ProviderError::Invalid(_) => state_expired(),
@@ -223,7 +237,7 @@ async fn keep(
 }
 
 /// The refusal of a state that is unknown, used, old or of another user.
-fn state_expired() -> Error {
+pub(super) fn state_expired() -> Error {
     let message = "the link expired: start the install again";
     Error::Rejected(Rejection::new("STATE_EXPIRED", message))
 }

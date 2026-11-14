@@ -1,5 +1,6 @@
 //! The tests of `TestDelivery`: the provider sends a delivery and the link goes back to the
-//! webhook mode, no delivery arrives and the link polls, and a GitLab link with no webhook.
+//! webhook mode, no delivery arrives and the link polls, a GitHub App with no webhook, and a
+//! GitLab link with no webhook.
 
 use scylla_proto::integrations::v1::DeliveryMode;
 use scylla_testkit::wait_for_requests;
@@ -120,4 +121,47 @@ async fn test_delivery_needs_a_gitlab_webhook(pool: PgPool) {
         tested.error
     );
     assert!(fake.requests().is_empty());
+}
+
+/// Bug F074: the GitHub App has no webhook (GitHub gives 404 for its config). The test tells it
+/// at once with no raw error of GitHub, and asks for no delivery. A link in webhook mode, and a
+/// link that polls because the webhooks did not arrive, move to the polling mode with
+/// `APP_HAS_NO_WEBHOOK`, and the connection too. A webhook that arrives later ends this mode.
+#[sqlx::test(migrations = false)]
+async fn test_delivery_moves_a_link_of_an_app_with_no_webhook_to_polling(pool: PgPool) {
+    // given
+    let (app, fake) = app_with_fake(pool).await;
+    let silent = linked(&app, "github").await;
+    let polled = linked(&app, "github").await;
+    let reason = Some("WEBHOOKS_NOT_ARRIVING");
+    app.set_link_mode(&polled.project, "polling", reason).await;
+    fake.answer_github_app_hook(false);
+
+    // when
+    let started = tokio::time::Instant::now();
+    let tested = app.test_delivery(silent.owner, &silent.project).await;
+    let again = app.test_delivery(polled.owner, &polled.project).await;
+    let waited = started.elapsed();
+    let connection = app.connection_mode(&silent.connection).await;
+    post_app(&app, "push", "guid-9", &github_push(SHA, "main")).await;
+    app.wait_for_delivery("guid-9").await;
+
+    // then
+    let tested = tested.unwrap();
+    assert!(!tested.delivered);
+    assert_eq!(
+        tested.error,
+        "the GitHub App has no webhook: Scylla polls the repository"
+    );
+    let link = tested.link.unwrap();
+    assert_eq!(link.delivery_mode(), DeliveryMode::Polling);
+    assert_eq!(link.state_reason, "APP_HAS_NO_WEBHOOK");
+    let again = again.unwrap().link.unwrap();
+    assert_eq!(again.state_reason, "APP_HAS_NO_WEBHOOK");
+    assert_eq!(connection.delivery_mode, "polling");
+    assert!(waited < std::time::Duration::from_secs(5), "{waited:?}");
+    assert!(fake.requests_to("GET", "/app/hook/deliveries").is_empty());
+    let arrived = app.link_mode(&silent.project).await;
+    assert_eq!(arrived.delivery_mode, "webhook");
+    assert!(arrived.reason.is_empty());
 }

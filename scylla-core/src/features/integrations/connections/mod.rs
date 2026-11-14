@@ -9,6 +9,7 @@ pub(crate) mod credentials;
 mod grpc;
 mod install;
 mod mount;
+mod redirects;
 mod repositories;
 mod service;
 mod setup_grpc;

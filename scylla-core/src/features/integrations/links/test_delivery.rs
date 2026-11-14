@@ -3,7 +3,7 @@
 //! installation (`POST /app/hook/deliveries/{id}/attempts`), and GitLab sends a test push to the
 //! webhook of the project (`POST /projects/:id/hooks/:hook_id/test/push_events`). A delivery that
 //! arrives moves the link back to the webhook mode, and one that does not arrive moves it to the
-//! polling mode.
+//! polling mode. A GitHub App with no webhook moves the link to the polling mode at once.
 
 use std::time::Duration;
 
@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use time::OffsetDateTime;
 
+use super::calls::github;
 use super::service;
 use super::store::Linked;
 use crate::features::integrations::connections::credentials;
@@ -39,6 +40,16 @@ pub(super) struct Delivery {
     pub(super) error: String,
 }
 
+/// What the provider did with the request of a delivery.
+enum Asked {
+    /// It sends the delivery.
+    Sent,
+    /// It refused, or it has no delivery to send, for this reason.
+    Refused(String),
+    /// The GitHub App has no webhook.
+    NoWebhook,
+}
+
 /// A delivery of the webhook of the App, from `GET /app/hook/deliveries`.
 #[derive(Deserialize)]
 struct Listed {
@@ -49,7 +60,8 @@ struct Listed {
 }
 
 /// Asks the provider for a test webhook of a link, waits 10 seconds for it, and moves the link to
-/// the mode that the result gives.
+/// the mode that the result gives. A GitHub App with no webhook moves the link and its connection
+/// to the polling mode with `APP_HAS_NO_WEBHOOK`, with no wait.
 pub(super) async fn test(ctx: &IntegrationContext, linked: &Linked) -> Result<Delivery, Error> {
     // Refuse a link that cannot serve.
     if linked.link.state != ConnectionState::Active {
@@ -65,8 +77,14 @@ pub(super) async fn test(ctx: &IntegrationContext, linked: &Linked) -> Result<De
         VcsProvider::GitHub => github(ctx, &connection).await?,
         VcsProvider::GitLab => gitlab(ctx, linked).await?,
     };
-    if let Err(reason) = asked {
-        return Ok(failed(&reason));
+    match asked {
+        Asked::Sent => {}
+        Asked::Refused(reason) => return Ok(failed(&reason)),
+        Asked::NoWebhook => {
+            no_webhook(ctx, linked, &connection).await?;
+            let reason = "the GitHub App has no webhook: Scylla polls the repository";
+            return Ok(failed(reason));
+        }
     }
 
     // Wait for the delivery, then move the link.
@@ -92,18 +110,22 @@ pub(super) async fn test(ctx: &IntegrationContext, linked: &Linked) -> Result<De
     )))
 }
 
-/// Asks GitHub to send again the last delivery of the installation of a connection. Returns the
-/// reason when GitHub has none or refuses.
-async fn github(
-    ctx: &IntegrationContext,
-    connection: &VcsConnection,
-) -> Result<Result<(), String>, Error> {
-    // Find the last delivery of the installation.
+/// Asks GitHub to send again the last delivery of the installation of a connection, when the App
+/// has a webhook.
+async fn github(ctx: &IntegrationContext, connection: &VcsConnection) -> Result<Asked, Error> {
+    // Check that the App has a webhook.
     let app = credentials::app_of(ctx, connection).await?;
-    let refused = |error: ProviderError| format!("GitHub: {error}");
+    let refused = |error: ProviderError| Asked::Refused(format!("GitHub: {error}"));
+    match github::app_has_webhook(&ctx.clients, &app).await {
+        Ok(true) => {}
+        Ok(false) => return Ok(Asked::NoWebhook),
+        Err(error) => return Ok(refused(error)),
+    }
+
+    // Find the last delivery of the installation.
     let jwt = match app.jwt(OffsetDateTime::now_utc()) {
         Ok(jwt) => jwt,
-        Err(error) => return Ok(Err(refused(error))),
+        Err(error) => return Ok(refused(error)),
     };
     let listed = ctx
         .clients
@@ -115,16 +137,15 @@ async fn github(
         .await;
     let listed = match listed {
         Ok(listed) => listed,
-        Err(error) => return Ok(Err(refused(error))),
+        Err(error) => return Ok(refused(error)),
     };
     let installation = connection.external_id.parse::<u64>().ok();
     let Some(last) = listed.iter().find(|delivery| {
         delivery.installation_id.is_some() && delivery.installation_id == installation
     }) else {
-        return Ok(Err(
-            "GitHub has no webhook of this installation to send again: push a commit first"
-                .to_owned(),
-        ));
+        let reason =
+            "GitHub has no webhook of this installation to send again: push a commit first";
+        return Ok(Asked::Refused(reason.to_owned()));
     };
 
     // Ask for a new delivery of it.
@@ -136,12 +157,12 @@ async fn github(
         .auth(Auth::Bearer(&jwt))
         .send::<Value>()
         .await;
-    Ok(sent.map(|_| ()).map_err(refused))
+    Ok(sent.map_or_else(refused, |_| Asked::Sent))
 }
 
-/// Asks GitLab for a test push on the webhook of a project. Returns the reason when the link has
-/// no webhook or GitLab refuses.
-async fn gitlab(ctx: &IntegrationContext, linked: &Linked) -> Result<Result<(), String>, Error> {
+/// Asks GitLab for a test push on the webhook of a project. Gives the reason when the link has no
+/// webhook or GitLab refuses.
+async fn gitlab(ctx: &IntegrationContext, linked: &Linked) -> Result<Asked, Error> {
     // Find the webhook of the link.
     let project = linked.link.project_id;
     let mut tx = ctx.pool.begin().await?;
@@ -149,7 +170,7 @@ async fn gitlab(ctx: &IntegrationContext, linked: &Linked) -> Result<Result<(), 
     tx.commit().await?;
     let Some(hook) = hook else {
         let reason = "the project has no webhook: Scylla needs the Maintainer role to make one";
-        return Ok(Err(reason.to_owned()));
+        return Ok(Asked::Refused(reason.to_owned()));
     };
 
     // Ask GitLab for a test push.
@@ -165,7 +186,29 @@ async fn gitlab(ctx: &IntegrationContext, linked: &Linked) -> Result<Result<(), 
         .auth(Auth::PrivateToken(&token))
         .send::<Value>()
         .await;
-    Ok(sent.map(|_| ()).map_err(|error| format!("GitLab: {error}")))
+    Ok(sent.map_or_else(
+        |error| Asked::Refused(format!("GitLab: {error}")),
+        |_| Asked::Sent,
+    ))
+}
+
+/// Moves the link of a GitHub App with no webhook, and its connection, to the polling mode with
+/// `APP_HAS_NO_WEBHOOK`.
+async fn no_webhook(
+    ctx: &IntegrationContext,
+    linked: &Linked,
+    connection: &VcsConnection,
+) -> Result<(), Error> {
+    let project = linked.link.project_id;
+    let reason = polling::APP_HAS_NO_WEBHOOK;
+    let mut tx = ctx.pool.begin().await?;
+    let moved = polls::links::to_polling_for(&mut tx, project, reason).await?;
+    polls::links::connection_to_polling(&mut tx, connection.id).await?;
+    tx.commit().await?;
+    if moved.is_some() {
+        tracing::info!(%project, reason, "a repository link moved to the polling mode");
+    }
+    Ok(())
 }
 
 /// Returns the time of the last webhook of a link: of its connection on GitHub, where one

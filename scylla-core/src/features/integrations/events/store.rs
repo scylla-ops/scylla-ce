@@ -11,9 +11,13 @@ use scylla_extension::Tx;
 
 use crate::Error;
 
-/// The reasons of a link in polling mode that a webhook ends: the webhooks did not arrive, or
-/// GitLab disabled the webhook.
-const ENDED_BY_A_WEBHOOK: [&str; 2] = ["WEBHOOKS_NOT_ARRIVING", "WEBHOOK_DISABLED"];
+/// The reasons of a link in polling mode that a webhook ends: the webhooks did not arrive,
+/// GitLab disabled the webhook, or the GitHub App had no webhook.
+const ENDED_BY_A_WEBHOOK: [&str; 3] = [
+    "WEBHOOKS_NOT_ARRIVING",
+    "WEBHOOK_DISABLED",
+    "APP_HAS_NO_WEBHOOK",
+];
 
 /// A delivery of a webhook, or the key of a poll.
 pub(crate) struct Delivery<'a> {

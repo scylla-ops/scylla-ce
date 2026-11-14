@@ -12,5 +12,5 @@ pub(crate) mod store;
 mod task;
 
 pub(crate) use mount::mount;
-pub(crate) use poll::{to_polling, SAFETY_SECONDS, WEBHOOKS_NOT_ARRIVING};
+pub(crate) use poll::{to_polling, APP_HAS_NO_WEBHOOK, SAFETY_SECONDS, WEBHOOKS_NOT_ARRIVING};
 pub(crate) use store::heads;
