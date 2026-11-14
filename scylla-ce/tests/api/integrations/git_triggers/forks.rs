@@ -2,6 +2,7 @@
 //! files that the pull request changes, and a new commit replaces the run that waits.
 
 use scylla_proto::pipelines::v1::{ApprovalState, JobStatus};
+use scylla_testkit::wait_for_requests;
 use serde_json::json;
 use sqlx::PgPool;
 
@@ -74,4 +75,37 @@ async fn a_fork_run_whose_files_cannot_be_read_warns_on_its_approval(pool: PgPoo
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0].status(), JobStatus::AwaitingApproval);
     assert!(jobs[0].approval.as_ref().unwrap().changes_pipeline_files);
+}
+
+/// The run of a pull request from a fork that waits makes its check run on the commit: queued,
+/// with the title "Waiting for approval" and a summary that sends the reader to Scylla.
+#[sqlx::test(migrations = false)]
+async fn a_fork_run_that_waits_reports_it_on_its_commit(pool: PgPool) {
+    // given
+    let (app, fake) = app_with_fake(pool).await;
+    let linked = linked(&app, "github").await;
+    app.set_link_reports(&linked.project, true).await;
+    let (pipeline, _) = pipeline_with(&app, &linked, &[("pull_request", json!({}))]).await;
+    fake.answer_installation_token();
+    let check = json!({ "id": 5, "html_url": "https://github.com/octo/app/runs/5" });
+    fake.respond("POST", "/repos/octo/app/check-runs", 201, check, &[]);
+
+    // when
+    let opened = github_pull("opened", 57, SHA, (99, "evil/app"), false);
+    deliver_github(&app, "pull_request", "d-1", &opened).await;
+    let created = wait_for_requests(&fake, "POST", "/repos/octo/app/check-runs", 1).await;
+
+    // then
+    let jobs = jobs_of(&app, &linked, &pipeline).await;
+    assert_eq!(jobs[0].status(), JobStatus::AwaitingApproval);
+    let body = &created[0].body;
+    assert_eq!(body["name"], "scylla/build");
+    assert_eq!(body["head_sha"], SHA);
+    assert_eq!(body["status"], "queued");
+    assert_eq!(body["output"]["title"], "Waiting for approval");
+    let summary = body["output"]["summary"].as_str().unwrap();
+    assert!(
+        summary.contains("It waits for an approval in Scylla."),
+        "{summary}"
+    );
 }

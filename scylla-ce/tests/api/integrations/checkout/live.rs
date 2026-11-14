@@ -69,7 +69,7 @@ async fn checkout_of(
     let pipeline = app.create_pipeline(owner, &project, nodes).await.unwrap();
     let (connection, external_id, full_name) = match provider {
         "github" => {
-            let installation = var("SCYLLA_LIVE_GITHUB_INSTALLATION").parse().unwrap();
+            let installation = var("SCYLLA_LIVE_GITHUB_INSTALLATION_ID").parse().unwrap();
             let repository = var("SCYLLA_LIVE_GITHUB_REPOSITORY");
             let account = repository.split('/').next().unwrap_or_default().to_owned();
             let connection = app.insert_github_connection(workspace, owner, installation, &account);

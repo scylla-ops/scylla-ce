@@ -61,7 +61,7 @@ async fn live_github_report(pool: PgPool, mode: &str) -> String {
 
     // Link a project to the test repository in the report mode.
     let mut project = linked(&app, "none").await;
-    let installation = var("SCYLLA_LIVE_GITHUB_INSTALLATION")
+    let installation = var("SCYLLA_LIVE_GITHUB_INSTALLATION_ID")
         .parse()
         .expect("an id");
     let repository = var("SCYLLA_LIVE_GITHUB_REPOSITORY");

@@ -172,3 +172,44 @@ async fn two_events_on_one_commit_at_one_time_make_one_run(pool: PgPool) {
         .collect();
     assert_eq!(numbers, vec![3]);
 }
+
+/// A pull request from a branch of the repository starts a run on its head commit, as the runner
+/// of its trigger. A new commit of the pull request starts a new run on the new head, and the run
+/// of the old commit stays.
+#[sqlx::test(migrations = false)]
+async fn a_pull_request_from_a_branch_runs_each_new_head(pool: PgPool) {
+    // given
+    let (app, _fake) = app_with_fake(pool).await;
+    let linked = linked(&app, "github").await;
+    let rules = [("pull_request", json!({ "branches": ["main"] }))];
+    let (pipeline, triggers) = pipeline_with(&app, &linked, &rules).await;
+    let opened = github_pull("opened", 42, SHA, (7, "octo/app"), false);
+    deliver_github(&app, "pull_request", "d-1", &opened).await;
+
+    // when
+    let fixed = "fedcba9876543210fedcba9876543210fedcba98";
+    let pushed = github_pull("synchronize", 42, fixed, (7, "octo/app"), false);
+    let done = deliver_github(&app, "pull_request", "d-2", &pushed).await;
+
+    // then
+    assert_eq!(done.error, "");
+    let jobs = jobs_of(&app, &linked, &pipeline).await;
+    assert_eq!(jobs.len(), 2);
+    let (new, old) = (&jobs[0], &jobs[1]);
+    assert_eq!(text(&new.trigger_id), triggers[0]);
+    let source = new.source.as_ref().unwrap();
+    assert_eq!(source.event(), SourceEvent::PullRequest);
+    assert_eq!(
+        (source.sha.as_str(), source.branch.as_str()),
+        (fixed, "feature/login")
+    );
+    assert!(!source.from_fork);
+    let pulls: Vec<_> = source
+        .pull_requests
+        .iter()
+        .map(|pull| (pull.number, pull.target_branch.as_str()))
+        .collect();
+    assert_eq!(pulls, vec![(42, "main")]);
+    assert_eq!(old.source.as_ref().unwrap().sha, SHA);
+    assert_eq!(old.status(), JobStatus::Pending);
+}

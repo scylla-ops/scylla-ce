@@ -99,7 +99,8 @@ async fn an_old_agent_never_gets_a_job_with_a_checkout(pool: PgPool) {
     assert_eq!(taken.waiting_reason, "");
 }
 
-/// A job from a fork fetches the ref of its pull request from the base repository.
+/// A job from a fork fetches the ref of its pull request from the base repository, with a token
+/// narrowed to the one repository and to `contents: read`.
 #[sqlx::test(migrations = false)]
 async fn a_job_from_a_fork_fetches_the_ref_of_its_pull_request(pool: PgPool) {
     // given
@@ -120,6 +121,10 @@ async fn a_job_from_a_fork_fetches_the_ref_of_its_pull_request(pool: PgPool) {
     assert_eq!(checkout.clone_url, "https://github.com/octo/app.git");
     assert_eq!(checkout.fetch_ref, "refs/pull/57/head");
     assert_eq!(checkout.sha, SHA);
+    assert_eq!(checkout.auth_header, basic("x-access-token", GITHUB_TOKEN));
+    let asked = fake.requests_to("POST", "/app/installations/42/access_tokens");
+    let scope = json!({ "repository_ids": [7], "permissions": { "contents": "read" } });
+    assert_eq!(asked.last().expect("a token request").body, scope);
 }
 
 /// A job whose project lost its link fails at its dispatch with the reason, and no agent gets

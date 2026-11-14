@@ -8,7 +8,8 @@ use sqlx::PgPool;
 use super::{app_with_fake, jobs_of, linked, pipeline_with, OTHER_SHA, SHA};
 
 /// A poll of a link in polling mode finds a new head of `main`, and the push trigger of `main`
-/// starts a run on the new commit, with its message.
+/// starts a run on the new commit, with its message. The next poll is due after the interval of
+/// the link: 2 minutes.
 #[sqlx::test(migrations = false)]
 async fn a_poll_in_polling_mode_starts_the_run_of_a_new_head(pool: PgPool) {
     // given
@@ -32,8 +33,10 @@ async fn a_poll_in_polling_mode_starts_the_run_of_a_new_head(pool: PgPool) {
     app.wait_for_poll(&linked.project, &since).await;
     let key = format!("poll:octo/app:refs/heads/main:{OTHER_SHA}");
     let done = app.wait_for_delivery(&key).await;
+    let next = app.next_poll_in(&linked.project).await;
 
     // then
+    assert!((100.0..=120.0).contains(&next), "{next}");
     assert_eq!(done.error, "");
     let jobs = jobs_of(&app, &linked, &pipeline).await;
     assert_eq!(jobs.len(), 1);

@@ -37,7 +37,7 @@ async fn link(app: &TestApp, provider: &str, external_id: &str, full_name: &str)
     let project = text(&project.id).to_owned();
     let connection = match provider {
         "github" => {
-            let installation = var("SCYLLA_LIVE_GITHUB_INSTALLATION")
+            let installation = var("SCYLLA_LIVE_GITHUB_INSTALLATION_ID")
                 .parse()
                 .expect("an id");
             let account = full_name.split('/').next().unwrap_or_default();

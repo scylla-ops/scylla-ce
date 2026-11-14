@@ -128,3 +128,44 @@ async fn a_link_in_the_commit_status_mode_posts_statuses(pool: PgPool) {
     assert_eq!(report.mode(), ReportMode::CommitStatus);
     assert!(fake.requests_to("POST", CHECK_RUNS).is_empty());
 }
+
+/// A run that passes moves its check run to `in_progress` when the agent starts it, then
+/// completes it with the conclusion `success`, a title with the nodes that passed, and no log
+/// text. The check run is made one time only.
+#[sqlx::test(migrations = false)]
+async fn a_passed_run_on_github_completes_its_check_run(pool: PgPool) {
+    // given
+    let fake = FakeProvider::start().await;
+    let app = app_with(pool, &fake).await;
+    let linked = linked(&app).await;
+    let mut agent = app.run_agent(linked.owner, linked.workspace).await;
+
+    // when
+    let job = run_on_main(&app, &linked).await;
+    let created = wait_for_requests(&fake, "POST", CHECK_RUNS, 1).await;
+    let started = agent.start_next_job().await;
+    app.wait_for_sent_state(linked.owner, &job, "in_progress")
+        .await;
+    agent.pass_job(&started, &["build", "test"]).await;
+    let report = app.wait_for_sent_state(linked.owner, &job, "success").await;
+
+    // then
+    assert_eq!(started, job);
+    assert_eq!(created[0].body["status"], "queued");
+    let changes = fake.requests_to("PATCH", CHECK_RUN);
+    let running = &changes.first().expect("a change of the check run").body;
+    assert_eq!(running["status"], "in_progress");
+    assert!(running.get("conclusion").is_none());
+    let title = running["output"]["title"].as_str().unwrap();
+    assert!(title.starts_with("build is running"), "{title}");
+    let last = &changes.last().expect("the end of the check run").body;
+    assert_eq!(last["status"], "completed");
+    assert_eq!(last["conclusion"], "success");
+    assert_eq!(last["output"]["title"], "build passed: 2/2 nodes passed");
+    let summary = last["output"]["summary"].as_str().unwrap();
+    assert!(summary.contains("| `build` | ✓ Passed |"), "{summary}");
+    assert!(summary.contains("| `test` | ✓ Passed |"), "{summary}");
+    assert!(last["output"].get("text").is_none());
+    assert_eq!(fake.requests_to("POST", CHECK_RUNS).len(), 1);
+    assert_eq!(report.sent_state, "success");
+}

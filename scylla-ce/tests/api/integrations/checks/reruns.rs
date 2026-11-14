@@ -5,7 +5,7 @@ use scylla_proto::pipelines::v1::SourceEvent;
 use scylla_testkit::{text, wait_for_requests, FakeProvider};
 use sqlx::PgPool;
 
-use super::{app_with, linked, post_github, rerequested, run_on_main, CHECK_RUNS, SHA};
+use super::{app_with, linked, post_github, rerequested, run_on_main, CHECK_RUN, CHECK_RUNS, SHA};
 
 /// Re-run on a check run starts a new run of its job, with the job as `rerun_of` and the event
 /// of a re-run on the provider, and the new run makes a check run of the same name on the same
@@ -43,6 +43,40 @@ async fn a_rerequested_check_run_runs_its_job_again(pool: PgPool) {
     assert_eq!(again["external_id"], text(&new.id));
     assert_eq!(again["name"], "scylla/build");
     assert_eq!(again["head_sha"], SHA);
+}
+
+/// The new run of a re-run on GitHub makes its check run in the state `queued`, and moves it to
+/// `in_progress` when the agent starts the run.
+#[sqlx::test(migrations = false)]
+async fn a_rerequested_check_run_goes_back_to_in_progress(pool: PgPool) {
+    // given
+    let fake = FakeProvider::start().await;
+    let app = app_with(pool, &fake).await;
+    let linked = linked(&app).await;
+    let job = run_on_main(&app, &linked).await;
+    app.cancel_job(linked.owner, &job).await.unwrap();
+    app.wait_for_sent_state(linked.owner, &job, "cancelled")
+        .await;
+    let mut agent = app.run_agent(linked.owner, linked.workspace).await;
+    let body = rerequested("check_run", SHA, Some(&job));
+    post_github(&app, "check_run", "d-again", &body).await;
+    let created = wait_for_requests(&fake, "POST", CHECK_RUNS, 2).await;
+
+    // when
+    let new = agent.start_next_job().await;
+    app.wait_for_sent_state(linked.owner, &new, "in_progress")
+        .await;
+
+    // then
+    assert_eq!(created[1].body["external_id"], new.as_str());
+    assert_eq!(created[1].body["status"], "queued");
+    let changes = fake.requests_to("PATCH", CHECK_RUN);
+    let last = changes
+        .iter()
+        .rfind(|change| change.body["external_id"] == new.as_str())
+        .expect("a change of the new check run");
+    assert_eq!(last.body["status"], "in_progress");
+    assert_eq!(last.body["name"], "scylla/build");
 }
 
 /// Re-run of a whole suite starts a new run of the newest job of each check run of the commit.

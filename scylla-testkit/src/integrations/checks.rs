@@ -1,6 +1,6 @@
 //! The `TestApp` helpers of the GitHub check runs and their re-run: the report mode of a link, a
-//! wait for a state that a report sent, and an agent that runs a job to a failed node with its log
-//! lines.
+//! wait for a state that a report sent, and an agent that runs a job to its end: all its nodes
+//! pass, or a node fails with its log lines.
 
 use std::time::Duration;
 
@@ -39,15 +39,8 @@ pub struct RunAgent {
 }
 
 impl RunAgent {
-    /// Takes the next dispatch, then runs its job: each node of `passed` completes, `failed`
-    /// writes `lines` and fails, and the job fails. Returns the id of the job.
-    pub async fn fail_next_job(
-        &mut self,
-        passed: &[&str],
-        failed: &str,
-        lines: &[String],
-    ) -> String {
-        // Take the dispatch.
+    /// Takes the next dispatch, and starts its job. Returns the id of the job.
+    pub async fn start_next_job(&mut self) -> String {
         let job = loop {
             let message = timeout(WAIT, self.down.message()).await;
             let message = message.expect("a dispatch in 10 seconds");
@@ -56,9 +49,29 @@ impl RunAgent {
                 break text(&dispatch.job_id).to_owned();
             }
         };
-
-        // Run the nodes that pass, then the node that fails with its lines.
         self.event(&job, EventKind::JobStarted, "").await;
+        job
+    }
+
+    /// Runs each node of a started job to its end, then completes the job.
+    pub async fn pass_job(&self, job: &str, nodes: &[&str]) {
+        for node in nodes {
+            self.event(job, EventKind::NodeStarted, node).await;
+            self.event(job, EventKind::NodeCompleted, node).await;
+        }
+        self.event(job, EventKind::JobCompleted, "").await;
+    }
+
+    /// Takes the next dispatch, then runs its job: each node of `passed` completes, `failed`
+    /// writes `lines` and fails, and the job fails. Returns the id of the job.
+    pub async fn fail_next_job(
+        &mut self,
+        passed: &[&str],
+        failed: &str,
+        lines: &[String],
+    ) -> String {
+        // Start the job, run the nodes that pass, then the node that fails with its lines.
+        let job = self.start_next_job().await;
         for node in passed {
             self.event(&job, EventKind::NodeStarted, node).await;
             self.event(&job, EventKind::NodeCompleted, node).await;

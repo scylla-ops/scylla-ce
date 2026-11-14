@@ -53,7 +53,7 @@ async fn set_merge_block_on_a_live_github_repository(pool: PgPool) {
     let nodes = vec![exec_node("build", &[])];
     let pipeline = app.create_pipeline(owner, &project, nodes).await.unwrap();
     let pipeline = text(&pipeline.id).to_owned();
-    let installation = var("SCYLLA_LIVE_GITHUB_INSTALLATION")
+    let installation = var("SCYLLA_LIVE_GITHUB_INSTALLATION_ID")
         .parse()
         .expect("an id");
     let repository = var("SCYLLA_LIVE_GITHUB_REPOSITORY");

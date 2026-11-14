@@ -52,7 +52,7 @@ async fn run_pipeline_on_a_live_github_branch(pool: PgPool) {
     };
     let app = TestApp::spawn_with(pool, scylla_ce::edition(), options).await;
     let project = linked(&app, "none", vec![exec_node("build", &[])]).await;
-    let installation = var("SCYLLA_LIVE_GITHUB_INSTALLATION")
+    let installation = var("SCYLLA_LIVE_GITHUB_INSTALLATION_ID")
         .parse()
         .expect("an id");
     let repository = var("SCYLLA_LIVE_GITHUB_REPOSITORY");

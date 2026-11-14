@@ -56,6 +56,18 @@ impl TestApp {
         .expect("make a poll due")
     }
 
+    /// Returns the seconds until the next poll of the link of a project.
+    pub async fn next_poll_in(&self, project: &str) -> f64 {
+        sqlx::query_scalar(
+            "SELECT extract(epoch FROM next_poll_at - now())::float8 FROM repository_links
+             WHERE project_id = $1::uuid",
+        )
+        .bind(project)
+        .fetch_one(&self.pool)
+        .await
+        .expect("read the next poll of a link")
+    }
+
     /// Waits until a poll of the link of a project kept its lists after the time `since`. Fails
     /// after 15 seconds.
     pub async fn wait_for_poll(&self, project: &str, since: &str) {
