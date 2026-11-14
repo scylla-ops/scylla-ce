@@ -1,6 +1,8 @@
 //! The tests of the GitHub check runs and their re-run: the check run of a run with its states and
-//! its output, and the new runs that a person asks for on GitHub.
+//! its output, the new runs that a person asks for on GitHub, and the check run of a run after an
+//! uninstall and a new install of the App.
 
+mod reinstall;
 mod reruns;
 mod runs;
 

@@ -10,6 +10,7 @@ use scylla_domain::projects::pipelines::PipelineId;
 use scylla_domain::projects::ProjectId;
 use scylla_extension::Tx;
 
+use super::queue::NOT_ACTIVE;
 use crate::Error;
 
 /// The link of the project of a job, and the pipeline of the job.
@@ -20,8 +21,10 @@ pub(crate) struct Target {
     pub(crate) connection: VcsConnectionId,
     /// How the link reports.
     pub(crate) mode: ReportMode,
-    /// `true` when the link reports, and the link and its connection are active.
+    /// `true` when the link reports.
     pub(crate) reports: bool,
+    /// `true` when the link and its connection are active.
+    pub(crate) active: bool,
     /// The name of the pipeline.
     pub(crate) name: String,
     /// The key of a file pipeline, or `None` for a pipeline of the editor.
@@ -42,6 +45,8 @@ pub(crate) struct Wanted {
     pub(crate) mode: ReportMode,
     /// The state of the run.
     pub(crate) status: ReportedStatus,
+    /// `true` when the link and its connection are active.
+    pub(crate) active: bool,
 }
 
 /// Returns the link of a project with the pipeline of a job, or `None` for a project with no
@@ -53,7 +58,8 @@ pub(crate) async fn target(
 ) -> Result<Option<Target>, Error> {
     let row = sqlx::query!(
         r#"SELECT c.id AS connection_id, c.provider, l.report_mode, p.name, p.file_key,
-                  (l.reports_enabled AND l.state = 'active' AND c.state = 'active') AS "reports!"
+                  l.reports_enabled AS reports,
+                  (l.state = 'active' AND c.state = 'active') AS "active!"
            FROM repository_links l
            JOIN vcs_connections c ON c.id = l.connection_id
            JOIN pipelines p ON p.id = $2 AND p.project_id = l.project_id
@@ -72,6 +78,7 @@ pub(crate) async fn target(
         connection: VcsConnectionId::from_db(row.connection_id),
         mode: ReportMode::parse(&row.report_mode).ok_or_else(|| unknown("report mode"))?,
         reports: row.reports,
+        active: row.active,
         name: row.name,
         file_key: row.file_key,
     }))
@@ -79,7 +86,8 @@ pub(crate) async fn target(
 
 /// Records the state that a report must send: a new report, or a new state with one more in its
 /// sequence. A state that the report does not take changes nothing. A report that waits keeps
-/// its time, so a call that runs or a limit of the provider keeps its place.
+/// its time, so a call that runs or a limit of the provider keeps its place. While the link or
+/// its connection is not active, no report starts, and a report keeps its new state as not sent.
 pub(crate) async fn record(tx: &mut Tx<'_>, wanted: &Wanted) -> Result<(), Error> {
     // Read the state of the report, with its row locked.
     let job = wanted.job.to_db();
@@ -91,8 +99,11 @@ pub(crate) async fn record(tx: &mut Tx<'_>, wanted: &Wanted) -> Result<(), Error
     .fetch_optional(&mut **tx)
     .await?;
 
-    // Insert a new report.
+    // Insert a new report, only for an active link and connection.
     let Some(old) = old else {
+        if !wanted.active {
+            return Ok(());
+        }
         sqlx::query!(
             "INSERT INTO vcs_reports (job_id, context, project_id, connection_id, mode,
                                       wanted_state, sequence, next_attempt_at)
@@ -118,15 +129,20 @@ pub(crate) async fn record(tx: &mut Tx<'_>, wanted: &Wanted) -> Result<(), Error
     }
     sqlx::query!(
         "UPDATE vcs_reports
-         SET wanted_state = $3, sequence = sequence + 1, attempts = 0, last_error = NULL,
-             state = CASE WHEN state IN ('sent', 'not_sent') THEN 'sending' ELSE state END,
-             next_attempt_at = CASE WHEN state IN ('sent', 'not_sent') THEN now()
+         SET wanted_state = $3, sequence = sequence + 1, attempts = 0,
+             last_error = CASE WHEN $4::bool THEN NULL ELSE $5::text END,
+             state = CASE WHEN NOT $4::bool THEN 'not_sent'
+                          WHEN state IN ('sent', 'not_sent') THEN 'sending' ELSE state END,
+             next_attempt_at = CASE WHEN NOT $4::bool THEN NULL
+                                    WHEN state IN ('sent', 'not_sent') THEN now()
                                     ELSE COALESCE(next_attempt_at, now()) END,
              updated_at = now()
          WHERE job_id = $1 AND context = $2",
         job,
         wanted.context,
         wanted.status.as_str(),
+        wanted.active,
+        NOT_ACTIVE,
     )
     .execute(&mut **tx)
     .await?;

@@ -11,7 +11,8 @@ use super::store::outbox::{self, Wanted};
 use crate::Error;
 
 /// Records the new state of a job for its report, in the transaction of the change: only for a
-/// job with a commit, in a project whose link reports, with an active link and connection.
+/// job with a commit, in a project whose link reports. While the link or its connection is not
+/// active, a report keeps the new state as not sent, so a retry after the repair sends it.
 pub(crate) async fn job_changed(tx: &mut Tx<'_>, job: &Job) -> Result<(), Error> {
     // Skip a job with no commit, and a project with no link that reports.
     if job.source.is_none() {
@@ -38,6 +39,7 @@ pub(crate) async fn job_changed(tx: &mut Tx<'_>, job: &Job) -> Result<(), Error>
             VcsProvider::GitLab => ReportMode::CommitStatus,
         },
         status: ReportedStatus::of_job(job.status, !job.file_errors.is_empty()),
+        active: target.active,
     };
     outbox::record(tx, &wanted).await
 }

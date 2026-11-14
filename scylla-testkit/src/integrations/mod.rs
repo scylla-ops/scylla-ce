@@ -11,6 +11,7 @@ mod fakes;
 mod files;
 mod fixtures;
 mod git_triggers;
+mod installs;
 mod keys;
 mod links;
 mod merge_blocks;

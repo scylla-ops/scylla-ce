@@ -1,6 +1,7 @@
-//! The writes of the `vcs_connections` table: an installation of the GitHub App, and the sealed
-//! token of a GitLab service account. Each function runs in the transaction of the caller. A
-//! token is sealed before it comes here.
+//! The writes of the `vcs_connections` table: an installation of the GitHub App, a new
+//! installation that takes over a stopped connection, and the sealed token of a GitLab service
+//! account. Each function runs in the transaction of the caller. A token is sealed before it
+//! comes here.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::integrations::apps::VcsAppId;
@@ -105,6 +106,50 @@ pub(crate) async fn upsert_installation(
     .map_err(workspace_error)?;
     let kept = VcsConnectionId::from_db(kept);
     Ok((kept, kept == id))
+}
+
+/// Gives a new installation the connection of the same account and App in the workspace that
+/// stopped (an uninstall, a suspend or a refused call), the newest one first, when no connection
+/// has the new installation. The connection keeps its id, so its links and its reports stay on
+/// it. Returns the id of the connection and its old installation, or `None`.
+pub(crate) async fn take_over(
+    tx: &mut Tx<'_>,
+    values: &Installation<'_>,
+) -> Result<Option<(VcsConnectionId, String)>, Error> {
+    let row = sqlx::query!(
+        r#"UPDATE vcs_connections c
+           SET external_id = $3, account = $4, account_kind = $5, avatar_url = $6,
+               permissions = $7, all_repositories = $8, repository_count = $9, state = $10,
+               state_reason = $11, updated_at = now()
+           FROM (SELECT id, external_id FROM vcs_connections
+                 WHERE workspace_id = $1 AND provider = 'github'
+                   AND auth_kind = 'app_installation' AND app_id IS NOT DISTINCT FROM $2
+                   AND lower(account) = lower($4)
+                   AND state IN ('disconnected', 'suspended', 'needs_attention')
+                   AND NOT EXISTS (SELECT 1 FROM vcs_connections n
+                                   WHERE n.workspace_id = $1 AND n.provider = 'github'
+                                     AND n.external_id = $3)
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 1
+                 FOR UPDATE) old
+           WHERE c.id = old.id
+           RETURNING c.id, old.external_id AS "replaced!""#,
+        values.workspace.to_db(),
+        values.app.map(VcsAppId::to_db),
+        values.external_id,
+        values.account,
+        values.account_kind.as_str(),
+        values.avatar_url,
+        values.permissions,
+        values.all_repositories,
+        count(values.repository_count),
+        values.state.as_str(),
+        values.state_reason,
+    )
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(workspace_error)?;
+    Ok(row.map(|row| (VcsConnectionId::from_db(row.id), row.replaced)))
 }
 
 /// Inserts the connection of a GitLab token. An account with a connection in the workspace gives

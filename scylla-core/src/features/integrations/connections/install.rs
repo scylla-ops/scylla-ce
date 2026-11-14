@@ -164,7 +164,8 @@ async fn read(
     })
 }
 
-/// Makes or refreshes the connection of an installation in a workspace, and returns it.
+/// Makes or refreshes the connection of an installation in a workspace, and returns it. A new
+/// installation of an account takes over the stopped connection of this account.
 async fn keep(
     ctx: &IntegrationContext,
     workspace: WorkspaceId,
@@ -198,10 +199,13 @@ async fn keep(
         created_by: caller,
     };
 
-    // Write the connection, and read it back.
+    // Take over the stopped connection of the account, or write a connection, and read it back.
     let mut tx = ctx.pool.begin().await?;
-    let (id, new) =
-        store::upsert_installation(&mut tx, VcsConnectionId::generate(), &values).await?;
+    let taken = store::take_over(&mut tx, &values).await?;
+    let (id, new) = match &taken {
+        Some((id, _)) => (*id, false),
+        None => store::upsert_installation(&mut tx, VcsConnectionId::generate(), &values).await?,
+    };
     let counted = store::find(&mut tx, id).await?;
     tx.commit().await?;
     let counted = counted.ok_or(Error::NotFound("connection"))?;
@@ -212,6 +216,8 @@ async fn keep(
         provider = VcsProvider::GitHub.as_str(),
         account = %found.account.login,
         new,
+        installation = external_id,
+        replaced_installation = taken.as_ref().map(|(_, old)| old.as_str()),
     );
     Ok(counted)
 }

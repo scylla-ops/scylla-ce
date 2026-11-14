@@ -11,7 +11,7 @@ use time::OffsetDateTime;
 use crate::Error;
 
 /// The error of a report that cannot go out because of its link or its connection.
-const NOT_ACTIVE: &str = "the repository link or its connection is not active";
+pub(crate) const NOT_ACTIVE: &str = "the repository link or its connection is not active";
 
 /// A due report that a pass took. Its time is the end of the call, so no other pass takes it.
 pub(crate) struct Claimed {

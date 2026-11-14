@@ -262,3 +262,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   role need each time that it reads the role, checks a route or lists the objects of a role.
 - A run on a branch, a tag or a SHA works with a connection of the GitHub App of the instance. It
   gave `APP_MISSING`.
+- A new install of the GitHub App on the account of a connection that stopped (an uninstall, a
+  suspend or a refused call) takes over this connection in the workspace. The connection keeps its
+  id, so its repository links, merge rules and reports work again. Before, the install made a second
+  connection, and the links stayed on the old one. A report keeps the latest state of its run while
+  the link or its connection is not active, so `RetryJobReport` sends the final state after the
+  repair.

@@ -5,6 +5,7 @@ mod access;
 mod github;
 mod gitlab;
 mod lists;
+mod reinstall;
 
 use scylla_core::api::ServeOptions;
 use scylla_testkit::{FakeProvider, TestApp};

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT c.id AS connection_id, c.provider, l.report_mode, p.name, p.file_key,\n                  (l.reports_enabled AND l.state = 'active' AND c.state = 'active') AS \"reports!\"\n           FROM repository_links l\n           JOIN vcs_connections c ON c.id = l.connection_id\n           JOIN pipelines p ON p.id = $2 AND p.project_id = l.project_id\n           WHERE l.project_id = $1",
+  "query": "SELECT c.id AS connection_id, c.provider, l.report_mode, p.name, p.file_key,\n                  l.reports_enabled AS reports,\n                  (l.state = 'active' AND c.state = 'active') AS \"active!\"\n           FROM repository_links l\n           JOIN vcs_connections c ON c.id = l.connection_id\n           JOIN pipelines p ON p.id = $2 AND p.project_id = l.project_id\n           WHERE l.project_id = $1",
   "describe": {
     "columns": [
       {
@@ -60,7 +60,18 @@
       },
       {
         "ordinal": 5,
-        "name": "reports!",
+        "name": "reports",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "reports_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "active!",
         "type_info": "Bool",
         "origin": "Expression"
       }
@@ -77,8 +88,9 @@
       false,
       false,
       true,
+      false,
       null
     ]
   },
-  "hash": "0f3533fc5257ca7f3276313ea46d5260b071cc5e4abc3eb8ce4173d146ace816"
+  "hash": "cd4b06bfa6df0894a9161cb42d7ffa95064ccfffedbaa10238c519d2e4489077"
 }

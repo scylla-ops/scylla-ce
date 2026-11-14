@@ -11,4 +11,6 @@ mod writes;
 
 pub(crate) use connections::{delete, find, hooks, links, list, project_workspace, sealed_token};
 pub(crate) use row::Counted;
-pub(crate) use writes::{insert_token, replace_token, upsert_installation, Installation, Token};
+pub(crate) use writes::{
+    insert_token, replace_token, take_over, upsert_installation, Installation, Token,
+};
