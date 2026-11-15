@@ -1,5 +1,5 @@
 //! The tests of the check run of a run: one check run for each pipeline, made one time and then
-//! changed, with its output, and the commit statuses of a link in the commit status mode.
+//! changed, with its output. A GitHub link reports with check runs only.
 
 use scylla_proto::integrations::v1::ReportMode;
 use scylla_testkit::{wait_for_requests, FakeProvider, Logs};
@@ -104,29 +104,6 @@ async fn a_cancelled_run_changes_the_same_check_run(pool: PgPool) {
     );
     assert_eq!(fake.requests_to("POST", CHECK_RUNS).len(), 1);
     assert_eq!(report.sent_state, "cancelled");
-}
-
-/// A link in the commit status mode posts commit statuses on GitHub, and no check run.
-#[sqlx::test(migrations = false)]
-async fn a_link_in_the_commit_status_mode_posts_statuses(pool: PgPool) {
-    // given
-    let fake = FakeProvider::start().await;
-    let statuses = format!("/repos/octo/app/statuses/{SHA}");
-    fake.respond("POST", &statuses, 201, json!({ "id": 1 }), &[]);
-    let app = app_with(pool, &fake).await;
-    let linked = linked(&app).await;
-    app.set_link_report_mode(&linked.project, "commit_status")
-        .await;
-
-    // when
-    let job = run_on_main(&app, &linked).await;
-    let posted = wait_for_requests(&fake, "POST", &statuses, 1).await;
-    let report = app.wait_for_sent_state(linked.owner, &job, "pending").await;
-
-    // then
-    assert_eq!(posted[0].body["context"], "scylla/build");
-    assert_eq!(report.mode(), ReportMode::CommitStatus);
-    assert!(fake.requests_to("POST", CHECK_RUNS).is_empty());
 }
 
 /// A run that passes moves its check run to `in_progress` when the agent starts it, then

@@ -157,7 +157,17 @@ impl TestApp {
             connection_id: Some(id(connection)),
             search: search.to_owned(),
             page: Some(page(size, token)),
+            workspace_id: None,
         };
+        self.send_list_connection_repositories(actor, request).await
+    }
+
+    /// Sends a request of `ListConnectionRepositories` as `actor`.
+    pub async fn send_list_connection_repositories(
+        &self,
+        actor: ActorId,
+        request: ListConnectionRepositoriesRequest,
+    ) -> Result<ListConnectionRepositoriesResponse, Status> {
         let request = self.authed(actor, request).await;
         let response = self
             .connections()

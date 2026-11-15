@@ -88,8 +88,6 @@ CREATE TABLE repository_links (
     role text CHECK (role IN ('developer', 'maintainer', 'owner')),
     pipeline_source text NOT NULL DEFAULT 'editor' CHECK (pipeline_source IN ('editor', 'file')),
     reports_enabled boolean NOT NULL DEFAULT true,
-    report_mode text NOT NULL DEFAULT 'check_run'
-        CHECK (report_mode IN ('check_run', 'commit_status')),
     delivery_mode text NOT NULL DEFAULT 'webhook' CHECK (delivery_mode IN ('webhook', 'polling')),
     poll_interval_seconds integer NOT NULL DEFAULT 120
         CHECK (poll_interval_seconds BETWEEN 60 AND 900),

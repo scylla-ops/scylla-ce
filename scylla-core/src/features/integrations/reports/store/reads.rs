@@ -2,8 +2,7 @@
 //! none, and a report that a person sends again.
 
 use scylla_domain::integrations::connections::VcsConnectionId;
-use scylla_domain::integrations::links::ReportMode;
-use scylla_domain::integrations::reports::{ReportState, ReportedStatus, VcsReport};
+use scylla_domain::integrations::reports::{ReportMode, ReportState, ReportedStatus, VcsReport};
 use scylla_domain::integrations::VcsProvider;
 use scylla_domain::projects::jobs::JobId;
 use scylla_domain::projects::ProjectId;

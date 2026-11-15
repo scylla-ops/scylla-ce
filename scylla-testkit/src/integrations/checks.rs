@@ -1,6 +1,6 @@
-//! The `TestApp` helpers of the GitHub check runs and their re-run: the report mode of a link, a
-//! wait for a state that a report sent, and an agent that runs a job to its end: all its nodes
-//! pass, or a node fails with its log lines.
+//! The `TestApp` helpers of the GitHub check runs and their re-run: a wait for a state that a
+//! report sent, and an agent that runs a job to its end: all its nodes pass, or a node fails with
+//! its log lines.
 
 use std::time::Duration;
 
@@ -120,16 +120,6 @@ impl RunAgent {
 }
 
 impl TestApp {
-    /// Sets how the link of a project reports: `check_run` or `commit_status`.
-    pub async fn set_link_report_mode(&self, project: &str, mode: &str) {
-        sqlx::query("UPDATE repository_links SET report_mode = $2 WHERE project_id = $1::uuid")
-            .bind(project)
-            .bind(mode)
-            .execute(&self.pool)
-            .await
-            .expect("set the report mode of a link");
-    }
-
     /// Waits until the provider got a state of the first report of a job, such as `failure`, and
     /// returns the report. Fails after 15 seconds.
     pub async fn wait_for_sent_state(&self, actor: ActorId, job: &str, state: &str) -> VcsReport {

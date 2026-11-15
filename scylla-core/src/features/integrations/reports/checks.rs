@@ -13,7 +13,7 @@ use sqlx::PgPool;
 
 use super::failures::Failure;
 use super::output::{self, Output, Tail};
-use super::sender::{Outgoing, Sent};
+use super::sender::Sent;
 use super::store::checks;
 use super::store::queue::{Claimed, Facts};
 use super::{github, states};
@@ -65,7 +65,7 @@ pub(super) async fn send(
     ctx: &IntegrationContext,
     claimed: &Claimed,
     facts: &Facts,
-    outgoing: &Outgoing,
+    target_url: &str,
     output: &Output,
 ) -> Result<Sent, Failure> {
     // Get a token of the repository for the check runs.
@@ -74,8 +74,8 @@ pub(super) async fn send(
     // Make the body: the name, the link, the job, the state and the output.
     let (status, conclusion) = states::check_run(claimed.status);
     let mut body = json!({
-        "name": outgoing.context,
-        "details_url": outgoing.target_url,
+        "name": claimed.context,
+        "details_url": target_url,
         "external_id": claimed.job.to_string(),
         "status": status,
         "output": { "title": output.title, "summary": output.summary },

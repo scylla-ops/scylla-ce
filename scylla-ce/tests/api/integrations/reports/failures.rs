@@ -7,7 +7,7 @@ use serde_json::json;
 use sqlx::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{app_with, github, linked, run_on_main, GITHUB_STATUSES};
+use super::{app_with, github, linked, run_on_main, CHECK_RUNS};
 
 /// A limit of the provider delays the report until the reset time. A retry sends it at once.
 #[sqlx::test(migrations = false)]
@@ -21,7 +21,7 @@ async fn a_limit_of_the_provider_delays_the_report(pool: PgPool) {
         ("x-ratelimit-reset", reset.as_str()),
     ];
     let body = json!({ "message": "API rate limit exceeded" });
-    fake.respond("POST", GITHUB_STATUSES, 403, body, &limited);
+    fake.respond("POST", CHECK_RUNS, 403, body, &limited);
     github(&fake, 201);
     let app = app_with(pool, &fake).await;
     let linked = linked(&app, "github").await;
@@ -49,9 +49,7 @@ async fn a_limit_of_the_provider_delays_the_report(pool: PgPool) {
     assert_eq!(sent.attempts, 0);
     assert!(sent.error.is_empty());
     assert_eq!(
-        wait_for_requests(&fake, "POST", GITHUB_STATUSES, 2)
-            .await
-            .len(),
+        wait_for_requests(&fake, "POST", CHECK_RUNS, 2).await.len(),
         2
     );
 }

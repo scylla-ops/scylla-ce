@@ -1,11 +1,10 @@
-//! The reports of the jobs to the provider: one check run or commit status for each pipeline, on
-//! the commit of the job, through an outbox.
+//! The reports of the jobs to the provider: one check run on GitHub or commit status on GitLab for
+//! each pipeline, on the commit of the job, through an outbox.
 
 use time::OffsetDateTime;
 
 use super::connections::VcsConnectionId;
-use super::links::ReportMode;
-use super::named;
+use super::{named, VcsProvider};
 use crate::projects::jobs::{JobId, JobStatus};
 use crate::projects::ProjectId;
 
@@ -14,6 +13,26 @@ pub const MAX_KEY: usize = 64;
 
 /// The key of a pipeline whose name gives no letter and no digit.
 const FALLBACK_KEY: &str = "pipeline";
+
+named! {
+    /// How Scylla reports the result of a pipeline to the provider.
+    pub enum ReportMode {
+        /// A check run with a summary of the nodes, on GitHub.
+        CheckRun = "check_run",
+        /// A commit status, on GitLab.
+        CommitStatus = "commit_status",
+    }
+}
+
+impl ReportMode {
+    /// Returns the mode of a provider: a check run on GitHub, a commit status on GitLab.
+    pub fn of(provider: VcsProvider) -> Self {
+        match provider {
+            VcsProvider::GitHub => Self::CheckRun,
+            VcsProvider::GitLab => Self::CommitStatus,
+        }
+    }
+}
 
 named! {
     /// The delivery state of a report.
@@ -91,7 +110,7 @@ pub struct VcsReport {
     pub project_id: ProjectId,
     /// The connection that sends the report.
     pub connection_id: VcsConnectionId,
-    /// A check run or a commit status.
+    /// A check run on GitHub, a commit status on GitLab.
     pub mode: ReportMode,
     /// The latest state of the run.
     pub wanted: ReportedStatus,

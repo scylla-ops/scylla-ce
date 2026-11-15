@@ -1,9 +1,11 @@
 //! Unit tests of the types of the Git integration.
 
 use super::connections::{AccountKind, AuthKind, ConnectionState, DeliveryMode};
-use super::links::{GitLabRole, PipelineSource, ReportMode};
+use super::links::{GitLabRole, PipelineSource};
 use super::merge_blocks::MergeBlockState;
-use super::reports::{pipeline_key, report_context, ReportState, ReportedStatus, MAX_KEY};
+use super::reports::{
+    pipeline_key, report_context, ReportMode, ReportState, ReportedStatus, MAX_KEY,
+};
 use super::sources::{title_of, ApprovalState, GitRef, JobSource, PullRequestRef, SourceEvent};
 use super::VcsProvider;
 use crate::projects::jobs::JobStatus;
@@ -145,6 +147,19 @@ fn a_report_never_goes_back_from_a_final_state() {
     assert!(!back);
     assert!(!same);
     assert!(other_final);
+}
+
+/// The provider sets the mode of a report: a check run on GitHub, a commit status on GitLab.
+#[test]
+fn a_report_has_the_mode_of_its_provider() {
+    // given
+    let providers = [VcsProvider::GitHub, VcsProvider::GitLab];
+
+    // when
+    let modes = providers.map(ReportMode::of);
+
+    // then
+    assert_eq!(modes, [ReportMode::CheckRun, ReportMode::CommitStatus]);
 }
 
 /// The name of a report is `scylla/` and the key, and the key of an editor pipeline is the slug

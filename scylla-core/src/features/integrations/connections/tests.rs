@@ -23,7 +23,6 @@ fn missing_permissions_compares_the_access() {
     // given
     let all = held(&[
         ("checks", "write"),
-        ("statuses", "write"),
         ("contents", "write"),
         ("pull_requests", "read"),
         ("metadata", "read"),
@@ -41,10 +40,31 @@ fn missing_permissions_compares_the_access() {
 
     // then
     assert!(none.is_empty());
-    assert_eq!(
-        some,
-        ["checks", "statuses", "pull_requests", "administration"]
-    );
+    assert_eq!(some, ["checks", "pull_requests", "administration"]);
+}
+
+/// Scylla does not ask for `statuses`. An installation that still has it misses nothing, and
+/// its connection is active.
+#[test]
+fn missing_permissions_ignores_the_statuses_of_an_old_app() {
+    // given
+    let old_app = held(&[
+        ("checks", "write"),
+        ("statuses", "write"),
+        ("contents", "read"),
+        ("pull_requests", "read"),
+        ("metadata", "read"),
+        ("administration", "write"),
+    ]);
+
+    // when
+    let missing = checks::missing_permissions(&old_app);
+    let state = checks::installation_state(false, &missing);
+
+    // then
+    assert!(checks::WANTED.iter().all(|(name, _)| *name != "statuses"));
+    assert!(missing.is_empty());
+    assert_eq!(state, (ConnectionState::Active, None));
 }
 
 /// A suspended installation is suspended. A missing permission needs attention, except the

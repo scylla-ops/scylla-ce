@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE vcs_reports r\n         SET state = 'sending', next_attempt_at = now() + make_interval(secs => $2),\n             updated_at = now()\n         FROM (SELECT job_id, context FROM vcs_reports\n               WHERE next_attempt_at <= now()\n               ORDER BY next_attempt_at\n               LIMIT $1\n               FOR UPDATE SKIP LOCKED) due\n         WHERE r.job_id = due.job_id AND r.context = due.context\n         RETURNING r.job_id, r.context, r.connection_id, r.mode, r.wanted_state, r.sequence,\n                   r.attempts, r.external_id",
+  "query": "UPDATE vcs_reports r\n         SET state = 'sending', next_attempt_at = now() + make_interval(secs => $2),\n             updated_at = now()\n         FROM (SELECT job_id, context FROM vcs_reports\n               WHERE next_attempt_at <= now()\n               ORDER BY next_attempt_at\n               LIMIT $1\n               FOR UPDATE SKIP LOCKED) due\n         WHERE r.job_id = due.job_id AND r.context = due.context\n         RETURNING r.job_id, r.context, r.connection_id, r.wanted_state, r.sequence,\n                   r.attempts, r.external_id",
   "describe": {
     "columns": [
       {
@@ -38,17 +38,6 @@
       },
       {
         "ordinal": 3,
-        "name": "mode",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "vcs_reports",
-            "name": "mode"
-          }
-        }
-      },
-      {
-        "ordinal": 4,
         "name": "wanted_state",
         "type_info": "Text",
         "origin": {
@@ -59,7 +48,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "sequence",
         "type_info": "Int8",
         "origin": {
@@ -70,7 +59,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "attempts",
         "type_info": "Int4",
         "origin": {
@@ -81,7 +70,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "external_id",
         "type_info": "Text",
         "origin": {
@@ -105,9 +94,8 @@
       false,
       false,
       false,
-      false,
       true
     ]
   },
-  "hash": "25dd03f79354739610d88a933f541b3b602f0d3c92981d9f516a7c624e513954"
+  "hash": "fe7af283230fd09b192f86c4ef858b4f5cc56913d319a1afcda53d162dae836f"
 }

@@ -230,6 +230,15 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `RunPipeline` of a file pipeline reads its file at the ref, or at the head of the default branch
   with no ref. A schedule or a webhook of a file pipeline, and a Git trigger that a person fires
   now, run at the head of the default branch with the event `trigger`.
+- `ListConnectionRepositories` accepts a workspace in place of a project, and then checks the
+  permission on the workspace. The page of a new project uses it to list the repositories before it
+  creates the project.
+
+### Removed
+
+- A GitHub repository reports only with a check run. The commit status mode of a link and the field
+  `report_mode` of `UpdateRepositoryLink` are removed. GitLab continues to report with a commit
+  status.
 
 ### Fixed
 
@@ -272,3 +281,5 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `APP_HAS_NO_WEBHOOK`, and its connection polls too. `TestDelivery` tells it and moves an existing
   link to the polling mode. Before, a push started a run only at the safety poll after 15 minutes,
   and the test gave a raw error of GitHub.
+- The GitHub App does not ask for the permission `statuses: write`: a GitHub report is a check run.
+  An App or an installation that still has this permission stays active, with no warning.

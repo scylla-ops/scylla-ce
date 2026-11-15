@@ -2,8 +2,7 @@
 //! report must send.
 
 use scylla_domain::integrations::connections::VcsConnectionId;
-use scylla_domain::integrations::links::ReportMode;
-use scylla_domain::integrations::reports::ReportedStatus;
+use scylla_domain::integrations::reports::{ReportMode, ReportedStatus};
 use scylla_domain::integrations::VcsProvider;
 use scylla_domain::projects::jobs::JobId;
 use scylla_domain::projects::pipelines::PipelineId;
@@ -19,8 +18,6 @@ pub(crate) struct Target {
     pub(crate) provider: VcsProvider,
     /// The connection of the link.
     pub(crate) connection: VcsConnectionId,
-    /// How the link reports.
-    pub(crate) mode: ReportMode,
     /// `true` when the link reports.
     pub(crate) reports: bool,
     /// `true` when the link and its connection are active.
@@ -57,7 +54,7 @@ pub(crate) async fn target(
     pipeline: PipelineId,
 ) -> Result<Option<Target>, Error> {
     let row = sqlx::query!(
-        r#"SELECT c.id AS connection_id, c.provider, l.report_mode, p.name, p.file_key,
+        r#"SELECT c.id AS connection_id, c.provider, p.name, p.file_key,
                   l.reports_enabled AS reports,
                   (l.state = 'active' AND c.state = 'active') AS "active!"
            FROM repository_links l
@@ -76,7 +73,6 @@ pub(crate) async fn target(
     Ok(Some(Target {
         provider: VcsProvider::parse(&row.provider).ok_or_else(|| unknown("provider"))?,
         connection: VcsConnectionId::from_db(row.connection_id),
-        mode: ReportMode::parse(&row.report_mode).ok_or_else(|| unknown("report mode"))?,
         reports: row.reports,
         active: row.active,
         name: row.name,

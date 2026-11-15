@@ -1,7 +1,7 @@
 //! The tests of the link of a GitLab project: the webhook of a Maintainer with its sealed
 //! signing token, the polling mode of a Developer, and the delete of the webhook at the unlink.
 
-use scylla_proto::integrations::v1::{ConnectionState, DeliveryMode, ReportMode, VcsProvider};
+use scylla_proto::integrations::v1::{ConnectionState, DeliveryMode, VcsProvider};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 
@@ -27,7 +27,6 @@ async fn link_repository_makes_the_gitlab_webhook(pool: PgPool) {
     // then
     assert_eq!(linked.provider, VcsProvider::Gitlab as i32);
     assert_eq!(linked.full_name, "bank/payments");
-    assert_eq!(linked.report_mode, ReportMode::CommitStatus as i32);
     assert_eq!(linked.delivery_mode, DeliveryMode::Webhook as i32);
     assert_eq!(linked.state, ConnectionState::Active as i32);
     assert!(linked.state_reason.is_empty());

@@ -2,8 +2,6 @@
 //! connection of a link. One transaction for each call.
 
 use scylla_domain::integrations::connections::{VcsConnection, VcsConnectionId};
-use scylla_domain::integrations::links::ReportMode;
-use scylla_domain::integrations::VcsProvider;
 use scylla_domain::projects::ProjectId;
 use scylla_extension::Rejection;
 
@@ -46,23 +44,13 @@ pub(super) async fn connection(
     Ok(found.connection)
 }
 
-/// Changes the reports and the polling of the link of a project, and returns the link. A check
-/// run on GitLab is a bad request.
+/// Changes the reports and the polling of the link of a project, and returns the link. A project
+/// with no link gives `NO_REPOSITORY_LINK`.
 pub(super) async fn update(
     ctx: &IntegrationContext,
     project: ProjectId,
     changes: Changes,
 ) -> Result<Linked, Error> {
-    // Refuse a project with no link, and a check run on GitLab.
-    let linked = require(ctx, project).await?;
-    if linked.provider == VcsProvider::GitLab && changes.report_mode == Some(ReportMode::CheckRun) {
-        return Err(Error::invalid(
-            "report_mode",
-            "must be a commit status on GitLab",
-        ));
-    }
-
-    // Change the link, and read it back.
     let mut tx = ctx.pool.begin().await?;
     let updated = store::update(&mut tx, project, changes).await?;
     let linked = store::find(&mut tx, project).await?;

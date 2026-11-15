@@ -3,7 +3,7 @@
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::integrations::connections::{DeliveryMode, VcsConnection};
-use scylla_domain::integrations::links::{GitLabRole, ReportMode};
+use scylla_domain::integrations::links::GitLabRole;
 use scylla_domain::integrations::VcsProvider;
 use scylla_domain::projects::ProjectId;
 use scylla_extension::Rejection;
@@ -34,8 +34,6 @@ enum Delivery {
 struct Found {
     /// The repository.
     repository: Repository,
-    /// How Scylla reports.
-    report_mode: ReportMode,
     /// The delivery mode.
     delivery_mode: DeliveryMode,
     /// The GitLab webhook and its signing token, or `None`.
@@ -85,7 +83,6 @@ pub(super) async fn link(
         workspace: connection.workspace_id,
         connection: connection.id,
         repository: &found.repository,
-        report_mode: found.report_mode,
         delivery_mode: found.delivery_mode,
         poll_interval_seconds: connection.poll_interval_seconds,
         hook: sealed
@@ -174,7 +171,6 @@ async fn github(
             private: repository.private,
             role: None,
         },
-        report_mode: ReportMode::CheckRun,
         delivery_mode,
         hook: None,
         reason,
@@ -221,7 +217,6 @@ async fn gitlab(
     };
     Ok(Found {
         repository,
-        report_mode: ReportMode::CommitStatus,
         delivery_mode,
         hook,
         reason,

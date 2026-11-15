@@ -11,29 +11,24 @@ use super::failures::{wait, Failure, Next};
 use super::states::{self, Run};
 use crate::infra::vcs::ProviderError;
 
-/// Each state of a run has its state on GitHub and on GitLab, as in the map of the reports.
+/// Each state of a run has its state on GitLab, as in the map of the reports.
 #[test]
-fn each_state_of_a_run_has_a_state_on_each_provider() {
+fn each_state_of_a_run_has_a_state_on_gitlab() {
     // given
     let all = ReportedStatus::ALL;
 
     // when
-    let github: Vec<&str> = all.iter().map(|status| states::github(*status)).collect();
     let gitlab: Vec<&str> = all.iter().map(|status| states::gitlab(*status)).collect();
 
     // then
-    let github_map = [
-        "pending", "pending", "pending", "success", "failure", "error", "error", "failure",
-    ];
     let gitlab_map = [
         "pending", "pending", "running", "success", "failed", "canceled", "failed", "failed",
     ];
-    assert_eq!(github, github_map);
     assert_eq!(gitlab, gitlab_map);
 }
 
 /// A description tells the state with its duration, its failed node or its file and the line of
-/// its first error, and stays in the limit of the provider.
+/// its first error, and stays in the limit of GitLab.
 #[test]
 fn a_description_tells_the_state_of_the_run() {
     // given
@@ -56,11 +51,8 @@ fn a_description_tells_the_state_of_the_run() {
     };
 
     // when
-    let text = |status| states::description(VcsProvider::GitHub, status, &ended);
-    let cut_github =
-        states::description(VcsProvider::GitHub, ReportedStatus::InvalidFile, &invalid);
-    let cut_gitlab =
-        states::description(VcsProvider::GitLab, ReportedStatus::InvalidFile, &invalid);
+    let text = |status| states::description(status, &ended);
+    let cut = states::description(ReportedStatus::InvalidFile, &invalid);
 
     // then
     assert_eq!(
@@ -76,11 +68,10 @@ fn a_description_tells_the_state_of_the_run() {
         "Invalid .scylla/pipelines/build.toml: line 12"
     );
     assert_eq!(
-        states::description(VcsProvider::GitLab, ReportedStatus::InvalidFile, &unplaced),
+        states::description(ReportedStatus::InvalidFile, &unplaced),
         "Invalid .scylla/pipelines/build.toml"
     );
-    assert_eq!(cut_github.chars().count(), 140);
-    assert_eq!(cut_gitlab.chars().count(), 255);
+    assert_eq!(cut.chars().count(), 255);
 }
 
 /// A duration shows in seconds, in minutes and seconds, or in hours and minutes.

@@ -1,17 +1,13 @@
-//! The map from the state of a run to the state of a commit status on GitHub and on GitLab, to
-//! the status and the conclusion of a GitHub check run, and the short description of the report.
+//! The map from the state of a run to the status and the conclusion of a GitHub check run, to the
+//! state of a commit status on GitLab, and the short description of a commit status.
 
 use scylla_domain::integrations::reports::ReportedStatus;
-use scylla_domain::integrations::VcsProvider;
 use time::OffsetDateTime;
-
-/// The most characters of a description on GitHub.
-const GITHUB_DESCRIPTION: usize = 140;
 
 /// The most characters of a description on GitLab.
 const GITLAB_DESCRIPTION: usize = 255;
 
-/// What the description of a report tells about its job.
+/// What the description of a commit status tells about its job.
 #[derive(Default)]
 pub(super) struct Run<'a> {
     /// The start of the job on the agent.
@@ -24,18 +20,6 @@ pub(super) struct Run<'a> {
     pub(super) file_path: Option<&'a str>,
     /// The line of the first error of an invalid pipeline file.
     pub(super) file_line: Option<u32>,
-}
-
-/// Returns the state of a GitHub commit status: `pending`, `success`, `failure` or `error`.
-pub(super) fn github(status: ReportedStatus) -> &'static str {
-    match status {
-        ReportedStatus::AwaitingApproval | ReportedStatus::Pending | ReportedStatus::Running => {
-            "pending"
-        }
-        ReportedStatus::Completed => "success",
-        ReportedStatus::Failed | ReportedStatus::InvalidFile => "failure",
-        ReportedStatus::Cancelled | ReportedStatus::Orphaned => "error",
-    }
 }
 
 /// Returns the status of a GitHub check run (`queued`, `in_progress` or `completed`), and the
@@ -64,8 +48,8 @@ pub(super) fn gitlab(status: ReportedStatus) -> &'static str {
     }
 }
 
-/// Returns the description of a report on a provider, cut to the limit of the provider.
-pub(super) fn description(provider: VcsProvider, status: ReportedStatus, run: &Run<'_>) -> String {
+/// Returns the description of a commit status on GitLab, cut to the limit of GitLab.
+pub(super) fn description(status: ReportedStatus, run: &Run<'_>) -> String {
     // Tell the state, with the duration or the cause.
     let duration = match (run.started_at, run.finished_at) {
         (Some(start), Some(end)) => Some(length(end - start)),
@@ -92,12 +76,8 @@ pub(super) fn description(provider: VcsProvider, status: ReportedStatus, run: &R
         },
     };
 
-    // Cut it to the limit of the provider.
-    let limit = match provider {
-        VcsProvider::GitHub => GITHUB_DESCRIPTION,
-        VcsProvider::GitLab => GITLAB_DESCRIPTION,
-    };
-    text.chars().take(limit).collect()
+    // Cut it to the limit of GitLab.
+    text.chars().take(GITLAB_DESCRIPTION).collect()
 }
 
 /// Returns a duration as `58s`, `2m 14s` or `1h 3m`.

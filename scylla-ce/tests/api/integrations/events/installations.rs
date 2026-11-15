@@ -122,8 +122,7 @@ async fn new_permissions_change_the_state_of_the_connection(pool: PgPool) {
     let linked = linked(&app, "github").await;
     let missing = json!({ "metadata": "read", "contents": "read" });
     let all = json!({
-        "checks": "write", "statuses": "write", "contents": "read",
-        "pull_requests": "read", "metadata": "read",
+        "checks": "write", "contents": "read", "pull_requests": "read", "metadata": "read",
     });
 
     // when
@@ -146,6 +145,33 @@ async fn new_permissions_change_the_state_of_the_connection(pool: PgPool) {
     assert_eq!(blocked.state_reason, "PERMISSIONS_NOT_ACCEPTED");
     assert_eq!(active.state(), ConnectionState::Active);
     assert_eq!(active.missing_permissions, vec!["administration"]);
+}
+
+/// An App that still asks for `statuses: write` keeps its connection active, with no missing
+/// permission and no reason.
+#[sqlx::test(migrations = false)]
+async fn an_old_app_with_statuses_stays_active(pool: PgPool) {
+    // given
+    let (app, _fake) = app_with_fake(pool).await;
+    let linked = linked(&app, "github").await;
+    let old_app = json!({
+        "checks": "write", "statuses": "write", "contents": "read",
+        "pull_requests": "read", "metadata": "read", "administration": "write",
+    });
+
+    // when
+    let action = "new_permissions_accepted";
+    post_app(&app, "installation", "d-1", &installation(action, old_app)).await;
+    app.wait_for_delivery("d-1").await;
+    let connection = app
+        .get_vcs_connection(linked.owner, &linked.connection)
+        .await
+        .unwrap();
+
+    // then
+    assert_eq!(connection.state(), ConnectionState::Active);
+    assert!(connection.state_reason.is_empty());
+    assert!(connection.missing_permissions.is_empty());
 }
 
 /// A repository that leaves the installation stops its link with `REPOSITORY_NOT_VISIBLE`, and

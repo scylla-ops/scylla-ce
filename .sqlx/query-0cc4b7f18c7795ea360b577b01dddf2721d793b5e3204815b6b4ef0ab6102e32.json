@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT c.id AS connection_id, c.provider, l.report_mode, p.name, p.file_key,\n                  l.reports_enabled AS reports,\n                  (l.state = 'active' AND c.state = 'active') AS \"active!\"\n           FROM repository_links l\n           JOIN vcs_connections c ON c.id = l.connection_id\n           JOIN pipelines p ON p.id = $2 AND p.project_id = l.project_id\n           WHERE l.project_id = $1",
+  "query": "SELECT c.id AS connection_id, c.provider, p.name, p.file_key,\n                  l.reports_enabled AS reports,\n                  (l.state = 'active' AND c.state = 'active') AS \"active!\"\n           FROM repository_links l\n           JOIN vcs_connections c ON c.id = l.connection_id\n           JOIN pipelines p ON p.id = $2 AND p.project_id = l.project_id\n           WHERE l.project_id = $1",
   "describe": {
     "columns": [
       {
@@ -27,17 +27,6 @@
       },
       {
         "ordinal": 2,
-        "name": "report_mode",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "repository_links",
-            "name": "report_mode"
-          }
-        }
-      },
-      {
-        "ordinal": 3,
         "name": "name",
         "type_info": "Text",
         "origin": {
@@ -48,7 +37,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "file_key",
         "type_info": "Text",
         "origin": {
@@ -59,7 +48,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "reports",
         "type_info": "Bool",
         "origin": {
@@ -70,7 +59,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "active!",
         "type_info": "Bool",
         "origin": "Expression"
@@ -86,11 +75,10 @@
       false,
       false,
       false,
-      false,
       true,
       false,
       null
     ]
   },
-  "hash": "cd4b06bfa6df0894a9161cb42d7ffa95064ccfffedbaa10238c519d2e4489077"
+  "hash": "0cc4b7f18c7795ea360b577b01dddf2721d793b5e3204815b6b4ef0ab6102e32"
 }
