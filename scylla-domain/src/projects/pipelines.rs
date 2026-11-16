@@ -188,6 +188,8 @@ crate::authz! {
         permission list_pipeline_files = view;
         /// The route `ListPipelineSummaries`: the pipelines of this project are in the list.
         permission list_pipeline_summaries = view;
+        /// The route `GetJobStats`: the jobs of this project are in the figures.
+        permission get_job_stats = view;
     }
 
     /// The routes of the pipelines and of their jobs on a workspace, and the role of the agents.
@@ -247,6 +249,9 @@ crate::authz! {
         permission list_pipeline_files = read;
         /// The route `ListPipelineSummaries`: the pipelines of this workspace are in the list.
         permission list_pipeline_summaries = read;
+        /// The route `GetJobStats`: the jobs of each project of this workspace are in the
+        /// figures.
+        permission get_job_stats = read;
     }
 
     /// The routes of the pipelines and of their jobs on the caller itself: a list shows only what
@@ -256,5 +261,7 @@ crate::authz! {
         permission list_pipeline_summaries = nil;
         /// The route `ListWorkspaceJobs`: each caller lists the jobs that it can see.
         permission list_workspace_jobs = nil;
+        /// The route `GetJobStats`: each caller counts the jobs that it can see.
+        permission get_job_stats = nil;
     }
 }

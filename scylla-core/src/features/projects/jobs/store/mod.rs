@@ -2,6 +2,7 @@
 //! agents hold. Each function runs in the transaction of the caller.
 
 pub(crate) mod approvals;
+pub(crate) mod figures;
 pub(crate) mod holds;
 pub(crate) mod jobs;
 pub(crate) mod lists;

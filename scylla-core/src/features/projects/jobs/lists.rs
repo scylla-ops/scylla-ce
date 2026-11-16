@@ -117,7 +117,10 @@ impl JobsGrpc {
 }
 
 /// Reads a list of ids of a request, at most `MAX_LIST_IDS`.
-fn ids<T: ?Sized>(values: Vec<ProtoId>, field: &'static str) -> Result<Vec<Id<T>>, Error> {
+pub(super) fn ids<T: ?Sized>(
+    values: Vec<ProtoId>,
+    field: &'static str,
+) -> Result<Vec<Id<T>>, Error> {
     if values.len() > MAX_LIST_IDS {
         return Err(Error::invalid(
             field,

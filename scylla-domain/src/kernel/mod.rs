@@ -14,4 +14,4 @@ pub use id::Id;
 pub use name::Name;
 pub use page::{Page, PageRequest, PageSize};
 pub use resource::ResourceKind;
-pub use time_zone::TimeZone;
+pub use time_zone::{Span, TimeZone};

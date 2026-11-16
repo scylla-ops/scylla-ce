@@ -1,7 +1,7 @@
 //! The handlers of `AgentService` for the job stats of the agents.
 
 use scylla_domain::identity::apps::{App, AppHolder, AppId};
-use scylla_domain::projects::jobs::{AgentStats, DayOutcomes, Outcomes, StatsPeriod};
+use scylla_domain::projects::jobs::{AgentStats, DayOutcomes, StatsPeriod};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::AccessError;
 use scylla_proto::agents::v1 as pb;
@@ -72,7 +72,7 @@ impl ToProto<pb::AgentStats> for AgentStats {
     fn to_proto(self) -> pb::AgentStats {
         pb::AgentStats {
             agent_id: Some(self.agent_id.to_proto()),
-            outcomes: Some(outcomes(self.outcomes)),
+            outcomes: Some(self.outcomes.to_proto()),
             median_duration: self.median_duration.map(parse::duration),
             p95_duration: self.p95_duration.map(parse::duration),
             days: self.days.into_iter().map(day).collect(),
@@ -80,20 +80,10 @@ impl ToProto<pb::AgentStats> for AgentStats {
     }
 }
 
-/// Makes the message of the outcomes.
-fn outcomes(outcomes: Outcomes) -> pb::JobOutcomes {
-    pb::JobOutcomes {
-        completed: outcomes.completed,
-        failed: outcomes.failed,
-        cancelled: outcomes.cancelled,
-        orphaned: outcomes.orphaned,
-    }
-}
-
 /// Makes the message of a day.
 fn day(day: DayOutcomes) -> pb::DayOutcomes {
     pb::DayOutcomes {
         day: Some(parse::timestamp(day.day)),
-        outcomes: Some(outcomes(day.outcomes)),
+        outcomes: Some(day.outcomes.to_proto()),
     }
 }

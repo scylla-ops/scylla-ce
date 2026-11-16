@@ -43,7 +43,7 @@ impl TestApp {
     }
 
     /// Returns a client of `JobService`.
-    fn jobs(&self) -> JobServiceClient<Channel> {
+    pub(crate) fn jobs(&self) -> JobServiceClient<Channel> {
         JobServiceClient::new(self.channel.clone())
     }
 

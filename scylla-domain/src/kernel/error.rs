@@ -128,6 +128,15 @@ pub enum DomainError {
     /// The end of a period is before its start.
     #[error("must not be before the start of the period")]
     BeforeStart,
+    /// The end of a period is not after its start.
+    #[error("must be after the start of the period")]
+    NotAfterStart,
+    /// A period is too long.
+    #[error("must be at most {days} days after the start of the period")]
+    PeriodTooLong {
+        /// The most days of a period.
+        days: i64,
+    },
     /// The text is not the name of a branch or of a tag.
     #[error("must be a branch or tag name of 1 to 255 characters, with no space")]
     NotARefName,

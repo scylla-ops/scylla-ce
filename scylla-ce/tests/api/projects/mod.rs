@@ -1,12 +1,14 @@
 //! The tests of the projects: their life, their changes, their secrets, their pipelines and jobs,
-//! the jobs on the agents, their number and their stats, the summaries of the dashboard, and the
-//! roles that reach them.
+//! the jobs on the agents, their number and their stats, the summaries and the job figures of the
+//! dashboard, and the roles that reach them.
 
 mod cast;
 mod disabled;
 mod git_contract;
 mod held;
 mod job_lists;
+mod job_stats;
+mod job_stats_scopes;
 mod jobs;
 mod lifecycle;
 mod pipeline_layout_changes;

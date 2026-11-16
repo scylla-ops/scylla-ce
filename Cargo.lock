@@ -3196,6 +3196,7 @@ dependencies = [
 name = "scylla-domain"
 version = "0.7.0-rc.1"
 dependencies = [
+ "chrono",
  "chrono-tz",
  "deunicode",
  "globset",

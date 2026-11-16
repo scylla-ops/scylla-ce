@@ -76,7 +76,7 @@ pub(super) fn origin(origin: JobOrigin) -> pb::JobOrigin {
 }
 
 /// Reads an origin of a filter, or `None` for an unknown or unset origin.
-fn origin_of(value: i32) -> Option<JobOrigin> {
+pub(super) fn origin_of(value: i32) -> Option<JobOrigin> {
     let proto = pb::JobOrigin::try_from(value).ok()?;
     JobOrigin::ALL
         .iter()

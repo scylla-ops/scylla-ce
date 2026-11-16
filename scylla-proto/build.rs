@@ -31,6 +31,7 @@ const PROTOS: &[&str] = &[
     "scylla/notifications/v1/notification_service.proto",
     "scylla/pipelines/v1/job.proto",
     "scylla/pipelines/v1/job_service.proto",
+    "scylla/pipelines/v1/job_stats.proto",
     "scylla/pipelines/v1/pipeline.proto",
     "scylla/pipelines/v1/pipeline_file.proto",
     "scylla/pipelines/v1/pipeline_service.proto",

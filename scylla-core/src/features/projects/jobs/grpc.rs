@@ -1,5 +1,5 @@
 //! The gRPC handler of `JobService`. The tail of the logs is in `tail.rs`, the approval of a job
-//! from a fork in `approval.rs`, and the lists in `lists.rs`.
+//! from a fork in `approval.rs`, the lists in `lists.rs`, and the figures in `figures_grpc.rs`.
 
 use std::sync::Arc;
 
@@ -152,6 +152,13 @@ impl JobService for JobsGrpc {
         request: Request<pb::ListWorkspaceJobsRequest>,
     ) -> Result<Response<pb::ListWorkspaceJobsResponse>, Status> {
         Ok(Response::new(self.list_workspace(request).await?))
+    }
+
+    async fn get_job_stats(
+        &self,
+        request: Request<pb::GetJobStatsRequest>,
+    ) -> Result<Response<pb::GetJobStatsResponse>, Status> {
+        Ok(Response::new(self.figures(request).await?))
     }
 
     async fn tail_job_logs(

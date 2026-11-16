@@ -245,6 +245,12 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   view. `ListWorkspaceJobs` shows the jobs of the projects that the caller can see, and gives an
   empty list to another caller. A pending job with a container tells why it waits
   (`NO_AGENT_WITH_CONTAINER`).
+- `GetJobStats` gives the dashboard the figures of the jobs of a workspace that the caller can see:
+  the counts by end, the median and the 95th percentile of the run time and of the wait for an
+  agent, and the run time, for a period of at most 400 days. It also gives at most 1000 buckets of
+  hours, days or weeks in the time zone of the workspace, the groups by project, pipeline, agent or
+  origin, and the previous period. Its permission is in `jobs.view`. `scylla-domain` now also uses
+  `chrono` 0.4.45 of the workspace.
 
 ### Removed
 

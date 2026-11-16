@@ -4,6 +4,7 @@
 mod app;
 mod identity;
 mod integrations;
+mod job_stats;
 mod logs;
 mod mail;
 mod notifications;

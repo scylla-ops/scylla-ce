@@ -196,6 +196,8 @@ pub(super) const AREAS: &[Area] = &[
                     Route::of(PipelineAccess::LIST_JOB_REPORTS),
                     Route::of(PipelineHolder::LIST_PIPELINE_SUMMARIES),
                     Route::of(PipelineAccess::LIST_PIPELINE_SUMMARIES),
+                    Route::of(PipelineHolder::GET_JOB_STATS),
+                    Route::of(PipelineAccess::GET_JOB_STATS),
                 ],
             ),
             cell(

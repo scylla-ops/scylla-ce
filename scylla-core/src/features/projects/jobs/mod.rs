@@ -1,10 +1,14 @@
-//! The jobs feature: the `jobs` and `job_logs` tables, `JobService`, the jobs of the agents on
-//! their stream, and the background task of the lost agents and of the old logs.
+//! The jobs feature: the `jobs` and `job_logs` tables, `JobService` with the figures of the
+//! jobs, the jobs of the agents on their stream, and the background task of the lost agents and
+//! of the old logs.
 
 mod approval;
 pub(crate) mod commits;
 pub(crate) mod convert;
 mod env;
+mod figures;
+mod figures_convert;
+mod figures_grpc;
 mod filter;
 mod grpc;
 pub(crate) mod housekeeping;

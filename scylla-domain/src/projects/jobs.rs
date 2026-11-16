@@ -1,6 +1,7 @@
 //! The jobs: one run of a pipeline on an agent, with a snapshot of its nodes and the state of
 //! each node.
 
+mod figures;
 mod git;
 mod list;
 mod logs;
@@ -11,6 +12,10 @@ mod stats;
 #[cfg(test)]
 mod tests;
 
+pub use figures::{
+    buckets, top, Bucket, Figures, FiguresPeriod, FiguresQuery, Group, GroupBy, GroupKey,
+    GroupOrder, JobFigures, DEFAULT_GROUPS, MAX_BUCKETS, MAX_FIGURES_DAYS, MAX_GROUPS,
+};
 pub use git::{CheckoutRun, JobApproval, PipelineFileRef};
 pub use list::{JobFilter, JobPage, JobScope, ListJobs, WorkspaceJobs, MAX_LIST_IDS};
 pub use logs::{LogBatch, LogBatchId, LogLine, LogStream};
