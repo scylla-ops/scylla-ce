@@ -69,7 +69,8 @@ fn a_schedule_on_the_last_sunday_gives_its_next_time() {
     );
 }
 
-/// A due trigger fires one time and gets its next time. A stopped trigger does not fire.
+/// A due trigger fires one time with the origin `cron` and gets its next time. A stopped trigger
+/// does not fire.
 #[sqlx::test(migrator = "crate::infra::db::MIGRATOR")]
 async fn tick_fires_the_due_triggers(pool: PgPool) {
     // given
@@ -107,7 +108,8 @@ async fn tick_fires_the_due_triggers(pool: PgPool) {
     // then
     assert_eq!((first, second), (1, 0));
     let jobs = sqlx::query_scalar!(
-        r#"SELECT count(*) AS "count!" FROM jobs WHERE pipeline_id = $1 AND trigger_id IS NOT NULL"#,
+        r#"SELECT count(*) AS "count!" FROM jobs
+           WHERE pipeline_id = $1 AND trigger_id IS NOT NULL AND origin = 'cron'"#,
         pipeline.to_db()
     )
     .fetch_one(&pool)

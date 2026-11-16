@@ -10,7 +10,7 @@ use scylla_domain::integrations::events::GitEvent;
 use scylla_domain::integrations::links::PipelineSource;
 use scylla_domain::integrations::sources::JobSource;
 use scylla_domain::projects::git_rules::TriggerEvent;
-use scylla_domain::projects::jobs::{Job, StartJob};
+use scylla_domain::projects::jobs::{Job, JobOrigin, StartJob};
 use scylla_domain::projects::pipelines::{EnvValue, EnvVar};
 use scylla_domain::projects::triggers::{FireResult, Input, InputValue, RUNNER_KIND};
 
@@ -67,9 +67,10 @@ pub(crate) async fn handle(
         id: fire::runner(&ctx.pool, linked.link.workspace_id).await?,
         kind: RUNNER_KIND,
     };
+    let origin = JobOrigin::of_git(&checked);
     let mut first = Ok(());
     for trigger in &matched {
-        let done = run(ctx, &runner, trigger, &source).await;
+        let done = run(ctx, &runner, trigger, &source, origin).await;
         first = first.and(done);
     }
     first
@@ -85,14 +86,15 @@ fn first_of_each_pipeline(triggers: Vec<GitTrigger>, event: &TriggerEvent<'_>) -
         .collect()
 }
 
-/// Joins the run of the pipeline of a trigger on the commit of a source, or starts it and records
-/// the fire on the trigger. Another event that starts the run of the commit at the same time wins,
-/// and this one joins it.
+/// Joins the run of the pipeline of a trigger on the commit of a source, or starts it with the
+/// origin of the event and records the fire on the trigger. Another event that starts the run of
+/// the commit at the same time wins, and this one joins it.
 async fn run(
     ctx: &IntegrationContext,
     runner: &Actor,
     trigger: &GitTrigger,
     source: &JobSource,
+    origin: JobOrigin,
 ) -> Result<(), Error> {
     // Join the run of the commit, if the pipeline has one.
     if commits::join(&ctx.pool, trigger.pipeline_id, source)
@@ -103,7 +105,7 @@ async fn run(
     }
 
     // Start the run, or join the run that another event started at the same time.
-    let started = start(ctx, runner, trigger, source).await;
+    let started = start(ctx, runner, trigger, source, origin).await;
     if started.as_ref().is_err_and(commits::is_taken) {
         commits::join(&ctx.pool, trigger.pipeline_id, source).await?;
         return Ok(());
@@ -125,12 +127,13 @@ async fn run(
 }
 
 /// Starts the run of the pipeline of a trigger on the commit of a source, with the inputs of the
-/// trigger.
+/// trigger and the origin of the event.
 async fn start(
     ctx: &IntegrationContext,
     runner: &Actor,
     trigger: &GitTrigger,
     source: &JobSource,
+    origin: JobOrigin,
 ) -> Result<Job, Error> {
     let pipeline = pipelines::get(&ctx.pool, trigger.pipeline_id)
         .await?
@@ -139,7 +142,7 @@ async fn start(
         variables: variables(&trigger.inputs),
         trigger_id: Some(trigger.id),
         source: Some(source.clone()),
-        ..StartJob::of(pipeline)
+        ..StartJob::of(pipeline, origin)
     };
     let (pool, hooks, registry) = (&ctx.pool, &ctx.hooks, &ctx.registry);
     pipelines::start(pool, hooks, registry, runner.clone(), start).await

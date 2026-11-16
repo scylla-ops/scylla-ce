@@ -233,8 +233,17 @@ impl TestApp {
             workspace_id: Some(id(workspace.to_string())),
             agent_id: agent.map(id),
             page: Some(page(0, "")),
-            filter: None,
+            ..ListWorkspaceJobsRequest::default()
         };
+        self.list_workspace_jobs_of(actor, request).await
+    }
+
+    /// Calls  as  with a full request.
+    pub async fn list_workspace_jobs_of(
+        &self,
+        actor: ActorId,
+        request: ListWorkspaceJobsRequest,
+    ) -> Result<ListWorkspaceJobsResponse, Status> {
         let request = self.authed(actor, request).await;
         Ok(self.jobs().list_workspace_jobs(request).await?.into_inner())
     }

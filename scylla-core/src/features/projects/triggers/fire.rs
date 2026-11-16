@@ -4,7 +4,7 @@
 
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::integrations::sources::SourceEvent;
-use scylla_domain::projects::jobs::{Job, StartJob};
+use scylla_domain::projects::jobs::{Job, JobOrigin, StartJob};
 use scylla_domain::projects::pipelines::{EnvValue, EnvVar};
 use scylla_domain::projects::triggers::{
     FireResult, InputValue, Trigger, TriggerId, TriggerKind, RUNNER_KIND,
@@ -36,23 +36,28 @@ impl From<Error> for FireError {
     }
 }
 
-/// Fires a trigger by its id, with no body.
-pub(crate) async fn by_id(vcs: &IntegrationContext, id: TriggerId) -> Result<Job, FireError> {
+/// Fires a trigger by its id, with no body, for an origin: its time or a caller.
+pub(crate) async fn by_id(
+    vcs: &IntegrationContext,
+    id: TriggerId,
+    origin: JobOrigin,
+) -> Result<Job, FireError> {
     let mut tx = vcs.pool.begin().await.map_err(Error::from)?;
     let trigger = triggers::find(&mut tx, id)
         .await?
         .ok_or(Error::NotFound("trigger"))?;
     tx.commit().await.map_err(Error::from)?;
-    fire(vcs, &trigger, None).await
+    fire(vcs, &trigger, None, origin).await
 }
 
-/// Fires a trigger with the body of a webhook, if one came, and records the result.
+/// Fires a trigger for an origin with the body of a webhook, if one came, and records the result.
 pub(crate) async fn fire(
     vcs: &IntegrationContext,
     trigger: &Trigger,
     body: Option<&Value>,
+    origin: JobOrigin,
 ) -> Result<Job, FireError> {
-    let result = start(vcs, trigger, body).await;
+    let result = start(vcs, trigger, body, origin).await;
     let record = match &result {
         Ok(_) => FireResult::Ok,
         Err(FireError::Payload(reason)) => FireResult::Error(reason.clone()),
@@ -76,6 +81,7 @@ async fn start(
     vcs: &IntegrationContext,
     trigger: &Trigger,
     body: Option<&Value>,
+    origin: JobOrigin,
 ) -> Result<Job, FireError> {
     // Read the inputs, the pipeline and the runner of the triggers.
     let vars = inputs(trigger, body)?;
@@ -93,16 +99,16 @@ async fn start(
         TriggerKind::Push(_) | TriggerKind::PullRequest(_) | TriggerKind::Tag(_)
     );
     let start = if pipeline.file.is_some() {
-        files::start_at(vcs, pipeline, None, SourceEvent::Trigger).await?
+        files::start_at(vcs, pipeline, None, SourceEvent::Trigger, origin).await?
     } else if git {
         let project = pipeline.project_id;
         let source = files::head_source(vcs, project, SourceEvent::Trigger).await?;
         StartJob {
             source: Some(source),
-            ..StartJob::of(pipeline)
+            ..StartJob::of(pipeline, origin)
         }
     } else {
-        StartJob::of(pipeline)
+        StartJob::of(pipeline, origin)
     };
 
     // Start the job with the inputs, as the runner.

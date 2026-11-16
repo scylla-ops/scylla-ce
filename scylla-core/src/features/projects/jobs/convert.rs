@@ -1,36 +1,58 @@
 //! The conversions of the jobs and of their logs to the proto messages, with the reason why a
-//! pending job waits, and of the filters of a job list.
+//! pending job waits.
 
-use scylla_domain::integrations::sources::{ApprovalState, GitRef};
+use scylla_domain::integrations::sources::ApprovalState;
 use scylla_domain::projects::jobs::{
-    CheckoutRun, Job, JobApproval, JobFilter, JobStatus, LogBatch, LogStream, NodeRun, NodeStatus,
-    PipelineFileRef,
+    needs_container, CheckoutRun, Job, JobApproval, JobStatus, LogBatch, LogStream, NodeRun,
+    NodeStatus, PipelineFileRef,
 };
 use scylla_domain::projects::pipeline_files::FileError;
+use scylla_domain::projects::pipelines::Node;
 use scylla_proto::pipelines::v1 as pb;
 
-use crate::api::parse::{self, FromProto, Invalid, ToProto};
-use crate::features::identity::agents::Registry;
-use crate::features::integrations::sources;
-
-/// The longest login of an author in a filter, in characters.
-const MAX_LOGIN: usize = 255;
+use super::filter;
+use crate::api::parse::{self, ToProto};
+use crate::features::identity::agents::{Features, Registry};
 
 /// Why a pending job with a checkout waits: no agent of its workspace that gets the code is
 /// online.
 const NO_AGENT_WITH_CHECKOUT: &str = "NO_AGENT_WITH_CHECKOUT";
 
+/// Why a pending job with a container waits: no agent of its workspace with a container runtime,
+/// and with the checkout when the job needs it, is online.
+const NO_AGENT_WITH_CONTAINER: &str = "NO_AGENT_WITH_CONTAINER";
+
 /// Returns the proto of a job, with the reason why it waits for an agent.
 pub(super) fn job_of(job: Job, registry: &Registry) -> pb::Job {
-    let blocked = job.status == JobStatus::Pending
-        && job.agent_id.is_none()
-        && job.checkout.is_some()
-        && !registry.can_check_out(job.workspace_id);
+    let reason = waiting_reason(&job, registry);
     let mut proto = job.to_proto();
-    if blocked {
-        proto.waiting_reason = NO_AGENT_WITH_CHECKOUT.to_owned();
-    }
+    proto.waiting_reason = reason.unwrap_or_default().to_owned();
     proto
+}
+
+/// Returns why a pending job with no agent waits, when no online agent of its workspace has a
+/// feature that it needs.
+fn waiting_reason(job: &Job, registry: &Registry) -> Option<&'static str> {
+    if job.status != JobStatus::Pending || job.agent_id.is_some() {
+        return None;
+    }
+    let checkout = job.checkout.is_some();
+    let containers = needs_container(&job.nodes);
+    let only_checkout = Features {
+        containers: false,
+        checkout,
+    };
+    let both = Features {
+        containers,
+        checkout,
+    };
+    if checkout && !registry.can_serve(job.workspace_id, only_checkout) {
+        Some(NO_AGENT_WITH_CHECKOUT)
+    } else if containers && !registry.can_serve(job.workspace_id, both) {
+        Some(NO_AGENT_WITH_CONTAINER)
+    } else {
+        None
+    }
 }
 
 impl ToProto<pb::Job> for Job {
@@ -47,8 +69,12 @@ impl ToProto<pb::Job> for Job {
             created_by: Some(self.created_by.to_proto()),
             rerun_of: self.rerun_of.map(ToProto::to_proto),
             status: status(self.status).into(),
+            runs: self
+                .runs
+                .into_iter()
+                .map(|one| run(one, &self.nodes))
+                .collect(),
             nodes: self.nodes.into_iter().map(ToProto::to_proto).collect(),
-            runs: self.runs.into_iter().map(run).collect(),
             agent_id: self.agent_id.map(ToProto::to_proto),
             error: self.error.unwrap_or_default(),
             created_at: Some(parse::timestamp(self.created_at)),
@@ -63,31 +89,8 @@ impl ToProto<pb::Job> for Job {
             file_errors: self.file_errors.into_iter().map(file_error).collect(),
             checkout: self.checkout.map(checkout),
             waiting_reason: String::new(),
+            origin: filter::origin(self.origin).into(),
         }
-    }
-}
-
-impl FromProto<pb::JobFilter> for JobFilter {
-    fn from_proto(value: pb::JobFilter) -> Result<Self, Invalid> {
-        let event = sources::convert::event_of(value.event());
-        let branch = match value.branch.is_empty() {
-            true => None,
-            false => match GitRef::branch(value.branch) {
-                Ok(GitRef::Branch(name)) => Some(name),
-                Ok(_) => None,
-                Err(error) => return Err(Invalid::at("branch", error)),
-            },
-        };
-        if value.author_login.chars().count() > MAX_LOGIN {
-            let reason = format!("must be at most {MAX_LOGIN} characters");
-            return Err(Invalid::at("author_login", reason));
-        }
-        Ok(Self {
-            branch,
-            event,
-            author_login: Some(value.author_login).filter(|login| !login.is_empty()),
-            pull_request: Some(value.pull_request).filter(|number| *number > 0),
-        })
     }
 }
 
@@ -164,9 +167,11 @@ fn node_status(status: NodeStatus) -> pb::NodeStatus {
     }
 }
 
-/// Returns the proto of the state of a node in a job.
-fn run(run: NodeRun) -> pb::NodeRun {
+/// Returns the proto of the state of a node in a job, with the most attempts of its node.
+fn run(run: NodeRun, nodes: &[Node]) -> pb::NodeRun {
+    let node = nodes.iter().find(|node| node.id == run.node);
     pb::NodeRun {
+        max_attempts: node.map_or(1, |node| node.retries.saturating_add(1)),
         node_id: run.node.as_str().to_owned(),
         status: node_status(run.status).into(),
         attempt: run.attempt,

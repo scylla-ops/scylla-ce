@@ -1,7 +1,7 @@
 //! The tests of the runs of the pushes, the tags and the pull requests of a branch of the
 //! repository: the triggers that match, and one run for each pipeline and commit.
 
-use scylla_proto::pipelines::v1::{git_ref, FireStatus, JobStatus, SourceEvent};
+use scylla_proto::pipelines::v1::{git_ref, FireStatus, JobOrigin, JobStatus, SourceEvent};
 use scylla_testkit::text;
 use serde_json::json;
 use sqlx::PgPool;
@@ -44,6 +44,7 @@ async fn a_push_or_a_tag_that_matches_a_trigger_starts_one_run(pool: PgPool) {
     assert_eq!(jobs.len(), 1);
     let job = &jobs[0];
     assert_eq!(job.status(), JobStatus::Pending);
+    assert_eq!(job.origin(), JobOrigin::Push);
     assert_eq!(text(&job.trigger_id), build_triggers[0]);
     assert_eq!(text(&job.created_by), runner);
     let source = job.source.as_ref().unwrap();
@@ -57,6 +58,7 @@ async fn a_push_or_a_tag_that_matches_a_trigger_starts_one_run(pool: PgPool) {
     assert_eq!(source.message_title, "Fix the build");
     let releases = jobs_of(&app, &linked, &release).await;
     assert_eq!(releases.len(), 1);
+    assert_eq!(releases[0].origin(), JobOrigin::Tag);
     let source = releases[0].source.as_ref().unwrap();
     assert_eq!(source.event(), SourceEvent::Tag);
     assert_eq!(
@@ -197,6 +199,7 @@ async fn a_pull_request_from_a_branch_runs_each_new_head(pool: PgPool) {
     assert_eq!(jobs.len(), 2);
     let (new, old) = (&jobs[0], &jobs[1]);
     assert_eq!(text(&new.trigger_id), triggers[0]);
+    assert_eq!(new.origin(), JobOrigin::PullRequest);
     let source = new.source.as_ref().unwrap();
     assert_eq!(source.event(), SourceEvent::PullRequest);
     assert_eq!(

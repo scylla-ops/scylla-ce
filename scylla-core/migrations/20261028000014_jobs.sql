@@ -6,6 +6,9 @@ CREATE TABLE jobs (
     created_by uuid NOT NULL REFERENCES actors (id),
     rerun_of uuid REFERENCES jobs (id) ON DELETE SET NULL,
     trigger_id uuid REFERENCES triggers (id) ON DELETE SET NULL,
+    origin text NOT NULL
+        CHECK (origin IN ('manual', 'api', 'rerun', 'cron', 'webhook', 'push', 'pull_request', 'tag',
+            'provider_rerun')),
     status text NOT NULL
         CHECK (status IN ('awaiting_approval', 'pending', 'running', 'completed', 'failed',
             'cancelled', 'orphaned')),
@@ -36,15 +39,18 @@ CREATE TABLE jobs (
     CHECK ((rejected_by IS NULL) = (rejected_at IS NULL))
 );
 
-CREATE INDEX jobs_pipeline_id_idx ON jobs (pipeline_id);
-CREATE INDEX jobs_project_id_idx ON jobs (project_id);
+CREATE INDEX jobs_pipeline_id_idx ON jobs (pipeline_id, id);
+CREATE INDEX jobs_project_id_idx ON jobs (project_id, created_at);
 CREATE INDEX jobs_workspace_id_idx ON jobs (workspace_id, created_at);
+CREATE INDEX jobs_active_idx ON jobs (workspace_id, id)
+    WHERE status IN ('awaiting_approval', 'pending', 'running');
 CREATE INDEX jobs_created_by_idx ON jobs (created_by);
 CREATE INDEX jobs_rerun_of_idx ON jobs (rerun_of);
 CREATE INDEX jobs_trigger_id_idx ON jobs (trigger_id);
 CREATE INDEX jobs_approved_by_idx ON jobs (approved_by);
 CREATE INDEX jobs_rejected_by_idx ON jobs (rejected_by);
 CREATE INDEX jobs_agent_id_idx ON jobs (agent_id) WHERE status IN ('pending', 'running');
+CREATE INDEX jobs_agent_created_idx ON jobs (agent_id, created_at);
 CREATE INDEX jobs_pool_idx ON jobs (workspace_id, id) WHERE status = 'pending' AND agent_id IS NULL;
 
 -- The commit of a job in the linked repository, and the event that started the job. An automatic

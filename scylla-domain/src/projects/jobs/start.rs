@@ -1,6 +1,6 @@
 //! The start of a job: a run of a pipeline, a fire of a trigger, or a new run of a job.
 
-use super::{Job, JobId, NewJob, PipelineFileRef};
+use super::{Job, JobId, JobOrigin, NewJob, PipelineFileRef};
 use crate::identity::actors::ActorId;
 use crate::integrations::sources::{JobSource, SourceEvent};
 use crate::projects::pipeline_files::{CheckoutSettings, FileError};
@@ -36,6 +36,8 @@ pub struct StartJob {
     pub variables: Vec<EnvVar>,
     /// The trigger that starts the job.
     pub trigger_id: Option<TriggerId>,
+    /// What starts the job.
+    pub origin: JobOrigin,
     /// The job that this job runs again.
     pub rerun_of: Option<JobId>,
     /// The commit and the event of the job.
@@ -49,9 +51,9 @@ pub struct StartJob {
 }
 
 impl StartJob {
-    /// Makes a run of the nodes of a pipeline with its checkout settings, with no variable, no
-    /// trigger and no source.
-    pub fn of(pipeline: Pipeline) -> Self {
+    /// Makes a run of the nodes of a pipeline with its checkout settings and an origin, with no
+    /// variable, no trigger and no source.
+    pub fn of(pipeline: Pipeline, origin: JobOrigin) -> Self {
         Self {
             pipeline_id: pipeline.id,
             project_id: pipeline.project_id,
@@ -59,6 +61,7 @@ impl StartJob {
             nodes: pipeline.nodes,
             variables: Vec::new(),
             trigger_id: None,
+            origin,
             rerun_of: None,
             source: None,
             pipeline_file: None,
@@ -69,7 +72,7 @@ impl StartJob {
 
     /// Makes a new run of a job: its pipeline, its nodes, its trigger, its pipeline file, its
     /// source and its checkout. The new source is not automatic, and a rerun from the provider
-    /// has its event.
+    /// has its event and its origin.
     pub fn rerun(job: Job, origin: RerunOrigin) -> Self {
         let source = job.source.map(|mut source| {
             source.automatic = false;
@@ -85,6 +88,10 @@ impl StartJob {
             nodes: job.nodes,
             variables: Vec::new(),
             trigger_id: job.trigger_id,
+            origin: match origin {
+                RerunOrigin::Person => JobOrigin::Rerun,
+                RerunOrigin::Provider => JobOrigin::ProviderRerun,
+            },
             rerun_of: Some(job.id),
             source,
             pipeline_file: job.pipeline_file,
@@ -126,6 +133,7 @@ impl StartJob {
             created_by,
             rerun_of: self.rerun_of,
             trigger_id: self.trigger_id,
+            origin: self.origin,
             nodes,
             source: self.source,
             awaiting,

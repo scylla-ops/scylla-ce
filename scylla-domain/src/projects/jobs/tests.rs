@@ -38,6 +38,7 @@ fn job() -> Job {
         created_by: ActorId::generate(),
         rerun_of: None,
         trigger_id: None,
+        origin: super::JobOrigin::Manual,
         status: JobStatus::Pending,
         runs: nodes.iter().map(NodeRun::pending).collect(),
         nodes,
@@ -267,7 +268,7 @@ fn a_start_adds_the_variables_and_waits_for_a_fork() {
 }
 
 /// A new run keeps the source of the job, and it is not automatic. A new run from the provider
-/// has its event.
+/// has its event. Each new run has the origin of who asked for it.
 #[test]
 fn a_rerun_keeps_the_source() {
     // given
@@ -277,6 +278,7 @@ fn a_rerun_keeps_the_source() {
     // when
     let person = StartJob::rerun(old.clone(), RerunOrigin::Person);
     let provider = StartJob::rerun(old.clone(), RerunOrigin::Provider);
+    let created = person.clone().into_new(ActorId::generate());
 
     // then
     let kept = person.source.unwrap();
@@ -285,4 +287,7 @@ fn a_rerun_keeps_the_source() {
     assert_eq!(provider.source.unwrap().event, SourceEvent::ProviderRerun);
     assert_eq!(person.rerun_of, Some(old.id));
     assert_eq!(person.nodes, old.nodes);
+    assert_eq!(person.origin, super::JobOrigin::Rerun);
+    assert_eq!(provider.origin, super::JobOrigin::ProviderRerun);
+    assert_eq!(created.origin, super::JobOrigin::Rerun);
 }

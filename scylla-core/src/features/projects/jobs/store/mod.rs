@@ -4,6 +4,7 @@
 pub(crate) mod approvals;
 pub(crate) mod holds;
 pub(crate) mod jobs;
+pub(crate) mod lists;
 pub(crate) mod logs;
 mod row;
 pub(crate) mod sources;

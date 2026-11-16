@@ -191,6 +191,7 @@ pub(super) const AREAS: &[Area] = &[
                     Route::of(PipelineHolder::LIST_WORKSPACE_JOBS),
                     Route::of(PipelineAccess::GET_JOB),
                     Route::of(PipelineAccess::LIST_PIPELINE_JOBS),
+                    Route::of(PipelineAccess::LIST_WORKSPACE_JOBS),
                     Route::of(PipelineHolder::LIST_JOB_REPORTS),
                     Route::of(PipelineAccess::LIST_JOB_REPORTS),
                     Route::of(PipelineHolder::LIST_PIPELINE_SUMMARIES),

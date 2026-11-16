@@ -41,8 +41,17 @@ struct Entry {
     commands: mpsc::Sender<Command>,
     /// The workspace of the agent.
     workspace: WorkspaceId,
+    /// What the agent can do.
+    features: Features,
+}
+
+/// What an agent can do, from its hello.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Features {
+    /// `true` if the agent has a container runtime.
+    pub(crate) containers: bool,
     /// `true` if the agent gets the code of a job before its first node.
-    checkout: bool,
+    pub(crate) checkout: bool,
 }
 
 /// The ticket of an open stream: its number and its commands.
@@ -54,16 +63,16 @@ pub(crate) struct Ticket {
 }
 
 impl Registry {
-    /// Records the stream of an agent of a workspace, with its checkout feature, and stops its
-    /// previous stream.
-    pub(crate) fn open(&self, app: AppId, workspace: WorkspaceId, checkout: bool) -> Ticket {
+    /// Records the stream of an agent of a workspace, with its features, and stops its previous
+    /// stream.
+    pub(crate) fn open(&self, app: AppId, workspace: WorkspaceId, features: Features) -> Ticket {
         let number = self.next.fetch_add(1, Ordering::Relaxed);
         let (sender, commands) = mpsc::channel(COMMANDS);
         let entry = Entry {
             number,
             commands: sender,
             workspace,
-            checkout,
+            features,
         };
         if let Some(previous) = self.streams().insert(app, entry) {
             let _ = previous
@@ -112,12 +121,14 @@ impl Registry {
         self.streams().contains_key(&app)
     }
 
-    /// Returns `true` if an agent of the workspace that gets the code of a job has an open
-    /// stream.
-    pub(crate) fn can_check_out(&self, workspace: WorkspaceId) -> bool {
-        self.streams()
-            .values()
-            .any(|entry| entry.workspace == workspace && entry.checkout)
+    /// Returns `true` if an agent of the workspace with each feature that a job needs has an
+    /// open stream.
+    pub(crate) fn can_serve(&self, workspace: WorkspaceId, needs: Features) -> bool {
+        self.streams().values().any(|entry| {
+            entry.workspace == workspace
+                && (entry.features.containers || !needs.containers)
+                && (entry.features.checkout || !needs.checkout)
+        })
     }
 
     /// Locks the map. A panic in another holder leaves the map usable.

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT j.id, j.pipeline_id, j.project_id, j.workspace_id, j.created_by, j.rerun_of,\n                j.trigger_id, j.status, j.nodes, j.runs, j.agent_id, j.error, j.version,\n                j.created_at, j.started_at, j.finished_at, j.approval, j.approved_by,\n                j.approved_at, j.rejected_by, j.rejected_at, j.checkout, j.pipeline_file,\n                j.file_errors\n         FROM jobs j LEFT JOIN job_sources s ON s.job_id = j.id\n         WHERE ($1::uuid IS NULL OR j.pipeline_id = $1)\n           AND ($2::uuid IS NULL OR j.workspace_id = $2)\n           AND ($3::uuid IS NULL OR j.agent_id = $3)\n           AND ($4::uuid IS NULL OR j.id < $4)\n           AND ($6::text IS NULL OR s.branch = $6)\n           AND ($7::text IS NULL OR s.event = $7)\n           AND ($8::text IS NULL OR s.author_login = $8)\n           AND ($9::jsonb IS NULL OR s.pull_requests @> $9)\n         ORDER BY j.id DESC\n         LIMIT $5",
+  "query": "SELECT j.id, j.pipeline_id, j.project_id, j.workspace_id, j.created_by, j.rerun_of,\n                j.trigger_id, j.origin, j.status, j.nodes, j.runs, j.agent_id, j.error, j.version,\n                j.created_at, j.started_at, j.finished_at, j.approval, j.approved_by,\n                j.approved_at, j.rejected_by, j.rejected_at, j.checkout, j.pipeline_file,\n                j.file_errors\n         FROM jobs j LEFT JOIN job_sources s ON s.job_id = j.id\n         WHERE ($1::uuid IS NULL OR j.pipeline_id = $1)\n           AND ($2::uuid IS NULL OR j.workspace_id = $2)\n           AND ($3::uuid IS NULL OR j.agent_id = $3)\n           AND ($4::uuid IS NULL OR j.id < $4)\n           AND ($6::text IS NULL OR s.branch = $6)\n           AND ($7::text IS NULL OR s.event = $7)\n           AND ($8::text IS NULL OR s.author_login = $8)\n           AND ($9::jsonb IS NULL OR s.pull_requests @> $9)\n           AND ($10::bool OR j.project_id = ANY($11::uuid[]))\n           AND (cardinality($12::uuid[]) = 0 OR j.project_id = ANY($12))\n           AND (cardinality($13::uuid[]) = 0 OR j.pipeline_id = ANY($13))\n           AND (cardinality($14::text[]) = 0 OR j.status = ANY($14))\n           AND (cardinality($15::text[]) = 0 OR j.origin = ANY($15))\n           AND ($16::timestamptz IS NULL OR j.created_at >= $16)\n           AND ($17::timestamptz IS NULL OR j.created_at < $17)\n         ORDER BY j.id DESC\n         LIMIT $5",
   "describe": {
     "columns": [
       {
@@ -82,6 +82,17 @@
       },
       {
         "ordinal": 7,
+        "name": "origin",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "origin"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
         "name": "status",
         "type_info": "Text",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "nodes",
         "type_info": "Jsonb",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "runs",
         "type_info": "Jsonb",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "agent_id",
         "type_info": "Uuid",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "error",
         "type_info": "Text",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "started_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "finished_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -180,7 +191,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "approval",
         "type_info": "Text",
         "origin": {
@@ -191,7 +202,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "approved_by",
         "type_info": "Uuid",
         "origin": {
@@ -202,7 +213,7 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "approved_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -213,7 +224,7 @@
         }
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "rejected_by",
         "type_info": "Uuid",
         "origin": {
@@ -224,7 +235,7 @@
         }
       },
       {
-        "ordinal": 20,
+        "ordinal": 21,
         "name": "rejected_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -235,7 +246,7 @@
         }
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "checkout",
         "type_info": "Jsonb",
         "origin": {
@@ -246,7 +257,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "pipeline_file",
         "type_info": "Jsonb",
         "origin": {
@@ -257,7 +268,7 @@
         }
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "file_errors",
         "type_info": "Jsonb",
         "origin": {
@@ -278,7 +289,15 @@
         "Text",
         "Text",
         "Text",
-        "Jsonb"
+        "Jsonb",
+        "Bool",
+        "UuidArray",
+        "UuidArray",
+        "UuidArray",
+        "TextArray",
+        "TextArray",
+        "Timestamptz",
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -289,6 +308,7 @@
       false,
       true,
       true,
+      false,
       false,
       false,
       false,
@@ -308,5 +328,5 @@
       true
     ]
   },
-  "hash": "1572fafd556b2009f673ce4f1c6b1d6b66cf159567e77cefc0194f13938574cc"
+  "hash": "50cafab3b277cc6ea84a17c2bdbdb2f220d9c71f38d5a5817c46ef255a650ecf"
 }

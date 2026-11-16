@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use scylla_domain::projects::jobs::JobOrigin;
 use scylla_domain::projects::pipelines::{
     ListPipelines, NewPipeline, PipelineAccess, PipelineChange, PipelineHolder, PipelineScope,
 };
@@ -245,7 +246,8 @@ impl PipelineService for PipelinesGrpc {
         let id = self
             .pipeline_of(&caller, request.pipeline_id, permission)
             .await?;
-        let job = service::run(&self.vcs, caller.actor, id, git_ref).await?;
+        let origin = JobOrigin::of_caller(caller.session().is_some());
+        let job = service::run(&self.vcs, caller.actor, id, git_ref, origin).await?;
         Ok(Response::new(pb::RunPipelineResponse {
             job: Some(job.to_proto()),
         }))

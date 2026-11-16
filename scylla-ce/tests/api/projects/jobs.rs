@@ -1,6 +1,6 @@
 //! The tests of the jobs that people call: the cancel, the rerun, the delete and the lists.
 
-use scylla_proto::pipelines::v1::JobStatus;
+use scylla_proto::pipelines::v1::{JobOrigin, JobStatus};
 use scylla_testkit::{exec_node, text, TestApp};
 use sqlx::PgPool;
 use tonic::Code;
@@ -50,6 +50,7 @@ async fn cancel_and_rerun_follow_the_state(pool: PgPool) {
     assert_eq!(again.finished_at, cancelled.finished_at);
     assert_eq!(rerun.status, JobStatus::Pending as i32);
     assert_eq!(text(&rerun.rerun_of), id);
+    assert_eq!(rerun.origin(), JobOrigin::Rerun);
 }
 
 /// The lists give the newest job first, with pages. A deleted job is gone.
@@ -95,7 +96,8 @@ async fn list_jobs_gives_the_newest_first(pool: PgPool) {
     assert_code(app.get_job(owner, &ids[0]).await, Code::PermissionDenied);
 }
 
-/// Another user cannot read, cancel or list the jobs.
+/// Another user cannot read, cancel or list the jobs of a pipeline. The list of the workspace
+/// shows it no job.
 #[sqlx::test(migrations = false)]
 async fn the_job_routes_need_a_role(pool: PgPool) {
     // given
@@ -116,6 +118,6 @@ async fn the_job_routes_need_a_role(pool: PgPool) {
     assert_code(read, Code::PermissionDenied);
     assert_code(cancel, Code::PermissionDenied);
     assert_code(listed, Code::PermissionDenied);
-    assert_code(in_workspace, Code::PermissionDenied);
+    assert!(in_workspace.unwrap().jobs.is_empty());
     assert_code(tail, Code::PermissionDenied);
 }

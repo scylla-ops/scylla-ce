@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use scylla_domain::authz::Permission;
+use scylla_domain::projects::jobs::JobOrigin;
 use scylla_domain::projects::pipelines::PipelineId;
 use scylla_domain::projects::triggers::{
     ListTriggers, NewTrigger, TriggerAccess, TriggerChange, TriggerId, TriggerKind,
@@ -194,7 +195,8 @@ impl TriggerService for TriggersGrpc {
         let id = self
             .trigger_of(&caller, request.into_inner().trigger_id, permission)
             .await?;
-        let job = match fire::by_id(&self.vcs, id).await {
+        let origin = JobOrigin::of_caller(caller.session().is_some());
+        let job = match fire::by_id(&self.vcs, id, origin).await {
             Ok(job) => job,
             Err(fire::FireError::Failed(error)) => return Err(error.into()),
             Err(fire::FireError::Payload(reason)) => {

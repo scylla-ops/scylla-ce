@@ -18,7 +18,7 @@ use tokio::time::{interval, sleep_until, timeout, Instant};
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Status, Streaming};
 
-use super::registry::Command;
+use super::registry::{Command, Features};
 use super::{work, Registry};
 use crate::api::parse;
 use crate::features::identity::apps;
@@ -69,7 +69,11 @@ impl Stream {
         // Wait for the hello, then record the stream.
         let ending = match self.hello(&mut inbound, &out).await {
             Ok(workspace) => {
-                let ticket = self.registry.open(self.app, workspace, self.checkout);
+                let features = Features {
+                    containers: self.containers,
+                    checkout: self.checkout,
+                };
+                let ticket = self.registry.open(self.app, workspace, features);
                 tracing::info!(event = "agent.connected", app = %self.app);
                 let ending = self.serve(&mut inbound, &out, ticket.commands).await;
                 self.registry.close(self.app, ticket.number);

@@ -5,6 +5,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use croner::Cron;
+use scylla_domain::projects::jobs::JobOrigin;
 use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 
@@ -75,7 +76,7 @@ pub(crate) async fn tick(vcs: &IntegrationContext) -> Result<usize, Error> {
     // Fire each one of an active pipeline. A failed fire is recorded on its trigger.
     let active: Vec<_> = due.iter().filter(|(_, _, active)| *active).collect();
     for (id, _, _) in &active {
-        if let Err(error) = fire::by_id(vcs, *id).await {
+        if let Err(error) = fire::by_id(vcs, *id, JobOrigin::Cron).await {
             tracing::warn!(%error, trigger = %id, "a cron trigger did not fire");
         }
     }

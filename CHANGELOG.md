@@ -240,6 +240,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - `ListPipelineSummaries` gives the dashboard the pipelines of a workspace that the caller can see:
   the last jobs (at most 50), the counts and the median duration, the health of the default branch,
   the jobs that run or wait, and the triggers. Its permission is in `jobs.view`.
+- Each job keeps its origin (`jobs.origin`). The job lists filter on the states, the origins and the
+  time of creation, and `ListWorkspaceJobs` also filters on projects and pipelines and has a summary
+  view. `ListWorkspaceJobs` shows the jobs of the projects that the caller can see, and gives an
+  empty list to another caller. A pending job with a container tells why it waits
+  (`NO_AGENT_WITH_CONTAINER`).
 
 ### Removed
 

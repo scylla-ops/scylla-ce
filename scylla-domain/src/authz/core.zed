@@ -6,6 +6,7 @@ definition actor {
     permission open_stream = nil
     permission list_projects = nil
     permission list_pipeline_summaries = nil
+    permission list_workspace_jobs = nil
     permission check_permissions = nil
     permission list_held_permissions = nil
     permission get_notification_summary = nil
@@ -168,6 +169,7 @@ definition project {
     permission delete_job = edit
     permission rerun_job = edit
     permission list_pipeline_jobs = view
+    permission list_workspace_jobs = view
     permission tail_job_logs = view
     permission set_pipeline_source = edit
     permission approve_job = edit

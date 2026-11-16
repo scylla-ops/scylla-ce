@@ -5,7 +5,7 @@ use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::integrations::sources::{ApprovalState, JobSource};
 use scylla_domain::projects::jobs::{
-    CheckoutRun, Job, JobApproval, JobId, JobStatus, NodeStatus, PipelineFileRef,
+    CheckoutRun, Job, JobApproval, JobId, JobOrigin, JobStatus, NodeStatus, PipelineFileRef,
 };
 use scylla_domain::projects::pipeline_files::{CheckoutSettings, FileError};
 use scylla_domain::projects::pipelines::PipelineId;
@@ -35,6 +35,8 @@ pub(super) struct Row {
     pub(super) rerun_of: Option<uuid::Uuid>,
     /// The trigger of the job.
     pub(super) trigger_id: Option<uuid::Uuid>,
+    /// What started the job.
+    pub(super) origin: String,
     /// The state.
     pub(super) status: String,
     /// The nodes in JSON.
@@ -115,6 +117,7 @@ impl Row {
             created_by: ActorId::from_db(self.created_by),
             rerun_of: self.rerun_of.map(JobId::from_db),
             trigger_id: self.trigger_id.map(TriggerId::from_db),
+            origin: JobOrigin::parse(&self.origin).ok_or_else(|| bad("origin"))?,
             status: JobStatus::parse(&self.status).ok_or_else(|| bad_status(&self.status))?,
             nodes: json::read_nodes(self.nodes)?,
             runs: json::read_runs(self.runs)?,

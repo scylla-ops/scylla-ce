@@ -14,7 +14,7 @@ use scylla_extension::{CreateContext, DeleteContext, Hooks, Rejection};
 use sqlx::PgPool;
 
 use super::runs::now;
-use super::store::{approvals, jobs, logs};
+use super::store::{approvals, jobs, lists, logs};
 use crate::features::identity::agents::Registry;
 use crate::features::integrations::reports;
 use crate::features::projects::pipelines::service as pipelines;
@@ -62,7 +62,7 @@ pub(crate) async fn place(
 /// Returns one page of the jobs that match the filter, newest first.
 pub(crate) async fn list(pool: &PgPool, query: ListJobs) -> Result<JobPage, Error> {
     let mut tx = pool.begin().await?;
-    let items = jobs::list(&mut tx, query.scope, query.page, &query.filter).await?;
+    let items = lists::list(&mut tx, &query.scope, query.page, &query.filter).await?;
     tx.commit().await?;
     Ok(Page::from_overfetch(items, query.page.size, |job| job.id))
 }
