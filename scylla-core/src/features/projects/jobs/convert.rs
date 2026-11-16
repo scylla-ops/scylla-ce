@@ -140,7 +140,7 @@ fn checkout(checkout: CheckoutRun) -> pb::CheckoutRun {
 }
 
 /// Returns the proto of the state of a job.
-fn status(status: JobStatus) -> pb::JobStatus {
+pub(crate) fn status(status: JobStatus) -> pb::JobStatus {
     match status {
         JobStatus::AwaitingApproval => pb::JobStatus::AwaitingApproval,
         JobStatus::Pending => pb::JobStatus::Pending,

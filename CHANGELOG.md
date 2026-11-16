@@ -237,6 +237,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   with the permission `update_workspace`, and a name that is not an IANA name gives
   `INVALID_ARGUMENT` on `time_zone`. The server checks the names with the new dependency `chrono-tz`
   0.10.4.
+- `ListPipelineSummaries` gives the dashboard the pipelines of a workspace that the caller can see:
+  the last jobs (at most 50), the counts and the median duration, the health of the default branch,
+  the jobs that run or wait, and the triggers. Its permission is in `jobs.view`.
 
 ### Removed
 

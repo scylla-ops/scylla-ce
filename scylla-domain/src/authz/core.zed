@@ -5,6 +5,7 @@ definition actor {
     permission decline_invitation = nil
     permission open_stream = nil
     permission list_projects = nil
+    permission list_pipeline_summaries = nil
     permission check_permissions = nil
     permission list_held_permissions = nil
     permission get_notification_summary = nil
@@ -89,6 +90,7 @@ definition workspace {
     permission export_pipeline = read
     permission get_file_pipeline = read
     permission list_pipeline_files = read
+    permission list_pipeline_summaries = read
     permission create_trigger = work
     permission get_trigger = read
     permission update_trigger = work
@@ -176,6 +178,7 @@ definition project {
     permission export_pipeline = view
     permission get_file_pipeline = view
     permission list_pipeline_files = view
+    permission list_pipeline_summaries = view
     permission create_trigger = edit
     permission get_trigger = view
     permission update_trigger = edit

@@ -121,6 +121,9 @@ pub const VIEW_ALL_WORKSPACES: &str = "workspaces.view";
 /// The permission that gives the view of a project.
 pub const VIEW_PROJECT: &str = "project.view";
 
+/// The permission that gives the view of the jobs of a project.
+pub const VIEW_JOBS: &str = "jobs.view";
+
 /// Returns each area of the catalog.
 pub fn areas() -> impl Iterator<Item = &'static Area> {
     AREAS.iter().flat_map(|group| group.iter())

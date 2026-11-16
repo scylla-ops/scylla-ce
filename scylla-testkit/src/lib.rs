@@ -8,6 +8,7 @@ mod logs;
 mod mail;
 mod notifications;
 mod pipeline_layouts;
+mod pipeline_summaries;
 mod pipelines;
 mod platform;
 mod projects;

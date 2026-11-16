@@ -1,5 +1,6 @@
 //! The gRPC handler of `PipelineService`: authenticate, parse, authorize on the project, call
-//! the service, answer. The RPCs of the pipeline files are in `files_grpc.rs`.
+//! the service, answer. The RPCs of the pipeline files are in `files_grpc.rs`, and the summaries
+//! of the dashboard in `summaries_grpc.rs`.
 
 use std::sync::Arc;
 
@@ -223,6 +224,13 @@ impl PipelineService for PipelinesGrpc {
             pipelines: page.items.into_iter().map(ToProto::to_proto).collect(),
             page: Some(page.next_after.to_proto()),
         }))
+    }
+
+    async fn list_pipeline_summaries(
+        &self,
+        request: Request<pb::ListPipelineSummariesRequest>,
+    ) -> Result<Response<pb::ListPipelineSummariesResponse>, Status> {
+        self.list_summaries(request).await
     }
 
     async fn run_pipeline(

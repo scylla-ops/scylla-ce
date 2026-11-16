@@ -3,7 +3,7 @@
 
 mod approval;
 pub(crate) mod commits;
-mod convert;
+pub(crate) mod convert;
 mod env;
 mod grpc;
 pub(crate) mod housekeeping;

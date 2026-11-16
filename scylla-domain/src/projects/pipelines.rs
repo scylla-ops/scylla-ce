@@ -3,12 +3,17 @@
 mod graph;
 mod layout;
 mod nodes;
+mod summaries;
 #[cfg(test)]
 mod tests;
 
 pub use graph::Nodes;
 pub use layout::{PipelineLayout, Position};
 pub use nodes::{env_name, EnvValue, EnvVar, Node, NodeError, NodeId, Runtime, Shell, Step};
+pub use summaries::{
+    ListSummaries, NextFire, PipelineSummary, RecentJob, SummaryOrder, SummaryPage, TriggerType,
+    DEFAULT_RUNS, MAX_FILTER_IDS, MAX_RUNS,
+};
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId};
@@ -179,6 +184,8 @@ crate::authz! {
         permission get_file_pipeline = view;
         /// The route `ListPipelineFiles`, in this project.
         permission list_pipeline_files = view;
+        /// The route `ListPipelineSummaries`: the pipelines of this project are in the list.
+        permission list_pipeline_summaries = view;
     }
 
     /// The routes of the pipelines and of their jobs on a workspace, and the role of the agents.
@@ -235,5 +242,13 @@ crate::authz! {
         permission get_file_pipeline = read;
         /// The route `ListPipelineFiles`, in each project of this workspace.
         permission list_pipeline_files = read;
+        /// The route `ListPipelineSummaries`: the pipelines of this workspace are in the list.
+        permission list_pipeline_summaries = read;
+    }
+
+    /// The routes of the pipelines on the caller itself.
+    extend Actor as PipelineCaller {
+        /// The route `ListPipelineSummaries`: each caller lists the pipelines that it can see.
+        permission list_pipeline_summaries = nil;
     }
 }
