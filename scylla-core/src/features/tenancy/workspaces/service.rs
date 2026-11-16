@@ -91,8 +91,8 @@ pub(super) async fn list(
     ))
 }
 
-/// Changes the name or the slug of a workspace, and returns it. A slug in use gives
-/// `SLUG_IN_USE`.
+/// Changes the name, the slug, the personal token switch or the time zone of a workspace, and
+/// returns it. A slug in use gives `SLUG_IN_USE`.
 pub(super) async fn update(
     pool: &PgPool,
     id: WorkspaceId,

@@ -8,7 +8,7 @@ use scylla_domain::identity::users::{Email, Handle, Password};
 use scylla_domain::projects::secrets::{SecretName, SecretValue};
 use scylla_domain::projects::{ProjectDescription, ProjectName};
 use scylla_domain::tenancy::slugs::Slug;
-use scylla_domain::{DomainError, Id};
+use scylla_domain::{DomainError, Id, TimeZone};
 use scylla_domain::{PageRequest, PageSize};
 use scylla_proto::common::v1 as pb;
 use time::OffsetDateTime;
@@ -188,6 +188,12 @@ impl FromProto<String> for Slug {
 }
 
 impl FromProto<String> for StateKey {
+    fn from_proto(value: String) -> Result<Self, Invalid> {
+        Ok(Self::parse(value)?)
+    }
+}
+
+impl FromProto<String> for TimeZone {
     fn from_proto(value: String) -> Result<Self, Invalid> {
         Ok(Self::parse(value)?)
     }

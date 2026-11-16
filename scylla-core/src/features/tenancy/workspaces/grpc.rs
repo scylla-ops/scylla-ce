@@ -210,8 +210,8 @@ impl WorkspacesGrpc {
         })
     }
 
-    /// Handles `UpdateWorkspace`: a new name or a new slug. An unknown workspace gets the answer
-    /// of a refusal.
+    /// Handles `UpdateWorkspace`: a new name, slug, personal token switch or time zone. An unknown
+    /// workspace gets the answer of a refusal.
     async fn update(
         &self,
         request: Request<pb::UpdateWorkspaceRequest>,
@@ -230,6 +230,10 @@ impl WorkspacesGrpc {
                 .map(|slug| parse::field(slug, "slug"))
                 .transpose()?,
             personal_tokens_enabled: request.personal_tokens_enabled,
+            time_zone: request
+                .time_zone
+                .map(|zone| parse::field(zone, "time_zone"))
+                .transpose()?,
         };
 
         // Check the route permission on a workspace that exists, then change it.

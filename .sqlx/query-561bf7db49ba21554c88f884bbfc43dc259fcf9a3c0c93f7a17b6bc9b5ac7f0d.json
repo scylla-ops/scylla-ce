@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, slug, created_at, personal_tokens_enabled FROM workspaces WHERE slug = $1",
+  "query": "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone FROM workspaces\n         WHERE ($5\n                OR id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)\n                OR id = ANY($2))\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
   "describe": {
     "columns": [
       {
@@ -57,11 +57,26 @@
             "name": "personal_tokens_enabled"
           }
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "time_zone",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "time_zone"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Uuid",
+        "UuidArray",
+        "Uuid",
+        "Int8",
+        "Bool"
       ]
     },
     "nullable": [
@@ -69,8 +84,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "d5b46b14d8ac8717be3f0e570570603a19f95661098795aee7113c5de5665791"
+  "hash": "561bf7db49ba21554c88f884bbfc43dc259fcf9a3c0c93f7a17b6bc9b5ac7f0d"
 }

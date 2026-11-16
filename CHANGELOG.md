@@ -233,6 +233,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - `ListConnectionRepositories` accepts a workspace in place of a project, and then checks the
   permission on the workspace. The page of a new project uses it to list the repositories before it
   creates the project.
+- A workspace has a time zone: an IANA name, `UTC` for a new workspace. `UpdateWorkspace` changes it
+  with the permission `update_workspace`, and a name that is not an IANA name gives
+  `INVALID_ARGUMENT` on `time_zone`. The server checks the names with the new dependency `chrono-tz`
+  0.10.4.
 
 ### Removed
 

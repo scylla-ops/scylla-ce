@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 use crate::authz::Resource;
 use crate::identity::actors::{Actor, ActorId};
 use crate::tenancy::slugs::Slug;
-use crate::{Id, Name, Page, PageRequest, ResourceKind};
+use crate::{Id, Name, Page, PageRequest, ResourceKind, TimeZone};
 
 /// The kind of a workspace, for the hooks: the name of its definition.
 pub const KIND: ResourceKind = ResourceKind::new(Workspace::NAME);
@@ -29,6 +29,8 @@ pub struct Workspace {
     pub created_at: OffsetDateTime,
     /// `true` when the personal tokens of the users act in this workspace.
     pub personal_tokens_enabled: bool,
+    /// The name of the time zone of the workspace, `UTC` for a new workspace.
+    pub time_zone: String,
 }
 
 /// How a new workspace gets its slug.
@@ -60,6 +62,8 @@ pub struct WorkspaceChange {
     pub slug: Option<Slug>,
     /// The new personal token switch.
     pub personal_tokens_enabled: Option<bool>,
+    /// The new time zone.
+    pub time_zone: Option<TimeZone>,
 }
 
 /// What a caller can read: the workspaces that it owns, and the workspaces where it has a role.

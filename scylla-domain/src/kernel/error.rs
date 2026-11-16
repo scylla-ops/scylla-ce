@@ -134,4 +134,7 @@ pub enum DomainError {
     /// The text is not a commit.
     #[error("must be 7 to 40 hexadecimal characters")]
     NotASha,
+    /// The text is not the name of a zone of the IANA database.
+    #[error("must be an IANA time zone, for example Europe/Paris")]
+    NotATimeZone,
 }

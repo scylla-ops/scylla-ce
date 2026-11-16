@@ -9,6 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+chrono-tz.workspace = true
 deunicode.workspace = true
 globset.workspace = true
 schemars.workspace = true
