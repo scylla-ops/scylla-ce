@@ -2,8 +2,15 @@
 
 use scylla_proto::apps::v1::Host;
 
+use super::protocol::AGENT_PROTOCOL;
 use crate::agent::Settings;
 use crate::jobs::{features, Git};
+
+/// The commit of this build, from `SCYLLA_AGENT_BUILD` at the build, or empty.
+const BUILD: &str = match option_env!("SCYLLA_AGENT_BUILD") {
+    Some(build) => build,
+    None => "",
+};
 
 /// Reads the facts of the machine, and the features of the git that it has.
 pub(super) fn host(settings: &Settings, git: Option<Git>) -> Host {
@@ -21,6 +28,8 @@ pub(super) fn host(settings: &Settings, git: Option<Git>) -> Host {
         capacity: settings.capacity,
         container_runtime: settings.container_runtime.clone().unwrap_or_default(),
         features: features(git),
+        protocol: AGENT_PROTOCOL,
+        build: BUILD.to_owned(),
     }
 }
 

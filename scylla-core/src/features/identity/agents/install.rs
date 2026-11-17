@@ -1,6 +1,6 @@
 //! The install scripts of the agent: `GET /install.sh` for Linux and macOS, and
-//! `GET /install.ps1` for Windows. Each script has the URL of this server, its version, and the
-//! folder of the downloads.
+//! `GET /install.ps1` for Windows. Each script has the URL of this server, its version, its agent
+//! protocols, and the folder of the downloads.
 
 use std::sync::Arc;
 
@@ -9,6 +9,7 @@ use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
+use scylla_domain::identity::agents::{CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL};
 
 /// The image of the agent of this version.
 pub(crate) const AGENT_IMAGE: &str = concat!(
@@ -73,6 +74,11 @@ fn fill(template: &str, api_url: &str, downloads: &str, quote: fn(&str) -> Strin
         .replace("'@SCYLLA_URL@'", &quote(api_url))
         .replace("'@SCYLLA_VERSION@'", &quote(env!("CARGO_PKG_VERSION")))
         .replace("'@DOWNLOADS_URL@'", &quote(downloads))
+        .replace("'@MIN_PROTOCOL@'", &quote(&MIN_AGENT_PROTOCOL.to_string()))
+        .replace(
+            "'@CURRENT_PROTOCOL@'",
+            &quote(&CURRENT_AGENT_PROTOCOL.to_string()),
+        )
 }
 
 /// Quotes a text for `sh`: in single quotes, where a single quote is `'\''`.

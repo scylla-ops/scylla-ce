@@ -1,10 +1,12 @@
 //! The open streams of the agents on this server: at most one stream for each agent, its
-//! workspace and its features, and the commands that the server sends to a stream.
+//! workspace, its name, its version and its checkout, and the commands that the server sends to
+//! a stream.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use scylla_domain::identity::agents::Unfit;
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::JobId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -41,8 +43,19 @@ struct Entry {
     commands: mpsc::Sender<Command>,
     /// The workspace of the agent.
     workspace: WorkspaceId,
-    /// `true` if the agent gets the code of a job before its first node.
-    checkout: bool,
+    /// The agent, from its hello.
+    agent: Online,
+}
+
+/// An agent with an open stream, as its hello tells it.
+#[derive(Clone, Debug)]
+pub(crate) struct Online {
+    /// The display name of the App.
+    pub(crate) name: String,
+    /// The version of the agent.
+    pub(crate) version: String,
+    /// Why the agent cannot get the code of a job, or `None` if it can.
+    pub(crate) checkout_gap: Option<Unfit>,
 }
 
 /// The ticket of an open stream: its number and its commands.
@@ -54,16 +67,15 @@ pub(crate) struct Ticket {
 }
 
 impl Registry {
-    /// Records the stream of an agent of a workspace, with its checkout feature, and stops its
-    /// previous stream.
-    pub(crate) fn open(&self, app: AppId, workspace: WorkspaceId, checkout: bool) -> Ticket {
+    /// Records the stream of an agent of a workspace, and stops its previous stream.
+    pub(crate) fn open(&self, app: AppId, workspace: WorkspaceId, agent: Online) -> Ticket {
         let number = self.next.fetch_add(1, Ordering::Relaxed);
         let (sender, commands) = mpsc::channel(COMMANDS);
         let entry = Entry {
             number,
             commands: sender,
             workspace,
-            checkout,
+            agent,
         };
         if let Some(previous) = self.streams().insert(app, entry) {
             let _ = previous
@@ -117,7 +129,21 @@ impl Registry {
     pub(crate) fn can_check_out(&self, workspace: WorkspaceId) -> bool {
         self.streams()
             .values()
-            .any(|entry| entry.workspace == workspace && entry.checkout)
+            .any(|entry| entry.workspace == workspace && entry.agent.checkout_gap.is_none())
+    }
+
+    /// Returns the agents of the workspace with an open stream that cannot get the code of a
+    /// job, in the order of their ids.
+    pub(crate) fn without_checkout(&self, workspace: WorkspaceId) -> Vec<(AppId, Online)> {
+        let mut agents: Vec<(AppId, Online)> = self
+            .streams()
+            .iter()
+            .filter(|(_, entry)| entry.workspace == workspace)
+            .filter(|(_, entry)| entry.agent.checkout_gap.is_some())
+            .map(|(app, entry)| (*app, entry.agent.clone()))
+            .collect();
+        agents.sort_by_key(|(app, _)| app.to_string());
+        agents
     }
 
     /// Locks the map. A panic in another holder leaves the map usable.

@@ -1,13 +1,19 @@
 //! The conversions between the proto messages and the domain types of the Apps.
 
+use scylla_domain::identity::agents::Compatibility;
 use scylla_domain::identity::apps::{App, AppKeyInfo, Host, KeyLabel};
 use scylla_proto::apps::v1 as pb;
 
 use crate::api::parse::{self, FromProto, Invalid, ToProto};
 
-/// Makes the message of an App, with its presence on this server and the number of jobs that it
-/// holds.
+/// Makes the message of an App, with its presence on this server, the number of jobs that it
+/// holds, and how its agent fits the server.
 pub(super) fn app(app: App, connected: bool, running_jobs: u32) -> pb::App {
+    let agent = app.host.as_ref().filter(|_| app.runner);
+    let compatibility = agent.map_or(pb::AgentCompatibility::Unspecified, |host| {
+        compatibility(host.compatibility())
+    });
+    let missing_features = agent.map(Host::missing_features).unwrap_or_default();
     pb::App {
         id: Some(app.id.to_proto()),
         workspace_id: Some(app.workspace_id.to_proto()),
@@ -20,6 +26,17 @@ pub(super) fn app(app: App, connected: bool, running_jobs: u32) -> pb::App {
         host: app.host.map(host),
         disabled_at: app.disabled_at.map(parse::timestamp),
         running_jobs,
+        compatibility: compatibility.into(),
+        missing_features,
+    }
+}
+
+/// Makes the message of the compatibility of an agent.
+fn compatibility(compatibility: Compatibility) -> pb::AgentCompatibility {
+    match compatibility {
+        Compatibility::Compatible => pb::AgentCompatibility::Compatible,
+        Compatibility::Outdated => pb::AgentCompatibility::Outdated,
+        Compatibility::Unsupported => pb::AgentCompatibility::Unsupported,
     }
 }
 
@@ -43,6 +60,8 @@ fn host(host: Host) -> pb::Host {
         capacity: host.capacity,
         container_runtime: host.container_runtime.unwrap_or_default(),
         features: host.features,
+        protocol: host.protocol,
+        build: host.build.unwrap_or_default(),
     }
 }
 
@@ -71,6 +90,8 @@ impl FromProto<pb::Host> for Host {
             capacity: value.capacity,
             container_runtime: Some(value.container_runtime),
             features: value.features,
+            protocol: value.protocol,
+            build: Some(value.build),
         };
         Host::parse(host).map_err(|(field, error)| Invalid::at(field, error))
     }

@@ -3,8 +3,9 @@
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId, ActorKind};
+pub use crate::identity::agents::Host;
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
-use crate::{DomainError, Id, Name, Page, PageRequest};
+use crate::{Id, Name, Page, PageRequest};
 
 /// The actor kind of an App.
 pub const KIND: ActorKind = ActorKind::new("app");
@@ -57,106 +58,6 @@ impl App {
     pub fn of_actor(id: ActorId) -> AppId {
         id.retype()
     }
-}
-
-/// The machine of an agent, from the hello of its stream.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Host {
-    /// The version of the agent.
-    pub version: String,
-    /// The operating system.
-    pub os: String,
-    /// The CPU architecture.
-    pub arch: String,
-    /// The host name.
-    pub hostname: String,
-    /// The number of CPUs.
-    pub cpu_count: u32,
-    /// The memory in bytes.
-    pub memory_bytes: u64,
-    /// The largest number of jobs at the same time.
-    pub capacity: u32,
-    /// The container runtime, or `None` if the agent has none.
-    pub container_runtime: Option<String>,
-    /// The features of the agent, for example `checkout`.
-    pub features: Vec<String>,
-}
-
-impl Host {
-    /// The maximum number of characters of each text, after trim.
-    pub const MAX_TEXT: usize = 100;
-    /// The largest capacity.
-    pub const MAX_CAPACITY: u32 = 256;
-    /// The largest number of features.
-    pub const MAX_FEATURES: usize = 16;
-    /// The feature of an agent that gets the code of a job before its first node.
-    pub const CHECKOUT: &'static str = "checkout";
-
-    /// Returns `true` if the agent gets the code of a job before its first node.
-    pub fn can_check_out(&self) -> bool {
-        self.features
-            .iter()
-            .any(|feature| feature == Self::CHECKOUT)
-    }
-
-    /// Trims and checks each text (one line, at most `MAX_TEXT` characters), the features (at
-    /// most `MAX_FEATURES`, with no empty and no double one) and the capacity. A capacity of 0
-    /// gives 1.
-    pub fn parse(mut host: Host) -> Result<Self, (&'static str, DomainError)> {
-        // Keep each feature one time.
-        let mut features: Vec<String> = Vec::new();
-        for feature in &host.features {
-            let feature = host_text(feature).map_err(|error| ("features", error))?;
-            if !feature.is_empty() && !features.contains(&feature) {
-                features.push(feature);
-            }
-        }
-        if features.len() > Self::MAX_FEATURES {
-            let error = DomainError::TooMany {
-                max: Self::MAX_FEATURES,
-            };
-            return Err(("features", error));
-        }
-        host.features = features;
-
-        // Check each text and the capacity.
-        for (field, text) in [
-            ("version", &mut host.version),
-            ("os", &mut host.os),
-            ("arch", &mut host.arch),
-            ("hostname", &mut host.hostname),
-        ] {
-            *text = host_text(text).map_err(|error| (field, error))?;
-        }
-        host.container_runtime = match host.container_runtime.as_deref().map(host_text) {
-            Some(Ok(text)) if !text.is_empty() => Some(text),
-            Some(Err(error)) => return Err(("container_runtime", error)),
-            _ => None,
-        };
-        if host.capacity > Self::MAX_CAPACITY {
-            let error = DomainError::TooLarge {
-                max: Self::MAX_CAPACITY as usize,
-            };
-            return Err(("capacity", error));
-        }
-        host.capacity = host.capacity.max(1);
-        Ok(host)
-    }
-}
-
-/// Trims a text of a host, and checks that it is one line of at most `Host::MAX_TEXT`
-/// characters.
-fn host_text(raw: &str) -> Result<String, DomainError> {
-    let trimmed = raw.trim();
-    if trimmed.chars().count() > Host::MAX_TEXT {
-        return Err(DomainError::TooLong {
-            max: Host::MAX_TEXT,
-        });
-    }
-    if trimmed.chars().any(char::is_control) {
-        return Err(DomainError::NotOneLine);
-    }
-    Ok(trimmed.to_owned())
 }
 
 /// A public key of an App, with no key bytes when it comes from a list.
