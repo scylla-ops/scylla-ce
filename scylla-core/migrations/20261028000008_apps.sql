@@ -15,6 +15,8 @@ CREATE TABLE apps (
     capacity integer NOT NULL DEFAULT 1 CHECK (capacity >= 1),
     container_runtime text,
     features text[] NOT NULL DEFAULT '{}',
+    protocol integer NOT NULL DEFAULT 0 CHECK (protocol >= 0),
+    build text,
     disabled_at timestamptz
 );
 

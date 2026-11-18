@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,\n                disabled_at\n         FROM apps WHERE id = $1",
+  "query": "UPDATE apps\n         SET disabled_at = CASE WHEN $2 THEN coalesce(disabled_at, now()) END\n         WHERE id = $1\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, protocol, build, disabled_at",
   "describe": {
     "columns": [
       {
@@ -181,6 +181,28 @@
       },
       {
         "ordinal": 16,
+        "name": "protocol",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "protocol"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "build",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "build"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
         "name": "disabled_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -193,7 +215,8 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Bool"
       ]
     },
     "nullable": [
@@ -213,8 +236,10 @@
       false,
       true,
       false,
+      false,
+      true,
       true
     ]
   },
-  "hash": "527d5473a08da5532be5f187f22cc9ceecfb13c0d655ba996080d02ec5f9b115"
+  "hash": "9b58ebadb4aae1010305b700f80aba8c5b4769430a21a8c426ddbbbb2e23069e"
 }

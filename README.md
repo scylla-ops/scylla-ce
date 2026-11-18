@@ -155,12 +155,12 @@ docker run -d --name scylla-agent --restart unless-stopped -e SCYLLA_URL=https:/
 | `--container-runtime`, `-ContainerRuntime` | `auto` (the default), `docker`, `podman`, or `none`. `auto` looks in the `PATH` at each start. |
 | `-CurrentUser` | Windows only. Installs the agent for your user with its task, also in PowerShell as administrator. |
 | `--no-service`, `-NoService` | No sudo, no service and no task. All files are in `~/.scylla-agent` (`%LOCALAPPDATA%\scylla-agent` on Windows), and the script prints the command that runs the agent. |
-| `--binary`, `-Binary` | Uses this binary and downloads nothing, for a build from source. It warns when the version is not the version of the server. |
+| `--binary`, `-Binary` | Uses this binary and downloads nothing, for a build from source. It stops when the agent protocol of the binary (`scylla-agent --protocol`) is under the minimum of the server, and warns when it is under the current protocol. |
 | `--update`, `-Update` | Needs no code. Replaces the binary, starts the agent again, and keeps the key. |
 | `--uninstall`, `-Uninstall` | Removes the service, the binary, the folder and the user. On Windows, it removes the agent of your user with its task, and also the service in PowerShell as administrator. The key stays on the server until you revoke it or delete the agent. |
 | `--force`, `-Force` | Makes a new key on a machine that joined before. With no `--force`, the script stops before any change. |
 
-The agent does not update itself, and the server does not refuse an older agent. The page of the agent shows the two versions and the command.
+The agent does not update itself. It tells its agent protocol and the commit of its build in its hello. The server refuses an agent under its minimum protocol (`AGENT_TOO_OLD`), and an agent under the current protocol gets only the jobs that it can run. The agent then logs the command that updates it. The page of the agent shows its compatibility, its features, the missing features and the command. Decision 111 has the protocols that each server takes.
 
 With Docker on Linux, the agent can also run container steps with the Docker of the host. The socket gives root rights on the host to each job, so use this only for pipelines that you trust. The folder has the same path on both sides, because the agent gives this path to the daemon:
 
@@ -267,14 +267,14 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Triggers: the schedules, the inputs, a fire now as the runner, the signature of a webhook, a second delivery, a body with no value, a ping, a stopped trigger, the rate limit, the roles, the key of the secrets | `scylla-ce/tests/api/projects/triggers.rs` |
 | Jobs on the agents: the dispatch with the secrets, the events, the logs and their tail, the role and the capacity, the containers, the cancel, an agent of some projects, the jobs of a disabled agent, the number of jobs of each agent, the stats of the jobs of each agent and who reads them | `scylla-ce/tests/api/projects/runs.rs`, `scopes.rs`, `disabled.rs`, `held.rs`, `stats.rs` |
 | Apps: the join code and its one use, the exchange of an assertion, each refused assertion, the keys, their names, their last use and their revocation, the delete, the disable and the enable, who can create, read and change them | `scylla-ce/tests/api/identity/apps.rs`, `disable.rs`, `keys.rs` |
-| The install scripts of the agent: the URL, the version and the downloads of the server in `/install.sh` and `/install.ps1` | `scylla-ce/tests/api/identity/install.rs` |
+| The install scripts of the agent: the URL, the version, the agent protocols and the downloads of the server in `/install.sh` and `/install.ps1` | `scylla-ce/tests/api/identity/install.rs` |
 | API tokens of the Apps: the secret one time and its hint, the exchange, the revocation and the expiry that stop the short tokens at once, a disabled or deleted App, the routes and their checks | `scylla-ce/tests/api/identity/app_tokens.rs` |
 | The limits of the API tokens: the read-only, deploy and full presets, a custom list of methods, a list of projects, the check of new limits | `scylla-ce/tests/api/identity/token_limits.rs` |
 | App creators: the role `app_creator` creates Apps and manages its own only, and `CheckPermissions` tells `create_app` | `scylla-ce/tests/api/identity/app_creators.rs` |
 | Personal tokens: the user as actor, no token from a token, the switch of the instance at once, the switch of a workspace on that workspace only | `scylla-ce/tests/api/identity/personal_tokens.rs` |
 | CI identities: a GitHub job of the rule gets a token of its App, another repository, ref, audience or App gets none, a removed rule and a disabled App, the claims of GitLab, the routes and their checks | `scylla-ce/tests/api/identity/ci_identities.rs` |
 | HTTP/JSON gateway: a method in proto3 JSON, the errors with their HTTP status and their fields, an unknown or streaming method, the secret of an App or personal token sent directly and its revocation at once | `scylla-ce/tests/api/platform/json.rs` |
-| Streams of the agents: the hello and the host, the presence, only an agent, the renewal of the token, the end at the expiry, a second stream, a revoked key, a deleted App | `scylla-ce/tests/api/identity/agents.rs` |
+| Streams of the agents: the hello and the host, the agent protocols and the compatibility, the presence, only an agent, the renewal of the token, the end at the expiry, a second stream, a revoked key, a deleted App | `scylla-ce/tests/api/identity/agents.rs` |
 | Projects: creation, reads, the list and its pages, deletion | `scylla-ce/tests/api/projects/lifecycle.rs` |
 | Change of a project: the name and the description, their limits (100 and 101, 1024 and 1025), one line for a name, an empty description, each role | `scylla-ce/tests/api/projects/updates.rs` |
 | Secrets: the metadata, no value in an answer, the form of a name and one secret for each name, the size of a value (65536 and 65537 bytes), a new value, a delete, the pages in name order, the delete of a project | `scylla-ce/tests/api/projects/secrets.rs` |

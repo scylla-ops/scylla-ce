@@ -283,3 +283,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   and the test gave a raw error of GitHub.
 - The GitHub App does not ask for the permission `statuses: write`: a GitHub report is a check run.
   An App or an installation that still has this permission stays active, with no warning.
+- An agent tells its agent protocol and its build commit in its hello. The server compares the
+  protocol, not the version text, gives each agent a compatibility and its missing features, and
+  refuses an agent under its minimum protocol with `AGENT_TOO_OLD` (the minimum of 0.7.0 is 0). A
+  job that waits for an agent with `checkout` names the online agents that cannot get its code:
+  update the agent, or install Git. The install scripts read `scylla-agent --protocol` after the
+  download.

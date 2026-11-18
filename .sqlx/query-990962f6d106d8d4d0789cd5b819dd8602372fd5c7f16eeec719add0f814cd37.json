@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO apps (id, workspace_id, name, runner, created_by) VALUES ($1, $2, $3, $4, $5)\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, disabled_at",
+  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,\n                protocol, build, disabled_at\n         FROM apps WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -181,6 +181,28 @@
       },
       {
         "ordinal": 16,
+        "name": "protocol",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "protocol"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "build",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "build"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
         "name": "disabled_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -193,10 +215,6 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Uuid",
-        "Text",
-        "Bool",
         "Uuid"
       ]
     },
@@ -217,8 +235,10 @@
       false,
       true,
       false,
+      false,
+      true,
       true
     ]
   },
-  "hash": "d7a59f934cb0ac7781dba594ff44100efa48eb4a6aea2539fab044b65acc251b"
+  "hash": "990962f6d106d8d4d0789cd5b819dd8602372fd5c7f16eeec719add0f814cd37"
 }

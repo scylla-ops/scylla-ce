@@ -166,6 +166,8 @@ impl TestApp {
             capacity: 1,
             container_runtime: String::new(),
             features: vec!["checkout".to_owned()],
+            protocol: 2,
+            build: String::new(),
         };
         let hello = Up::Hello(Hello {
             host: Some(host),

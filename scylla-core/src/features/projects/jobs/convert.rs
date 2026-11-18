@@ -1,6 +1,8 @@
 //! The conversions of the jobs and of their logs to the proto messages, with the reason why a
 //! pending job waits, and of the filters of a job list.
 
+use scylla_domain::identity::agents::Unfit;
+use scylla_domain::identity::apps::AppId;
 use scylla_domain::integrations::sources::{ApprovalState, GitRef};
 use scylla_domain::projects::jobs::{
     CheckoutRun, Job, JobApproval, JobFilter, JobStatus, LogBatch, LogStream, NodeRun, NodeStatus,
@@ -10,7 +12,7 @@ use scylla_domain::projects::pipeline_files::FileError;
 use scylla_proto::pipelines::v1 as pb;
 
 use crate::api::parse::{self, FromProto, Invalid, ToProto};
-use crate::features::identity::agents::Registry;
+use crate::features::identity::agents::{Online, Registry};
 use crate::features::integrations::sources;
 
 /// The longest login of an author in a filter, in characters.
@@ -20,17 +22,39 @@ const MAX_LOGIN: usize = 255;
 /// online.
 const NO_AGENT_WITH_CHECKOUT: &str = "NO_AGENT_WITH_CHECKOUT";
 
-/// Returns the proto of a job, with the reason why it waits for an agent.
+/// Returns the proto of a job, with the reason why it waits for an agent and the online agents
+/// that cannot run it.
 pub(super) fn job_of(job: Job, registry: &Registry) -> pb::Job {
+    let workspace = job.workspace_id;
     let blocked = job.status == JobStatus::Pending
         && job.agent_id.is_none()
         && job.checkout.is_some()
-        && !registry.can_check_out(job.workspace_id);
+        && !registry.can_check_out(workspace);
     let mut proto = job.to_proto();
     if blocked {
         proto.waiting_reason = NO_AGENT_WITH_CHECKOUT.to_owned();
+        proto.unfit_agents = registry
+            .without_checkout(workspace)
+            .into_iter()
+            .map(unfit_agent)
+            .collect();
     }
     proto
+}
+
+/// Returns the proto of an online agent that cannot get the code of a job.
+fn unfit_agent((id, agent): (AppId, Online)) -> pb::UnfitAgent {
+    let reason = match agent.checkout_gap {
+        Some(Unfit::UpdateAgent) => pb::UnfitReason::UpdateAgent,
+        Some(Unfit::InstallGit) => pb::UnfitReason::InstallGit,
+        None => pb::UnfitReason::Unspecified,
+    };
+    pb::UnfitAgent {
+        id: Some(id.to_proto()),
+        name: agent.name,
+        version: agent.version,
+        reason: reason.into(),
+    }
 }
 
 impl ToProto<pb::Job> for Job {
@@ -63,6 +87,7 @@ impl ToProto<pb::Job> for Job {
             file_errors: self.file_errors.into_iter().map(file_error).collect(),
             checkout: self.checkout.map(checkout),
             waiting_reason: String::new(),
+            unfit_agents: Vec::new(),
         }
     }
 }

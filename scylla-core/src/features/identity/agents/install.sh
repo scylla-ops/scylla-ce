@@ -18,6 +18,8 @@ set -eu
 
 SCYLLA_URL='@SCYLLA_URL@'
 VERSION='@SCYLLA_VERSION@'
+MIN_PROTOCOL='@MIN_PROTOCOL@'
+CURRENT_PROTOCOL='@CURRENT_PROTOCOL@'
 DEFAULT_DOWNLOADS='@DOWNLOADS_URL@'
 DOWNLOADS="${SCYLLA_AGENT_DOWNLOADS_URL:-$DEFAULT_DOWNLOADS}"
 SYSTEM_USER=scylla-agent
@@ -171,8 +173,13 @@ get_binary() {
   fi
   found=$("$tmp/scylla-agent" --version 2>/dev/null) ||
     fail "the binary does not run from $tmp. It is for another system, or TMPDIR must be a folder that runs programs"
-  if [ "$found" != "scylla-agent $VERSION" ]; then
-    echo "warning: this is $found, and the server has the version $VERSION" >&2
+  protocol=$("$tmp/scylla-agent" --protocol 2>/dev/null) || protocol=0
+  case "$protocol" in '' | *[!0-9]*) protocol=0 ;; esac
+  if [ "$protocol" -lt "$MIN_PROTOCOL" ]; then
+    fail "$found has the agent protocol $protocol, and the server needs at least $MIN_PROTOCOL. Use a newer agent"
+  fi
+  if [ "$protocol" -lt "$CURRENT_PROTOCOL" ]; then
+    echo "warning: $found has the agent protocol $protocol, and the server has $CURRENT_PROTOCOL. The agent gets only the jobs that it can run" >&2
   fi
 }
 

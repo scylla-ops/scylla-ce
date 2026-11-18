@@ -15,7 +15,7 @@ use scylla_extension::Hooks;
 use sqlx::PgPool;
 
 use super::{housekeeping, runs, service};
-use crate::features::identity::agents::Registry;
+use crate::features::identity::agents::{Online, Registry};
 use crate::features::identity::{accounts, apps};
 use crate::features::projects::service as projects;
 
@@ -160,7 +160,12 @@ async fn reap_releases_the_jobs_of_a_lost_agent(pool: PgPool) {
         .unwrap();
     let waiting = placed_job(&pool, &place).await;
     let connected = Registry::default();
-    let _ticket = connected.open(place.agent, place.workspace, false);
+    let agent = Online {
+        name: "runner".to_owned(),
+        version: "1.0.0".to_owned(),
+        checkout_gap: None,
+    };
+    let _ticket = connected.open(place.agent, place.workspace, agent);
 
     // when
     let kept = housekeeping::reap(&pool, &connected, Duration::ZERO)

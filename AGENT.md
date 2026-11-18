@@ -145,7 +145,8 @@ This project overrides the global "no comments" rule.
 
 - `.github/workflows/release.yml` runs on a tag `v*`, and the tag must be the version of the workspace. It makes six archives, `SHA256SUMS`, the attestations, and the image `ghcr.io/scylla-ops/scylla-agent` with a signature. A tag with `-` is a pre-release, and it does not change `latest`.
 - The server has `install.sh` and `install.ps1` in its binary, and it writes its own version in them. A change of a script reaches a machine only with a new server. A version with no release makes each download fail, so set the version only for a tag. Between two releases, the version stays the version of the last tag.
-- `GetCapabilities` gives the version of the server and the image of the agent, so the web app shows the same version as the scripts. `SCYLLA_AGENT_DOWNLOADS_URL` and `SCYLLA_AGENT_IMAGE` replace them for a mirror.
+- `GetCapabilities` gives the version of the server and the image of the agent, so the web app shows the same version as the scripts.
+- The agent tells its protocol in the hello (decision 111), and the server compares the protocol, never the version texts. A change that an older agent cannot run, for example a new feature of a dispatch, raises `AGENT_PROTOCOL` of `scylla-agent` and `CURRENT_AGENT_PROTOCOL` of `scylla-domain` together, and adds a row to the matrix of decision 111. Only a raise of `MIN_AGENT_PROTOCOL` refuses old agents. `SCYLLA_AGENT_DOWNLOADS_URL` and `SCYLLA_AGENT_IMAGE` replace them for a mirror.
 - `agent-install` runs the real path on Linux, macOS and Windows, with the binary of the commit and `--binary`. It does not test the download. A pre-release tag and a clean machine test the download.
 - The Enterprise edition takes one CE commit. That commit must have a version with a release: check `.../releases/download/v<version>/SHA256SUMS`.
 

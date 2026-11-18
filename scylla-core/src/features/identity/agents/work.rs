@@ -2,12 +2,14 @@
 //! events and the logs of the agent, and the messages of the server.
 
 use scylla_domain::authz::Object;
+use scylla_domain::identity::agents::{CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL};
 use scylla_domain::projects::jobs::{JobEvent, JobId, LogLine, LogStream, RunScope};
 use scylla_domain::projects::pipelines::{NodeId, PipelineAccess, PipelineHolder};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Gate, Principal};
 use scylla_proto::agents::v1 as pb;
 use scylla_proto::agents::v1::open_stream_response::Message as Down;
+use scylla_proto::apps::v1 as apps_pb;
 use scylla_proto::pipelines::v1 as pipelines_pb;
 use time::OffsetDateTime;
 use tonic::Status;
@@ -26,11 +28,20 @@ pub(super) async fn send(out: &Outbox, message: Down) -> bool {
     out.send(Ok(message)).await.is_ok()
 }
 
-/// Makes the answer to the hello.
+/// Makes the answer to the hello, with the agent protocols that the server takes.
 pub(super) fn welcome(expires_at: OffsetDateTime) -> Down {
     Down::Welcome(pb::Welcome {
         expires_at: Some(parse::timestamp(expires_at)),
+        agent_protocol: Some(protocol_range()),
     })
+}
+
+/// Returns the agent protocols that the server takes.
+fn protocol_range() -> apps_pb::AgentProtocolRange {
+    apps_pb::AgentProtocolRange {
+        min: MIN_AGENT_PROTOCOL,
+        current: CURRENT_AGENT_PROTOCOL,
+    }
 }
 
 /// Makes the answer to a renewal.
