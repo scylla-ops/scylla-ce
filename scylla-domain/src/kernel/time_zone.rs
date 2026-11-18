@@ -1,8 +1,9 @@
-//! The time zones: the names of the IANA database, and the hours, days and weeks of a zone.
+//! The time zones: the names of the IANA database, and the hours, days, weeks and months of a
+//! zone.
 
 use std::str::FromStr;
 
-use chrono::{DateTime, Datelike, Days, NaiveDate, NaiveTime, Offset, TimeDelta};
+use chrono::{DateTime, Datelike, Days, Months, NaiveDate, NaiveTime, Offset, TimeDelta};
 use time::{Duration, OffsetDateTime};
 
 use crate::DomainError;
@@ -20,6 +21,8 @@ pub enum Span {
     Day,
     /// A week, from Monday 00:00.
     Week,
+    /// A calendar month, from the first day at 00:00.
+    Month,
 }
 
 impl TimeZone {
@@ -38,7 +41,7 @@ impl TimeZone {
         self.0.name()
     }
 
-    /// Returns the start of the hour, the day or the week of `at` in this zone.
+    /// Returns the start of the hour, the day, the week or the month of `at` in this zone.
     pub fn start_of(&self, at: OffsetDateTime, span: Span) -> OffsetDateTime {
         let local = self.local(at);
         match span {
@@ -53,10 +56,12 @@ impl TimeZone {
                 let monday = u64::from(date.weekday().num_days_from_monday());
                 self.midnight(date - Days::new(monday))
             }
+            Span::Month => self.midnight(first_day(local.date_naive())),
         }
     }
 
-    /// Returns the start of the hour, the day or the week after the one that starts at `start`.
+    /// Returns the start of the hour, the day, the week or the month after the one that starts at
+    /// `start`.
     pub fn next_start(&self, start: OffsetDateTime, span: Span) -> OffsetDateTime {
         let date = self.local(start).date_naive();
         match span {
@@ -66,6 +71,7 @@ impl TimeZone {
             }
             Span::Day => self.midnight(date + Days::new(1)),
             Span::Week => self.midnight(date + Days::new(7)),
+            Span::Month => self.midnight(first_day(date) + Months::new(1)),
         }
     }
 
@@ -93,6 +99,11 @@ impl Default for TimeZone {
     fn default() -> Self {
         Self::UTC
     }
+}
+
+/// Returns the first day of the month of a date.
+fn first_day(date: NaiveDate) -> NaiveDate {
+    date - Days::new(u64::from(date.day0()))
 }
 
 /// Returns the time of a number of seconds after 1970-01-01 00:00 UTC.
@@ -179,6 +190,30 @@ mod tests {
         assert_eq!(start, utc(Month::October, 25, 0, 0));
         assert_eq!(next, utc(Month::October, 25, 1, 0));
         assert_eq!(after, utc(Month::October, 25, 2, 0));
+    }
+
+    #[test]
+    fn a_month_starts_on_the_first_day_at_midnight_in_the_zone() {
+        let paris = zone("Europe/Paris");
+
+        let start = paris.start_of(utc(Month::November, 30, 23, 30), Span::Month);
+
+        assert_eq!(start, utc(Month::November, 30, 23, 0));
+        assert_eq!(
+            paris.next_start(start, Span::Month),
+            utc(Month::December, 31, 23, 0)
+        );
+    }
+
+    #[test]
+    fn the_month_of_the_change_to_winter_time_has_one_more_hour() {
+        let new_york = zone("America/New_York");
+
+        let start = new_york.start_of(utc(Month::November, 18, 12, 0), Span::Month);
+        let next = new_york.next_start(start, Span::Month);
+
+        assert_eq!(start, utc(Month::November, 1, 4, 0));
+        assert_eq!(next, utc(Month::December, 1, 5, 0));
     }
 
     #[test]
