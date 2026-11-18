@@ -13,10 +13,10 @@ use scylla_domain::Page;
 use scylla_extension::{CreateContext, DeleteContext, Hooks, Rejection};
 use sqlx::PgPool;
 
+use super::changed;
 use super::runs::now;
-use super::store::{approvals, jobs, logs};
+use super::store::{approvals, jobs, lists, logs};
 use crate::features::identity::agents::Registry;
-use crate::features::integrations::reports;
 use crate::features::projects::pipelines::service as pipelines;
 use crate::Error;
 
@@ -33,7 +33,7 @@ pub(crate) async fn create(
         .before_create(&mut tx, &CreateContext::new(KIND, actor, new.workspace_id))
         .await?;
     let job = jobs::insert(&mut tx, &new).await?;
-    reports::job_changed(&mut tx, &job).await?;
+    changed::job_changed(&mut tx, &job).await?;
     tx.commit().await?;
     registry.wake_all();
     tracing::info!(event = "job.created", job = %job.id, pipeline = %job.pipeline_id);
@@ -62,7 +62,7 @@ pub(crate) async fn place(
 /// Returns one page of the jobs that match the filter, newest first.
 pub(crate) async fn list(pool: &PgPool, query: ListJobs) -> Result<JobPage, Error> {
     let mut tx = pool.begin().await?;
-    let items = jobs::list(&mut tx, query.scope, query.page, &query.filter).await?;
+    let items = lists::list(&mut tx, &query.scope, query.page, &query.filter).await?;
     tx.commit().await?;
     Ok(Page::from_overfetch(items, query.page.size, |job| job.id))
 }
@@ -77,7 +77,7 @@ pub(crate) async fn cancel(pool: &PgPool, registry: &Registry, id: JobId) -> Res
     let changed = job.end(JobStatus::Cancelled, None, now());
     if changed {
         jobs::save(&mut tx, &mut job).await?;
-        reports::job_changed(&mut tx, &job).await?;
+        changed::job_changed(&mut tx, &job).await?;
     }
     tx.commit().await?;
 
@@ -107,7 +107,7 @@ pub(crate) async fn approve(
         .ok_or(Error::NotFound("job"))?;
     job.approve(actor.id, now()).map_err(|_| not_awaiting())?;
     jobs::save(&mut tx, &mut job).await?;
-    reports::job_changed(&mut tx, &job).await?;
+    changed::job_changed(&mut tx, &job).await?;
     tx.commit().await?;
 
     // Wake the agents, after the commit.
@@ -131,7 +131,7 @@ pub(crate) async fn reject(pool: &PgPool, actor: Actor, id: JobId) -> Result<Job
     job.reject(actor.id, &name, now())
         .map_err(|_| not_awaiting())?;
     jobs::save(&mut tx, &mut job).await?;
-    reports::job_changed(&mut tx, &job).await?;
+    changed::job_changed(&mut tx, &job).await?;
     tx.commit().await?;
     tracing::info!(event = "job.rejected", job = %id, pipeline = %job.pipeline_id);
     Ok(job)

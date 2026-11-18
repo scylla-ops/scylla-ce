@@ -3,12 +3,17 @@
 mod graph;
 mod layout;
 mod nodes;
+mod summaries;
 #[cfg(test)]
 mod tests;
 
 pub use graph::Nodes;
 pub use layout::{PipelineLayout, Position};
 pub use nodes::{env_name, EnvValue, EnvVar, Node, NodeError, NodeId, Runtime, Shell, Step};
+pub use summaries::{
+    ListSummaries, NextFire, PipelineSummary, RecentJob, SummaryOrder, SummaryPage, TriggerType,
+    DEFAULT_RUNS, MAX_FILTER_IDS, MAX_RUNS,
+};
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId};
@@ -159,6 +164,8 @@ crate::authz! {
         permission rerun_job = edit;
         /// The route `ListPipelineJobs`, on each pipeline of this project.
         permission list_pipeline_jobs = view;
+        /// The route `ListWorkspaceJobs`: the jobs of this project are in the list.
+        permission list_workspace_jobs = view;
         /// The route `TailJobLogs`, on each job of this project.
         permission tail_job_logs = view;
         /// The route `SetPipelineSource`, on this project.
@@ -179,6 +186,10 @@ crate::authz! {
         permission get_file_pipeline = view;
         /// The route `ListPipelineFiles`, in this project.
         permission list_pipeline_files = view;
+        /// The route `ListPipelineSummaries`: the pipelines of this project are in the list.
+        permission list_pipeline_summaries = view;
+        /// The route `GetJobStats`: the jobs of this project are in the figures.
+        permission get_job_stats = view;
     }
 
     /// The routes of the pipelines and of their jobs on a workspace, and the role of the agents.
@@ -213,7 +224,8 @@ crate::authz! {
         permission rerun_job = work;
         /// The route `ListPipelineJobs`, in each project of this workspace.
         permission list_pipeline_jobs = read;
-        /// The route `ListWorkspaceJobs`: the jobs of this workspace.
+        /// The route `ListWorkspaceJobs`: the jobs of each project of this workspace are in the
+        /// list.
         permission list_workspace_jobs = read;
         /// The route `TailJobLogs`, in each project of this workspace.
         permission tail_job_logs = read;
@@ -235,5 +247,21 @@ crate::authz! {
         permission get_file_pipeline = read;
         /// The route `ListPipelineFiles`, in each project of this workspace.
         permission list_pipeline_files = read;
+        /// The route `ListPipelineSummaries`: the pipelines of this workspace are in the list.
+        permission list_pipeline_summaries = read;
+        /// The route `GetJobStats`: the jobs of each project of this workspace are in the
+        /// figures.
+        permission get_job_stats = read;
+    }
+
+    /// The routes of the pipelines and of their jobs on the caller itself: a list shows only what
+    /// the caller can see.
+    extend Actor as PipelineCaller {
+        /// The route `ListPipelineSummaries`: each caller lists the pipelines that it can see.
+        permission list_pipeline_summaries = nil;
+        /// The route `ListWorkspaceJobs`: each caller lists the jobs that it can see.
+        permission list_workspace_jobs = nil;
+        /// The route `GetJobStats`: each caller counts the jobs that it can see.
+        permission get_job_stats = nil;
     }
 }

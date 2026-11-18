@@ -4,7 +4,7 @@ use super::{
     areas, complete, covering, find, giving, held, needs, permissions_of, Level, PermissionError,
 };
 
-/// A role holds at most 44, 35 or 21 permissions, and the machine area is apart.
+/// A role holds at most 48, 39 or 22 permissions, and the machine area is apart.
 #[test]
 fn the_catalog_has_the_counts_of_the_model() {
     // given
@@ -19,7 +19,7 @@ fn the_catalog_has_the_counts_of_the_model() {
     let counts = [Level::Platform, Level::Workspace, Level::Project].map(human);
 
     // then
-    assert_eq!(counts, [44, 35, 21]);
+    assert_eq!(counts, [48, 39, 22]);
 }
 
 /// Each dependency names a permission of the catalog, and each id has its area in front.
@@ -136,6 +136,28 @@ fn complete_adds_what_the_git_integration_needs() {
     assert_eq!(
         on_workspace,
         ["workspace.view", "integrations.view", "integrations.manage"]
+    );
+}
+
+/// The create and the manage of the dashboards bring their view, and not each other.
+#[test]
+fn complete_adds_the_view_of_the_dashboards() {
+    // given
+    let create = ["dashboards.create".to_owned()];
+    let manage = ["dashboards.manage".to_owned()];
+
+    // when
+    let creator = complete(Level::Workspace, false, &create).expect("valid");
+    let manager = complete(Level::Workspace, false, &manage).expect("valid");
+
+    // then
+    assert_eq!(
+        creator,
+        ["workspace.view", "dashboards.view", "dashboards.create"]
+    );
+    assert_eq!(
+        manager,
+        ["workspace.view", "dashboards.view", "dashboards.manage"]
     );
 }
 

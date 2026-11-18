@@ -1,8 +1,10 @@
 //! The gRPC handler of `PipelineService`: authenticate, parse, authorize on the project, call
-//! the service, answer. The RPCs of the pipeline files are in `files_grpc.rs`.
+//! the service, answer. The RPCs of the pipeline files are in `files_grpc.rs`, and the summaries
+//! of the dashboard in `summaries_grpc.rs`.
 
 use std::sync::Arc;
 
+use scylla_domain::projects::jobs::JobOrigin;
 use scylla_domain::projects::pipelines::{
     ListPipelines, NewPipeline, PipelineAccess, PipelineChange, PipelineHolder, PipelineScope,
 };
@@ -225,6 +227,13 @@ impl PipelineService for PipelinesGrpc {
         }))
     }
 
+    async fn list_pipeline_summaries(
+        &self,
+        request: Request<pb::ListPipelineSummariesRequest>,
+    ) -> Result<Response<pb::ListPipelineSummariesResponse>, Status> {
+        self.list_summaries(request).await
+    }
+
     async fn run_pipeline(
         &self,
         request: Request<pb::RunPipelineRequest>,
@@ -237,7 +246,8 @@ impl PipelineService for PipelinesGrpc {
         let id = self
             .pipeline_of(&caller, request.pipeline_id, permission)
             .await?;
-        let job = service::run(&self.vcs, caller.actor, id, git_ref).await?;
+        let origin = JobOrigin::of_caller(caller.session().is_some());
+        let job = service::run(&self.vcs, caller.actor, id, git_ref, origin).await?;
         Ok(Response::new(pb::RunPipelineResponse {
             job: Some(job.to_proto()),
         }))

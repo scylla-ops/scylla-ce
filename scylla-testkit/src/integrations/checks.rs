@@ -162,6 +162,7 @@ impl TestApp {
             features: Vec::new(),
             protocol: 2,
             build: String::new(),
+            started_at: None,
         };
         let hello = Up::Hello(Hello {
             host: Some(host),

@@ -123,6 +123,7 @@ impl TestApp {
             features: features.iter().map(|name| (*name).to_owned()).collect(),
             protocol,
             build: String::new(),
+            started_at: None,
         };
         let hello = Up::Hello(Hello {
             host: Some(host),

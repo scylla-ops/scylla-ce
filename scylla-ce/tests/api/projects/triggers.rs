@@ -6,7 +6,7 @@ mod git;
 use hmac::{Hmac, KeyInit, Mac};
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::projects::Project;
-use scylla_proto::pipelines::v1::{env_var, trigger, Job};
+use scylla_proto::pipelines::v1::{env_var, trigger, Job, JobOrigin};
 use scylla_testkit::{exec_node, literal_input, pointer_input, text, TestApp};
 use sha2::Sha256;
 use sqlx::PgPool;
@@ -29,7 +29,13 @@ async fn pipeline(app: &TestApp) -> (ActorId, String, String) {
 }
 
 /// Sends a webhook request with a body, signed with `secret`, and a delivery key.
-async fn post(app: &TestApp, path: &str, body: &str, secret: &str, key: &str) -> (u16, String) {
+pub(crate) async fn post(
+    app: &TestApp,
+    path: &str,
+    body: &str,
+    secret: &str,
+    key: &str,
+) -> (u16, String) {
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
     mac.update(body.as_bytes());
     let signature = format!("sha256={}", hex(&mac.finalize().into_bytes()));
@@ -138,6 +144,7 @@ async fn fire_trigger_now_starts_a_job_as_the_runner(pool: PgPool) {
 
     // then
     assert_eq!(text(&job.trigger_id), id);
+    assert_eq!(job.origin(), JobOrigin::Api);
     assert_eq!(var(&job, "MODE").as_deref(), Some("full"));
     assert_ne!(text(&job.created_by), owner.to_string());
     assert_eq!(job.created_by, again.created_by);
@@ -203,6 +210,7 @@ async fn a_webhook_needs_its_signature(pool: PgPool) {
     assert_eq!(jobs.len(), 2);
     assert_eq!(var(&jobs[1], "SHA").as_deref(), Some("abc123"));
     assert_eq!(var(&jobs[1], "MODE").as_deref(), Some("push"));
+    assert_eq!(jobs[1].origin(), JobOrigin::Webhook);
 }
 
 /// The editors of the project manage the triggers. A viewer reads them, and cannot fire them.

@@ -1,10 +1,11 @@
 //! `Grant` and `Revoke` on a workspace or on a project: a relation of the schema or a custom role,
 //! the holders of the role, and what the caller must hold to give it.
 
+use scylla_domain::activity::{Kind, Place};
 use scylla_domain::authz::{Object, Relationship, Resource};
 use scylla_domain::identity::actors::{ActorId, ActorKind};
 use scylla_domain::identity::users;
-use scylla_domain::projects::Project;
+use scylla_domain::projects::{Project, ProjectId};
 use scylla_domain::tenancy::catalog::{self, Level};
 use scylla_domain::tenancy::roles::{BuiltinRole, Holder, RoleId, RoleRow};
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
@@ -14,6 +15,7 @@ use uuid::Uuid;
 
 use super::grpc::GrantsGrpc;
 use super::store;
+use crate::features::activity;
 use crate::features::notifications::{self, kinds};
 use crate::features::tenancy::roles;
 use crate::Error;
@@ -161,12 +163,21 @@ impl GrantsGrpc {
     }
 }
 
+/// Returns where a role lives in the feed: its project, else its workspace.
+fn place_of((kind, id): (&str, &str), workspace: WorkspaceId) -> Place {
+    match ProjectId::parse(id) {
+        Ok(project) if kind == Project::NAME => Place::Project(project),
+        _ => Place::Workspace(workspace),
+    }
+}
+
 /// Reads the id of a scope.
 pub(super) fn scope_id(id: &str) -> Result<Uuid, Error> {
     Uuid::parse_str(id).map_err(|_| Error::invalid("object.id", "is not an id"))
 }
 
-/// Writes a role where it lives, with its time and its author, and records the fact.
+/// Writes a role where it lives, with its time and its author, and records the fact and the row of
+/// the feed.
 pub(super) async fn write(
     pool: &PgPool,
     gate: &dyn Gate,
@@ -179,6 +190,8 @@ pub(super) async fn write(
     let fact = |role: &str| {
         kinds::role_change(kinds::ROLE_GRANTED, role, (kind, id), workspace, actor, by)
     };
+    let place = place_of((kind, id), workspace);
+    let granted = Kind::MemberRoleGranted;
     match given {
         Given::Relation(relationship, name) => {
             gate.write(&[relationship]).await?;
@@ -188,20 +201,22 @@ pub(super) async fn write(
                 store::note_relation(&mut tx, actor, scope, &name, by).await?;
             }
             notifications::emit(&mut tx, fact(&name)).await?;
+            activity::role(&mut tx, granted, place, (actor, &name), by).await?;
             tx.commit().await?;
         }
         Given::Row(row) => {
             let mut tx = pool.begin().await?;
             roles::store::grant_row(&mut tx, actor, row.id, (kind, scope_id(id)?), by).await?;
             notifications::emit(&mut tx, fact(&row.name)).await?;
+            activity::role(&mut tx, granted, place, (actor, &row.name), by).await?;
             tx.commit().await?;
         }
     }
     Ok(())
 }
 
-/// Deletes a role where it lives, with its time and its author, and records the fact. A role that
-/// the actor does not have is not an error.
+/// Deletes a role where it lives, with its time and its author, and records the fact and the row
+/// of the feed. A role that the actor does not have is not an error.
 pub(super) async fn erase(
     pool: &PgPool,
     gate: &dyn Gate,
@@ -214,6 +229,8 @@ pub(super) async fn erase(
     let fact = |role: &str| {
         kinds::role_change(kinds::ROLE_REVOKED, role, (kind, id), workspace, actor, by)
     };
+    let place = place_of((kind, id), workspace);
+    let revoked = Kind::MemberRoleRevoked;
     match given {
         Given::Relation(relationship, name) => {
             gate.delete(&[relationship]).await?;
@@ -223,12 +240,14 @@ pub(super) async fn erase(
                 store::forget_relation(&mut tx, actor, scope, &name).await?;
             }
             notifications::emit(&mut tx, fact(&name)).await?;
+            activity::role(&mut tx, revoked, place, (actor, &name), by).await?;
             tx.commit().await?;
         }
         Given::Row(row) => {
             let mut tx = pool.begin().await?;
             roles::store::revoke_row(&mut tx, actor, row.id, (kind, scope_id(id)?)).await?;
             notifications::emit(&mut tx, fact(&row.name)).await?;
+            activity::role(&mut tx, revoked, place, (actor, &row.name), by).await?;
             tx.commit().await?;
         }
     }

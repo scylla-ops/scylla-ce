@@ -2,7 +2,7 @@
 //! event, their `on` tables, the sync of a push to the default branch, and the invalid files.
 
 use scylla_core::infra::vcs::sign_github;
-use scylla_proto::pipelines::v1::{JobStatus, SourceEvent};
+use scylla_proto::pipelines::v1::{JobOrigin, JobStatus, SourceEvent};
 use scylla_testkit::{
     text, wait_for_requests, DeliveryRow, FakeProvider, TestApp, TEST_APP_WEBHOOK_SECRET,
 };
@@ -110,6 +110,7 @@ async fn a_push_runs_the_file_pipelines_whose_on_table_matches(pool: PgPool) {
     assert_eq!(jobs.len(), 1);
     let job = &jobs[0];
     assert_eq!((job.status(), job.nodes.len()), (JobStatus::Pending, 5));
+    assert_eq!(job.origin(), JobOrigin::Push);
     assert!(job.trigger_id.is_none());
     let runner = app.trigger_runner(files.linked.workspace).await.unwrap();
     assert_eq!(text(&job.created_by), runner);

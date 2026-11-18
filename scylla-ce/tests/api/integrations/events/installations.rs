@@ -203,3 +203,47 @@ async fn a_removed_repository_stops_its_link(pool: PgPool) {
     let (count, all) = app.connection_repositories(&linked.connection).await;
     assert_eq!((count, all), (2, false));
 }
+
+/// A change of the repositories and an uninstall give the rows `connection.repositories_changed`
+/// and `connection.broken` of the activity feed, with no actor.
+#[sqlx::test(migrations = false)]
+async fn an_installation_change_records_the_activity(pool: PgPool) {
+    // given
+    let (app, _fake) = app_with_fake(pool).await;
+    let linked = linked(&app, "github").await;
+    let workspace = app.workspace_of(linked.owner).await.to_string();
+
+    // when
+    post_app(
+        &app,
+        "installation_repositories",
+        "d-1",
+        &repositories(&[8, 9], &[]),
+    )
+    .await;
+    app.wait_for_delivery("d-1").await;
+    post_app(
+        &app,
+        "installation",
+        "d-2",
+        &installation("deleted", json!({})),
+    )
+    .await;
+    app.wait_for_delivery("d-2").await;
+    let rows = app.activity_of(linked.owner, &workspace).await;
+
+    // then
+    let kinds: Vec<&str> = rows.iter().map(|row| row.kind.as_str()).collect();
+    assert_eq!(
+        kinds,
+        ["connection.broken", "connection.repositories_changed"]
+    );
+    assert_eq!(rows[0].params["reason"], "APP_UNINSTALLED");
+    assert_eq!(rows[1].params["added"], "2");
+    assert_eq!(rows[1].params["removed"], "0");
+    for row in &rows {
+        assert!(row.actor_id.is_none());
+        assert_eq!(row.subject_id.as_ref().unwrap().value, linked.connection);
+        assert_eq!(row.params["account"], "octo");
+    }
+}

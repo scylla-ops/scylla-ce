@@ -1,7 +1,25 @@
-//! The agents: the Apps that run jobs, with their stream, their host and their protocol.
+//! The agents: the Apps that run jobs, with their stream, their host and their protocol, the busy
+//! slots of their jobs, and the samples of the use of their machines.
+
+mod samples;
+mod slots;
+
+#[cfg(test)]
+mod tests;
+
+use time::OffsetDateTime;
 
 use crate::identity::actors::Actor;
+use crate::identity::apps::App;
+use crate::projects::jobs::FiguresPeriod;
+use crate::tenancy::workspaces::Workspace;
 use crate::DomainError;
+
+pub use samples::{
+    AgentMetrics, HostSample, MetricsBucket, MetricsFigures, MetricsQuery, Sample, SampleSums,
+    SAMPLE_GAP, SAMPLE_INTERVAL, SAMPLE_RETENTION,
+};
+pub use slots::{Busy, SlotBucket, SlotFigures, SlotQuery, SlotUsage};
 
 /// The oldest agent protocol that the server takes. An older agent gets `AGENT_TOO_OLD`.
 pub const MIN_AGENT_PROTOCOL: u32 = 0;
@@ -18,6 +36,42 @@ crate::authz! {
         /// The route `OpenStream`: an agent opens its own stream.
         permission open_stream = nil;
     }
+
+    /// The routes of the agents on their workspace.
+    extend Workspace as AgentHolder {
+        /// The route `GetSlotUsage`: the busy slots of the agents of this workspace.
+        permission get_slot_usage = read;
+        /// The route `GetAgentMetrics`, on each App of this workspace.
+        permission get_agent_metrics = read;
+    }
+
+    /// The routes of the agents on one App.
+    extend App as AgentAccess {
+        /// The route `GetAgentMetrics`.
+        permission get_agent_metrics = creator;
+    }
+}
+
+/// Returns the bounds of the parts of a period: its start, then the start of each bucket after
+/// the first. With no bucket, the period is one part.
+pub fn bounds(period: FiguresPeriod, starts: &[OffsetDateTime]) -> Vec<OffsetDateTime> {
+    let mut bounds = vec![period.from];
+    bounds.extend(starts.iter().skip(1).copied());
+    bounds
+}
+
+/// Returns the value of each part of `count` parts from the part numbers of `found`: number 1 is
+/// the first part. A part that is not in `found` gets the default value.
+fn place<T: Copy + Default>(count: usize, found: &[(usize, T)]) -> Vec<T> {
+    (1..=count)
+        .map(|number| {
+            found
+                .iter()
+                .find(|(place, _)| *place == number)
+                .map(|(_, value)| *value)
+                .unwrap_or_default()
+        })
+        .collect()
 }
 
 /// How an agent fits the server, from its protocol.
@@ -65,6 +119,8 @@ pub struct Host {
     pub protocol: u32,
     /// The commit of the build of the agent, or `None` for a build with no commit.
     pub build: Option<String>,
+    /// The start of the process of the agent, or `None` from an agent of an older version.
+    pub started_at: Option<OffsetDateTime>,
 }
 
 impl Host {
@@ -182,82 +238,4 @@ fn host_text(raw: &str) -> Result<String, DomainError> {
         return Err(DomainError::NotOneLine);
     }
     Ok(trimmed.to_owned())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Returns a host with a protocol and features.
-    fn host(protocol: u32, features: &[&str]) -> Host {
-        Host {
-            version: "0.7.0".to_owned(),
-            os: "linux".to_owned(),
-            arch: "x86_64".to_owned(),
-            hostname: "build-1".to_owned(),
-            cpu_count: 4,
-            memory_bytes: 0,
-            capacity: 1,
-            container_runtime: None,
-            features: features.iter().map(|one| (*one).to_owned()).collect(),
-            protocol,
-            build: None,
-        }
-    }
-
-    /// An agent older than the current protocol is outdated, and the current one is compatible.
-    #[test]
-    fn the_protocol_gives_the_compatibility() {
-        // given
-        let old = host(0, &[]);
-        let current = host(CURRENT_AGENT_PROTOCOL, &[Host::CHECKOUT]);
-
-        // when
-        let fits = [old.compatibility(), current.compatibility()];
-
-        // then
-        assert_eq!(fits, [Compatibility::Outdated, Compatibility::Compatible]);
-    }
-
-    /// An old agent with no checkout must be updated, and a new one needs git.
-    #[test]
-    fn the_protocol_tells_why_the_checkout_is_missing() {
-        // given
-        let old = host(0, &[]);
-        let no_git = host(CHECKOUT_PROTOCOL, &[]);
-        let ready = host(CHECKOUT_PROTOCOL, &[Host::CHECKOUT]);
-
-        // when
-        let gaps = [
-            old.checkout_gap(),
-            no_git.checkout_gap(),
-            ready.checkout_gap(),
-        ];
-
-        // then
-        assert_eq!(
-            gaps,
-            [Some(Unfit::UpdateAgent), Some(Unfit::InstallGit), None]
-        );
-        assert_eq!(old.missing_features(), ["checkout"]);
-        assert!(ready.missing_features().is_empty());
-    }
-
-    /// An empty build gives none, and a build of two lines is refused.
-    #[test]
-    fn a_build_is_one_line() {
-        // given
-        let mut empty = host(2, &[]);
-        empty.build = Some("  ".to_owned());
-        let mut two_lines = host(2, &[]);
-        two_lines.build = Some("a\nb".to_owned());
-
-        // when
-        let parsed = Host::parse(empty);
-        let refused = Host::parse(two_lines);
-
-        // then
-        assert_eq!(parsed.map(|host| host.build), Ok(None));
-        assert!(matches!(refused, Err(("build", DomainError::NotOneLine))));
-    }
 }

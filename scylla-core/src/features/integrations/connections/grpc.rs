@@ -1,6 +1,7 @@
 //! The gRPC handler of `VcsConnectionService`: authenticate, parse, authorize on the workspace,
 //! call the service, answer. The routes that make a connection and the list of the repositories
-//! are in `setup_grpc.rs`. No answer holds a token.
+//! are in `setup_grpc.rs`, and the counts of the deliveries in `stats_grpc.rs`. No answer holds a
+//! token.
 
 use scylla_domain::authz::Permission;
 use scylla_domain::integrations::connections::{VcsConnectionHolder, VcsConnectionId};
@@ -93,6 +94,13 @@ impl VcsConnectionService for ConnectionsGrpc {
     ) -> Result<Response<pb::ListConnectionRepositoriesResponse>, Status> {
         Ok(Response::new(self.repositories(request).await?))
     }
+
+    async fn get_delivery_stats(
+        &self,
+        request: Request<pb::GetDeliveryStatsRequest>,
+    ) -> Result<Response<pb::GetDeliveryStatsResponse>, Status> {
+        Ok(Response::new(self.delivery_stats(request).await?))
+    }
 }
 
 impl ConnectionsGrpc {
@@ -158,7 +166,7 @@ impl ConnectionsGrpc {
         let id = parse::required(request.into_inner().connection_id, "connection_id")?;
         let permission = VcsConnectionHolder::DELETE_VCS_CONNECTION;
         let found = self.authorize_on(&caller, permission, id).await?;
-        service::delete(&self.ctx, &found).await?;
+        service::delete(&self.ctx, &found, caller.actor.id).await?;
         Ok(pb::DeleteVcsConnectionResponse {})
     }
 

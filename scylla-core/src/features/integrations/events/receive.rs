@@ -115,16 +115,20 @@ async fn github_delivery(
         installation,
         repository: read.repository.clone(),
     });
+    let (repository, git_ref) = subject(&read.incoming);
+    let installation = read.installation.as_deref();
     let delivery = Delivery {
         provider: VcsProvider::GitHub,
         key,
         app,
         connection: None,
         project: None,
+        installation,
         event,
         action: read.action.as_deref(),
+        repository: repository.as_deref(),
+        git_ref: git_ref.as_deref(),
     };
-    let installation = read.installation.as_deref();
     let arrival = Arrival::GitHub(app, installation, read.repository.as_deref());
     accept(ctx, &delivery, arrival, scope, read.incoming).await
 }
@@ -174,14 +178,18 @@ async fn gitlab_project(
     };
 
     // Keep it one time, and do its work.
+    let (repository, git_ref) = subject(&incoming);
     let delivery = Delivery {
         provider: VcsProvider::GitLab,
         key,
         app: None,
         connection: Some(hook.connection),
         project: Some(project),
+        installation: None,
         event: &read.event,
         action: read.action.as_deref(),
+        repository: repository.as_deref(),
+        git_ref: git_ref.as_deref(),
     };
     let scope = Some(Scope::Project(project));
     accept(&ctx, &delivery, Arrival::GitLab(project), scope, incoming).await
@@ -223,6 +231,18 @@ async fn accept(
     };
     tokio::spawn(work.in_current_span());
     answer(StatusCode::ACCEPTED, json!({ "accepted": true }))
+}
+
+/// Returns the full name of the repository and the Git ref of a Git event, or `None` for each
+/// one of another delivery.
+fn subject(incoming: &Incoming) -> (Option<String>, Option<String>) {
+    match incoming {
+        Incoming::Git(event) => (
+            Some(event.repository.full_name.clone()),
+            Some(event.head_ref()),
+        ),
+        _ => (None, None),
+    }
 }
 
 /// Opens the webhook secret of the App of the instance, or `None` when the instance has no App

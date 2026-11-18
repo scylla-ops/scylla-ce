@@ -1,16 +1,25 @@
 //! The jobs: one run of a pipeline on an agent, with a snapshot of its nodes and the state of
 //! each node.
 
+mod figures;
 mod git;
+mod list;
 mod logs;
+mod origin;
 mod start;
 mod state;
 mod stats;
 #[cfg(test)]
 mod tests;
 
+pub use figures::{
+    buckets, top, Bucket, Figures, FiguresPeriod, FiguresQuery, Group, GroupBy, GroupKey,
+    GroupOrder, JobFigures, DEFAULT_GROUPS, MAX_BUCKETS, MAX_FIGURES_DAYS, MAX_GROUPS,
+};
 pub use git::{CheckoutRun, JobApproval, PipelineFileRef};
+pub use list::{JobFilter, JobPage, JobScope, ListJobs, WorkspaceJobs, MAX_LIST_IDS};
 pub use logs::{LogBatch, LogBatchId, LogLine, LogStream};
+pub use origin::JobOrigin;
 pub use start::{RerunOrigin, StartJob, INVALID_FILE};
 pub use state::{JobEvent, NodeRun};
 pub use stats::{AgentStats, DayOutcomes, Outcomes, StatsPeriod, MAX_STATS_DAYS, STATS_DAYS};
@@ -18,12 +27,12 @@ use time::OffsetDateTime;
 
 use crate::identity::actors::ActorId;
 use crate::identity::apps::AppId;
-use crate::integrations::sources::{JobSource, SourceEvent};
+use crate::integrations::sources::JobSource;
 use crate::projects::pipeline_files::{CheckoutSettings, FileError};
-use crate::projects::pipelines::{Node, PipelineId};
+use crate::projects::pipelines::{Node, PipelineId, Runtime};
 use crate::projects::ProjectId;
 use crate::tenancy::workspaces::WorkspaceId;
-use crate::{Id, Page, PageRequest, ResourceKind};
+use crate::{Id, ResourceKind};
 
 /// The kind of a job, for the hooks.
 pub const KIND: ResourceKind = ResourceKind::new("job");
@@ -156,6 +165,8 @@ pub struct Job {
     pub rerun_of: Option<JobId>,
     /// The trigger that started the job, if a trigger did.
     pub trigger_id: Option<crate::projects::triggers::TriggerId>,
+    /// What started the job.
+    pub origin: JobOrigin,
     /// The state.
     pub status: JobStatus,
     /// The nodes of the pipeline at the start of the job.
@@ -201,6 +212,8 @@ pub struct NewJob {
     pub rerun_of: Option<JobId>,
     /// The trigger that starts the job.
     pub trigger_id: Option<crate::projects::triggers::TriggerId>,
+    /// What starts the job.
+    pub origin: JobOrigin,
     /// The nodes to run.
     pub nodes: Vec<Node>,
     /// The commit and the event of the job.
@@ -229,43 +242,6 @@ impl NewJob {
     }
 }
 
-/// Where a job list looks.
-#[derive(Clone, Copy, Debug)]
-pub enum JobScope {
-    /// The jobs of one pipeline.
-    Pipeline(PipelineId),
-    /// The jobs of a workspace, of one agent if it is set.
-    Workspace(WorkspaceId, Option<AppId>),
-}
-
-/// The filters of a job list. A job must match each filter that is set, and a job with no
-/// source matches no filter.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct JobFilter {
-    /// Only the jobs of this branch.
-    pub branch: Option<String>,
-    /// Only the jobs of this event.
-    pub event: Option<SourceEvent>,
-    /// Only the jobs of the commits of this author login.
-    pub author_login: Option<String>,
-    /// Only the jobs of this pull request number.
-    pub pull_request: Option<u32>,
-}
-
-/// The input of a job list: newest first.
-#[derive(Clone, Debug)]
-pub struct ListJobs {
-    /// Where to look.
-    pub scope: JobScope,
-    /// The page to return: the jobs before the key of the page.
-    pub page: PageRequest<JobId>,
-    /// The filters.
-    pub filter: JobFilter,
-}
-
-/// One page of jobs.
-pub type JobPage = Page<Job, JobId>;
-
 /// The jobs that an agent may take.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum RunScope {
@@ -276,6 +252,14 @@ pub enum RunScope {
     Workspace,
     /// The jobs of these projects only.
     Projects(Vec<ProjectId>),
+}
+
+/// Returns `true` if one of the nodes runs in a container: only an agent with a container runtime
+/// gets the job.
+pub fn needs_container(nodes: &[Node]) -> bool {
+    nodes
+        .iter()
+        .any(|node| !matches!(node.runtime, Runtime::Process))
 }
 
 /// Keeps at most `MAX_ERROR` characters of an error text.

@@ -1,5 +1,5 @@
 //! The SQL of the provider events: the deliveries of the webhooks and the keys of the polls in
-//! `vcs_deliveries` (one time each, kept 7 days), the arrival of a webhook on its links and its
+//! `vcs_deliveries` (one time each, kept 30 days), the arrival of a webhook on its links and its
 //! connections, the signing token of a GitLab webhook, and the projects of a repository. Each
 //! function runs in the transaction of the caller.
 
@@ -31,10 +31,16 @@ pub(crate) struct Delivery<'a> {
     pub(crate) connection: Option<VcsConnectionId>,
     /// A project of the delivery, if Scylla knows one.
     pub(crate) project: Option<ProjectId>,
+    /// The GitHub installation of the delivery, or `None`.
+    pub(crate) installation: Option<&'a str>,
     /// The event, such as `push`.
     pub(crate) event: &'a str,
     /// The action, such as `opened`.
     pub(crate) action: Option<&'a str>,
+    /// The full name of the repository of a Git event, or `None`.
+    pub(crate) repository: Option<&'a str>,
+    /// The Git ref of a Git event, such as `refs/heads/main`, or `None`.
+    pub(crate) git_ref: Option<&'a str>,
 }
 
 /// The GitLab webhook of a link: its connection, its project on GitLab and its sealed signing
@@ -53,16 +59,19 @@ pub(crate) struct Hook {
 pub(crate) async fn receive(tx: &mut Tx<'_>, delivery: &Delivery<'_>) -> Result<bool, Error> {
     let inserted = sqlx::query!(
         "INSERT INTO vcs_deliveries (provider, delivery_id, app_id, connection_id, project_id,
-                                     event, action, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 202)
+                                     installation, event, action, repository, ref, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 202)
          ON CONFLICT (provider, delivery_id) DO NOTHING",
         delivery.provider.as_str(),
         delivery.key,
         delivery.app.map(VcsAppId::to_db),
         delivery.connection.map(VcsConnectionId::to_db),
         delivery.project.map(ProjectId::to_db),
+        delivery.installation,
         delivery.event,
         delivery.action,
+        delivery.repository,
+        delivery.git_ref,
     )
     .execute(&mut **tx)
     .await?
@@ -89,10 +98,10 @@ pub(crate) async fn processed(
     Ok(())
 }
 
-/// Deletes the deliveries of more than 7 days. Returns their number.
+/// Deletes the deliveries of more than 30 days. Returns their number.
 pub(crate) async fn prune(tx: &mut Tx<'_>) -> Result<u64, Error> {
     let deleted =
-        sqlx::query!("DELETE FROM vcs_deliveries WHERE received_at < now() - interval '7 days'")
+        sqlx::query!("DELETE FROM vcs_deliveries WHERE received_at < now() - interval '30 days'")
             .execute(&mut **tx)
             .await?
             .rows_affected();

@@ -10,8 +10,8 @@ use scylla_extension::Binding;
 use scylla_proto::agents::v1::open_stream_request::Message as Up;
 use scylla_proto::agents::v1::open_stream_response::Message as Down;
 use scylla_proto::agents::v1::{Hello, OpenStreamRequest, OpenStreamResponse, Renew};
-use scylla_proto::apps::v1::{AgentCompatibility, Host};
-use scylla_testkit::TestApp;
+use scylla_proto::apps::v1::Host;
+use scylla_testkit::{text, TestApp};
 use sqlx::PgPool;
 use tokio::time::timeout;
 use tonic::{Code, Status, Streaming};
@@ -23,7 +23,7 @@ use crate::{app, assert_code};
 const WAIT: Duration = Duration::from_secs(10);
 
 /// The host of the test agent.
-fn host() -> Host {
+pub(super) fn host() -> Host {
     Host {
         version: "1.0.0".to_owned(),
         os: "linux".to_owned(),
@@ -36,6 +36,7 @@ fn host() -> Host {
         features: Vec::new(),
         protocol: 2,
         build: " 0123abc ".to_owned(),
+        started_at: None,
     }
 }
 
@@ -50,7 +51,7 @@ fn hello() -> OpenStreamRequest {
 }
 
 /// Makes a renew message.
-fn renew(token: &str) -> OpenStreamRequest {
+pub(super) fn renew(token: &str) -> OpenStreamRequest {
     OpenStreamRequest {
         message: Some(Up::Renew(Renew {
             token: token.to_owned(),
@@ -59,7 +60,7 @@ fn renew(token: &str) -> OpenStreamRequest {
 }
 
 /// Reads the next message of the server.
-async fn next(stream: &mut Streaming<OpenStreamResponse>) -> Result<Down, Status> {
+pub(super) async fn next(stream: &mut Streaming<OpenStreamResponse>) -> Result<Down, Status> {
     let message = timeout(WAIT, stream.message())
         .await
         .expect("a message in time")?;
@@ -68,7 +69,7 @@ async fn next(stream: &mut Streaming<OpenStreamResponse>) -> Result<Down, Status
 
 /// Opens the stream of a new agent of a user and sends the hello. Returns the app id, the
 /// sender, and the stream after the welcome.
-async fn connected(
+pub(super) async fn connected(
     app: &TestApp,
     user: scylla_domain::identity::actors::ActorId,
 ) -> (
@@ -111,47 +112,6 @@ async fn open_stream_records_the_host_and_the_presence(pool: PgPool) {
     assert_eq!((host.hostname.as_str(), host.capacity), ("runner-1", 1));
     assert_eq!(host.container_runtime, "docker");
     assert!(closed.last_seen_at.is_some());
-}
-
-/// The welcome gives the agent protocols of the server, and the App tells the protocol, the
-/// build and the compatibility of its agent. An agent older than the protocol connects as
-/// outdated.
-#[sqlx::test(migrations = false)]
-async fn open_stream_tells_the_protocol_and_the_compatibility(pool: PgPool) {
-    // given
-    let app = app(pool).await;
-    let user = app.user().await;
-    let workspace = app.workspace_of(user).await;
-    let (old_key, token) = app.app_in(user, workspace, true).await;
-    let (old_up, mut old_down) = app.open_stream(&token).await.unwrap();
-    let mut old_host = host();
-    old_host.protocol = 0;
-    let hello = Hello {
-        host: Some(old_host),
-        running_jobs: Vec::new(),
-    };
-    let hello = OpenStreamRequest {
-        message: Some(Up::Hello(hello)),
-    };
-
-    // when
-    let (key, _sender, _stream) = connected(&app, user).await;
-    old_up.send(hello).await.unwrap();
-    let old_welcome = next(&mut old_down).await;
-    let current = app.get_app(user, &key.app).await.unwrap().app.unwrap();
-    let old = app.get_app(user, &old_key.app).await.unwrap().app.unwrap();
-
-    // then
-    let Ok(Down::Welcome(welcome)) = old_welcome else {
-        panic!("{old_welcome:?}");
-    };
-    let range = welcome.agent_protocol.expect("the agent protocols");
-    assert_eq!((range.min, range.current), (0, 2));
-    let host = current.host.expect("a host");
-    assert_eq!((host.protocol, host.build.as_str()), (2, "0123abc"));
-    assert_eq!(current.compatibility, AgentCompatibility::Compatible as i32);
-    assert_eq!(current.missing_features, ["checkout"]);
-    assert_eq!(old.compatibility, AgentCompatibility::Outdated as i32);
 }
 
 /// Only an App that runs jobs opens a stream: `NOT_A_RUNNER` for another App and for a user.
@@ -270,4 +230,34 @@ async fn the_server_stops_a_stream(pool: PgPool) {
     assert_code(replaced, Code::Aborted);
     assert_code(revoked, Code::Aborted);
     assert_code(deleted, Code::Aborted);
+}
+
+/// The open and the end of a stream give the rows `agent.connected` and `agent.disconnected` of
+/// the activity feed, as the agent, with its name, its slots and the person that added it.
+#[sqlx::test(migrations = false)]
+async fn open_stream_records_the_activity_of_the_agent(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let user = app.user().await;
+    let workspace = app.workspace_of(user).await.to_string();
+
+    // when
+    let (key, sender, stream) = connected(&app, user).await;
+    let open = app.wait_for_activity(user, &workspace, 1).await;
+    drop((sender, stream));
+    let rows = app.wait_for_activity(user, &workspace, 2).await;
+
+    // then
+    assert_eq!(open.len(), 1);
+    let kinds: Vec<&str> = rows.iter().map(|row| row.kind.as_str()).collect();
+    assert_eq!(kinds, ["agent.disconnected", "agent.connected"]);
+    let started = &rows[1];
+    assert_eq!(started.area, "agents");
+    assert_eq!(started.subject_kind, "app");
+    assert_eq!(text(&started.subject_id), key.app);
+    assert_eq!(text(&started.actor_id), key.actor().to_string());
+    assert_eq!(started.actor_name, started.params["name"]);
+    assert_eq!(started.params["slots"], "1");
+    assert_eq!(started.params["added_by"], "Test User");
+    assert_eq!(rows[0].params.len(), 1);
 }

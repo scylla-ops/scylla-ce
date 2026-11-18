@@ -8,9 +8,10 @@ use scylla_domain::identity::users::{Email, Handle, Password};
 use scylla_domain::projects::secrets::{SecretName, SecretValue};
 use scylla_domain::projects::{ProjectDescription, ProjectName};
 use scylla_domain::tenancy::slugs::Slug;
-use scylla_domain::{DomainError, Id};
+use scylla_domain::{DomainError, Id, TimeZone};
 use scylla_domain::{PageRequest, PageSize};
 use scylla_proto::common::v1 as pb;
+use serde_json::Value;
 use time::OffsetDateTime;
 
 use crate::Error;
@@ -94,6 +95,34 @@ pub fn optional<P, T: FromProto<P> + Default>(
 /// Reads a field.
 pub fn field<P, T: FromProto<P>>(value: P, field: &'static str) -> Result<T, Error> {
     T::from_proto(value).map_err(|invalid| invalid.into_error(field))
+}
+
+/// Reads a JSON text of at most `max` bytes that `jsonb` can keep, for a value that the server
+/// keeps and does not read.
+pub fn json(text: &str, field: &'static str, max: usize) -> Result<Value, Error> {
+    if text.len() > max {
+        return Err(Error::invalid(
+            field,
+            DomainError::TooLarge { max }.to_string(),
+        ));
+    }
+    let value = serde_json::from_str(text).map_err(|_| Error::invalid(field, "must be JSON"))?;
+    if holds_nul(&value) {
+        return Err(Error::invalid(field, "must have no NUL character"));
+    }
+    Ok(value)
+}
+
+/// Returns `true` if a text in a value holds a NUL character, which `jsonb` refuses.
+fn holds_nul(value: &Value) -> bool {
+    match value {
+        Value::String(text) => text.contains('\0'),
+        Value::Array(items) => items.iter().any(holds_nul),
+        Value::Object(fields) => fields
+            .iter()
+            .any(|(key, value)| key.contains('\0') || holds_nul(value)),
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
+    }
 }
 
 /// Makes a proto timestamp.
@@ -188,6 +217,12 @@ impl FromProto<String> for Slug {
 }
 
 impl FromProto<String> for StateKey {
+    fn from_proto(value: String) -> Result<Self, Invalid> {
+        Ok(Self::parse(value)?)
+    }
+}
+
+impl FromProto<String> for TimeZone {
     fn from_proto(value: String) -> Result<Self, Invalid> {
         Ok(Self::parse(value)?)
     }

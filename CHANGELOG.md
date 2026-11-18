@@ -233,6 +233,52 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - `ListConnectionRepositories` accepts a workspace in place of a project, and then checks the
   permission on the workspace. The page of a new project uses it to list the repositories before it
   creates the project.
+- A workspace has a time zone: an IANA name, `UTC` for a new workspace. `UpdateWorkspace` changes it
+  with the permission `update_workspace`, and a name that is not an IANA name gives
+  `INVALID_ARGUMENT` on `time_zone`. The server checks the names with the new dependency `chrono-tz`
+  0.10.4.
+- `ListPipelineSummaries` gives the dashboard the pipelines of a workspace that the caller can see:
+  the last jobs (at most 50), the counts and the median duration, the health of the default branch,
+  the jobs that run or wait, and the triggers. Its permission is in `jobs.view`.
+- Each job keeps its origin (`jobs.origin`). The job lists filter on the states, the origins and the
+  time of creation, and `ListWorkspaceJobs` also filters on projects and pipelines and has a summary
+  view. `ListWorkspaceJobs` shows the jobs of the projects that the caller can see, and gives an
+  empty list to another caller. A pending job with a container tells why it waits
+  (`NO_AGENT_WITH_CONTAINER`).
+- `GetJobStats` gives the dashboard the figures of the jobs of a workspace that the caller can see:
+  the counts by end, the median and the 95th percentile of the run time and of the wait for an
+  agent, and the run time, for a period of at most 400 days. It also gives at most 1000 buckets of
+  hours, days or weeks in the time zone of the workspace, the groups by project, pipeline, agent or
+  origin, and the previous period. Its permission is in `jobs.view`. `scylla-domain` now also uses
+  `chrono` 0.4.45 of the workspace.
+- `DashboardService` keeps the saved layouts of the dashboard of a workspace, with the catalog area
+  `dashboards` (`dashboards.view`, `dashboards.create`, `dashboards.manage`). A private layout is
+  visible only to its creator, also for an instance admin. The migration
+  `20261028000026_dashboards.sql` adds the table `dashboards`.
+- The agent tells its start, and sends the CPU use and the used memory of its machine each minute.
+  The server keeps these samples for 7 days. `GetApp` and `ListApps` show the last sample, and
+  `GetAgentMetrics` gives the samples by hour, day or week. `GetSlotUsage` gives the busy job slots
+  of the agents of a workspace and the slots of the connected agents. An older agent keeps its
+  stream. The agent uses the new dependency `sysinfo` 0.38.4.
+- The history of the fires of the triggers (`trigger_fires`, 30 days) keeps each fire of a schedule,
+  of a webhook and of a fire now, and each cron time that the server missed.
+  `ListWorkspaceTriggers`, `ListTriggerFires` and `GetTriggerFireStats` give them to the dashboard,
+  with the new catalog permission `triggers.view`. A cron schedule now uses the time zone of the
+  workspace, and a change of the zone moves the next fires.
+- `GetDeliveryStats` gives the counts of the webhook deliveries of a workspace to the dashboard: for
+  each connection with its newest event, repository and ref, for each webhook trigger (from
+  `trigger_fires`), and by hour, day or week in the time zone of the workspace. It uses the catalog
+  permission `integrations.view`. A delivery in `vcs_deliveries` keeps its GitHub installation, its
+  repository and its ref, and the server keeps these deliveries for 30 days, not 7.
+- `ListAttentionItems` gives the dashboard the open items of a workspace that need a person: a
+  failed or orphaned job until a later job of its pipeline and branch completes, a failed fire or a
+  missed cron time until the next good fire of its trigger (30 days at most), an agent that is not
+  connected for more than 5 minutes, and a job that waits for an approval. No person can dismiss an
+  item. Each caller gets only the kinds that it can read, in the projects that it can see, with the
+  counts of each kind. No migration changes.
+- The activity feed of a workspace: each change records its row in its transaction (the end of a
+  job, a trigger, a secret, a member, a Git connection, the stream of an agent), and `ListActivity`
+  shows each row only to the readers of its area. The server deletes a row after 30 days.
 
 ### Removed
 

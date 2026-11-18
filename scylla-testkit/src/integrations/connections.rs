@@ -6,11 +6,11 @@ use scylla_domain::identity::actors::ActorId;
 use scylla_proto::integrations::v1::vcs_connection_service_client::VcsConnectionServiceClient;
 use scylla_proto::integrations::v1::{
     CompleteGitHubInstallRequest, ConnectGitLabRequest, ConnectGitLabResponse,
-    DeleteVcsConnectionRequest, GetVcsConnectionRequest, GetVcsProvidersRequest,
-    ListConnectionRepositoriesRequest, ListConnectionRepositoriesResponse,
-    ListVcsConnectionsRequest, ListVcsConnectionsResponse, ReplaceGitLabTokenRequest,
-    ReplaceGitLabTokenResponse, StartGitHubInstallRequest, StartGitHubInstallResponse,
-    VcsConnection, VcsProviderInfo,
+    DeleteVcsConnectionRequest, GetDeliveryStatsRequest, GetDeliveryStatsResponse,
+    GetVcsConnectionRequest, GetVcsProvidersRequest, ListConnectionRepositoriesRequest,
+    ListConnectionRepositoriesResponse, ListVcsConnectionsRequest, ListVcsConnectionsResponse,
+    ReplaceGitLabTokenRequest, ReplaceGitLabTokenResponse, StartGitHubInstallRequest,
+    StartGitHubInstallResponse, VcsConnection, VcsProviderInfo,
 };
 use serde_json::{json, Value};
 use tonic::transport::Channel;
@@ -173,6 +173,17 @@ impl TestApp {
             .connections()
             .list_connection_repositories(request)
             .await?;
+        Ok(response.into_inner())
+    }
+
+    /// Calls `GetDeliveryStats` as `actor`.
+    pub async fn get_delivery_stats(
+        &self,
+        actor: ActorId,
+        request: GetDeliveryStatsRequest,
+    ) -> Result<GetDeliveryStatsResponse, Status> {
+        let request = self.authed(actor, request).await;
+        let response = self.connections().get_delivery_stats(request).await?;
         Ok(response.into_inner())
     }
 

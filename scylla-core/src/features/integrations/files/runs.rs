@@ -4,7 +4,7 @@
 
 use scylla_domain::integrations::sources::{GitRef, JobSource, SourceEvent};
 use scylla_domain::projects::git_rules::TriggerEvent;
-use scylla_domain::projects::jobs::{PipelineFileRef, StartJob};
+use scylla_domain::projects::jobs::{JobOrigin, PipelineFileRef, StartJob};
 use scylla_domain::projects::pipeline_files::{CheckoutSettings, FileError, FilePipeline};
 use scylla_domain::projects::pipelines::{Pipeline, PipelineId};
 use scylla_domain::projects::ProjectId;
@@ -36,13 +36,14 @@ pub(crate) async fn head_source(
 }
 
 /// Makes the start of a job of a file pipeline from the file of its key at a ref, or at the head
-/// of the default branch with no ref. The source of the job has the event. A commit with no file
-/// of the key gives `NOT_FOUND`.
+/// of the default branch with no ref. The source of the job has the event, and the job has the
+/// origin. A commit with no file of the key gives `NOT_FOUND`.
 pub(crate) async fn start_at(
     ctx: &IntegrationContext,
     pipeline: Pipeline,
     git_ref: Option<GitRef>,
     event: SourceEvent,
+    origin: JobOrigin,
 ) -> Result<StartJob, Error> {
     // Find the commit of the ref.
     let key = pipeline.file.as_ref().map(|file| file.key.clone());
@@ -53,7 +54,7 @@ pub(crate) async fn start_at(
     // Read the files at the commit, and take the file of the key.
     let snapshot = read::read_commit(ctx, linked.clone(), &source.sha).await?;
     let file = file_of(&linked, &snapshot, &key).ok_or(Error::NotFound("pipeline file"))?;
-    Ok(start(pipeline, file, source))
+    Ok(start(pipeline, file, source, origin))
 }
 
 /// Makes the starts of the jobs of a Git event in a project of files, from the files at the commit
@@ -90,7 +91,12 @@ pub(crate) async fn starts_of_event(
         let id = pipeline_of(ctx, linked, &snapshot, key).await?;
         let pipeline = pipelines::get(&ctx.pool, id).await?;
         let pipeline = pipeline.ok_or(Error::NotFound("pipeline"))?;
-        starts.push(start(pipeline, file, source.clone()));
+        starts.push(start(
+            pipeline,
+            file,
+            source.clone(),
+            JobOrigin::of_git(event),
+        ));
     }
     Ok(starts)
 }
@@ -193,9 +199,9 @@ fn file_of(linked: &Linked, snapshot: &Snapshot, key: &str) -> Option<KeyFile> {
     })
 }
 
-/// Makes the start of a job of a file pipeline on a commit: the nodes and the checkout of its
-/// file, or the errors of the file with no node and no checkout.
-fn start(pipeline: Pipeline, file: KeyFile, source: JobSource) -> StartJob {
+/// Makes the start of a job of a file pipeline on a commit with an origin: the nodes and the
+/// checkout of its file, or the errors of the file with no node and no checkout.
+fn start(pipeline: Pipeline, file: KeyFile, source: JobSource, origin: JobOrigin) -> StartJob {
     let (nodes, checkout, file_errors) = match file.pipeline {
         Ok(found) => (found.nodes.into_vec(), found.checkout, Vec::new()),
         Err(errors) => {
@@ -212,6 +218,6 @@ fn start(pipeline: Pipeline, file: KeyFile, source: JobSource) -> StartJob {
         source: Some(source),
         pipeline_file: Some(file.file),
         file_errors,
-        ..StartJob::of(pipeline)
+        ..StartJob::of(pipeline, origin)
     }
 }

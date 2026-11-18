@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE jobs SET approval = 'approved', approved_by = created_by,\n                approved_at = created_at + interval '100 seconds'\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0639c1f386ddf4c9fbda9d4ad321fcee7022e429c865fc560720f46021ec82f7"
+}

@@ -55,6 +55,7 @@ fn failed_job() -> Job {
         created_by: Id::generate(),
         rerun_of: None,
         trigger_id: None,
+        origin: scylla_domain::projects::jobs::JobOrigin::Manual,
         status: JobStatus::Failed,
         nodes,
         runs,

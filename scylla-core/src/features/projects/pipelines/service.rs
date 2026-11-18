@@ -2,7 +2,7 @@
 
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::integrations::sources::{GitRef, SourceEvent};
-use scylla_domain::projects::jobs::{Job, StartJob};
+use scylla_domain::projects::jobs::{Job, JobOrigin, StartJob};
 use scylla_domain::projects::pipelines::{
     ListPipelines, NewPipeline, Node, Pipeline, PipelineChange, PipelineId, PipelineLayout,
     PipelinePage, PipelineScope, KIND,
@@ -223,26 +223,30 @@ pub(crate) async fn delete(
     Ok(())
 }
 
-/// Starts a job of a pipeline with a snapshot of its nodes, with no source, or on a commit of the
-/// linked repository. A file pipeline takes the file of its key at the ref, or at the head of the
-/// default branch with no ref. A secret that a node names and that the project does not have
-/// gives `NOT_FOUND`.
+/// Starts a job of a pipeline with a snapshot of its nodes and an origin, with no source, or on a
+/// commit of the linked repository. A file pipeline takes the file of its key at the ref, or at
+/// the head of the default branch with no ref. A secret that a node names and that the project
+/// does not have gives `NOT_FOUND`.
 pub(crate) async fn run(
     ctx: &IntegrationContext,
     actor: Actor,
     id: PipelineId,
     git_ref: Option<GitRef>,
+    origin: JobOrigin,
 ) -> Result<Job, Error> {
     let pipeline = get(&ctx.pool, id)
         .await?
         .ok_or(Error::NotFound("pipeline"))?;
     let start = match (&pipeline.file, &git_ref) {
-        (Some(_), _) => files::start_at(ctx, pipeline, git_ref, SourceEvent::Manual).await?,
+        (Some(_), _) => {
+            let event = SourceEvent::Manual;
+            files::start_at(ctx, pipeline, git_ref, event, origin).await?
+        }
         (None, Some(git_ref)) => StartJob {
             source: Some(sources::resolve(ctx, pipeline.project_id, git_ref).await?),
-            ..StartJob::of(pipeline)
+            ..StartJob::of(pipeline, origin)
         },
-        (None, None) => StartJob::of(pipeline),
+        (None, None) => StartJob::of(pipeline, origin),
     };
     self::start(&ctx.pool, &ctx.hooks, &ctx.registry, actor, start).await
 }

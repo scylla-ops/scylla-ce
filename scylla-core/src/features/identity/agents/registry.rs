@@ -1,6 +1,6 @@
 //! The open streams of the agents on this server: at most one stream for each agent, its
-//! workspace, its name, its version and its checkout, and the commands that the server sends to
-//! a stream.
+//! workspace, its name, its version and its features, and the commands that the server sends
+//! to a stream.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -56,6 +56,17 @@ pub(crate) struct Online {
     pub(crate) version: String,
     /// Why the agent cannot get the code of a job, or `None` if it can.
     pub(crate) checkout_gap: Option<Unfit>,
+    /// `true` if the agent has a container runtime.
+    pub(crate) containers: bool,
+}
+
+/// The features that a job needs from an agent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Features {
+    /// `true` if the job needs a container runtime.
+    pub(crate) containers: bool,
+    /// `true` if the job needs the code before its first node.
+    pub(crate) checkout: bool,
 }
 
 /// The ticket of an open stream: its number and its commands.
@@ -124,12 +135,23 @@ impl Registry {
         self.streams().contains_key(&app)
     }
 
-    /// Returns `true` if an agent of the workspace that gets the code of a job has an open
-    /// stream.
-    pub(crate) fn can_check_out(&self, workspace: WorkspaceId) -> bool {
+    /// Returns the agents of a workspace with an open stream.
+    pub(crate) fn connected_in(&self, workspace: WorkspaceId) -> Vec<AppId> {
         self.streams()
-            .values()
-            .any(|entry| entry.workspace == workspace && entry.agent.checkout_gap.is_none())
+            .iter()
+            .filter(|(_, entry)| entry.workspace == workspace)
+            .map(|(app, _)| *app)
+            .collect()
+    }
+
+    /// Returns `true` if an agent of the workspace with each feature that a job needs has an
+    /// open stream.
+    pub(crate) fn can_serve(&self, workspace: WorkspaceId, needs: Features) -> bool {
+        self.streams().values().any(|entry| {
+            entry.workspace == workspace
+                && (entry.agent.containers || !needs.containers)
+                && (entry.agent.checkout_gap.is_none() || !needs.checkout)
+        })
     }
 
     /// Returns the agents of the workspace with an open stream that cannot get the code of a

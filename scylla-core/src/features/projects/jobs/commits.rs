@@ -8,9 +8,9 @@ use scylla_domain::projects::pipelines::PipelineId;
 use scylla_domain::projects::ProjectId;
 use sqlx::PgPool;
 
+use super::changed;
 use super::runs::now;
 use super::store::{jobs, sources};
-use crate::features::integrations::reports;
 use crate::Error;
 
 /// Adds the branch and the pull requests of an automatic source to the job of the same pipeline
@@ -69,7 +69,7 @@ pub(crate) async fn replace_waiting(
         }
         job.end(JobStatus::Cancelled, Some(&reason), now());
         jobs::save(&mut tx, &mut job).await?;
-        reports::job_changed(&mut tx, &job).await?;
+        changed::job_changed(&mut tx, &job).await?;
         cancelled.push(id);
     }
     tx.commit().await?;

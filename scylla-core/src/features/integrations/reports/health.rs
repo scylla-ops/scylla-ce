@@ -29,7 +29,7 @@ pub(super) async fn check(ctx: &IntegrationContext) -> Result<(), Error> {
     // Stop the connections whose token expired.
     let expired = health::expire(&mut tx).await?;
     for connection in &expired {
-        notifications::emit(&mut tx, notices::broken(connection, TOKEN_EXPIRED)).await?;
+        notices::record_broken(&mut tx, connection, TOKEN_EXPIRED).await?;
     }
     tx.commit().await?;
     for connection in &expired {
@@ -38,7 +38,8 @@ pub(super) async fn check(ctx: &IntegrationContext) -> Result<(), Error> {
     Ok(())
 }
 
-/// Moves an active connection to `needs_attention` after a refused call, and records the notice.
+/// Moves an active connection to `needs_attention` after a refused call, and records the notice
+/// and the row of the feed.
 /// Returns the connection, or `None` when it was not active.
 pub(super) async fn broken(
     tx: &mut Tx<'_>,
@@ -48,7 +49,7 @@ pub(super) async fn broken(
     let Some(changed) = health::needs_attention(tx, connection, reason).await? else {
         return Ok(None);
     };
-    notifications::emit(tx, notices::broken(&changed, reason)).await?;
+    notices::record_broken(tx, &changed, reason).await?;
     Ok(Some((changed, reason)))
 }
 

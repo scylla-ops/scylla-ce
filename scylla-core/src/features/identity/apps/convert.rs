@@ -1,14 +1,20 @@
 //! The conversions between the proto messages and the domain types of the Apps.
 
-use scylla_domain::identity::agents::Compatibility;
+use scylla_domain::identity::agents::{Compatibility, HostSample};
 use scylla_domain::identity::apps::{App, AppKeyInfo, Host, KeyLabel};
 use scylla_proto::apps::v1 as pb;
+use time::OffsetDateTime;
 
 use crate::api::parse::{self, FromProto, Invalid, ToProto};
 
 /// Makes the message of an App, with its presence on this server, the number of jobs that it
-/// holds, and how its agent fits the server.
-pub(super) fn app(app: App, connected: bool, running_jobs: u32) -> pb::App {
+/// holds, how its agent fits the server, and the last sample of its machine.
+pub(super) fn app(
+    app: App,
+    connected: bool,
+    running_jobs: u32,
+    last_sample: Option<HostSample>,
+) -> pb::App {
     let agent = app.host.as_ref().filter(|_| app.runner);
     let compatibility = agent.map_or(pb::AgentCompatibility::Unspecified, |host| {
         compatibility(host.compatibility())
@@ -28,6 +34,7 @@ pub(super) fn app(app: App, connected: bool, running_jobs: u32) -> pb::App {
         running_jobs,
         compatibility: compatibility.into(),
         missing_features,
+        last_sample: last_sample.map(sample),
     }
 }
 
@@ -37,6 +44,15 @@ fn compatibility(compatibility: Compatibility) -> pb::AgentCompatibility {
         Compatibility::Compatible => pb::AgentCompatibility::Compatible,
         Compatibility::Outdated => pb::AgentCompatibility::Outdated,
         Compatibility::Unsupported => pb::AgentCompatibility::Unsupported,
+    }
+}
+
+/// Makes the message of a sample of the machine of an agent.
+fn sample(sample: HostSample) -> pb::HostSample {
+    pb::HostSample {
+        at: Some(parse::timestamp(sample.at)),
+        cpu_percent: sample.sample.cpu_percent,
+        memory_used_bytes: sample.sample.memory_used_bytes,
     }
 }
 
@@ -62,6 +78,7 @@ fn host(host: Host) -> pb::Host {
         features: host.features,
         protocol: host.protocol,
         build: host.build.unwrap_or_default(),
+        started_at: host.started_at.map(parse::timestamp),
     }
 }
 
@@ -92,6 +109,11 @@ impl FromProto<pb::Host> for Host {
             features: value.features,
             protocol: value.protocol,
             build: Some(value.build),
+            started_at: value
+                .started_at
+                .map(OffsetDateTime::from_proto)
+                .transpose()
+                .map_err(|_| Invalid::at("started_at", "must be a valid time"))?,
         };
         Host::parse(host).map_err(|(field, error)| Invalid::at(field, error))
     }

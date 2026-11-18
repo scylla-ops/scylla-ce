@@ -13,7 +13,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use hmac::{Hmac, KeyInit, Mac};
-use scylla_domain::projects::triggers::TriggerId;
+use scylla_domain::projects::jobs::JobOrigin;
+use scylla_domain::projects::triggers::{FireSource, TriggerId};
 use serde_json::{json, Value};
 use sha2::Sha256;
 
@@ -123,7 +124,10 @@ async fn receive(
     // Fire the trigger. A failure forgets the key, so a retry of the sender fires.
     let payload: Option<Value> = serde_json::from_slice(&body).ok();
     let result = match service::get(pool, id).await {
-        Ok(Some(trigger)) => fire::fire(&webhooks.vcs, &trigger, payload.as_ref()).await,
+        Ok(Some(trigger)) => {
+            let (origin, call) = (JobOrigin::Webhook, fire::Call::now(FireSource::Webhook));
+            fire::fire(&webhooks.vcs, &trigger, payload.as_ref(), origin, call).await
+        }
         Ok(None) => Err(fire::FireError::Failed(crate::Error::NotFound("trigger"))),
         Err(error) => Err(fire::FireError::Failed(error)),
     };

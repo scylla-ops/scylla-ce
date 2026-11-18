@@ -1,6 +1,6 @@
 //! The pipelines feature: the `pipelines` table, `PipelineService`, the JSON of the nodes, the
-//! check and the export of the pipeline files, and the check of the access to an object of a
-//! project.
+//! check and the export of the pipeline files, the summaries of the dashboard, and the check of
+//! the access to an object of a project.
 
 pub(crate) mod access;
 mod checks;
@@ -13,6 +13,9 @@ pub(crate) mod json;
 mod plugin;
 pub(crate) mod service;
 mod store;
+mod summaries_convert;
+mod summaries_grpc;
+mod summaries_service;
 
 pub(crate) use convert::{container, script};
 pub(crate) use grpc::server;

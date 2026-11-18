@@ -113,3 +113,66 @@ async fn list_workspaces_shows_owned_and_member_workspaces(pool: PgPool) {
     assert_eq!(listed, ["Personal", "Personal", "team"]);
     assert_eq!(team.name, "team");
 }
+
+/// A new workspace has the time zone UTC. An admin sets an IANA name, a reader gets it, and a
+/// change of another field keeps it. A member gets a refusal.
+#[sqlx::test(migrations = false)]
+async fn update_workspace_sets_the_time_zone(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let (owner, admin, member) = (app.user().await, app.user().await, app.user().await);
+    let workspace = app.workspace_of(owner).await;
+    app.grant(&[
+        Workspace::ADMIN.of(workspace, admin),
+        Workspace::MEMBER.of(workspace, member),
+    ])
+    .await;
+    let id = workspace.to_string();
+    let before = app.get_workspace(owner, &id).await.unwrap();
+
+    // when
+    let changed = app
+        .set_workspace_time_zone(admin, &id, " Europe/Paris ")
+        .await;
+    let renamed = app.update_workspace(owner, &id, Some("Home"), None).await;
+    let by_member = app.set_workspace_time_zone(member, &id, "Asia/Tokyo").await;
+    let read = app.get_workspace(member, &id).await.unwrap();
+
+    // then
+    assert_eq!(before.time_zone, "UTC");
+    assert_eq!(changed.unwrap().time_zone, "Europe/Paris");
+    assert_eq!(renamed.unwrap().time_zone, "Europe/Paris");
+    assert_code(by_member, Code::PermissionDenied);
+    assert_eq!(read.time_zone, "Europe/Paris");
+}
+
+/// A time zone is a name of the IANA database, in its case. A link of the database passes. An
+/// unknown name, an abbreviation, an offset and an empty text give `INVALID_ARGUMENT` on
+/// `time_zone`, and the zone does not change.
+#[sqlx::test(migrations = false)]
+async fn update_workspace_checks_the_time_zone(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let id = app.workspace_of(owner).await.to_string();
+
+    // when
+    let link = app.set_workspace_time_zone(owner, &id, "US/Eastern").await;
+    let refused = [
+        app.set_workspace_time_zone(owner, &id, "Mars/Olympus")
+            .await,
+        app.set_workspace_time_zone(owner, &id, "europe/paris")
+            .await,
+        app.set_workspace_time_zone(owner, &id, "PST").await,
+        app.set_workspace_time_zone(owner, &id, "+02:00").await,
+        app.set_workspace_time_zone(owner, &id, "").await,
+    ];
+    let read = app.get_workspace(owner, &id).await.unwrap();
+
+    // then
+    assert_eq!(link.unwrap().time_zone, "US/Eastern");
+    for result in refused {
+        assert_invalid_field(&result.unwrap_err(), "time_zone");
+    }
+    assert_eq!(read.time_zone, "US/Eastern");
+}

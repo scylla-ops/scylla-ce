@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM vcs_deliveries WHERE received_at < now() - interval '30 days'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "19bbb58da6eb309ee9fdb96e325223148d3cef44e3501ef81e93288730ed2a9b"
+}

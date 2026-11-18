@@ -6,7 +6,7 @@ use std::time::Duration;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::apps::{AppId, NewApp};
 use scylla_domain::identity::users::{Email, NewUser};
-use scylla_domain::projects::jobs::{JobEvent, JobId, JobStatus, NewJob};
+use scylla_domain::projects::jobs::{JobEvent, JobId, JobOrigin, JobStatus, NewJob};
 use scylla_domain::projects::pipelines::{Node, NodeId, Runtime, Step};
 use scylla_domain::projects::{NewProject, ProjectDescription, ProjectName};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -123,6 +123,7 @@ async fn placed_job(pool: &PgPool, place: &Place) -> JobId {
         created_by: place.user.id,
         rerun_of: None,
         trigger_id: None,
+        origin: JobOrigin::Manual,
         nodes: vec![node],
         source: None,
         awaiting: false,
@@ -164,6 +165,7 @@ async fn reap_releases_the_jobs_of_a_lost_agent(pool: PgPool) {
         name: "runner".to_owned(),
         version: "1.0.0".to_owned(),
         checkout_gap: None,
+        containers: false,
     };
     let _ticket = connected.open(place.agent, place.workspace, agent);
 

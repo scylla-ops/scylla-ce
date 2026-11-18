@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.id, t.schedule AS \"schedule!\", t.next_fire_at AS \"due_at!\",\n                  (SELECT w.time_zone FROM workspaces w WHERE w.id = t.workspace_id) AS zone,\n                  (SELECT p.archived_at IS NULL AND p.removed_at IS NULL\n                   FROM pipelines p WHERE p.id = t.pipeline_id) AS \"active!\"\n           FROM triggers t\n           WHERE t.enabled AND t.kind = 'cron' AND t.next_fire_at <= now()\n           ORDER BY t.next_fire_at LIMIT $1 FOR UPDATE OF t SKIP LOCKED",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "schedule!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "schedule"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "due_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "next_fire_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "zone",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "active!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "657689523b920379038169a561321b75241550f9d40a2924270914cf40b6c681"
+}

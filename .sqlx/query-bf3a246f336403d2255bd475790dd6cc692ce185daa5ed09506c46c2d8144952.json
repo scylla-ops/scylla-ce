@@ -1,0 +1,160 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT ON (f.trigger_id)\n                  f.id, f.trigger_id, t.name AS trigger_name, f.pipeline_id, f.project_id,\n                  f.source, f.due_at, f.fired_at, f.status, f.error, f.job_id,\n                  j.status AS \"job_status?\"\n           FROM trigger_fires f\n           JOIN triggers t ON t.id = f.trigger_id\n           LEFT JOIN jobs j ON j.id = f.job_id\n           WHERE f.trigger_id = ANY($1)\n           ORDER BY f.trigger_id, f.due_at DESC, f.id DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "trigger_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "trigger_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "trigger_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "pipeline_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "pipeline_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "source"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "due_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "due_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "fired_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "fired_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "error"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "job_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "job_id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "job_status?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "bf3a246f336403d2255bd475790dd6cc692ce185daa5ed09506c46c2d8144952"
+}

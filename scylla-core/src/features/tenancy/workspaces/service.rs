@@ -1,5 +1,6 @@
 //! The logic of the workspaces: one transaction for each call.
 
+use scylla_domain::activity::{Kind, Place};
 use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::tenancy::grants::{MEMBER_KIND, OWNER};
@@ -13,8 +14,10 @@ use scylla_extension::{CreateContext, Gate, Hooks, Rejection, Tx, WorkspaceFutur
 use sqlx::PgPool;
 
 use super::store;
+use crate::features::activity;
 use crate::features::notifications::{self, kinds};
 use crate::features::platform::settings;
+use crate::features::projects::triggers::schedule;
 use crate::Error;
 
 /// Refuses a new workspace over the limit of its creator: `WORKSPACE_LIMIT`. It locks the user until
@@ -91,8 +94,9 @@ pub(super) async fn list(
     ))
 }
 
-/// Changes the name or the slug of a workspace, and returns it. A slug in use gives
-/// `SLUG_IN_USE`.
+/// Changes the name, the slug, the personal token switch or the time zone of a workspace, and
+/// returns it. A slug in use gives `SLUG_IN_USE`. A new time zone computes again the next fire of
+/// each cron trigger of the workspace.
 pub(super) async fn update(
     pool: &PgPool,
     id: WorkspaceId,
@@ -102,6 +106,9 @@ pub(super) async fn update(
     let workspace = store::update(&mut tx, id, &change)
         .await?
         .ok_or(Error::NotFound("workspace"))?;
+    if let Some(zone) = change.time_zone {
+        schedule::reschedule(&mut tx, id, zone).await?;
+    }
     tx.commit().await?;
     Ok(workspace)
 }
@@ -153,6 +160,8 @@ pub(crate) async fn give_owner(
             .actor(by)
             .workspace(workspace);
         notifications::emit(&mut tx, fact).await?;
+        let (kind, place) = (Kind::MemberRoleGranted, Place::Workspace(workspace));
+        activity::role(&mut tx, kind, place, (user, OWNER), by).await?;
     }
     tx.commit().await?;
     Ok(())
@@ -191,6 +200,8 @@ pub(crate) async fn take_owner(
             .actor(by)
             .workspace(workspace);
         notifications::emit(&mut tx, fact).await?;
+        let (kind, place) = (Kind::MemberRoleRevoked, Place::Workspace(workspace));
+        activity::role(&mut tx, kind, place, (user, OWNER), by).await?;
     }
     tx.commit().await?;
     Ok(())

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH spans AS (\n               SELECT greatest(started_at, ($4::timestamptz[])[1]) AS s,\n                      least(coalesce(finished_at, $3), $3) AS e\n               FROM jobs\n               WHERE workspace_id = $1 AND ($2::uuid IS NULL OR agent_id = $2)\n                 AND started_at IS NOT NULL AND started_at < $3\n                 AND (finished_at IS NULL OR finished_at > ($4::timestamptz[])[1])\n           ),\n           steps AS (\n               SELECT s AS at, 1 AS step FROM spans WHERE e > s\n               UNION ALL SELECT e, -1 FROM spans WHERE e > s\n               UNION ALL SELECT unnest($4::timestamptz[]), 0\n           ),\n           levels AS (\n               SELECT at, (sum(sum(step)) OVER (ORDER BY at))::int8 AS busy\n               FROM steps GROUP BY at\n           ),\n           segments AS (\n               SELECT at, busy, lead(at, 1, $3::timestamptz) OVER (ORDER BY at) AS next\n               FROM levels\n           )\n           SELECT width_bucket(at, $4::timestamptz[]) AS \"part!\",\n                  sum(busy * extract(epoch FROM next - at))::float8 AS \"seconds!\",\n                  max(busy) AS \"max!\"\n           FROM segments\n           WHERE at < $3\n           GROUP BY 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "part!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "seconds!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "max!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "TimestamptzArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "123b5c8d6c41f69ed807720c6aad78ff8432daf9fcade47551de177762a8bf80"
+}

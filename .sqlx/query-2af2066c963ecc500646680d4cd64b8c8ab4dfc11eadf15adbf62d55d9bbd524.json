@@ -1,0 +1,148 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT e.id, e.kind, e.area, e.actor_id, e.project_id, e.subject_kind, e.subject_id,\n                  e.params AS \"params: Json<BTreeMap<String, String>>\", e.created_at,\n                  COALESCE(u.display_name, a.name) AS actor_name, p.name AS \"project_name?\"\n           FROM activity AS e\n           LEFT JOIN users AS u ON u.id = e.actor_id\n           LEFT JOIN apps AS a ON a.id = e.actor_id\n           LEFT JOIN projects AS p ON p.id = e.project_id\n           WHERE e.workspace_id = $1\n             AND (e.area = ANY($2::text[])\n                  OR (e.project_id, e.area) IN (SELECT * FROM unnest($3::uuid[], $4::text[])))\n             AND ($5::uuid IS NULL OR (e.created_at, e.id) < (\n                 SELECT c.created_at, c.id FROM activity AS c\n                 WHERE c.id = $5 AND c.workspace_id = $1))\n           ORDER BY e.created_at DESC, e.id DESC\n           LIMIT $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "area",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "area"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "actor_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "actor_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "subject_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "subject_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "subject_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "subject_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "params: Json<BTreeMap<String, String>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "params"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "actor_name",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "project_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "UuidArray",
+        "TextArray",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "2af2066c963ecc500646680d4cd64b8c8ab4dfc11eadf15adbf62d55d9bbd524"
+}

@@ -2,7 +2,9 @@
 //! events and the logs of the agent, and the messages of the server.
 
 use scylla_domain::authz::Object;
-use scylla_domain::identity::agents::{CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL};
+use scylla_domain::identity::agents::{
+    CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL, SAMPLE_INTERVAL,
+};
 use scylla_domain::projects::jobs::{JobEvent, JobId, LogLine, LogStream, RunScope};
 use scylla_domain::projects::pipelines::{NodeId, PipelineAccess, PipelineHolder};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -28,11 +30,13 @@ pub(super) async fn send(out: &Outbox, message: Down) -> bool {
     out.send(Ok(message)).await.is_ok()
 }
 
-/// Makes the answer to the hello, with the agent protocols that the server takes.
+/// Makes the answer to the hello, with the agent protocols that the server takes and the time
+/// between two samples of the machine.
 pub(super) fn welcome(expires_at: OffsetDateTime) -> Down {
     Down::Welcome(pb::Welcome {
         expires_at: Some(parse::timestamp(expires_at)),
         agent_protocol: Some(protocol_range()),
+        metrics_interval_seconds: SAMPLE_INTERVAL.whole_seconds().try_into().unwrap_or(0),
     })
 }
 

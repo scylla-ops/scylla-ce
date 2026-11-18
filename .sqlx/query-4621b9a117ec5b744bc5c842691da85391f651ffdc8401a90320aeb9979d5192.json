@@ -1,0 +1,158 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.id, j.pipeline_id, p.name AS pipeline_name, j.project_id,\n                  r.name AS project_name, j.status, j.error, s.branch AS \"branch?\",\n                  j.agent_id, a.name AS \"agent_name?\", j.created_at AS at, 1::int8 AS \"count!\"\n           FROM jobs j\n           JOIN pipelines p ON p.id = j.pipeline_id\n           JOIN projects r ON r.id = j.project_id\n           LEFT JOIN job_sources s ON s.job_id = j.id\n           LEFT JOIN apps a ON a.id = j.agent_id\n           WHERE j.workspace_id = $1 AND j.status = 'awaiting_approval'\n             AND ($2::bool OR j.project_id = ANY($3::uuid[]))\n             AND (cardinality($4::uuid[]) = 0 OR j.project_id = ANY($4))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "pipeline_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "pipeline_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "pipeline_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "project_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "error"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "branch?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "branch"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "agent_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "agent_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "agent_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "UuidArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "4621b9a117ec5b744bc5c842691da85391f651ffdc8401a90320aeb9979d5192"
+}

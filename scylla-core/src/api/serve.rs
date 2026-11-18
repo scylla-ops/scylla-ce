@@ -30,7 +30,7 @@ use crate::features::projects::jobs::{self, housekeeping};
 use crate::features::projects::triggers::webhook::{self, Webhooks};
 use crate::features::projects::triggers::{self, schedule};
 use crate::features::projects::{pipelines, secrets};
-use crate::features::tenancy::invitations;
+use crate::features::tenancy::{dashboards, invitations};
 use crate::infra::mail::{LogMailer, SmtpMailer};
 use crate::infra::secret::Sealer;
 use crate::infra::{db, dev_keys, vcs::VcsOptions};
@@ -208,7 +208,7 @@ pub async fn serve(
         options.sealer.clone(),
     ));
 
-    // Add the services of the Apps and of the jobs: they share the open streams of the agents.
+    // Add the services that share the open streams of the agents.
     let registry = Arc::new(Registry::default());
     let (hooks, share) = (edition.hooks(), || Arc::clone(&registry));
     routes.add_service(apps::server(pool.clone(), Arc::clone(&gate), share()));
@@ -218,6 +218,9 @@ pub async fn serve(
     let jobs = jobs::server(pool.clone(), Arc::clone(&hooks), Arc::clone(&gate), share());
     routes.add_service(jobs);
     routes.add_service(triggers::server(&vcs));
+    let dashboards =
+        dashboards::server(pool.clone(), Arc::clone(&hooks), Arc::clone(&gate), share());
+    routes.add_service(dashboards);
 
     // Mount the Git integration: its services, its public routes and its tasks.
     let (vcs_routes, vcs_tasks) = integrations::mount(&vcs, &mut routes);

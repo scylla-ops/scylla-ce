@@ -1,0 +1,172 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT f.id, f.trigger_id, t.name AS trigger_name, f.pipeline_id, f.project_id,\n                  f.source, f.due_at, f.fired_at, f.status, f.error, f.job_id,\n                  j.status AS \"job_status?\"\n           FROM trigger_fires f\n           JOIN triggers t ON t.id = f.trigger_id\n           LEFT JOIN jobs j ON j.id = f.job_id\n           WHERE f.workspace_id = $1\n             AND ($2::bool OR f.project_id = ANY($3::uuid[]))\n             AND (cardinality($4::uuid[]) = 0 OR f.project_id = ANY($4))\n             AND (cardinality($5::uuid[]) = 0 OR f.pipeline_id = ANY($5))\n             AND (cardinality($6::uuid[]) = 0 OR f.trigger_id = ANY($6))\n             AND (cardinality($7::text[]) = 0 OR f.source = ANY($7))\n             AND (cardinality($8::text[]) = 0 OR t.kind = ANY($8))\n             AND (cardinality($9::text[]) = 0 OR f.status = ANY($9))\n             AND ($10::timestamptz IS NULL OR f.due_at >= $10)\n             AND ($11::timestamptz IS NULL OR f.due_at < $11)\n             AND ($12::uuid IS NULL OR (f.due_at, f.id) <\n                  (SELECT a.due_at, a.id FROM trigger_fires a WHERE a.id = $12))\n           ORDER BY f.due_at DESC, f.id DESC LIMIT $13",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "trigger_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "trigger_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "trigger_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "pipeline_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "pipeline_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "source"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "due_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "due_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "fired_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "fired_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "error"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "job_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "job_id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "job_status?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "UuidArray",
+        "UuidArray",
+        "UuidArray",
+        "UuidArray",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Timestamptz",
+        "Timestamptz",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "5456fe95424d18fbee22505de4f8298b393fe41a02d4b5c13226f840228591b3"
+}

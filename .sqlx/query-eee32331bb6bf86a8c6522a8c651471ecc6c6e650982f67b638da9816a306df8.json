@@ -1,0 +1,154 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH active AS (\n               SELECT DISTINCT pipeline_id FROM jobs\n               WHERE workspace_id = $1 AND status IN ('awaiting_approval', 'pending', 'running')\n           )\n           SELECT p.id, p.name, p.project_id, r.name AS project_name,\n                  last.status AS \"last_ended?\",\n                  p.id IN (SELECT pipeline_id FROM active) AS \"active!\",\n                  recent.completed AS \"completed!\", recent.failed AS \"failed!\", recent.median,\n                  coalesce(kinds.names, '{}') AS \"kinds!: Vec<String>\",\n                  fire.id AS \"fire_id?\", fire.schedule AS \"fire_schedule?\",\n                  fire.next_fire_at AS \"fire_at?\"\n           FROM pipelines p\n           JOIN projects r ON r.id = p.project_id\n           LEFT JOIN repository_links l ON l.project_id = p.project_id\n           LEFT JOIN LATERAL (\n               SELECT j.status FROM jobs j\n               LEFT JOIN job_sources s ON s.job_id = j.id\n               WHERE j.pipeline_id = p.id AND j.finished_at IS NOT NULL\n                 AND (l.project_id IS NULL OR s.branch = l.default_branch)\n               ORDER BY j.id DESC LIMIT 1\n           ) last ON true\n           CROSS JOIN LATERAL (\n               SELECT count(*) FILTER (WHERE t.status = 'completed') AS completed,\n                      count(*) FILTER (WHERE t.status IN ('failed', 'orphaned')) AS failed,\n                      percentile_cont(0.5) WITHIN GROUP\n                          (ORDER BY extract(epoch FROM t.finished_at - t.started_at)::float8)\n                          FILTER (WHERE t.status = 'completed' AND t.started_at IS NOT NULL)\n                          AS median\n               FROM (SELECT status, started_at, finished_at FROM jobs\n                     WHERE pipeline_id = p.id ORDER BY id DESC LIMIT $2) t\n           ) recent\n           LEFT JOIN LATERAL (\n               SELECT array_agg(DISTINCT k.kind) AS names FROM (\n                   SELECT t.kind FROM triggers t WHERE t.pipeline_id = p.id AND t.enabled\n                   UNION ALL\n                   SELECT f.kind FROM unnest(ARRAY['push', 'pull_request', 'tag']) AS f (kind)\n                   WHERE p.file_rules ? f.kind\n               ) k\n           ) kinds ON p.archived_at IS NULL AND p.removed_at IS NULL\n           LEFT JOIN LATERAL (\n               SELECT t.id, t.schedule, t.next_fire_at FROM triggers t\n               WHERE t.pipeline_id = p.id AND t.enabled AND t.kind = 'cron'\n                 AND t.next_fire_at IS NOT NULL\n               ORDER BY t.next_fire_at, t.id LIMIT 1\n           ) fire ON p.archived_at IS NULL AND p.removed_at IS NULL\n           WHERE p.workspace_id = $1\n             AND (p.source = 'editor' OR p.archived_at IS NULL)\n             AND (cardinality($3::uuid[]) = 0 OR p.project_id = ANY($3))\n             AND (cardinality($4::uuid[]) = 0 OR p.id = ANY($4))\n             AND ($5\n                  OR p.workspace_id IN (SELECT o.workspace_id FROM workspace_owners o\n                                        WHERE o.user_id = $6)\n                  OR p.workspace_id = ANY($7)\n                  OR p.project_id = ANY($8))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "project_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "last_ended?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "active!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "completed!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "failed!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "median",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "kinds!: Vec<String>",
+        "type_info": "TextArray",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "fire_id?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "fire_schedule?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "schedule"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "fire_at?",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "next_fire_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "UuidArray",
+        "UuidArray",
+        "Bool",
+        "Uuid",
+        "UuidArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "eee32331bb6bf86a8c6522a8c651471ecc6c6e650982f67b638da9816a306df8"
+}

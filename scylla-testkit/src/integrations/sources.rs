@@ -66,9 +66,8 @@ impl TestApp {
     ) -> Result<Vec<Job>, Status> {
         let request = ListWorkspaceJobsRequest {
             workspace_id: Some(id(workspace.to_string())),
-            agent_id: None,
-            page: None,
             filter: Some(filter),
+            ..ListWorkspaceJobsRequest::default()
         };
         let request = self.authed(actor, request).await;
         let mut client = JobServiceClient::new(self.channel.clone());
@@ -168,6 +167,7 @@ impl TestApp {
             features: vec!["checkout".to_owned()],
             protocol: 2,
             build: String::new(),
+            started_at: None,
         };
         let hello = Up::Hello(Hello {
             host: Some(host),

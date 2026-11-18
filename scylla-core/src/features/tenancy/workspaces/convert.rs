@@ -13,6 +13,7 @@ impl ToProto<pb::Workspace> for Workspace {
             slug: self.slug,
             created_at: Some(parse::timestamp(self.created_at)),
             personal_tokens_enabled: self.personal_tokens_enabled,
+            time_zone: self.time_zone,
         }
     }
 }

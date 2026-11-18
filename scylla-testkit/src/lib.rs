@@ -1,18 +1,22 @@
 //! The test kit: the real server of an edition, with a real gate, a mailbox, a capture of the
 //! log lines, a fake Git provider, and helpers for the core RPCs, grouped by subject.
 
+mod activity;
 mod app;
 mod identity;
 mod integrations;
+mod job_stats;
 mod logs;
 mod mail;
 mod notifications;
 mod pipeline_layouts;
+mod pipeline_summaries;
 mod pipelines;
 mod platform;
 mod projects;
 mod rpc;
 mod tenancy;
+mod trigger_lists;
 mod triggers;
 
 pub use app::{test_access, TestApp};
@@ -26,5 +30,5 @@ pub use logs::Logs;
 pub use mail::Mailbox;
 pub use pipelines::exec_node;
 pub use rpc::{id, text, with_token};
-pub use tenancy::{Role, RoleInput};
+pub use tenancy::{dashboard_widgets, Role, RoleInput};
 pub use triggers::{literal_input, pointer_input};

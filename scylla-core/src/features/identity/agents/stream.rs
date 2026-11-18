@@ -1,11 +1,13 @@
-//! The life of the stream of an agent: the hello, the renewals of its token, the commands of the
-//! server, and its end at the expiry of the token or at a stop of the server.
+//! The life of the stream of an agent: the hello, the renewals of its token, the samples of its
+//! machine, the commands of the server, and its end at the expiry of the token or at a stop of the
+//! server.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use scylla_domain::activity::Kind;
 use scylla_domain::identity::agents::{
-    AgentCaller, Compatibility, CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL,
+    AgentCaller, Compatibility, Sample, CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL,
 };
 use scylla_domain::identity::apps::{App, AppId};
 use scylla_domain::projects::jobs::RunScope;
@@ -21,7 +23,7 @@ use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Status, Streaming};
 
 use super::registry::{Command, Online};
-use super::{work, Registry};
+use super::{samples, work, Registry};
 use crate::api::parse;
 use crate::features::identity::apps;
 use crate::features::integrations::IntegrationContext;
@@ -72,12 +74,11 @@ impl Stream {
         let ending = match self.hello(&mut inbound, &out).await {
             Ok((workspace, agent)) => {
                 let ticket = self.registry.open(self.app, workspace, agent);
+                self.record(Kind::AgentConnected).await;
                 tracing::info!(event = "agent.connected", app = %self.app);
                 let ending = self.serve(&mut inbound, &out, ticket.commands).await;
                 self.registry.close(self.app, ticket.number);
-                if let Err(error) = apps::touch(&self.pool, self.app).await {
-                    tracing::warn!(%error, app = %self.app, "the last seen time did not change");
-                }
+                self.record(Kind::AgentDisconnected).await;
                 tracing::info!(event = "agent.disconnected", app = %self.app);
                 ending
             }
@@ -87,6 +88,15 @@ impl Stream {
         // Send the status of the end, if the agent did not close the stream itself.
         if let Some(status) = ending {
             let _ = out.send(Err(status)).await;
+        }
+    }
+
+    /// Sets the last seen time of the agent, and records its stream that opened or ended in the
+    /// activity feed. A failure goes to the log only.
+    async fn record(&self, kind: Kind) {
+        if let Err(error) = apps::stream_changed(&self.pool, self.app, kind).await {
+            let kind = kind.as_str();
+            tracing::warn!(%error, app = %self.app, kind, "the activity of the agent did not change");
         }
     }
 
@@ -143,6 +153,7 @@ impl Stream {
             name: app.name,
             version: host.version.clone(),
             checkout_gap: host.checkout_gap(),
+            containers: self.containers,
         };
         Ok((app.workspace_id, agent))
     }
@@ -201,9 +212,28 @@ impl Stream {
             }
             Some(Up::Event(event)) => work::event(self, event, out).await,
             Some(Up::Logs(batch)) => work::logs(self, batch, out).await,
+            Some(Up::Metrics(metrics)) => {
+                self.sample(metrics).await;
+                Ok(true)
+            }
             Some(Up::Hello(_)) | None => Err(Status::invalid_argument(
                 "after the hello, send no other hello",
             )),
+        }
+    }
+
+    /// Records a sample of the machine. A sample that is not a number, or a failure of the
+    /// database, goes to the log only: the jobs of the stream go on.
+    async fn sample(&self, metrics: pb::Metrics) {
+        let sample = match Sample::parse(metrics.cpu_percent, metrics.memory_used_bytes) {
+            Ok(sample) => sample,
+            Err(error) => {
+                tracing::warn!(%error, app = %self.app, "the agent sent a bad sample");
+                return;
+            }
+        };
+        if let Err(error) = samples::record(&self.pool, self.app, sample).await {
+            tracing::warn!(%error, app = %self.app, "the sample of the agent is lost");
         }
     }
 

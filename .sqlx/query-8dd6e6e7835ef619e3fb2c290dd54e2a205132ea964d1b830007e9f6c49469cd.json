@@ -1,0 +1,61 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT trigger_id, width_bucket(due_at, $2::timestamptz[]) AS \"bucket!\",\n                  count(*) AS \"delivered!\",\n                  count(*) FILTER (WHERE status = 'error') AS \"failed!\",\n                  max(due_at) AS \"last!\"\n           FROM trigger_fires\n           WHERE workspace_id = $1 AND source = 'webhook'\n             AND ($3::bool OR project_id = ANY($4::uuid[]))\n             AND due_at >= $5 AND due_at < $6\n           GROUP BY 1, 2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "trigger_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "trigger_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bucket!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "delivered!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "failed!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "last!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TimestamptzArray",
+        "Bool",
+        "UuidArray",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "8dd6e6e7835ef619e3fb2c290dd54e2a205132ea964d1b830007e9f6c49469cd"
+}

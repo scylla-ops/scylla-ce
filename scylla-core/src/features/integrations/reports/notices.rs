@@ -1,18 +1,22 @@
 //! The notices of the health of a connection: a connection that needs a person, and a GitLab
-//! token that expires soon. The owners and the admins of the workspace get them.
+//! token that expires soon. The owners and the admins of the workspace get them. A connection
+//! that needs a person also gets a row in the activity feed.
 
 use std::sync::Arc;
 
+use scylla_domain::activity::Kind;
 use scylla_domain::authz::Object;
 use scylla_domain::integrations::connections::VcsConnectionHolder;
 use scylla_domain::tenancy::workspaces::Workspace;
 use scylla_extension::{
     async_trait, Access, Audience, AudienceContext, Collapse, Event, EventRow, NotificationError,
-    NotificationKind, Recipient,
+    NotificationKind, Recipient, Tx,
 };
 
 use super::store::people;
+use crate::features::activity;
 use crate::features::integrations::connections::store::health::Changed;
+use crate::features::notifications;
 use crate::Error;
 
 /// The key `vcs.connection_broken`.
@@ -45,6 +49,20 @@ pub(crate) fn kinds() -> Vec<NotificationKind> {
 /// Makes the fact of a connection that needs a person, with the reason.
 pub(crate) fn broken(connection: &Changed, reason: &str) -> Event {
     about(CONNECTION_BROKEN, connection).param("reason", reason)
+}
+
+/// Records a connection that needs a person, with the reason: the notice to the owners and the
+/// admins, and the row of the activity feed.
+pub(crate) async fn record_broken(
+    tx: &mut Tx<'_>,
+    connection: &Changed,
+    reason: &str,
+) -> Result<(), Error> {
+    notifications::emit(tx, broken(connection, reason)).await?;
+    let ids = (connection.id, connection.workspace);
+    let names = (connection.provider.as_str(), connection.account.as_str());
+    let row = activity::connection(Kind::ConnectionBroken, ids, names).param("reason", reason);
+    activity::record(tx, row).await
 }
 
 /// Makes the fact of a token that expires soon, with its day of expiry.

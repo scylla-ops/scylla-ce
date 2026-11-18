@@ -126,5 +126,7 @@ crate::authz! {
         permission replace_git_lab_token = manage;
         /// The route `DeleteVcsConnection`, on each connection of this workspace.
         permission delete_vcs_connection = manage;
+        /// The route `GetDeliveryStats`: the webhook deliveries of this workspace.
+        permission get_delivery_stats = read;
     }
 }

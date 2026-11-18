@@ -3,6 +3,7 @@
 
 mod instance;
 mod integrations;
+mod machines;
 #[cfg(test)]
 mod pages;
 mod project;
@@ -106,12 +107,13 @@ pub struct Area {
 
 /// The areas, from the platform down to the project. The areas of the Git integration close each
 /// level.
-pub const AREAS: [&[Area]; 6] = [
+pub const AREAS: [&[Area]; 7] = [
     instance::AREAS,
     integrations::INSTANCE,
     workspace::AREAS,
     integrations::WORKSPACE,
     project::AREAS,
+    machines::AREAS,
     integrations::PROJECT,
 ];
 
@@ -120,6 +122,9 @@ pub const VIEW_ALL_WORKSPACES: &str = "workspaces.view";
 
 /// The permission that gives the view of a project.
 pub const VIEW_PROJECT: &str = "project.view";
+
+/// The permission that gives the view of the jobs of a project.
+pub const VIEW_JOBS: &str = "jobs.view";
 
 /// Returns each area of the catalog.
 pub fn areas() -> impl Iterator<Item = &'static Area> {

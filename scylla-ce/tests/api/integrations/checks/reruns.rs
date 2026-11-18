@@ -1,7 +1,7 @@
 //! The tests of the re-runs that a person asks for on GitHub: `check_run` and `check_suite` with
 //! the action `rerequested` start a new run of the job of each check run that ended.
 
-use scylla_proto::pipelines::v1::SourceEvent;
+use scylla_proto::pipelines::v1::{JobOrigin, SourceEvent};
 use scylla_testkit::{text, wait_for_requests, FakeProvider};
 use sqlx::PgPool;
 
@@ -36,6 +36,7 @@ async fn a_rerequested_check_run_runs_its_job_again(pool: PgPool) {
     assert_eq!(jobs.len(), 2);
     let new = &jobs[0];
     assert_eq!(text(&new.rerun_of), job);
+    assert_eq!(new.origin(), JobOrigin::ProviderRerun);
     let source = new.source.as_ref().expect("a source");
     assert_eq!(source.event(), SourceEvent::ProviderRerun);
     assert_eq!(source.sha, SHA);

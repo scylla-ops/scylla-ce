@@ -20,7 +20,7 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, id: AppId, new: &NewApp) -> Result<A
         "INSERT INTO apps (id, workspace_id, name, runner, created_by) VALUES ($1, $2, $3, $4, $5)
          RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
                    os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,
-                   features, protocol, build, disabled_at",
+                   features, protocol, build, started_at, disabled_at",
         id.to_db(),
         new.workspace_id.to_db(),
         new.name.as_str(),
@@ -44,7 +44,7 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: AppId) -> Result<Option<App>, sqlx
         Row,
         "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,
                 arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,
-                protocol, build, disabled_at
+                protocol, build, started_at, disabled_at
          FROM apps WHERE id = $1",
         id.to_db(),
     )
@@ -64,7 +64,7 @@ pub(crate) async fn list(
         Row,
         "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,
                 arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,
-                protocol, build, disabled_at
+                protocol, build, started_at, disabled_at
          FROM apps
          WHERE workspace_id = $1
            AND ($2::boolean IS NULL OR runner = $2)
@@ -114,7 +114,7 @@ pub(crate) async fn set_disabled(
          WHERE id = $1
          RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
                    os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,
-                   features, protocol, build, disabled_at",
+                   features, protocol, build, started_at, disabled_at",
         id.to_db(),
         disabled,
     )
@@ -128,7 +128,8 @@ pub(crate) async fn set_host(tx: &mut Tx<'_>, id: AppId, host: &Host) -> Result<
     sqlx::query!(
         "UPDATE apps SET last_seen_at = now(), version = $2, os = $3, arch = $4, hostname = $5,
                 cpu_count = $6, memory_bytes = $7, capacity = $8, container_runtime = $9,
-                features = $10, protocol = $11, build = $12
+                features = $10, protocol = $11, build = $12,
+                started_at = CASE WHEN $13::timestamptz > now() THEN now() ELSE $13 END
          WHERE id = $1",
         id.to_db(),
         host.version,
@@ -142,6 +143,7 @@ pub(crate) async fn set_host(tx: &mut Tx<'_>, id: AppId, host: &Host) -> Result<
         &host.features,
         i32::try_from(host.protocol).unwrap_or(i32::MAX),
         host.build,
+        host.started_at,
     )
     .execute(&mut **tx)
     .await?;
@@ -157,6 +159,24 @@ pub(crate) async fn touch(tx: &mut Tx<'_>, id: AppId) -> Result<(), sqlx::Error>
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+/// Returns the sum of the capacities of the enabled agents of a workspace in `ids`.
+pub(crate) async fn capacity(
+    tx: &mut Tx<'_>,
+    workspace: WorkspaceId,
+    ids: &[AppId],
+) -> Result<u32, sqlx::Error> {
+    let ids: Vec<uuid::Uuid> = ids.iter().map(|id| id.to_db()).collect();
+    let sum = sqlx::query_scalar!(
+        r#"SELECT coalesce(sum(capacity), 0)::int8 AS "sum!" FROM apps
+           WHERE workspace_id = $1 AND id = ANY($2) AND runner AND disabled_at IS NULL"#,
+        workspace.to_db(),
+        &ids,
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(u32::try_from(sum).unwrap_or(u32::MAX))
 }
 
 /// A row of the `apps` table.
@@ -197,6 +217,8 @@ struct Row {
     protocol: i32,
     /// The commit of the build of the agent.
     build: Option<String>,
+    /// The start of the process of the agent.
+    started_at: Option<OffsetDateTime>,
     /// The time of the disable.
     disabled_at: Option<OffsetDateTime>,
 }
@@ -216,6 +238,7 @@ impl Row {
             features: self.features,
             protocol: self.protocol.max(0) as u32,
             build: self.build,
+            started_at: self.started_at,
         });
         App {
             id: AppId::from_db(self.id),

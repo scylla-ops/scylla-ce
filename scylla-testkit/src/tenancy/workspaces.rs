@@ -85,6 +85,29 @@ impl TestApp {
             name: name.map(str::to_owned),
             slug: slug.map(str::to_owned),
             personal_tokens_enabled: None,
+            time_zone: None,
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.workspaces().update_workspace(request).await?;
+        Ok(response
+            .into_inner()
+            .workspace
+            .expect("workspace in response"))
+    }
+
+    /// Calls `UpdateWorkspace` as `actor` with the time zone only.
+    pub async fn set_workspace_time_zone(
+        &self,
+        actor: ActorId,
+        workspace: &str,
+        time_zone: &str,
+    ) -> Result<Workspace, Status> {
+        let request = UpdateWorkspaceRequest {
+            workspace_id: Some(id(workspace)),
+            name: None,
+            slug: None,
+            personal_tokens_enabled: None,
+            time_zone: Some(time_zone.to_owned()),
         };
         let request = self.authed(actor, request).await;
         let response = self.workspaces().update_workspace(request).await?;

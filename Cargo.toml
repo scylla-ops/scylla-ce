@@ -41,6 +41,7 @@ base64 = "0.23.1"
 biscuit-auth = { version = "6.0.0", default-features = false, features = ["datalog-macro"] }
 chacha20poly1305 = { version = "0.11.0", features = ["getrandom"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10.4"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 croner = "4.0.3"
 deunicode = "1.6.2"
@@ -73,6 +74,7 @@ sha2 = "0.11.1"
 spicedb-grpc-tonic = "1.0.0"
 sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "macros", "migrate", "sqlx-toml", "uuid", "time", "json"] }
 syn = "3.0.10"
+sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }
 thiserror = "2.0.21"
 time = "0.3.55"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time", "process", "io-util", "fs"] }

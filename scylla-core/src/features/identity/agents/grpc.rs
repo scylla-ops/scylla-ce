@@ -1,4 +1,5 @@
-//! The gRPC handler of `AgentService`: an agent opens its stream. The stats are in `stats.rs`.
+//! The gRPC handler of `AgentService`: an agent opens its stream. The stats are in `stats.rs`,
+//! and the busy slots and the samples of the machines are in `usage.rs`.
 
 use std::sync::Arc;
 
@@ -39,7 +40,7 @@ pub(crate) struct AgentsGrpc {
     pub(super) gate: Arc<dyn Gate>,
     /// What the Git integration shares: the open streams of the server, the key of the secrets
     /// and the clients of the providers.
-    vcs: IntegrationContext,
+    pub(super) vcs: IntegrationContext,
 }
 
 #[tonic::async_trait]
@@ -65,6 +66,20 @@ impl AgentService for AgentsGrpc {
         request: Request<pb::ListAgentStatsRequest>,
     ) -> Result<Response<pb::ListAgentStatsResponse>, Status> {
         Ok(Response::new(self.list_stats(request).await?))
+    }
+
+    async fn get_slot_usage(
+        &self,
+        request: Request<pb::GetSlotUsageRequest>,
+    ) -> Result<Response<pb::GetSlotUsageResponse>, Status> {
+        Ok(Response::new(self.slot_usage(request).await?))
+    }
+
+    async fn get_agent_metrics(
+        &self,
+        request: Request<pb::GetAgentMetricsRequest>,
+    ) -> Result<Response<pb::GetAgentMetricsResponse>, Status> {
+        Ok(Response::new(self.agent_metrics(request).await?))
     }
 }
 

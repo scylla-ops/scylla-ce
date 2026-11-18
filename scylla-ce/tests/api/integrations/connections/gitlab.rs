@@ -194,3 +194,35 @@ async fn replace_gitlab_token_keeps_the_account(pool: PgPool) {
     assert_reason(other, "ACCOUNT_CHANGED");
     assert_invalid_field(&wrong, "connection_id");
 }
+
+/// A new connection and its delete give the rows `connection.connected` and
+/// `connection.disconnected` of the activity feed, with the provider, the account and the actor.
+#[sqlx::test(migrations = false)]
+async fn connect_gitlab_records_the_activity(pool: PgPool) {
+    // given
+    let (app, fake) = app_with_fake(pool).await;
+    let owner = app.user().await;
+    let workspace = app.workspace_of(owner).await.to_string();
+    let expiry = date_in(&app, 300).await;
+    fake.answer_gitlab_token((42, "scylla-bot", true), &["api"], expiry, &[]);
+
+    // when
+    let made = app.connect_gitlab(owner, &workspace, TOKEN).await.unwrap();
+    let id = made.connection.unwrap().id.unwrap().value;
+    app.delete_vcs_connection(owner, &id).await.unwrap();
+    let rows = app.activity_of(owner, &workspace).await;
+
+    // then
+    let kinds: Vec<&str> = rows.iter().map(|row| row.kind.as_str()).collect();
+    assert_eq!(kinds, ["connection.disconnected", "connection.connected"]);
+    for row in &rows {
+        assert_eq!(
+            (row.area.as_str(), row.subject_kind.as_str()),
+            ("integrations", "vcs_connection")
+        );
+        assert_eq!(row.subject_id.as_ref().unwrap().value, id);
+        assert_eq!(row.actor_id.as_ref().unwrap().value, owner.to_string());
+        assert_eq!(row.params["provider"], "gitlab");
+        assert_eq!(row.params["account"], "scylla-bot");
+    }
+}

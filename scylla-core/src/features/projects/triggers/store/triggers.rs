@@ -204,46 +204,6 @@ pub(crate) async fn delete(tx: &mut Tx<'_>, id: TriggerId) -> Result<bool, sqlx:
     Ok(result.rows_affected() == 1)
 }
 
-/// Locks at most `limit` enabled cron triggers that are due, with their schedules and `true`
-/// when their pipeline is active: not archived, and with its file on the default branch. Another
-/// server skips the locked rows.
-pub(crate) async fn due(
-    tx: &mut Tx<'_>,
-    limit: i64,
-) -> Result<Vec<(TriggerId, String, bool)>, sqlx::Error> {
-    let rows = sqlx::query!(
-        r#"SELECT t.id, t.schedule AS "schedule!",
-                  (SELECT p.archived_at IS NULL AND p.removed_at IS NULL
-                   FROM pipelines p WHERE p.id = t.pipeline_id) AS "active!"
-           FROM triggers t
-           WHERE t.enabled AND t.kind = 'cron' AND t.next_fire_at <= now()
-           ORDER BY t.next_fire_at LIMIT $1 FOR UPDATE OF t SKIP LOCKED"#,
-        limit,
-    )
-    .fetch_all(&mut **tx)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| (TriggerId::from_db(row.id), row.schedule, row.active))
-        .collect())
-}
-
-/// Sets the next fire of a cron trigger.
-pub(crate) async fn set_next(
-    tx: &mut Tx<'_>,
-    id: TriggerId,
-    next: Option<OffsetDateTime>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE triggers SET next_fire_at = $2 WHERE id = $1",
-        id.to_db(),
-        next
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
-}
-
 /// Records the result of a fire.
 pub(crate) async fn record(
     tx: &mut Tx<'_>,
