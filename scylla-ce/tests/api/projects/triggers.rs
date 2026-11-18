@@ -29,7 +29,7 @@ async fn pipeline(app: &TestApp) -> (ActorId, String, String) {
 }
 
 /// Sends a webhook request with a body, signed with `secret`, and a delivery key.
-pub(super) async fn post(
+pub(crate) async fn post(
     app: &TestApp,
     path: &str,
     body: &str,

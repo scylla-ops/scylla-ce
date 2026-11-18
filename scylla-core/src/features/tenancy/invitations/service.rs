@@ -1,6 +1,7 @@
 //! The logic of the invitations: a link by mail that gives a role in a workspace to the person
 //! with the email, and the management of the open invitations.
 
+use scylla_domain::activity::Place;
 use scylla_domain::authz::Resource;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::{self, Email};
@@ -14,6 +15,7 @@ use scylla_extension::{CreateContext, Grantable, Rejection, Tx};
 use sqlx::PgPool;
 
 use super::store;
+use crate::features::activity;
 use crate::features::identity::accounts::{mails, refused, verified_emails, AccountContext};
 use crate::features::notifications::{self, kinds};
 use crate::features::tenancy::grants;
@@ -225,6 +227,8 @@ pub(crate) async fn accept(
     let scope = (Workspace::NAME, invitation.workspace_id.to_db());
     let by = invitation.invited_by;
     grants::store::note_relation(&mut tx, user, scope, &invitation.role, by).await?;
+    let place = Place::Workspace(invitation.workspace_id);
+    activity::joined(&mut tx, place, (user, &invitation.role), by).await?;
     let fact = kinds::invitation_answered(kinds::INVITATION_ACCEPTED, &invitation, user);
     notifications::emit(&mut tx, fact).await?;
     let kind = invitations::KIND.as_str();

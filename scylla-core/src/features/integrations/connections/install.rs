@@ -1,6 +1,7 @@
 //! The install of the GitHub App in a workspace: a state of one use for 10 minutes, the install
 //! page of GitHub, then the check of the redirect and the connection of the installation.
 
+use scylla_domain::activity::Kind;
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::integrations::connections::{AccountKind, VcsConnectionId};
 use scylla_domain::integrations::VcsProvider;
@@ -13,6 +14,7 @@ use super::calls::github;
 use super::checks;
 use super::credentials::{self, AppSource};
 use super::store::{self, states, Counted, Installation};
+use crate::features::activity;
 use crate::features::integrations::IntegrationContext;
 use crate::infra::secret;
 use crate::infra::vcs::ProviderError;
@@ -179,7 +181,8 @@ async fn read(
 }
 
 /// Makes or refreshes the connection of an installation in a workspace, and returns it. A new
-/// installation of an account takes over the stopped connection of this account.
+/// installation of an account takes over the stopped connection of this account. A new or taken
+/// connection gets a row in the activity feed.
 async fn keep(
     ctx: &IntegrationContext,
     workspace: WorkspaceId,
@@ -221,6 +224,11 @@ async fn keep(
         None => store::upsert_installation(&mut tx, VcsConnectionId::generate(), &values).await?,
     };
     let counted = store::find(&mut tx, id).await?;
+    if new || taken.is_some() {
+        let names = (VcsProvider::GitHub.as_str(), found.account.login.as_str());
+        let row = activity::connection(Kind::ConnectionConnected, (id, workspace), names);
+        activity::record(&mut tx, row.actor(caller)).await?;
+    }
     tx.commit().await?;
     let counted = counted.ok_or(Error::NotFound("connection"))?;
     tracing::info!(

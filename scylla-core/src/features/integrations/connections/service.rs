@@ -1,6 +1,8 @@
 //! The logic of the connections that GitHub and GitLab share: the providers of a workspace, the
 //! list, the read and the delete of a connection. One transaction for each call.
 
+use scylla_domain::activity::Kind;
+use scylla_domain::identity::actors::ActorId;
 use scylla_domain::integrations::connections::{VcsConnection, VcsConnectionId};
 use scylla_domain::integrations::VcsProvider;
 use scylla_domain::projects::ProjectId;
@@ -11,6 +13,7 @@ use super::calls::gitlab;
 use super::credentials;
 use super::store;
 pub(super) use super::store::Counted;
+use crate::features::activity;
 use crate::features::integrations::apps::store as apps;
 use crate::features::integrations::IntegrationContext;
 use crate::Error;
@@ -95,9 +98,13 @@ pub(super) async fn project_workspace(
     Ok(workspace)
 }
 
-/// Deletes a connection with the links of its repositories. The webhooks of GitLab go first,
-/// when the server can delete them. The jobs stay.
-pub(super) async fn delete(ctx: &IntegrationContext, found: &Counted) -> Result<(), Error> {
+/// Deletes a connection with the links of its repositories for an actor. The webhooks of GitLab
+/// go first, when the server can delete them. The jobs stay.
+pub(super) async fn delete(
+    ctx: &IntegrationContext,
+    found: &Counted,
+    actor: ActorId,
+) -> Result<(), Error> {
     // Delete the webhooks that Scylla made on GitLab.
     let connection = &found.connection;
     if connection.provider == VcsProvider::GitLab {
@@ -109,6 +116,10 @@ pub(super) async fn delete(ctx: &IntegrationContext, found: &Counted) -> Result<
     if !store::delete(&mut tx, connection.id).await? {
         return Err(Error::NotFound("connection"));
     }
+    let ids = (connection.id, connection.workspace_id);
+    let names = (connection.provider.as_str(), connection.account.as_str());
+    let row = activity::connection(Kind::ConnectionDisconnected, ids, names);
+    activity::record(&mut tx, row.actor(actor)).await?;
     tx.commit().await?;
     if let (Some(app), None) = (&ctx.clients.github_app, connection.app_id) {
         if let Ok(installation) = connection.external_id.parse() {

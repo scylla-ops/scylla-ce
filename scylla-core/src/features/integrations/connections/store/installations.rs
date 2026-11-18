@@ -112,29 +112,39 @@ pub(crate) async fn set_permissions(
 }
 
 /// Keeps the repositories that an installation sees: all of them or a selection, and the count
-/// after `added` new ones and `removed` old ones.
+/// after `added` new ones and `removed` old ones. Returns the connections that changed.
 pub(crate) async fn set_repositories(
     tx: &mut Tx<'_>,
     app: Option<VcsAppId>,
     installation: &str,
     all: bool,
     (added, removed): (usize, usize),
-) -> Result<(), Error> {
+) -> Result<Vec<Changed>, Error> {
     let count = |value: usize| i32::try_from(value).unwrap_or(i32::MAX);
-    sqlx::query!(
+    let rows = sqlx::query!(
         "UPDATE vcs_connections
          SET all_repositories = $3,
              repository_count = GREATEST(repository_count + $4 - $5, 0), updated_at = now()
-         WHERE provider = 'github' AND external_id = $1 AND app_id IS NOT DISTINCT FROM $2",
+         WHERE provider = 'github' AND external_id = $1 AND app_id IS NOT DISTINCT FROM $2
+         RETURNING id, workspace_id, provider, account, token_expires_at",
         installation,
         app.map(VcsAppId::to_db),
         all,
         count(added),
         count(removed),
     )
-    .execute(&mut **tx)
+    .fetch_all(&mut **tx)
     .await?;
-    Ok(())
+    Ok(rows
+        .into_iter()
+        .map(|row| Changed {
+            id: VcsConnectionId::from_db(row.id),
+            workspace: WorkspaceId::from_db(row.workspace_id),
+            provider: row.provider,
+            account: row.account,
+            expires_at: row.token_expires_at,
+        })
+        .collect())
 }
 
 /// Moves the active links of the repositories `removed` of an installation to

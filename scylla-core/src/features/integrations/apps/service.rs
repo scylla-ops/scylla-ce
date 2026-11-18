@@ -8,7 +8,6 @@ use scylla_extension::Rejection;
 use super::store::{self, connections, deliveries, deliveries::LastDelivery};
 use crate::features::integrations::reports::notices;
 use crate::features::integrations::IntegrationContext;
-use crate::features::notifications;
 use crate::Error;
 
 /// The reason of a connection whose App an admin removed: as for an uninstall, the connection
@@ -71,8 +70,7 @@ pub(super) async fn delete(ctx: &IntegrationContext) -> Result<(), Error> {
 
     // Tell the owners and the admins about each connection that stopped, then delete the App.
     for change in &stopped {
-        let notice = notices::broken(&change.changed, APP_UNINSTALLED);
-        notifications::emit(&mut tx, notice).await?;
+        notices::record_broken(&mut tx, &change.changed, APP_UNINSTALLED).await?;
     }
     store::delete(&mut tx, id).await?;
     tx.commit().await?;

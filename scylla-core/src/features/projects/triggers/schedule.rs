@@ -8,7 +8,7 @@ use std::time::Duration;
 use croner::Cron;
 use scylla_domain::projects::jobs::JobOrigin;
 use scylla_domain::projects::pipelines::PipelineId;
-use scylla_domain::projects::triggers::{FireSource, FIRE_RETENTION_DAYS};
+use scylla_domain::projects::triggers::{FireSource, TriggerId, FIRE_RETENTION_DAYS};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::TimeZone;
 use scylla_extension::Tx;
@@ -16,7 +16,8 @@ use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 
 use super::fire::{self, Call};
-use super::store::{deliveries, fires, schedules};
+use super::store::{deliveries, fires, schedules, triggers};
+use crate::features::activity;
 use crate::features::integrations::IntegrationContext;
 use crate::Error;
 
@@ -119,6 +120,21 @@ fn missed(
     found.into()
 }
 
+/// Records the missed times of a trigger in the activity feed, if it has some.
+async fn record_missed(
+    tx: &mut Tx<'_>,
+    id: TriggerId,
+    times: &[OffsetDateTime],
+) -> Result<(), Error> {
+    if times.is_empty() {
+        return Ok(());
+    }
+    match triggers::find(tx, id).await? {
+        Some(trigger) => activity::time_missed(tx, &trigger, times).await,
+        None => Ok(()),
+    }
+}
+
 /// Returns the next time after now of a schedule in the time zone of a workspace.
 pub(crate) async fn next_in(
     tx: &mut Tx<'_>,
@@ -168,9 +184,10 @@ pub(crate) fn spawn(vcs: IntegrationContext) -> JoinHandle<()> {
 
 /// Fires the cron triggers that are due, one time each at their due time, and returns their
 /// count. Each trigger gets its next time in the same transaction, so a second server skips it.
-/// A missed time does not fire later: the history records it as missed. A trigger of an archived
-/// pipeline, or of a file pipeline whose file left the default branch, gets its next time and
-/// does not fire. A file pipeline runs its file at the head of the default branch.
+/// A missed time does not fire later: the history records it as missed, and the activity feed
+/// records one row for the missed times of a trigger. A trigger of an archived pipeline, or of a
+/// file pipeline whose file left the default branch, gets its next time and does not fire. A file
+/// pipeline runs its file at the head of the default branch.
 pub(crate) async fn tick(vcs: &IntegrationContext) -> Result<usize, Error> {
     // Take the due triggers, move each to its next time, and record the times that it missed.
     let now = OffsetDateTime::now_utc();
@@ -182,6 +199,7 @@ pub(crate) async fn tick(vcs: &IntegrationContext) -> Result<usize, Error> {
         if trigger.active {
             let times = missed(&trigger.schedule, trigger.zone, trigger.due_at, now);
             fires::insert_missed(&mut tx, trigger.id, &times).await?;
+            record_missed(&mut tx, trigger.id, &times).await?;
         }
     }
     deliveries::purge(&mut tx, now - DELIVERY_RETENTION).await?;

@@ -1,7 +1,7 @@
 //! The fire of a trigger: a job of its pipeline with its inputs, as the runner of the triggers
-//! of its workspace, and the record of the result on the trigger and in the history of its fires.
-//! A file pipeline runs its file at the head of the default branch, and a Git trigger runs its
-//! pipeline on that head.
+//! of its workspace, and the record of the result on the trigger, in the history of its fires
+//! and, for a failure, in the activity feed. A file pipeline runs its file at the head of the
+//! default branch, and a Git trigger runs its pipeline on that head.
 
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::integrations::sources::SourceEvent;
@@ -17,6 +17,7 @@ use time::OffsetDateTime;
 
 use super::store::fires::{self, NewFire};
 use super::store::{runners, triggers};
+use crate::features::activity;
 use crate::features::identity::actors;
 use crate::features::integrations::{files, IntegrationContext};
 use crate::features::projects::jobs::runs;
@@ -106,6 +107,9 @@ pub(crate) async fn fire(
         .await
         .map_err(Error::from)?;
     fires::insert(&mut tx, fire).await.map_err(Error::from)?;
+    if let FireResult::Error(reason) = &record {
+        activity::fire_failed(&mut tx, trigger, reason).await?;
+    }
     tx.commit().await.map_err(Error::from)?;
     match &result {
         Ok(job) => tracing::info!(event = "trigger.fired", trigger = %trigger.id, job = %job.id),

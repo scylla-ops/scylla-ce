@@ -3,6 +3,7 @@
 //! the lost agents, of the old logs and of the old samples of the agents.
 
 mod approval;
+mod changed;
 pub(crate) mod commits;
 pub(crate) mod convert;
 mod env;

@@ -166,7 +166,7 @@ impl ConnectionsGrpc {
         let id = parse::required(request.into_inner().connection_id, "connection_id")?;
         let permission = VcsConnectionHolder::DELETE_VCS_CONNECTION;
         let found = self.authorize_on(&caller, permission, id).await?;
-        service::delete(&self.ctx, &found).await?;
+        service::delete(&self.ctx, &found, caller.actor.id).await?;
         Ok(pb::DeleteVcsConnectionResponse {})
     }
 

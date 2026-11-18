@@ -1,6 +1,7 @@
 //! The logic of the Apps: one transaction for each call. A delete or a key revocation also
 //! closes the stream of the agent.
 
+use scylla_domain::activity::Kind;
 use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::apps::{
@@ -14,6 +15,7 @@ use time::{Duration, OffsetDateTime};
 
 use super::assertion;
 use super::store::{apps, codes, keys};
+use crate::features::activity;
 use crate::features::identity::actors;
 use crate::features::identity::agents::Registry;
 use crate::features::identity::api_tokens;
@@ -250,6 +252,18 @@ pub(crate) async fn capacity(
 pub(crate) async fn touch(pool: &PgPool, id: AppId) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     apps::touch(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Sets the last seen time of an agent to now, and records the stream that opened or ended in the
+/// activity feed. A deleted App records nothing.
+pub(crate) async fn stream_changed(pool: &PgPool, id: AppId, kind: Kind) -> Result<(), Error> {
+    let mut tx = pool.begin().await?;
+    apps::touch(&mut tx, id).await?;
+    if let Some(app) = apps::find(&mut tx, id).await? {
+        activity::agent(&mut tx, kind, &app).await?;
+    }
     tx.commit().await?;
     Ok(())
 }

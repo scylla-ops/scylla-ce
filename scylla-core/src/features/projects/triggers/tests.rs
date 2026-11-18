@@ -110,7 +110,8 @@ fn a_wall_time_that_winter_time_repeats_fires_one_time() {
 }
 
 /// A due trigger fires one time with the origin `cron` and gets its next time. The history keeps
-/// the fire and the cron time that the loop missed. A stopped trigger does not fire.
+/// the fire and the cron time that the loop missed, and the activity feed gets one row for the
+/// missed time. A stopped trigger does not fire.
 #[sqlx::test(migrator = "crate::infra::db::MIGRATOR")]
 async fn tick_fires_the_due_triggers(pool: PgPool) {
     // given
@@ -170,6 +171,18 @@ async fn tick_fires_the_due_triggers(pool: PgPool) {
         .collect();
     let row = |status: &str, job| ("schedule".to_owned(), status.to_owned(), job);
     assert_eq!(fires, vec![row("ok", true), row("missed", false)]);
+    let missed = sqlx::query!(
+        r#"SELECT params->>'name' AS "name!", params->>'count' AS "count!" FROM activity
+           WHERE kind = 'trigger.time_missed' AND area = 'triggers'"#
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let missed: Vec<_> = missed
+        .into_iter()
+        .map(|row| (row.name, row.count))
+        .collect();
+    assert_eq!(missed, vec![("due".to_owned(), "1".to_owned())]);
 }
 
 /// A due trigger of an archived pipeline does not fire, and it gets its next time.

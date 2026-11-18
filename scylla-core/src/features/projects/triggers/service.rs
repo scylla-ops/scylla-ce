@@ -1,5 +1,7 @@
 //! The logic of the triggers that people call: one transaction for each call.
 
+use scylla_domain::activity::Kind;
+use scylla_domain::identity::actors::ActorId;
 use scylla_domain::projects::git_rules::GitRules;
 use scylla_domain::projects::pipelines::PipelineId;
 use scylla_domain::projects::triggers::{
@@ -13,6 +15,7 @@ use sqlx::PgPool;
 
 use super::schedule;
 use super::store::{deliveries, files, triggers};
+use crate::features::activity;
 use crate::infra::secret::{self, Sealer};
 use crate::Error;
 
@@ -55,6 +58,8 @@ pub(crate) async fn create(
     let trigger = triggers::insert(&mut tx, id, &new, sealed, next)
         .await?
         .ok_or(Error::NotFound("pipeline"))?;
+    let actor = trigger.created_by;
+    activity::trigger(&mut tx, Kind::TriggerCreated, &trigger, actor).await?;
     tx.commit().await?;
     tracing::info!(event = "trigger.created", trigger = %trigger.id, pipeline = %trigger.pipeline_id);
     Ok((trigger, secret))
@@ -97,13 +102,14 @@ pub(crate) async fn list(pool: &PgPool, query: ListTriggers) -> Result<TriggerPa
     Ok(page)
 }
 
-/// Changes the name, the schedule, the rule or the inputs of a trigger. A schedule of another
-/// kind than cron, or a rule of another kind than the kind of the trigger, gives
+/// Changes the name, the schedule, the rule or the inputs of a trigger for an actor. A schedule of
+/// another kind than cron, or a rule of another kind than the kind of the trigger, gives
 /// `INVALID_ARGUMENT`.
 pub(crate) async fn update(
     pool: &PgPool,
     id: TriggerId,
     change: TriggerChange,
+    actor: ActorId,
 ) -> Result<Trigger, Error> {
     let mut tx = pool.begin().await?;
     let mut trigger = triggers::find(&mut tx, id)
@@ -136,15 +142,18 @@ pub(crate) async fn update(
         trigger.inputs = inputs.as_slice().to_vec();
     }
     triggers::save(&mut tx, &trigger).await?;
+    activity::trigger(&mut tx, Kind::TriggerUpdated, &trigger, actor).await?;
     tx.commit().await?;
     get(pool, id).await?.ok_or(Error::NotFound("trigger"))
 }
 
-/// Starts or stops a trigger. A schedule that starts again gets its next time after now.
+/// Starts or stops a trigger for an actor. A schedule that starts again gets its next time after
+/// now.
 pub(crate) async fn set_enabled(
     pool: &PgPool,
     id: TriggerId,
     enabled: bool,
+    actor: ActorId,
 ) -> Result<Trigger, Error> {
     let mut tx = pool.begin().await?;
     let mut trigger = triggers::find(&mut tx, id)
@@ -156,17 +165,26 @@ pub(crate) async fn set_enabled(
             trigger.next_fire_at = schedule::next_in(&mut tx, trigger.workspace_id, text).await?;
         }
         triggers::save(&mut tx, &trigger).await?;
+        let kind = match enabled {
+            true => Kind::TriggerEnabled,
+            false => Kind::TriggerDisabled,
+        };
+        activity::trigger(&mut tx, kind, &trigger, actor).await?;
     }
     tx.commit().await?;
     get(pool, id).await?.ok_or(Error::NotFound("trigger"))
 }
 
-/// Deletes a trigger. Its jobs stay.
-pub(crate) async fn delete(pool: &PgPool, id: TriggerId) -> Result<(), Error> {
+/// Deletes a trigger for an actor. Its jobs stay.
+pub(crate) async fn delete(pool: &PgPool, id: TriggerId, actor: ActorId) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
+    let trigger = triggers::find(&mut tx, id)
+        .await?
+        .ok_or(Error::NotFound("trigger"))?;
     if !triggers::delete(&mut tx, id).await? {
         return Err(Error::NotFound("trigger"));
     }
+    activity::trigger(&mut tx, Kind::TriggerDeleted, &trigger, actor).await?;
     tx.commit().await?;
     tracing::info!(event = "trigger.deleted", trigger = %id);
     Ok(())

@@ -1,7 +1,7 @@
 //! The logic of the jobs that the agents call on their stream: the placement of a job with the
 //! values of its secrets, the events, the logs of the nodes and of the checkout, and the check of
-//! the jobs after a new stream. Each change of the state of a job records it for the reports, in
-//! its transaction.
+//! the jobs after a new stream. Each change of the state of a job records it for the reports and,
+//! at its end, for the activity feed, in its transaction.
 
 use std::collections::HashMap;
 
@@ -12,9 +12,9 @@ use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::DomainError;
 use sqlx::PgPool;
 
+use super::changed;
 use super::env::{self, ResolvedEnv};
 use super::store::{holds, jobs, logs};
-use crate::features::integrations::reports;
 use crate::infra::secret::Sealer;
 use crate::Error;
 
@@ -74,7 +74,7 @@ pub(crate) async fn claim(
         let mut tx = pool.begin().await?;
         let job = jobs::claim(&mut tx, workspace, projects, agent, containers, checkout).await?;
         if let Some(job) = &job {
-            reports::job_changed(&mut tx, job).await?;
+            changed::job_changed(&mut tx, job).await?;
         }
         tx.commit().await?;
         let Some(job) = job else {
@@ -95,7 +95,7 @@ pub(crate) async fn fail(pool: &PgPool, id: JobId, reason: &str) -> Result<(), E
     if let Some(mut job) = jobs::find(&mut tx, id, true).await? {
         if job.end(JobStatus::Failed, Some(reason), now()) {
             jobs::save(&mut tx, &mut job).await?;
-            reports::job_changed(&mut tx, &job).await?;
+            changed::job_changed(&mut tx, &job).await?;
         }
     }
     tx.commit().await?;
@@ -131,7 +131,7 @@ pub(crate) async fn apply(
         Err(error) => return Err(Error::Internal(error.to_string())),
     }
     jobs::save(&mut tx, &mut job).await?;
-    reports::job_changed(&mut tx, &job).await?;
+    changed::job_changed(&mut tx, &job).await?;
     tx.commit().await?;
     if job.status.is_final() {
         let status = job.status.as_str();
@@ -232,7 +232,7 @@ pub(crate) async fn release(
         _ => return Ok(false),
     };
     jobs::save(tx, &mut job).await?;
-    reports::job_changed(tx, &job).await?;
+    changed::job_changed(tx, &job).await?;
     Ok(pooled)
 }
 

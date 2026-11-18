@@ -1,5 +1,14 @@
 //! The generated code of `proto/`. Docs come from the proto comments, which the lint of `scylla-protos` checks.
 
+/// The activity API: the feed of the changes of a workspace.
+pub mod activity {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.activity.v1");
+    }
+}
+
 /// The capabilities API.
 pub mod capabilities {
     /// Version 1.

@@ -1,5 +1,5 @@
-//! The background task of the jobs: the jobs of the agents that went away, the old logs, and the
-//! old samples of the machines of the agents.
+//! The background task of the jobs: the jobs of the agents that went away, the old logs, the old
+//! samples of the machines of the agents, and the old rows of the activity feed.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,6 +10,7 @@ use tokio::task::JoinHandle;
 
 use super::runs;
 use super::store::{holds, logs};
+use crate::features::activity;
 use crate::features::identity::agents::{self, Registry};
 use crate::Error;
 
@@ -20,7 +21,8 @@ const TICK: Duration = Duration::from_secs(30);
 pub(crate) const GRACE: Duration = Duration::from_secs(60);
 
 /// Starts the task: each 30 seconds, it releases the jobs of the agents that went away, deletes
-/// the logs older than `retention`, and deletes the samples of the agents of more than 7 days.
+/// the logs older than `retention`, the samples of the agents of more than 7 days and the rows
+/// of the activity feed of more than 30 days.
 pub(crate) fn spawn(pool: PgPool, registry: Arc<Registry>, retention: Duration) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticks = tokio::time::interval_at(tokio::time::Instant::now() + TICK, TICK);
@@ -34,6 +36,9 @@ pub(crate) fn spawn(pool: PgPool, registry: Arc<Registry>, retention: Duration) 
             }
             if let Err(error) = agents::purge_samples(&pool).await {
                 tracing::warn!(%error, "the old samples of the agents stay");
+            }
+            if let Err(error) = activity::purge(&pool).await {
+                tracing::warn!(%error, "the old rows of the activity stay");
             }
         }
     })

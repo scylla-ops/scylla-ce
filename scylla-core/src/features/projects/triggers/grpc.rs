@@ -125,7 +125,7 @@ impl TriggerService for TriggersGrpc {
         };
 
         // Change the trigger.
-        let trigger = service::update(&self.pool, id, change).await?;
+        let trigger = service::update(&self.pool, id, change, caller.actor.id).await?;
         Ok(Response::new(pb::UpdateTriggerResponse {
             trigger: Some(trigger.to_proto()),
         }))
@@ -140,7 +140,7 @@ impl TriggerService for TriggersGrpc {
         let id = self
             .trigger_of(&caller, request.into_inner().trigger_id, permission)
             .await?;
-        service::delete(&self.pool, id).await?;
+        service::delete(&self.pool, id, caller.actor.id).await?;
         Ok(Response::new(pb::DeleteTriggerResponse {}))
     }
 
@@ -180,7 +180,8 @@ impl TriggerService for TriggersGrpc {
         let id = self
             .trigger_of(&caller, request.trigger_id, permission)
             .await?;
-        let trigger = service::set_enabled(&self.pool, id, request.enabled).await?;
+        let enabled = request.enabled;
+        let trigger = service::set_enabled(&self.pool, id, enabled, caller.actor.id).await?;
         Ok(Response::new(pb::SetTriggerEnabledResponse {
             trigger: Some(trigger.to_proto()),
         }))

@@ -1,6 +1,7 @@
 //! The test kit: the real server of an edition, with a real gate, a mailbox, a capture of the
 //! log lines, a fake Git provider, and helpers for the core RPCs, grouped by subject.
 
+mod activity;
 mod app;
 mod identity;
 mod integrations;

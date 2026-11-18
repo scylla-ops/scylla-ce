@@ -276,6 +276,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   connected for more than 5 minutes, and a job that waits for an approval. No person can dismiss an
   item. Each caller gets only the kinds that it can read, in the projects that it can see, with the
   counts of each kind. No migration changes.
+- The activity feed of a workspace: each change records its row in its transaction (the end of a
+  job, a trigger, a secret, a member, a Git connection, the stream of an agent), and `ListActivity`
+  shows each row only to the readers of its area. The server deletes a row after 30 days.
 
 ### Removed
 

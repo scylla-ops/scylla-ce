@@ -1,5 +1,6 @@
 //! Unit tests of the permission model: the schema of the parts, and the typed values.
 
+use crate::activity::ActivityCaller;
 use crate::authz::{Model, Schema, SchemaError};
 use crate::identity::actors::{Actor, ActorId};
 use crate::identity::agents::{AgentAccess, AgentCaller, AgentHolder};
@@ -55,6 +56,7 @@ fn core() -> Schema {
         UserStateCaller::part(),
         DashboardHolder::part(),
         DashboardCaller::part(),
+        ActivityCaller::part(),
         VcsConnectionHolder::part(),
         RepositoryAccess::part(),
         RepositoryHolder::part(),

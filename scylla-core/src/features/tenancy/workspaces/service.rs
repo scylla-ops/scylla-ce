@@ -1,5 +1,6 @@
 //! The logic of the workspaces: one transaction for each call.
 
+use scylla_domain::activity::{Kind, Place};
 use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::tenancy::grants::{MEMBER_KIND, OWNER};
@@ -13,6 +14,7 @@ use scylla_extension::{CreateContext, Gate, Hooks, Rejection, Tx, WorkspaceFutur
 use sqlx::PgPool;
 
 use super::store;
+use crate::features::activity;
 use crate::features::notifications::{self, kinds};
 use crate::features::platform::settings;
 use crate::features::projects::triggers::schedule;
@@ -158,6 +160,8 @@ pub(crate) async fn give_owner(
             .actor(by)
             .workspace(workspace);
         notifications::emit(&mut tx, fact).await?;
+        let (kind, place) = (Kind::MemberRoleGranted, Place::Workspace(workspace));
+        activity::role(&mut tx, kind, place, (user, OWNER), by).await?;
     }
     tx.commit().await?;
     Ok(())
@@ -196,6 +200,8 @@ pub(crate) async fn take_owner(
             .actor(by)
             .workspace(workspace);
         notifications::emit(&mut tx, fact).await?;
+        let (kind, place) = (Kind::MemberRoleRevoked, Place::Workspace(workspace));
+        activity::role(&mut tx, kind, place, (user, OWNER), by).await?;
     }
     tx.commit().await?;
     Ok(())

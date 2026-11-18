@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use scylla_domain::activity::Kind;
 use scylla_domain::identity::agents::{AgentCaller, Sample};
 use scylla_domain::identity::apps::{App, AppId};
 use scylla_domain::projects::jobs::RunScope;
@@ -75,12 +76,11 @@ impl Stream {
                     checkout: self.checkout,
                 };
                 let ticket = self.registry.open(self.app, workspace, features);
+                self.record(Kind::AgentConnected).await;
                 tracing::info!(event = "agent.connected", app = %self.app);
                 let ending = self.serve(&mut inbound, &out, ticket.commands).await;
                 self.registry.close(self.app, ticket.number);
-                if let Err(error) = apps::touch(&self.pool, self.app).await {
-                    tracing::warn!(%error, app = %self.app, "the last seen time did not change");
-                }
+                self.record(Kind::AgentDisconnected).await;
                 tracing::info!(event = "agent.disconnected", app = %self.app);
                 ending
             }
@@ -90,6 +90,15 @@ impl Stream {
         // Send the status of the end, if the agent did not close the stream itself.
         if let Some(status) = ending {
             let _ = out.send(Err(status)).await;
+        }
+    }
+
+    /// Sets the last seen time of the agent, and records its stream that opened or ended in the
+    /// activity feed. A failure goes to the log only.
+    async fn record(&self, kind: Kind) {
+        if let Err(error) = apps::stream_changed(&self.pool, self.app, kind).await {
+            let kind = kind.as_str();
+            tracing::warn!(%error, app = %self.app, kind, "the activity of the agent did not change");
         }
     }
 

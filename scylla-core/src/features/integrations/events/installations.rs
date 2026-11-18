@@ -1,20 +1,22 @@
 //! The changes of an installation of the GitHub App that GitHub tells: an uninstall, a suspend
 //! and its end, new permissions, and the repositories that the installation sees. They change
 //! the connections of the installation and their links. The owners and the admins of a
-//! workspace get a notice when its connection stops.
+//! workspace get a notice when its connection stops, and the activity feed gets a row.
 
 use std::collections::BTreeMap;
 
+use scylla_domain::activity::Kind;
 use scylla_domain::integrations::apps::VcsAppId;
 use scylla_domain::integrations::connections::ConnectionState;
 use scylla_domain::projects::ProjectId;
 use scylla_extension::Tx;
 
+use crate::features::activity;
 use crate::features::integrations::connections::checks;
+use crate::features::integrations::connections::store::health::Changed;
 use crate::features::integrations::connections::store::installations::{self, StateChange};
 use crate::features::integrations::reports::notices;
 use crate::features::integrations::IntegrationContext;
-use crate::features::notifications;
 use crate::Error;
 
 /// The reason of a connection whose App was uninstalled.
@@ -80,7 +82,11 @@ pub(super) async fn apply(
             removed,
         } => {
             let counts = (added.len(), removed.len());
-            installations::set_repositories(&mut tx, app, installation, *all, counts).await?;
+            let connections =
+                installations::set_repositories(&mut tx, app, installation, *all, counts).await?;
+            for connection in &connections {
+                repositories_changed(&mut tx, connection, counts).await?;
+            }
             let (stopped, restored) =
                 installations::set_visible(&mut tx, app, installation, added, removed).await?;
             log_links(installation, &stopped, &restored);
@@ -93,8 +99,7 @@ pub(super) async fn apply(
     let (state, reason) = target;
     if state != ConnectionState::Active {
         for change in &changed {
-            let notice = notices::broken(&change.changed, reason.unwrap_or_default());
-            notifications::emit(&mut tx, notice).await?;
+            notices::record_broken(&mut tx, &change.changed, reason.unwrap_or_default()).await?;
         }
     }
     tx.commit().await?;
@@ -160,6 +165,21 @@ async fn connections(
     // Move the connections.
     let changed = installations::set_state(tx, app, installation, target, &from).await?;
     Ok((changed, target))
+}
+
+/// Records a connection whose repositories changed in the activity feed, with the number of
+/// repositories added and removed.
+async fn repositories_changed(
+    tx: &mut Tx<'_>,
+    connection: &Changed,
+    (added, removed): (usize, usize),
+) -> Result<(), Error> {
+    let ids = (connection.id, connection.workspace);
+    let names = (connection.provider.as_str(), connection.account.as_str());
+    let row = activity::connection(Kind::ConnectionRepositoriesChanged, ids, names)
+        .param("added", added.to_string())
+        .param("removed", removed.to_string());
+    activity::record(tx, row).await
 }
 
 /// Logs the links whose repository the installation stopped or started to see.

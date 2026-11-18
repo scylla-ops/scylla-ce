@@ -11,7 +11,7 @@ use scylla_proto::agents::v1::open_stream_request::Message as Up;
 use scylla_proto::agents::v1::open_stream_response::Message as Down;
 use scylla_proto::agents::v1::{Hello, OpenStreamRequest, OpenStreamResponse, Renew};
 use scylla_proto::apps::v1::Host;
-use scylla_testkit::TestApp;
+use scylla_testkit::{text, TestApp};
 use sqlx::PgPool;
 use tokio::time::timeout;
 use tonic::{Code, Status, Streaming};
@@ -228,4 +228,34 @@ async fn the_server_stops_a_stream(pool: PgPool) {
     assert_code(replaced, Code::Aborted);
     assert_code(revoked, Code::Aborted);
     assert_code(deleted, Code::Aborted);
+}
+
+/// The open and the end of a stream give the rows `agent.connected` and `agent.disconnected` of
+/// the activity feed, as the agent, with its name, its slots and the person that added it.
+#[sqlx::test(migrations = false)]
+async fn open_stream_records_the_activity_of_the_agent(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let user = app.user().await;
+    let workspace = app.workspace_of(user).await.to_string();
+
+    // when
+    let (key, sender, stream) = connected(&app, user).await;
+    let open = app.wait_for_activity(user, &workspace, 1).await;
+    drop((sender, stream));
+    let rows = app.wait_for_activity(user, &workspace, 2).await;
+
+    // then
+    assert_eq!(open.len(), 1);
+    let kinds: Vec<&str> = rows.iter().map(|row| row.kind.as_str()).collect();
+    assert_eq!(kinds, ["agent.disconnected", "agent.connected"]);
+    let started = &rows[1];
+    assert_eq!(started.area, "agents");
+    assert_eq!(started.subject_kind, "app");
+    assert_eq!(text(&started.subject_id), key.app);
+    assert_eq!(text(&started.actor_id), key.actor().to_string());
+    assert_eq!(started.actor_name, started.params["name"]);
+    assert_eq!(started.params["slots"], "1");
+    assert_eq!(started.params["added_by"], "Test User");
+    assert_eq!(rows[0].params.len(), 1);
 }

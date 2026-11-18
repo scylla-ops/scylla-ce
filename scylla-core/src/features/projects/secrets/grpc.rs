@@ -107,7 +107,8 @@ impl SecretsGrpc {
         // Check the route permission, then seal the new value.
         self.authorize_on(&caller, Project::UPDATE_SECRET, id)
             .await?;
-        let secret = service::update(&self.pool, self.sealer.as_deref(), id, value).await?;
+        let sealer = self.sealer.as_deref();
+        let secret = service::update(&self.pool, sealer, id, value, caller.actor.id).await?;
         Ok(pb::UpdateSecretResponse {
             secret: Some(secret.to_proto()),
         })
@@ -125,7 +126,7 @@ impl SecretsGrpc {
         // Check the route permission, then delete the secret.
         self.authorize_on(&caller, Project::DELETE_SECRET, id)
             .await?;
-        service::delete(&self.pool, id).await?;
+        service::delete(&self.pool, id, caller.actor.id).await?;
         Ok(pb::DeleteSecretResponse {})
     }
 

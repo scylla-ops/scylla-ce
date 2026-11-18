@@ -26,5 +26,5 @@ mod slots;
 mod stats;
 mod trigger_fires;
 mod trigger_lists;
-mod triggers;
+pub(crate) mod triggers;
 mod updates;

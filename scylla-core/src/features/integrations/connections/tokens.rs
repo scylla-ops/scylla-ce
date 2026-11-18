@@ -1,6 +1,7 @@
 //! The GitLab connections: the check of the token of a service account (its scopes, its expiry,
 //! its account and its projects), then the token sealed with the id of its connection.
 
+use scylla_domain::activity::Kind;
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::integrations::connections::{
     AccountKind, ConnectionState, VcsConnection, VcsConnectionId,
@@ -14,6 +15,7 @@ use super::calls::gitlab::{self, GitLabUser};
 use super::checks;
 use super::credentials;
 use super::store::{self, Counted, Token};
+use crate::features::activity;
 use crate::features::integrations::IntegrationContext;
 use crate::infra::vcs::{Hidden, ProviderError};
 use crate::Error;
@@ -55,6 +57,9 @@ pub(super) async fn connect(
     let mut tx = ctx.pool.begin().await?;
     store::insert_token(&mut tx, id, workspace, caller, &values).await?;
     let counted = store::find(&mut tx, id).await?;
+    let names = (VcsProvider::GitLab.as_str(), checked.user.username.as_str());
+    let row = activity::connection(Kind::ConnectionConnected, (id, workspace), names);
+    activity::record(&mut tx, row.actor(caller)).await?;
     tx.commit().await?;
     let counted = counted.ok_or(Error::NotFound("connection"))?;
     tracing::info!(

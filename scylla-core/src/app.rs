@@ -10,6 +10,7 @@ use scylla_domain::integrations::links::{RepositoryAccess, RepositoryHolder};
 use scylla_domain::platform::{Platform, SettingsHolder};
 use scylla_extension::{Edition, EditionBuilder};
 
+use crate::features::activity::Activities;
 use crate::features::identity::apps::Apps;
 use crate::features::identity::user_state::UserState;
 use crate::features::integrations::Integrations;
@@ -46,6 +47,7 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .plugin(Notifications)
         .plugin(UserState)
         .plugin(Dashboards)
+        .plugin(Activities)
         .authz::<VcsAppHolder>()
         .authz::<VcsConnectionHolder>()
         .authz::<RepositoryAccess>()
