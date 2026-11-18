@@ -131,15 +131,19 @@ CREATE UNIQUE INDEX merge_blocks_target_idx ON merge_blocks (project_id, pipelin
 CREATE INDEX merge_blocks_pipeline_id_idx ON merge_blocks (pipeline_id);
 CREATE INDEX merge_blocks_updated_by_idx ON merge_blocks (updated_by);
 
--- The deliveries of the webhooks and the keys of the polls, so a second delivery does nothing.
+-- The deliveries of the webhooks and the keys of the polls, so a second delivery does nothing,
+-- with the GitHub installation, the repository and the ref of the delivery for its counts.
 CREATE TABLE vcs_deliveries (
     provider text NOT NULL CHECK (provider IN ('github', 'gitlab')),
     delivery_id text NOT NULL,
     app_id uuid REFERENCES vcs_apps (id) ON DELETE CASCADE,
     connection_id uuid REFERENCES vcs_connections (id) ON DELETE SET NULL,
     project_id uuid REFERENCES projects (id) ON DELETE SET NULL,
+    installation text,
     event text NOT NULL,
     action text,
+    repository text,
+    ref text,
     status integer CHECK (status BETWEEN 100 AND 599),
     received_at timestamptz NOT NULL DEFAULT now(),
     processed_at timestamptz,
@@ -149,7 +153,8 @@ CREATE TABLE vcs_deliveries (
 
 CREATE INDEX vcs_deliveries_received_at_idx ON vcs_deliveries (received_at);
 CREATE INDEX vcs_deliveries_app_id_idx ON vcs_deliveries (app_id, received_at);
-CREATE INDEX vcs_deliveries_connection_id_idx ON vcs_deliveries (connection_id);
+CREATE INDEX vcs_deliveries_connection_id_idx ON vcs_deliveries (connection_id, received_at);
+CREATE INDEX vcs_deliveries_installation_idx ON vcs_deliveries (installation, received_at);
 CREATE INDEX vcs_deliveries_project_id_idx ON vcs_deliveries (project_id);
 
 -- The last head that a poll saw on a ref of a linked repository, with the cursor of the provider.

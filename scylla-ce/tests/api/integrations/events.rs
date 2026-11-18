@@ -1,7 +1,9 @@
 //! The tests of the webhooks of the providers: the signatures, the deliveries kept one time, the
-//! arrival of a webhook, the changes of the installations of the GitHub App, and the test of the
-//! webhook of a link.
+//! arrival of a webhook, the changes of the installations of the GitHub App, the test of the
+//! webhook of a link, and the counts of the deliveries.
 
+mod delivery_queries;
+mod delivery_stats;
 mod github;
 mod gitlab;
 mod installations;

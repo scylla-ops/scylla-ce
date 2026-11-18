@@ -1,5 +1,5 @@
 //! The cleanup of the deliveries: a minute after the start, then each hour, a task deletes the
-//! deliveries of the webhooks and the keys of the polls of more than 7 days.
+//! deliveries of the webhooks and the keys of the polls of more than 30 days.
 
 use std::time::Duration;
 
@@ -32,7 +32,7 @@ pub(super) fn spawn(ctx: IntegrationContext) -> JoinHandle<()> {
     tokio::spawn(task.in_current_span())
 }
 
-/// Deletes the deliveries of more than 7 days.
+/// Deletes the deliveries of more than 30 days.
 async fn prune(ctx: &IntegrationContext) -> Result<(), Error> {
     let mut tx = ctx.pool.begin().await?;
     let deleted = store::prune(&mut tx).await?;

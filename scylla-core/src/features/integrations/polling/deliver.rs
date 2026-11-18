@@ -59,14 +59,21 @@ pub(super) async fn deliver(
     };
 
     // Keep its key one time, and run it for each link of the repository.
+    let installation = match provider {
+        VcsProvider::GitHub => Some(connection.external_id.as_str()),
+        VcsProvider::GitLab => None,
+    };
     let delivery = Delivery {
         provider,
         key: &key,
         app: connection.app_id,
         connection: Some(connection.id),
         project: Some(link.project_id),
+        installation,
         event,
         action: name,
+        repository: Some(&link.full_name),
+        git_ref: Some(&git_ref),
     };
     let scope = match provider {
         VcsProvider::GitHub => Scope::GitHub {

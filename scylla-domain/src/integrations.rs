@@ -5,6 +5,7 @@
 pub mod apps;
 pub mod checkout;
 pub mod connections;
+pub mod deliveries;
 pub mod events;
 pub mod links;
 pub mod merge_blocks;

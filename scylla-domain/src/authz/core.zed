@@ -126,6 +126,7 @@ definition workspace {
     permission connect_git_lab = manage
     permission replace_git_lab_token = manage
     permission delete_vcs_connection = manage
+    permission get_delivery_stats = read
     permission get_repository_link = read
     permission list_refs = read
     permission list_merge_blocks = read

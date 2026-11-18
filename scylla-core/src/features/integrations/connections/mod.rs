@@ -1,6 +1,6 @@
 //! The GitHub and GitLab connections of a workspace: `VcsConnectionService`, the install of the
-//! GitHub App, the token of a GitLab service account, and the credentials that the other parts
-//! of the integration use.
+//! GitHub App, the token of a GitLab service account, the counts of the webhook deliveries, and
+//! the credentials that the other parts of the integration use.
 
 pub(crate) mod calls;
 pub(crate) mod checks;
@@ -13,6 +13,8 @@ mod redirects;
 mod repositories;
 mod service;
 mod setup_grpc;
+mod stats;
+mod stats_grpc;
 pub(crate) mod store;
 mod tokens;
 

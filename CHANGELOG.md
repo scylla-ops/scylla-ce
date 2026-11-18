@@ -265,6 +265,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `ListWorkspaceTriggers`, `ListTriggerFires` and `GetTriggerFireStats` give them to the dashboard,
   with the new catalog permission `triggers.view`. A cron schedule now uses the time zone of the
   workspace, and a change of the zone moves the next fires.
+- `GetDeliveryStats` gives the counts of the webhook deliveries of a workspace to the dashboard: for
+  each connection with its newest event, repository and ref, for each webhook trigger (from
+  `trigger_fires`), and by hour, day or week in the time zone of the workspace. It uses the catalog
+  permission `integrations.view`. A delivery in `vcs_deliveries` keeps its GitHub installation, its
+  repository and its ref, and the server keeps these deliveries for 30 days, not 7.
 
 ### Removed
 

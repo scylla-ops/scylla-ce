@@ -56,6 +56,7 @@ pub(super) const WORKSPACE: &[Area] = &[Area {
                 Route::of(VcsConnectionHolder::GET_VCS_PROVIDERS),
                 Route::of(VcsConnectionHolder::LIST_VCS_CONNECTIONS),
                 Route::of(VcsConnectionHolder::GET_VCS_CONNECTION),
+                Route::of(VcsConnectionHolder::GET_DELIVERY_STATS),
             ],
         ),
         cell(
