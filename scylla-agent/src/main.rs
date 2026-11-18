@@ -18,7 +18,7 @@ use scylla_agent::{AgentError, Settings};
 
 /// The command line of `scylla-agent`.
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version = scylla_proto::version::text(), about)]
 struct Cli {
     /// The file of the agent: its App and its private key.
     #[arg(

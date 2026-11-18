@@ -6,8 +6,8 @@ use sqlx::PgPool;
 
 use crate::app;
 
-/// The Community edition reports its name, no optional feature, its version and the image of the
-/// agent of this version.
+/// The Community edition reports its name, no optional feature, the version text of its build and
+/// the image of the agent of the bare version.
 #[sqlx::test(migrations = false)]
 async fn get_capabilities_reports_the_community_edition(pool: PgPool) {
     // given
@@ -19,7 +19,7 @@ async fn get_capabilities_reports_the_community_edition(pool: PgPool) {
     // then
     assert_eq!(response.edition, "community");
     assert!(response.capabilities.is_empty());
-    assert_eq!(response.version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(response.version, scylla_proto::version::text());
     assert_eq!(
         response.agent_image,
         format!(

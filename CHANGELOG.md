@@ -335,3 +335,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   job that waits for an agent with `checkout` names the online agents that cannot get its code:
   update the agent, or install Git. The install scripts read `scylla-agent --protocol` after the
   download.
+- A build that is not a release now shows its commit in its version, for example
+  `0.7.0-rc.1+240da00`, or `0.7.0-rc.1+dev` when it has no commit. This applies to `--version` of
+  the server and of the agent, to the hello of the agent and to `GetCapabilities`. The release
+  workflow sets `SCYLLA_RELEASE=true` and `SCYLLA_BUILD`, which replaces `SCYLLA_AGENT_BUILD`. The
+  downloads and the image of the agent keep the bare version.

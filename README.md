@@ -21,7 +21,7 @@ scylla-testkit (tests only) ──▶ scylla-core
 | `scylla-macros` | `authz!`: the permission model in the SpiceDB schema language |
 | `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, the platform, actors, users and handles, slugs, instance admins, workspaces, Apps and agents, projects and their secrets, pages |
 | `scylla-extension` | the contract: `Edition`, `Plugin`, hooks, `Gate` |
-| `scylla-proto` | generated code of `proto/`, the submodule `scylla-protos` |
+| `scylla-proto` | generated code of `proto/`, the submodule `scylla-protos`, and the version text of a build (`version`) |
 | `scylla-ce` | the binary. It holds the build of `web/`, the submodule `scylla-web` |
 | `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, Apps, agents, tokens, projects, secrets, grants, capabilities, the GitHub and GitLab integration), mails, logs, the clients of the Git providers, the guard against the public dev keys, server, CLI |
 | `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC, a capture of the log lines, a fake Git provider and the rows of the Git integration |

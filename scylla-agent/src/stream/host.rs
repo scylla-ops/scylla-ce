@@ -3,17 +3,12 @@
 use std::time::SystemTime;
 
 use scylla_proto::apps::v1::Host;
+use scylla_proto::version;
 
 use super::machine::Machine;
 use super::protocol::AGENT_PROTOCOL;
 use crate::agent::Settings;
 use crate::jobs::{features, Git};
-
-/// The commit of this build, from `SCYLLA_AGENT_BUILD` at the build, or empty.
-const BUILD: &str = match option_env!("SCYLLA_AGENT_BUILD") {
-    Some(build) => build,
-    None => "",
-};
 
 /// Reads the facts of the machine, the features of the git that it has, and the start of the
 /// agent.
@@ -28,7 +23,7 @@ pub(super) fn host(
         .map(|count| count.get() as u32)
         .unwrap_or(1);
     Host {
-        version: env!("CARGO_PKG_VERSION").to_owned(),
+        version: version::text().to_owned(),
         os: std::env::consts::OS.to_owned(),
         arch: std::env::consts::ARCH.to_owned(),
         hostname,
@@ -38,7 +33,7 @@ pub(super) fn host(
         container_runtime: settings.container_runtime.clone().unwrap_or_default(),
         features: features(git),
         protocol: AGENT_PROTOCOL,
-        build: BUILD.to_owned(),
+        build: version::BUILD.to_owned(),
         started_at: Some(started_at.into()),
     }
 }

@@ -50,7 +50,8 @@ jobs:
       - name: build
         shell: bash
         env:
-          SCYLLA_AGENT_BUILD: ${{ github.sha }}
+          SCYLLA_BUILD: ${{ github.sha }}
+          SCYLLA_RELEASE: "true"
         run: |
           build=build
           if [ "${{ matrix.zig }}" = true ]; then build=zigbuild; fi

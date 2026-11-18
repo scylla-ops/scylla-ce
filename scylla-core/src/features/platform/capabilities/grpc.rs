@@ -40,7 +40,7 @@ impl CapabilityService for CapabilitiesGrpc {
         Ok(Response::new(pb::GetCapabilitiesResponse {
             edition: self.edition.to_owned(),
             capabilities: self.capabilities.clone(),
-            version: env!("CARGO_PKG_VERSION").to_owned(),
+            version: scylla_proto::version::text().to_owned(),
             agent_image: self.agent_image.clone(),
             agent_protocol: Some(AgentProtocolRange {
                 min: MIN_AGENT_PROTOCOL,
