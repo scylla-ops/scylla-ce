@@ -18,6 +18,7 @@ use crate::features::platform::capabilities::Capabilities;
 use crate::features::projects::pipelines::Pipelines;
 use crate::features::projects::triggers::Triggers;
 use crate::features::projects::Projects;
+use crate::features::tenancy::dashboards::Dashboards;
 use crate::features::tenancy::grants::Grants;
 use crate::features::tenancy::roles::Roles;
 use crate::features::tenancy::workspaces::Workspaces;
@@ -44,6 +45,7 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .plugin(Roles)
         .plugin(Notifications)
         .plugin(UserState)
+        .plugin(Dashboards)
         .authz::<VcsAppHolder>()
         .authz::<VcsConnectionHolder>()
         .authz::<RepositoryAccess>()

@@ -3,6 +3,7 @@
 use super::{Area, CatalogPermission, Level, Route};
 use crate::identity::apps::{App, AppHolder};
 use crate::projects::ProjectHolder;
+use crate::tenancy::dashboards::DashboardHolder;
 use crate::tenancy::grants::WorkspaceMembers;
 use crate::tenancy::roles::RoleHolder;
 use crate::tenancy::workspaces::Workspace;
@@ -186,5 +187,40 @@ pub(super) const AREAS: &[Area] = &[
             implicit: false,
             routes: &[Route::of(ProjectHolder::CREATE_PROJECT)],
         }],
+    },
+    Area {
+        id: "dashboards",
+        level: Level::Workspace,
+        machine: false,
+        permissions: &[
+            CatalogPermission {
+                id: "dashboards.view",
+                action: "view",
+                depends_on: &[],
+                implicit: false,
+                routes: &[
+                    Route::of(DashboardHolder::LIST_DASHBOARDS),
+                    Route::of(DashboardHolder::GET_DASHBOARD),
+                ],
+            },
+            CatalogPermission {
+                id: "dashboards.create",
+                action: "create",
+                depends_on: &["dashboards.view"],
+                implicit: false,
+                routes: &[Route::of(DashboardHolder::CREATE_DASHBOARD)],
+            },
+            CatalogPermission {
+                id: "dashboards.manage",
+                action: "manage",
+                depends_on: &["dashboards.view"],
+                implicit: false,
+                routes: &[
+                    Route::of(DashboardHolder::UPDATE_DASHBOARD),
+                    Route::of(DashboardHolder::DELETE_DASHBOARD),
+                    Route::of(DashboardHolder::SET_TEAM_DEFAULT_DASHBOARD),
+                ],
+            },
+        ],
     },
 ];

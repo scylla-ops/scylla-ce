@@ -11,6 +11,7 @@ use crate::notifications::NotificationCaller;
 use crate::projects::pipelines::{PipelineAccess, PipelineCaller, PipelineHolder};
 use crate::projects::triggers::{TriggerAccess, TriggerHolder};
 use crate::projects::{Project, ProjectCaller, ProjectHolder, ProjectId};
+use crate::tenancy::dashboards::{DashboardCaller, DashboardHolder};
 use crate::tenancy::grants::AccessCaller;
 use crate::tenancy::workspaces::{Workspace, WorkspaceCaller, WorkspaceId};
 
@@ -49,6 +50,8 @@ fn core() -> Schema {
         AccessCaller::part(),
         NotificationCaller::part(),
         UserStateCaller::part(),
+        DashboardHolder::part(),
+        DashboardCaller::part(),
         VcsConnectionHolder::part(),
         RepositoryAccess::part(),
         RepositoryHolder::part(),

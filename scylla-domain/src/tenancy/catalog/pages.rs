@@ -10,6 +10,7 @@ use crate::integrations::links::{RepositoryAccess, RepositoryHolder};
 use crate::projects::pipelines::PipelineAccess;
 use crate::projects::triggers::TriggerAccess;
 use crate::projects::{Project, ProjectHolder};
+use crate::tenancy::dashboards::DashboardHolder;
 use crate::tenancy::grants::{ProjectMembers, WorkspaceMembers};
 use crate::tenancy::roles::{RoleAdmin, RoleHolder};
 use crate::tenancy::workspaces::Workspace;
@@ -83,6 +84,29 @@ const PAGES: &[Page] = &[
         name: "the new project of the projects page",
         opens: Route::of(ProjectHolder::CREATE_PROJECT),
         needs: &[Route::of(ProjectHolder::LIST_PROJECTS)],
+    },
+    Page {
+        name: "the saved layouts of the dashboard",
+        opens: Route::of(DashboardHolder::LIST_DASHBOARDS),
+        needs: &[Route::of(DashboardHolder::GET_DASHBOARD)],
+    },
+    Page {
+        name: "a new layout of the dashboard",
+        opens: Route::of(DashboardHolder::CREATE_DASHBOARD),
+        needs: &[
+            Route::of(DashboardHolder::LIST_DASHBOARDS),
+            Route::of(DashboardHolder::GET_DASHBOARD),
+        ],
+    },
+    Page {
+        name: "the change of a shared layout and the team default",
+        opens: Route::of(DashboardHolder::UPDATE_DASHBOARD),
+        needs: &[
+            Route::of(DashboardHolder::LIST_DASHBOARDS),
+            Route::of(DashboardHolder::GET_DASHBOARD),
+            Route::of(DashboardHolder::DELETE_DASHBOARD),
+            Route::of(DashboardHolder::SET_TEAM_DEFAULT_DASHBOARD),
+        ],
     },
     Page {
         name: "the activity of the agents",

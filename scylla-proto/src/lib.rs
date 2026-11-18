@@ -18,6 +18,15 @@ pub mod common {
     }
 }
 
+/// The dashboards API: the saved layouts of the dashboard of a workspace.
+pub mod dashboards {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.dashboards.v1");
+    }
+}
+
 /// The integrations API: the connections to GitHub and GitLab, the repository of a project, the
 /// merge rules and the reports of the jobs.
 pub mod integrations {

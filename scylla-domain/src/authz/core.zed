@@ -17,6 +17,9 @@ definition actor {
     permission set_notifications_done = nil
     permission get_user_state = nil
     permission put_user_state_entry = nil
+    permission get_dashboard = nil
+    permission update_dashboard = nil
+    permission delete_dashboard = nil
 }
 
 definition workspace {
@@ -101,6 +104,12 @@ definition workspace {
     permission set_trigger_enabled = work
     permission fire_trigger_now = work
     permission list_pipeline_triggers = read
+    permission list_dashboards = read
+    permission get_dashboard = read
+    permission create_dashboard = work
+    permission update_dashboard = manage
+    permission delete_dashboard = manage
+    permission set_team_default_dashboard = manage
     permission get_vcs_providers = read
     permission list_vcs_connections = read
     permission get_vcs_connection = read

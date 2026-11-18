@@ -251,6 +251,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   hours, days or weeks in the time zone of the workspace, the groups by project, pipeline, agent or
   origin, and the previous period. Its permission is in `jobs.view`. `scylla-domain` now also uses
   `chrono` 0.4.45 of the workspace.
+- `DashboardService` keeps the saved layouts of the dashboard of a workspace, with the catalog area
+  `dashboards` (`dashboards.view`, `dashboards.create`, `dashboards.manage`). A private layout is
+  visible only to its creator, also for an instance admin. The migration
+  `20261028000026_dashboards.sql` adds the table `dashboards`.
 
 ### Removed
 
