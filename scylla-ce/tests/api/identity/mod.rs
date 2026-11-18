@@ -7,6 +7,7 @@
 pub(crate) mod accounts;
 mod admins;
 mod agent_metrics;
+mod agent_protocol;
 mod agent_samples;
 mod agents;
 mod app_creators;

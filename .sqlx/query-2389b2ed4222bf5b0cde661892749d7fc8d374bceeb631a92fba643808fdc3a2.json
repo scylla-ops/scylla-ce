@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,\n                started_at, disabled_at\n         FROM apps\n         WHERE workspace_id = $1\n           AND ($2::boolean IS NULL OR runner = $2)\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
+  "query": "INSERT INTO apps (id, workspace_id, name, runner, created_by) VALUES ($1, $2, $3, $4, $5)\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, protocol, build, started_at, disabled_at",
   "describe": {
     "columns": [
       {
@@ -181,6 +181,28 @@
       },
       {
         "ordinal": 16,
+        "name": "protocol",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "protocol"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "build",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "build"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
         "name": "started_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -191,7 +213,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 19,
         "name": "disabled_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -205,9 +227,10 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Bool",
         "Uuid",
-        "Int8"
+        "Text",
+        "Bool",
+        "Uuid"
       ]
     },
     "nullable": [
@@ -227,9 +250,11 @@
       false,
       true,
       false,
+      false,
+      true,
       true,
       true
     ]
   },
-  "hash": "f85f1e25efc99f6d3c16c8d4477408827eaa807eee85da1c2a0ab37c6161f4d0"
+  "hash": "2389b2ed4222bf5b0cde661892749d7fc8d374bceeb631a92fba643808fdc3a2"
 }

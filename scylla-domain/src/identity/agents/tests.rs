@@ -1,5 +1,5 @@
-//! Unit tests of the figures of the agents: the busy slots and the samples of the machines, in
-//! their buckets.
+//! Unit tests of the agents: the protocol of the host, and the figures of the busy slots and of
+//! the samples of the machines, in their buckets.
 
 use time::{Duration, OffsetDateTime};
 
@@ -193,4 +193,78 @@ fn the_slots_of_an_agent_count_to_the_end_of_the_period_or_to_now() {
         ends,
         (monday() + Duration::hours(1), monday() + Duration::hours(2))
     );
+}
+
+/// Returns a host with a protocol and features.
+fn host(protocol: u32, features: &[&str]) -> Host {
+    Host {
+        version: "0.7.0".to_owned(),
+        os: "linux".to_owned(),
+        arch: "x86_64".to_owned(),
+        hostname: "build-1".to_owned(),
+        cpu_count: 4,
+        memory_bytes: 0,
+        capacity: 1,
+        container_runtime: None,
+        features: features.iter().map(|one| (*one).to_owned()).collect(),
+        protocol,
+        build: None,
+        started_at: None,
+    }
+}
+
+/// An agent older than the current protocol is outdated, and the current one is compatible.
+#[test]
+fn the_protocol_gives_the_compatibility() {
+    // given
+    let old = host(0, &[]);
+    let current = host(CURRENT_AGENT_PROTOCOL, &[Host::CHECKOUT]);
+
+    // when
+    let fits = [old.compatibility(), current.compatibility()];
+
+    // then
+    assert_eq!(fits, [Compatibility::Outdated, Compatibility::Compatible]);
+}
+
+/// An old agent with no checkout must be updated, and a new one needs git.
+#[test]
+fn the_protocol_tells_why_the_checkout_is_missing() {
+    // given
+    let old = host(0, &[]);
+    let no_git = host(CHECKOUT_PROTOCOL, &[]);
+    let ready = host(CHECKOUT_PROTOCOL, &[Host::CHECKOUT]);
+
+    // when
+    let gaps = [
+        old.checkout_gap(),
+        no_git.checkout_gap(),
+        ready.checkout_gap(),
+    ];
+
+    // then
+    assert_eq!(
+        gaps,
+        [Some(Unfit::UpdateAgent), Some(Unfit::InstallGit), None]
+    );
+    assert_eq!(old.missing_features(), ["checkout"]);
+    assert!(ready.missing_features().is_empty());
+}
+
+/// An empty build gives none, and a build of two lines is refused.
+#[test]
+fn a_build_is_one_line() {
+    // given
+    let mut empty = host(2, &[]);
+    empty.build = Some("  ".to_owned());
+    let mut two_lines = host(2, &[]);
+    two_lines.build = Some("a\nb".to_owned());
+
+    // when
+    let parsed = Host::parse(empty);
+    let refused = Host::parse(two_lines);
+
+    // then
+    assert_eq!(parsed.map(|host| host.build), Ok(None));
+    assert!(matches!(refused, Err(("build", DomainError::NotOneLine))));
 }

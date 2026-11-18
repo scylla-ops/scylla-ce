@@ -71,6 +71,8 @@ fn hello() -> OpenStreamRequest {
         capacity: 0,
         container_runtime: "docker".to_owned(),
         features: Vec::new(),
+        protocol: 2,
+        build: String::new(),
         started_at: None,
     };
     let hello = Hello {

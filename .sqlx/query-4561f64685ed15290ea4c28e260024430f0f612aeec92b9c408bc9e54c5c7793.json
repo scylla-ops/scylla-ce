@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE apps SET last_seen_at = now(), version = $2, os = $3, arch = $4, hostname = $5,\n                cpu_count = $6, memory_bytes = $7, capacity = $8, container_runtime = $9,\n                features = $10, protocol = $11, build = $12,\n                started_at = CASE WHEN $13::timestamptz > now() THEN now() ELSE $13 END\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int4",
+        "Int8",
+        "Int4",
+        "Text",
+        "TextArray",
+        "Int4",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4561f64685ed15290ea4c28e260024430f0f612aeec92b9c408bc9e54c5c7793"
+}

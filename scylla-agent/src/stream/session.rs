@@ -16,6 +16,7 @@ use tonic::{Code, Request};
 
 use super::host::host;
 use super::machine::{tick, timer, Machine};
+use super::protocol;
 use crate::agent::{AgentError, Settings};
 use crate::config::AgentConfig;
 use crate::identity::{connect, token};
@@ -74,7 +75,7 @@ pub(crate) async fn session(
     let mut down = AgentServiceClient::new(channel.clone())
         .open_stream(request)
         .await
-        .map_err(|status| AgentError::of_status(&status))?
+        .map_err(|status| protocol::refusal(&status, &shared.config.url))?
         .into_inner();
     tracing::info!(app = %shared.config.app_id, "the stream is open");
 
@@ -95,7 +96,7 @@ pub(crate) async fn session(
                     tracing::info!(reason = status.message(), "the server closed the stream");
                     return Ok(());
                 }
-                Err(status) => return Err(AgentError::of_status(&status)),
+                Err(status) => return Err(protocol::refusal(&status, &shared.config.url)),
             },
             next = next(shared) => {
                 let Some(next) = next else { return Ok(()) };
@@ -118,8 +119,8 @@ pub(crate) async fn session(
     }
 }
 
-/// Acts on a message of the server: a dispatch starts a job with the git of the hello, and a
-/// cancel stops one.
+/// Acts on a message of the server: the welcome tells if the agent is older than the server, a
+/// dispatch starts a job with the git of the hello, and a cancel stops one.
 fn answer(shared: &Shared, git: Option<Git>, message: Option<Down>) {
     match message {
         Some(Down::Dispatch(dispatch)) => {
@@ -137,7 +138,10 @@ fn answer(shared: &Shared, git: Option<Git>, message: Option<Down>) {
             tracing::info!(%job, "a job stops");
             shared.jobs.cancel(&job);
         }
-        Some(Down::Welcome(_)) | Some(Down::Renewed(_)) | None => {}
+        Some(Down::Welcome(welcome)) => {
+            protocol::check(welcome.agent_protocol.as_ref(), &shared.config.url);
+        }
+        Some(Down::Renewed(_)) | None => {}
     }
 }
 

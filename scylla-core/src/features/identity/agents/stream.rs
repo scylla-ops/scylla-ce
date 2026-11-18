@@ -6,11 +6,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use scylla_domain::activity::Kind;
-use scylla_domain::identity::agents::{AgentCaller, Sample};
+use scylla_domain::identity::agents::{
+    AgentCaller, Compatibility, Sample, CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL,
+};
 use scylla_domain::identity::apps::{App, AppId};
 use scylla_domain::projects::jobs::RunScope;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_extension::{AccessError, Gate, Principal};
+use scylla_extension::{AccessError, Gate, Principal, Rejection};
 use scylla_proto::agents::v1 as pb;
 use scylla_proto::agents::v1::open_stream_request::Message as Up;
 use sqlx::PgPool;
@@ -20,7 +22,7 @@ use tokio::time::{interval, sleep_until, timeout, Instant};
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Status, Streaming};
 
-use super::registry::{Command, Features};
+use super::registry::{Command, Online};
 use super::{samples, work, Registry};
 use crate::api::parse;
 use crate::features::identity::apps;
@@ -70,12 +72,8 @@ impl Stream {
     pub(super) async fn run(mut self, mut inbound: Streaming<pb::OpenStreamRequest>, out: Outbox) {
         // Wait for the hello, then record the stream.
         let ending = match self.hello(&mut inbound, &out).await {
-            Ok(workspace) => {
-                let features = Features {
-                    containers: self.containers,
-                    checkout: self.checkout,
-                };
-                let ticket = self.registry.open(self.app, workspace, features);
+            Ok((workspace, agent)) => {
+                let ticket = self.registry.open(self.app, workspace, agent);
                 self.record(Kind::AgentConnected).await;
                 tracing::info!(event = "agent.connected", app = %self.app);
                 let ending = self.serve(&mut inbound, &out, ticket.commands).await;
@@ -102,14 +100,15 @@ impl Stream {
         }
     }
 
-    /// Reads the first message: it must be a hello. Stores the host, checks the jobs that the
-    /// agent still runs, and learns the place, the features and the role of the agent. Returns
-    /// the workspace of the agent.
+    /// Reads the first message: it must be a hello. Stores the host, refuses an agent older than
+    /// the minimum protocol, checks the jobs that the agent still runs, and learns the place, the
+    /// features and the role of the agent. Returns the workspace of the agent and what the
+    /// registry keeps of it.
     async fn hello(
         &mut self,
         inbound: &mut Streaming<pb::OpenStreamRequest>,
         out: &Outbox,
-    ) -> Result<WorkspaceId, Status> {
+    ) -> Result<(WorkspaceId, Online), Status> {
         // Read the hello.
         let first = timeout(HELLO_TIMEOUT, inbound.message())
             .await
@@ -129,8 +128,13 @@ impl Stream {
             .map(|id| parse::field(id, "hello.running_jobs"))
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Store the host, then learn the workspace and the role.
+        // Store the host, then refuse an agent older than the minimum protocol.
         apps::hello(&self.pool, self.app, &host).await?;
+        if host.compatibility() == Compatibility::Unsupported {
+            return Err(Error::Rejected(too_old(host.protocol)).into());
+        }
+
+        // Learn the workspace and the role.
         let app = apps::get(&self.pool, self.app)
             .await?
             .ok_or_else(|| Status::unauthenticated("the app was deleted"))?;
@@ -145,7 +149,13 @@ impl Stream {
         for job in work::reconcile(self, &running).await? {
             work::send(out, work::cancel(job)).await;
         }
-        Ok(app.workspace_id)
+        let agent = Online {
+            name: app.name,
+            version: host.version.clone(),
+            checkout_gap: host.checkout_gap(),
+            containers: self.containers,
+        };
+        Ok((app.workspace_id, agent))
     }
 
     /// Answers the messages and the commands until the stream ends. Returns the status to send,
@@ -259,6 +269,17 @@ impl Stream {
             }
         }
     }
+}
+
+/// Makes the refusal of an agent older than the minimum protocol.
+fn too_old(protocol: u32) -> Rejection {
+    let message = format!(
+        "the agent has the protocol {protocol}, and this server needs at least          {MIN_AGENT_PROTOCOL}: update the agent"
+    );
+    Rejection::new("AGENT_TOO_OLD", message)
+        .detail("protocol", protocol)
+        .detail("min", MIN_AGENT_PROTOCOL)
+        .detail("current", CURRENT_AGENT_PROTOCOL)
 }
 
 /// Returns the instant of an expiry, or now if it is in the past.

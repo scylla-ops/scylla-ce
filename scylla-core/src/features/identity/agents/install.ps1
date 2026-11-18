@@ -35,6 +35,8 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $ScyllaUrl = '@SCYLLA_URL@'
 $Version = '@SCYLLA_VERSION@'
+$MinProtocol = [int]'@MIN_PROTOCOL@'
+$CurrentProtocol = [int]'@CURRENT_PROTOCOL@'
 $Downloads = '@DOWNLOADS_URL@'
 if ($env:SCYLLA_AGENT_DOWNLOADS_URL) { $Downloads = $env:SCYLLA_AGENT_DOWNLOADS_URL }
 $ServiceName = 'ScyllaAgent'
@@ -79,8 +81,13 @@ function Get-Binary([string]$Folder) {
         Expand-Archive (Join-Path $Folder $archive) -DestinationPath $Folder -Force
     }
     $found = & $file --version
-    if ($found -ne "scylla-agent $Version") {
-        Write-Warning "this is $found, and the server has the version $Version"
+    $protocol = 0
+    try { $protocol = [int](& $file --protocol 2>$null) } catch { $protocol = 0 }
+    if ($protocol -lt $MinProtocol) {
+        throw "$found has the agent protocol $protocol, and the server needs at least $MinProtocol. Use a newer agent"
+    }
+    if ($protocol -lt $CurrentProtocol) {
+        Write-Warning "$found has the agent protocol $protocol, and the server has $CurrentProtocol. The agent gets only the jobs that it can run"
     }
     return $file
 }

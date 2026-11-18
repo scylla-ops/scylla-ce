@@ -1,10 +1,12 @@
 //! The open streams of the agents on this server: at most one stream for each agent, its
-//! workspace and its features, and the commands that the server sends to a stream.
+//! workspace, its name, its version and its features, and the commands that the server sends
+//! to a stream.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use scylla_domain::identity::agents::Unfit;
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::JobId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -41,16 +43,29 @@ struct Entry {
     commands: mpsc::Sender<Command>,
     /// The workspace of the agent.
     workspace: WorkspaceId,
-    /// What the agent can do.
-    features: Features,
+    /// The agent, from its hello.
+    agent: Online,
 }
 
-/// What an agent can do, from its hello.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Features {
+/// An agent with an open stream, as its hello tells it.
+#[derive(Clone, Debug)]
+pub(crate) struct Online {
+    /// The display name of the App.
+    pub(crate) name: String,
+    /// The version of the agent.
+    pub(crate) version: String,
+    /// Why the agent cannot get the code of a job, or `None` if it can.
+    pub(crate) checkout_gap: Option<Unfit>,
     /// `true` if the agent has a container runtime.
     pub(crate) containers: bool,
-    /// `true` if the agent gets the code of a job before its first node.
+}
+
+/// The features that a job needs from an agent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Features {
+    /// `true` if the job needs a container runtime.
+    pub(crate) containers: bool,
+    /// `true` if the job needs the code before its first node.
     pub(crate) checkout: bool,
 }
 
@@ -63,16 +78,15 @@ pub(crate) struct Ticket {
 }
 
 impl Registry {
-    /// Records the stream of an agent of a workspace, with its features, and stops its previous
-    /// stream.
-    pub(crate) fn open(&self, app: AppId, workspace: WorkspaceId, features: Features) -> Ticket {
+    /// Records the stream of an agent of a workspace, and stops its previous stream.
+    pub(crate) fn open(&self, app: AppId, workspace: WorkspaceId, agent: Online) -> Ticket {
         let number = self.next.fetch_add(1, Ordering::Relaxed);
         let (sender, commands) = mpsc::channel(COMMANDS);
         let entry = Entry {
             number,
             commands: sender,
             workspace,
-            features,
+            agent,
         };
         if let Some(previous) = self.streams().insert(app, entry) {
             let _ = previous
@@ -135,9 +149,23 @@ impl Registry {
     pub(crate) fn can_serve(&self, workspace: WorkspaceId, needs: Features) -> bool {
         self.streams().values().any(|entry| {
             entry.workspace == workspace
-                && (entry.features.containers || !needs.containers)
-                && (entry.features.checkout || !needs.checkout)
+                && (entry.agent.containers || !needs.containers)
+                && (entry.agent.checkout_gap.is_none() || !needs.checkout)
         })
+    }
+
+    /// Returns the agents of the workspace with an open stream that cannot get the code of a
+    /// job, in the order of their ids.
+    pub(crate) fn without_checkout(&self, workspace: WorkspaceId) -> Vec<(AppId, Online)> {
+        let mut agents: Vec<(AppId, Online)> = self
+            .streams()
+            .iter()
+            .filter(|(_, entry)| entry.workspace == workspace)
+            .filter(|(_, entry)| entry.agent.checkout_gap.is_some())
+            .map(|(app, entry)| (*app, entry.agent.clone()))
+            .collect();
+        agents.sort_by_key(|(app, _)| app.to_string());
+        agents
     }
 
     /// Locks the map. A panic in another holder leaves the map usable.

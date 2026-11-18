@@ -34,6 +34,8 @@ pub(super) fn host() -> Host {
         capacity: 0,
         container_runtime: "docker".to_owned(),
         features: Vec::new(),
+        protocol: 2,
+        build: " 0123abc ".to_owned(),
         started_at: None,
     }
 }

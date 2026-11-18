@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,\n                started_at, disabled_at\n         FROM apps WHERE id = $1",
+  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,\n                protocol, build, started_at, disabled_at\n         FROM apps\n         WHERE workspace_id = $1\n           AND ($2::boolean IS NULL OR runner = $2)\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
   "describe": {
     "columns": [
       {
@@ -181,6 +181,28 @@
       },
       {
         "ordinal": 16,
+        "name": "protocol",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "protocol"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "build",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "build"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
         "name": "started_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -191,7 +213,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 19,
         "name": "disabled_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -204,7 +226,10 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Bool",
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -224,9 +249,11 @@
       false,
       true,
       false,
+      false,
+      true,
       true,
       true
     ]
   },
-  "hash": "a95f33baf5226e6c7e8a66877fcd10febcd38b997f6f405de817aea6a65dc921"
+  "hash": "1bcb2b3368e0210f112e091fa828a7e0c04356328fd725bbd57fa5ec8944c64e"
 }

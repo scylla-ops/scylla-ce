@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO apps (id, workspace_id, name, runner, created_by) VALUES ($1, $2, $3, $4, $5)\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, started_at, disabled_at",
+  "query": "UPDATE apps\n         SET disabled_at = CASE WHEN $2 THEN coalesce(disabled_at, now()) END\n         WHERE id = $1\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, protocol, build, started_at, disabled_at",
   "describe": {
     "columns": [
       {
@@ -181,6 +181,28 @@
       },
       {
         "ordinal": 16,
+        "name": "protocol",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "protocol"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "build",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "build"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
         "name": "started_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -191,7 +213,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 19,
         "name": "disabled_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -205,10 +227,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Text",
-        "Bool",
-        "Uuid"
+        "Bool"
       ]
     },
     "nullable": [
@@ -228,9 +247,11 @@
       false,
       true,
       false,
+      false,
+      true,
       true,
       true
     ]
   },
-  "hash": "72cc152d2d398c9385fcb9e9f5af697fd33878a36aca2439954c9b66313d3b2f"
+  "hash": "3b39e81b4412d46a59208fb5f48b91d5baa8b745f20fdb4f74b3bb35229278a0"
 }

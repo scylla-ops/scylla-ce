@@ -85,12 +85,24 @@ impl TestAgent {
 
 impl TestApp {
     /// Registers an agent with the role `runner` in a workspace, opens its stream with these
-    /// features, and waits for the welcome.
+    /// features and the protocol 2, and waits for the welcome.
     pub async fn agent_with(
         &self,
         owner: ActorId,
         workspace: WorkspaceId,
         features: &[&str],
+    ) -> TestAgent {
+        self.agent_at(owner, workspace, features, 2).await
+    }
+
+    /// Registers an agent with the role `runner` in a workspace, opens its stream with these
+    /// features and this protocol, and waits for the welcome.
+    pub async fn agent_at(
+        &self,
+        owner: ActorId,
+        workspace: WorkspaceId,
+        features: &[&str],
+        protocol: u32,
     ) -> TestAgent {
         // Register the agent with the role, and open its stream.
         let (key, token) = self.app_in(owner, workspace, true).await;
@@ -109,6 +121,8 @@ impl TestApp {
             capacity: 1,
             container_runtime: String::new(),
             features: features.iter().map(|name| (*name).to_owned()).collect(),
+            protocol,
+            build: String::new(),
             started_at: None,
         };
         let hello = Up::Hello(Hello {

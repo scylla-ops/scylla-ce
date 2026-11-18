@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use scylla_proto::pipelines::v1::git_ref::Kind;
-use scylla_proto::pipelines::v1::{JobStatus, NodeStatus};
+use scylla_proto::pipelines::v1::{JobStatus, NodeStatus, UnfitReason};
 use scylla_testkit::{text, FakeProvider, Logs};
 use serde_json::json;
 use sqlx::PgPool;
@@ -97,6 +97,43 @@ async fn an_old_agent_never_gets_a_job_with_a_checkout(pool: PgPool) {
     assert_eq!(new_gets.job_id.unwrap().value, job);
     assert!(new_gets.checkout.is_some());
     assert_eq!(taken.waiting_reason, "");
+}
+
+/// A job that waits for an agent with `checkout` names the online agents that cannot get the
+/// code: an agent with an old protocol must be updated, and a new one with no git needs git.
+#[sqlx::test(migrations = false)]
+async fn a_waiting_job_names_the_agents_that_cannot_get_the_code(pool: PgPool) {
+    // given
+    let fake = FakeProvider::start().await;
+    github(&fake);
+    let app = app_with(pool, &fake).await;
+    let linked = linked(&app, "github", None).await;
+    let job = app.run_pipeline_on(linked.owner, &linked.pipeline, main());
+    let job = text(&job.await.unwrap().id).to_owned();
+    let old = app.agent_at(linked.owner, linked.workspace, &[], 0).await;
+    let no_git = app.agent_at(linked.owner, linked.workspace, &[], 2).await;
+
+    // when
+    let waiting = app.get_job(linked.owner, &job).await.unwrap();
+
+    // then
+    assert_eq!(waiting.waiting_reason, "NO_AGENT_WITH_CHECKOUT");
+    let mut unfit: Vec<(String, i32)> = waiting
+        .unfit_agents
+        .iter()
+        .map(|agent| (text(&agent.id).to_owned(), agent.reason))
+        .collect();
+    unfit.sort();
+    let mut expected = vec![
+        (old.key.app.clone(), UnfitReason::UpdateAgent as i32),
+        (no_git.key.app.clone(), UnfitReason::InstallGit as i32),
+    ];
+    expected.sort();
+    assert_eq!(unfit, expected);
+    assert!(waiting
+        .unfit_agents
+        .iter()
+        .all(|agent| agent.version == "1.0.0"));
 }
 
 /// A job from a fork fetches the ref of its pull request from the base repository, with a token

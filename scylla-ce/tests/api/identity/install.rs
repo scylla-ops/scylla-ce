@@ -19,8 +19,8 @@ async fn get(app: &TestApp, path: &str) -> (u16, String, String) {
     (status, kind, response.text().await.unwrap())
 }
 
-/// Each script has the URL of the server, its version and the folder of the downloads, and no
-/// mark stays.
+/// Each script has the URL of the server, its version, its agent protocols and the folder of
+/// the downloads, and no mark stays.
 #[sqlx::test(migrations = false)]
 async fn the_install_scripts_have_the_values_of_the_server(pool: PgPool) {
     // given
@@ -48,6 +48,18 @@ async fn the_install_scripts_have_the_values_of_the_server(pool: PgPool) {
     assert!(ps1.contains("$Downloads = 'https://downloads.example.com/agent'"));
     assert!(!sh.contains("@SCYLLA_") && !ps1.contains("@SCYLLA_"));
     assert!(!sh.contains("@DOWNLOADS") && !ps1.contains("@DOWNLOADS"));
+    assert!(
+        sh.contains(
+            "MIN_PROTOCOL='0'
+"
+        ) && sh.contains(
+            "CURRENT_PROTOCOL='2'
+"
+        )
+    );
+    assert!(ps1.contains("$MinProtocol = [int]'0'"));
+    assert!(ps1.contains("$CurrentProtocol = [int]'2'"));
+    assert!(!sh.contains("_PROTOCOL@") && !ps1.contains("_PROTOCOL@"));
 }
 
 /// The flags that the commands of the web app give are in each script.

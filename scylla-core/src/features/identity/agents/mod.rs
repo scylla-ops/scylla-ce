@@ -18,5 +18,5 @@ mod tests;
 
 pub(crate) use grpc::server;
 pub(crate) use install::{router as install_router, AGENT_DOWNLOADS, AGENT_IMAGE};
-pub(crate) use registry::{Features, Registry};
+pub(crate) use registry::{Features, Online, Registry};
 pub(crate) use samples::{last as last_samples, purge as purge_samples};

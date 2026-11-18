@@ -49,6 +49,8 @@ jobs:
         run: pip install cargo-zigbuild
       - name: build
         shell: bash
+        env:
+          SCYLLA_AGENT_BUILD: ${{ github.sha }}
         run: |
           build=build
           if [ "${{ matrix.zig }}" = true ]; then build=zigbuild; fi
@@ -58,6 +60,7 @@ jobs:
         shell: bash
         run: |
           test "$("target/${{ matrix.target }}/release/scylla-agent" --version)" = "scylla-agent ${GITHUB_REF_NAME#v}"
+          "target/${{ matrix.target }}/release/scylla-agent" --protocol
       - name: package
         shell: bash
         run: |

@@ -1,5 +1,7 @@
 //! The gRPC handler of `CapabilityService`.
 
+use scylla_domain::identity::agents::{CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL};
+use scylla_proto::apps::v1::AgentProtocolRange;
 use scylla_proto::capabilities::v1 as pb;
 use scylla_proto::capabilities::v1::capability_service_server::{
     CapabilityService, CapabilityServiceServer,
@@ -40,6 +42,10 @@ impl CapabilityService for CapabilitiesGrpc {
             capabilities: self.capabilities.clone(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
             agent_image: self.agent_image.clone(),
+            agent_protocol: Some(AgentProtocolRange {
+                min: MIN_AGENT_PROTOCOL,
+                current: CURRENT_AGENT_PROTOCOL,
+            }),
         }))
     }
 }
