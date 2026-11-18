@@ -1,5 +1,7 @@
 //! The saved layouts of the dashboard of a workspace. The server keeps their widgets and does not
-//! read them.
+//! read them. The open items that need a person are in `attention`.
+
+pub mod attention;
 
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -174,5 +176,7 @@ crate::authz! {
         permission update_dashboard = nil;
         /// The route `DeleteDashboard`, on a dashboard that the caller created.
         permission delete_dashboard = nil;
+        /// The route `ListAttentionItems`: each caller lists the open items that it can read.
+        permission list_attention_items = nil;
     }
 }

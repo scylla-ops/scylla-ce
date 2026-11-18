@@ -23,6 +23,7 @@ definition actor {
     permission get_dashboard = nil
     permission update_dashboard = nil
     permission delete_dashboard = nil
+    permission list_attention_items = nil
 }
 
 definition workspace {

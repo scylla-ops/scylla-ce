@@ -270,6 +270,12 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `trigger_fires`), and by hour, day or week in the time zone of the workspace. It uses the catalog
   permission `integrations.view`. A delivery in `vcs_deliveries` keeps its GitHub installation, its
   repository and its ref, and the server keeps these deliveries for 30 days, not 7.
+- `ListAttentionItems` gives the dashboard the open items of a workspace that need a person: a
+  failed or orphaned job until a later job of its pipeline and branch completes, a failed fire or a
+  missed cron time until the next good fire of its trigger (30 days at most), an agent that is not
+  connected for more than 5 minutes, and a job that waits for an approval. No person can dismiss an
+  item. Each caller gets only the kinds that it can read, in the projects that it can see, with the
+  counts of each kind. No migration changes.
 
 ### Removed
 

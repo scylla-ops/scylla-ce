@@ -1,7 +1,9 @@
 //! The tests of the projects: their life, their changes, their secrets, their pipelines and jobs,
 //! the jobs on the agents, their number and their stats, the summaries, the job figures, the busy
-//! slots and the triggers of the dashboard, and the roles that reach them.
+//! slots, the triggers and the open items of the dashboard, and the roles that reach them.
 
+mod attention;
+mod attention_access;
 mod cast;
 mod disabled;
 mod git_contract;

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT max(t.finished_at) AS at FROM (\n               SELECT j.status, j.finished_at,\n                      lag(j.status) OVER (PARTITION BY j.pipeline_id, s.branch ORDER BY j.id)\n                          AS before\n               FROM jobs j\n               JOIN pipelines p ON p.id = j.pipeline_id\n               LEFT JOIN job_sources s ON s.job_id = j.id\n               WHERE j.workspace_id = $1 AND j.finished_at >= $3\n                 AND j.status IN ('completed', 'failed', 'orphaned')\n                 AND p.archived_at IS NULL AND p.removed_at IS NULL\n                 AND ($4::bool OR j.project_id = ANY($5::uuid[]))\n                 AND (cardinality($6::uuid[]) = 0 OR j.project_id = ANY($6))\n           ) t\n           WHERE t.status = 'completed' AND t.before = ANY($2::text[])",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Timestamptz",
+        "Bool",
+        "UuidArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0a14abdb32db0feb7effdc9c8e11f1e2cee5f6fe96dc94ff9cfd4463e71d882d"
+}

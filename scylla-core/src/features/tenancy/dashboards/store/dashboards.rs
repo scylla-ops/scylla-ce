@@ -16,7 +16,7 @@ use crate::Error;
 const WORKSPACE_FOREIGN_KEY: &str = "dashboards_workspace_id_fkey";
 
 /// Inserts a dashboard and returns it. An unknown workspace gives `NotFound("workspace")`.
-pub(super) async fn insert(tx: &mut Tx<'_>, new: &NewDashboard) -> Result<Dashboard, Error> {
+pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewDashboard) -> Result<Dashboard, Error> {
     let row = sqlx::query_as!(
         Row,
         "INSERT INTO dashboards
@@ -45,7 +45,7 @@ pub(super) async fn insert(tx: &mut Tx<'_>, new: &NewDashboard) -> Result<Dashbo
 
 /// Returns a dashboard with no widgets, or `None` if no dashboard has this id. `lock` locks its
 /// row until the end of the transaction.
-pub(super) async fn find(
+pub(crate) async fn find(
     tx: &mut Tx<'_>,
     id: DashboardId,
     lock: bool,
@@ -75,7 +75,7 @@ pub(super) async fn find(
 }
 
 /// Returns the widgets of a dashboard, or `None` if no dashboard has this id.
-pub(super) async fn widgets(
+pub(crate) async fn widgets(
     tx: &mut Tx<'_>,
     id: DashboardId,
 ) -> Result<Option<Widgets>, sqlx::Error> {
@@ -93,7 +93,7 @@ pub(super) async fn widgets(
 
 /// Returns the dashboards of a workspace that the caller sees, after the page id, in id order,
 /// with one extra row: the shared dashboards and the private dashboards of the caller.
-pub(super) async fn list(
+pub(crate) async fn list(
     tx: &mut Tx<'_>,
     query: &ListDashboards,
 ) -> Result<Vec<Dashboard>, sqlx::Error> {
@@ -119,7 +119,7 @@ pub(super) async fn list(
 
 /// Changes a locked dashboard and gives it one more version. A private dashboard is not the team
 /// default.
-pub(super) async fn update(
+pub(crate) async fn update(
     tx: &mut Tx<'_>,
     id: DashboardId,
     change: &DashboardChange,
@@ -150,7 +150,7 @@ pub(super) async fn update(
 }
 
 /// Deletes a dashboard. Returns `false` if no dashboard has this id.
-pub(super) async fn delete(tx: &mut Tx<'_>, id: DashboardId) -> Result<bool, sqlx::Error> {
+pub(crate) async fn delete(tx: &mut Tx<'_>, id: DashboardId) -> Result<bool, sqlx::Error> {
     let result = sqlx::query!("DELETE FROM dashboards WHERE id = $1", id.to_db())
         .execute(&mut **tx)
         .await?;
@@ -159,7 +159,7 @@ pub(super) async fn delete(tx: &mut Tx<'_>, id: DashboardId) -> Result<bool, sql
 
 /// Locks the row of a workspace, so that two changes of its team default run one after the
 /// other. Returns `false` if no workspace has this id.
-pub(super) async fn lock_workspace(
+pub(crate) async fn lock_workspace(
     tx: &mut Tx<'_>,
     workspace: WorkspaceId,
 ) -> Result<bool, sqlx::Error> {
@@ -173,7 +173,7 @@ pub(super) async fn lock_workspace(
 }
 
 /// Removes the team default of a workspace.
-pub(super) async fn clear_team_default(
+pub(crate) async fn clear_team_default(
     tx: &mut Tx<'_>,
     workspace: WorkspaceId,
 ) -> Result<(), sqlx::Error> {
@@ -188,7 +188,7 @@ pub(super) async fn clear_team_default(
 
 /// Makes a shared dashboard of a workspace its team default. Returns `None` if the workspace has
 /// no shared dashboard with this id.
-pub(super) async fn set_team_default(
+pub(crate) async fn set_team_default(
     tx: &mut Tx<'_>,
     workspace: WorkspaceId,
     id: DashboardId,

@@ -11,7 +11,7 @@ use scylla_domain::Page;
 use scylla_extension::{CreateContext, DeleteContext, Hooks};
 use sqlx::PgPool;
 
-use super::store;
+use super::store::dashboards as store;
 use crate::Error;
 
 /// Creates a dashboard if each `BeforeCreate` hook accepts it.

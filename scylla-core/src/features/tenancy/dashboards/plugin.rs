@@ -3,10 +3,8 @@
 use scylla_domain::tenancy::dashboards::{DashboardCaller, DashboardHolder};
 use scylla_extension::{EditionBuilder, Plugin};
 
-use super::grpc;
-
-/// Adds the permission model of the dashboards and `DashboardService`. Install it after
-/// `Workspaces`: it extends `Workspace`.
+/// Adds the permission model of the dashboards. Install it after `Workspaces`: it extends
+/// `Workspace`. The server adds `DashboardService`, as it reads the open streams of the agents.
 pub(crate) struct Dashboards;
 
 impl Plugin for Dashboards {
@@ -14,8 +12,5 @@ impl Plugin for Dashboards {
         edition
             .authz::<DashboardHolder>()
             .authz::<DashboardCaller>()
-            .service(|routes, ctx| {
-                routes.add_service(grpc::server(ctx.pool(), ctx.hooks(), ctx.gate()));
-            })
     }
 }

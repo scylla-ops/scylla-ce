@@ -17,25 +17,34 @@ use tonic::{Request, Response, Status};
 
 use super::{access, convert, service};
 use crate::api::parse::{self, ToProto};
+use crate::features::identity::agents::Registry;
 use crate::Error;
 
-/// Makes the service.
-pub(super) fn server(
+/// Makes the service. The registry gives the agents with an open stream.
+pub(crate) fn server(
     pool: PgPool,
     hooks: Arc<Hooks>,
     gate: Arc<dyn Gate>,
+    registry: Arc<Registry>,
 ) -> DashboardServiceServer<DashboardsGrpc> {
-    DashboardServiceServer::new(DashboardsGrpc { pool, hooks, gate })
+    DashboardServiceServer::new(DashboardsGrpc {
+        pool,
+        hooks,
+        gate,
+        registry,
+    })
 }
 
 /// The handler.
-pub(super) struct DashboardsGrpc {
+pub(crate) struct DashboardsGrpc {
     /// The database pool.
-    pool: PgPool,
+    pub(super) pool: PgPool,
     /// The hooks of the edition.
     hooks: Arc<Hooks>,
     /// The access gate.
-    gate: Arc<dyn Gate>,
+    pub(super) gate: Arc<dyn Gate>,
+    /// The open streams of the agents.
+    pub(super) registry: Arc<Registry>,
 }
 
 #[tonic::async_trait]
@@ -80,6 +89,13 @@ impl DashboardService for DashboardsGrpc {
         request: Request<pb::SetTeamDefaultDashboardRequest>,
     ) -> Result<Response<pb::SetTeamDefaultDashboardResponse>, Status> {
         Ok(Response::new(self.set_team_default(request).await?))
+    }
+
+    async fn list_attention_items(
+        &self,
+        request: Request<pb::ListAttentionItemsRequest>,
+    ) -> Result<Response<pb::ListAttentionItemsResponse>, Status> {
+        Ok(Response::new(self.attention(request).await?))
     }
 }
 

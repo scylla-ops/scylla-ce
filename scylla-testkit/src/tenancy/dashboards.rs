@@ -1,11 +1,12 @@
-//! The `TestApp` helpers of `DashboardService`.
+//! The `TestApp` helpers of `DashboardService`: the saved layouts and the open items.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_proto::dashboards::v1::dashboard_service_client::DashboardServiceClient;
 use scylla_proto::dashboards::v1::{
     CreateDashboardRequest, Dashboard, DashboardVisibility, DashboardWidgets,
-    DeleteDashboardRequest, GetDashboardRequest, GetDashboardResponse, ListDashboardsRequest,
-    ListDashboardsResponse, SetTeamDefaultDashboardRequest, UpdateDashboardRequest,
+    DeleteDashboardRequest, GetDashboardRequest, GetDashboardResponse, ListAttentionItemsRequest,
+    ListAttentionItemsResponse, ListDashboardsRequest, ListDashboardsResponse,
+    SetTeamDefaultDashboardRequest, UpdateDashboardRequest,
 };
 use tonic::transport::Channel;
 use tonic::Status;
@@ -164,5 +165,16 @@ impl TestApp {
             .set_team_default_dashboard(request)
             .await?;
         Ok(response.into_inner().dashboard)
+    }
+
+    /// Calls `ListAttentionItems` as `actor`.
+    pub async fn list_attention_items(
+        &self,
+        actor: ActorId,
+        request: ListAttentionItemsRequest,
+    ) -> Result<ListAttentionItemsResponse, Status> {
+        let request = self.authed(actor, request).await;
+        let response = self.dashboards().list_attention_items(request).await?;
+        Ok(response.into_inner())
     }
 }

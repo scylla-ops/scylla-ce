@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT max(CASE j.approval WHEN 'approved' THEN j.approved_at\n                                      WHEN 'rejected' THEN j.rejected_at\n                                      ELSE j.finished_at END) AS at\n           FROM jobs j\n           WHERE j.workspace_id = $1 AND j.created_at >= $2 AND j.approval IS NOT NULL\n             AND j.status <> 'awaiting_approval'\n             AND ($3::bool OR j.project_id = ANY($4::uuid[]))\n             AND (cardinality($5::uuid[]) = 0 OR j.project_id = ANY($5))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Bool",
+        "UuidArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "340a99107795c503c28f8100f9625400864f6ce85cfd6606a3b74a6523fd0da7"
+}
