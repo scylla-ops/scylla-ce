@@ -10,7 +10,6 @@ use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Page;
 use scylla_extension::{Rejection, Tx};
 use sqlx::PgPool;
-use time::OffsetDateTime;
 
 use super::schedule;
 use super::store::{deliveries, files, triggers};
@@ -27,10 +26,10 @@ pub(crate) async fn create(
 ) -> Result<(Trigger, Option<String>), Error> {
     // Check the schedule, or make the secret of the webhook.
     let id = TriggerId::generate();
-    let (sealed, secret, next) = match &new.kind {
+    let (sealed, secret) = match &new.kind {
         TriggerKind::Cron(text) => {
             schedule::check(text)?;
-            (None, None, schedule::next(text, OffsetDateTime::now_utc()))
+            (None, None)
         }
         TriggerKind::Webhook => {
             let sealer = sealer.ok_or_else(|| {
@@ -38,15 +37,10 @@ pub(crate) async fn create(
                 Error::Rejected(Rejection::new("SECRET_KEY_MISSING", message))
             })?;
             let secret = hex::encode(secret::hash(&secret::token()));
-            (
-                Some(sealer.seal_with(secret.as_bytes(), &id.to_bytes())),
-                Some(secret),
-                None,
-            )
+            let sealed = sealer.seal_with(secret.as_bytes(), &id.to_bytes());
+            (Some(sealed), Some(secret))
         }
-        TriggerKind::Push(_) | TriggerKind::PullRequest(_) | TriggerKind::Tag(_) => {
-            (None, None, None)
-        }
+        TriggerKind::Push(_) | TriggerKind::PullRequest(_) | TriggerKind::Tag(_) => (None, None),
     };
 
     // Refuse a Git trigger with no linked repository or on a file pipeline, then store it.
@@ -54,6 +48,10 @@ pub(crate) async fn create(
     if new.kind.git_rules().is_some() {
         check_git_place(&mut tx, new.pipeline_id).await?;
     }
+    let next = match new.kind.schedule() {
+        Some(text) => schedule::next_for(&mut tx, new.pipeline_id, text).await?,
+        None => None,
+    };
     let trigger = triggers::insert(&mut tx, id, &new, sealed, next)
         .await?
         .ok_or(Error::NotFound("pipeline"))?;
@@ -122,7 +120,7 @@ pub(crate) async fn update(
             ));
         };
         schedule::check(&text)?;
-        trigger.next_fire_at = schedule::next(&text, OffsetDateTime::now_utc());
+        trigger.next_fire_at = schedule::next_in(&mut tx, trigger.workspace_id, &text).await?;
         *current = text;
     }
     if let Some(rules) = change.rules {
@@ -155,7 +153,7 @@ pub(crate) async fn set_enabled(
     if trigger.enabled != enabled {
         trigger.enabled = enabled;
         if let (true, TriggerKind::Cron(text)) = (enabled, &trigger.kind) {
-            trigger.next_fire_at = schedule::next(text, OffsetDateTime::now_utc());
+            trigger.next_fire_at = schedule::next_in(&mut tx, trigger.workspace_id, text).await?;
         }
         triggers::save(&mut tx, &trigger).await?;
     }

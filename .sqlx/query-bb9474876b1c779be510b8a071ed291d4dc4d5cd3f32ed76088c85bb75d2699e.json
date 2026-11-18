@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO trigger_fires (id, trigger_id, pipeline_id, project_id, workspace_id, source,\n                                    due_at, status)\n         SELECT m.id, t.id, t.pipeline_id, t.project_id, t.workspace_id, 'schedule', m.due_at,\n                'missed'\n         FROM triggers t, unnest($2::uuid[], $3::timestamptz[]) AS m (id, due_at)\n         WHERE t.id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "TimestamptzArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bb9474876b1c779be510b8a071ed291d4dc4d5cd3f32ed76088c85bb75d2699e"
+}

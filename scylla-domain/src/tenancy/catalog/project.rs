@@ -1,5 +1,4 @@
-//! The areas of the catalog in a project, and the area of the machines. Each route is on the
-//! project and on its workspace.
+//! The areas of the catalog in a project. Each route is on the project and on its workspace.
 
 use super::integrations::JOBS_APPROVE;
 use super::{Area, CatalogPermission, Level, Route};
@@ -156,27 +155,42 @@ pub(super) const AREAS: &[Area] = &[
     ),
     area(
         "triggers",
-        &[cell(
-            "triggers.manage",
-            "manage",
-            &["pipelines.view"],
-            &[
-                Route::of(TriggerHolder::CREATE_TRIGGER),
-                Route::of(TriggerHolder::GET_TRIGGER),
-                Route::of(TriggerHolder::UPDATE_TRIGGER),
-                Route::of(TriggerHolder::DELETE_TRIGGER),
-                Route::of(TriggerHolder::SET_TRIGGER_ENABLED),
-                Route::of(TriggerHolder::FIRE_TRIGGER_NOW),
-                Route::of(TriggerHolder::LIST_PIPELINE_TRIGGERS),
-                Route::of(TriggerAccess::CREATE_TRIGGER),
-                Route::of(TriggerAccess::GET_TRIGGER),
-                Route::of(TriggerAccess::UPDATE_TRIGGER),
-                Route::of(TriggerAccess::DELETE_TRIGGER),
-                Route::of(TriggerAccess::SET_TRIGGER_ENABLED),
-                Route::of(TriggerAccess::FIRE_TRIGGER_NOW),
-                Route::of(TriggerAccess::LIST_PIPELINE_TRIGGERS),
-            ],
-        )],
+        &[
+            cell(
+                "triggers.view",
+                "view",
+                &["pipelines.view"],
+                &[
+                    Route::of(TriggerHolder::GET_TRIGGER),
+                    Route::of(TriggerHolder::LIST_PIPELINE_TRIGGERS),
+                    Route::of(TriggerHolder::LIST_WORKSPACE_TRIGGERS),
+                    Route::of(TriggerHolder::LIST_TRIGGER_FIRES),
+                    Route::of(TriggerHolder::GET_TRIGGER_FIRE_STATS),
+                    Route::of(TriggerAccess::GET_TRIGGER),
+                    Route::of(TriggerAccess::LIST_PIPELINE_TRIGGERS),
+                    Route::of(TriggerAccess::LIST_WORKSPACE_TRIGGERS),
+                    Route::of(TriggerAccess::LIST_TRIGGER_FIRES),
+                    Route::of(TriggerAccess::GET_TRIGGER_FIRE_STATS),
+                ],
+            ),
+            cell(
+                "triggers.manage",
+                "manage",
+                &["triggers.view"],
+                &[
+                    Route::of(TriggerHolder::CREATE_TRIGGER),
+                    Route::of(TriggerHolder::UPDATE_TRIGGER),
+                    Route::of(TriggerHolder::DELETE_TRIGGER),
+                    Route::of(TriggerHolder::SET_TRIGGER_ENABLED),
+                    Route::of(TriggerHolder::FIRE_TRIGGER_NOW),
+                    Route::of(TriggerAccess::CREATE_TRIGGER),
+                    Route::of(TriggerAccess::UPDATE_TRIGGER),
+                    Route::of(TriggerAccess::DELETE_TRIGGER),
+                    Route::of(TriggerAccess::SET_TRIGGER_ENABLED),
+                    Route::of(TriggerAccess::FIRE_TRIGGER_NOW),
+                ],
+            ),
+        ],
     ),
     area(
         "jobs",
@@ -271,29 +285,4 @@ pub(super) const AREAS: &[Area] = &[
             ),
         ],
     ),
-    Area {
-        id: "job_execution",
-        level: Level::Project,
-        machine: true,
-        permissions: &[
-            cell(
-                "job_execution.edit",
-                "edit",
-                &[],
-                &[
-                    Route::of(PipelineHolder::RUN_JOBS),
-                    Route::of(PipelineAccess::RUN_JOBS),
-                ],
-            ),
-            cell(
-                "job_execution.run",
-                "run",
-                &["job_execution.edit"],
-                &[
-                    Route::of(PipelineHolder::RUN_JOBS),
-                    Route::of(PipelineAccess::RUN_JOBS),
-                ],
-            ),
-        ],
-    },
 ];

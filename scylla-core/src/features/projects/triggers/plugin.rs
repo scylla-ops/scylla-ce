@@ -1,6 +1,6 @@
 //! The plugin of the triggers.
 
-use scylla_domain::projects::triggers::{TriggerAccess, TriggerHolder};
+use scylla_domain::projects::triggers::{TriggerAccess, TriggerCaller, TriggerHolder};
 use scylla_extension::{EditionBuilder, Plugin};
 
 /// Adds the permission model of the triggers. The service, the webhook route and the loop of the
@@ -10,6 +10,9 @@ pub(crate) struct Triggers;
 
 impl Plugin for Triggers {
     fn install(self, edition: EditionBuilder) -> EditionBuilder {
-        edition.authz::<TriggerAccess>().authz::<TriggerHolder>()
+        edition
+            .authz::<TriggerAccess>()
+            .authz::<TriggerHolder>()
+            .authz::<TriggerCaller>()
     }
 }

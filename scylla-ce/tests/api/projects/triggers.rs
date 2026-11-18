@@ -29,7 +29,13 @@ async fn pipeline(app: &TestApp) -> (ActorId, String, String) {
 }
 
 /// Sends a webhook request with a body, signed with `secret`, and a delivery key.
-async fn post(app: &TestApp, path: &str, body: &str, secret: &str, key: &str) -> (u16, String) {
+pub(super) async fn post(
+    app: &TestApp,
+    path: &str,
+    body: &str,
+    secret: &str,
+    key: &str,
+) -> (u16, String) {
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
     mac.update(body.as_bytes());
     let signature = format!("sha256={}", hex(&mac.finalize().into_bytes()));

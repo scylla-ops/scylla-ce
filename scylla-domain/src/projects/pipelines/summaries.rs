@@ -53,6 +53,17 @@ pub enum TriggerType {
 }
 
 impl TriggerType {
+    /// Returns the name of the kind, as the database keeps it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cron => "cron",
+            Self::Webhook => "webhook",
+            Self::Push => "push",
+            Self::PullRequest => "pull_request",
+            Self::Tag => "tag",
+        }
+    }
+
     /// Reads the name of a kind, as the database keeps it.
     pub fn parse(name: &str) -> Option<Self> {
         match name {

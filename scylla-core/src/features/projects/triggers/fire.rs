@@ -1,23 +1,46 @@
 //! The fire of a trigger: a job of its pipeline with its inputs, as the runner of the triggers
-//! of its workspace, and the record of the result on the trigger. A file pipeline runs its file
-//! at the head of the default branch, and a Git trigger runs its pipeline on that head.
+//! of its workspace, and the record of the result on the trigger and in the history of its fires.
+//! A file pipeline runs its file at the head of the default branch, and a Git trigger runs its
+//! pipeline on that head.
 
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::integrations::sources::SourceEvent;
 use scylla_domain::projects::jobs::{Job, JobOrigin, StartJob};
 use scylla_domain::projects::pipelines::{EnvValue, EnvVar};
 use scylla_domain::projects::triggers::{
-    FireResult, InputValue, Trigger, TriggerId, TriggerKind, RUNNER_KIND,
+    FireResult, FireSource, InputValue, Trigger, TriggerId, TriggerKind, RUNNER_KIND,
 };
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use serde_json::Value;
 use sqlx::PgPool;
+use time::OffsetDateTime;
 
+use super::store::fires::{self, NewFire};
 use super::store::{runners, triggers};
 use crate::features::identity::actors;
 use crate::features::integrations::{files, IntegrationContext};
+use crate::features::projects::jobs::runs;
 use crate::features::projects::pipelines::service as pipelines;
 use crate::Error;
+
+/// What started a fire, and when it was due.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Call {
+    /// What started the fire.
+    pub(crate) source: FireSource,
+    /// The time when the fire was due: the cron time of a schedule, else the time of the request.
+    pub(crate) due_at: OffsetDateTime,
+}
+
+impl Call {
+    /// Returns a call from a source that is due now.
+    pub(crate) fn now(source: FireSource) -> Self {
+        Self {
+            source,
+            due_at: runs::now(),
+        }
+    }
+}
 
 /// Why a fire fails.
 #[derive(Debug, thiserror::Error)]
@@ -41,32 +64,48 @@ pub(crate) async fn by_id(
     vcs: &IntegrationContext,
     id: TriggerId,
     origin: JobOrigin,
+    call: Call,
 ) -> Result<Job, FireError> {
     let mut tx = vcs.pool.begin().await.map_err(Error::from)?;
     let trigger = triggers::find(&mut tx, id)
         .await?
         .ok_or(Error::NotFound("trigger"))?;
     tx.commit().await.map_err(Error::from)?;
-    fire(vcs, &trigger, None, origin).await
+    fire(vcs, &trigger, None, origin, call).await
 }
 
-/// Fires a trigger for an origin with the body of a webhook, if one came, and records the result.
+/// Fires a trigger for an origin with the body of a webhook, if one came, and records the result
+/// on the trigger and in the history of its fires.
 pub(crate) async fn fire(
     vcs: &IntegrationContext,
     trigger: &Trigger,
     body: Option<&Value>,
     origin: JobOrigin,
+    call: Call,
 ) -> Result<Job, FireError> {
+    // Start the job.
+    let fired_at = runs::now();
     let result = start(vcs, trigger, body, origin).await;
     let record = match &result {
         Ok(_) => FireResult::Ok,
         Err(FireError::Payload(reason)) => FireResult::Error(reason.clone()),
         Err(FireError::Failed(error)) => FireResult::Error(error.to_string()),
     };
+
+    // Record the result on the trigger and in the history.
+    let fire = NewFire {
+        trigger: trigger.id,
+        source: call.source,
+        due_at: call.due_at,
+        fired_at,
+        result: &record,
+        job: result.as_ref().ok().map(|job| job.id),
+    };
     let mut tx = vcs.pool.begin().await.map_err(Error::from)?;
     triggers::record(&mut tx, trigger.id, &record)
         .await
         .map_err(Error::from)?;
+    fires::insert(&mut tx, fire).await.map_err(Error::from)?;
     tx.commit().await.map_err(Error::from)?;
     match &result {
         Ok(job) => tracing::info!(event = "trigger.fired", trigger = %trigger.id, job = %job.id),

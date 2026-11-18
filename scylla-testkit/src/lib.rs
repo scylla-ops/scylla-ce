@@ -15,6 +15,7 @@ mod platform;
 mod projects;
 mod rpc;
 mod tenancy;
+mod trigger_lists;
 mod triggers;
 
 pub use app::{test_access, TestApp};

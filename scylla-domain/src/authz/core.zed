@@ -8,6 +8,9 @@ definition actor {
     permission list_pipeline_summaries = nil
     permission list_workspace_jobs = nil
     permission get_job_stats = nil
+    permission list_workspace_triggers = nil
+    permission list_trigger_fires = nil
+    permission get_trigger_fire_stats = nil
     permission check_permissions = nil
     permission list_held_permissions = nil
     permission get_notification_summary = nil
@@ -106,6 +109,9 @@ definition workspace {
     permission set_trigger_enabled = work
     permission fire_trigger_now = work
     permission list_pipeline_triggers = read
+    permission list_workspace_triggers = read
+    permission list_trigger_fires = read
+    permission get_trigger_fire_stats = read
     permission list_dashboards = read
     permission get_dashboard = read
     permission create_dashboard = work
@@ -203,6 +209,9 @@ definition project {
     permission set_trigger_enabled = edit
     permission fire_trigger_now = edit
     permission list_pipeline_triggers = view
+    permission list_workspace_triggers = view
+    permission list_trigger_fires = view
+    permission get_trigger_fire_stats = view
     permission get_repository_link = view
     permission list_refs = view
     permission list_merge_blocks = view

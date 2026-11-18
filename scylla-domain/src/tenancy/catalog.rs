@@ -3,6 +3,7 @@
 
 mod instance;
 mod integrations;
+mod machines;
 #[cfg(test)]
 mod pages;
 mod project;
@@ -106,12 +107,13 @@ pub struct Area {
 
 /// The areas, from the platform down to the project. The areas of the Git integration close each
 /// level.
-pub const AREAS: [&[Area]; 6] = [
+pub const AREAS: [&[Area]; 7] = [
     instance::AREAS,
     integrations::INSTANCE,
     workspace::AREAS,
     integrations::WORKSPACE,
     project::AREAS,
+    machines::AREAS,
     integrations::PROJECT,
 ];
 

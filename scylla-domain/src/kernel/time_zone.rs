@@ -3,7 +3,9 @@
 
 use std::str::FromStr;
 
-use chrono::{DateTime, Datelike, Days, Months, NaiveDate, NaiveTime, Offset, TimeDelta};
+use chrono::{
+    DateTime, Datelike, Days, Months, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeDelta,
+};
 use time::{Duration, OffsetDateTime};
 
 use crate::DomainError;
@@ -73,6 +75,20 @@ impl TimeZone {
             Span::Week => self.midnight(date + Days::new(7)),
             Span::Month => self.midnight(first_day(date) + Months::new(1)),
         }
+    }
+
+    /// Returns the wall clock time of `at` in this zone, to the second.
+    pub fn wall_time(&self, at: OffsetDateTime) -> NaiveDateTime {
+        self.local(at).naive_local()
+    }
+
+    /// Returns the first time when the wall clock of this zone shows `wall`. A wall time that the
+    /// change to summer time skips gives `None`. A wall time that the change to winter time shows
+    /// two times gives the first one.
+    pub fn first_instant(&self, wall: NaiveDateTime) -> Option<OffsetDateTime> {
+        wall.and_local_timezone(self.0)
+            .earliest()
+            .map(|found| instant(found.timestamp()))
     }
 
     /// Returns the time of `at` in this zone, to the second.

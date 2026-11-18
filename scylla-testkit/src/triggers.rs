@@ -32,7 +32,7 @@ pub fn pointer_input(name: &str, pointer: &str) -> TriggerInput {
 
 impl TestApp {
     /// Returns a client of `TriggerService`.
-    fn triggers(&self) -> TriggerServiceClient<Channel> {
+    pub(crate) fn triggers(&self) -> TriggerServiceClient<Channel> {
         TriggerServiceClient::new(self.channel.clone())
     }
 

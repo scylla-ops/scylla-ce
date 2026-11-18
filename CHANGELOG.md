@@ -260,6 +260,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `GetAgentMetrics` gives the samples by hour, day or week. `GetSlotUsage` gives the busy job slots
   of the agents of a workspace and the slots of the connected agents. An older agent keeps its
   stream. The agent uses the new dependency `sysinfo` 0.38.4.
+- The history of the fires of the triggers (`trigger_fires`, 30 days) keeps each fire of a schedule,
+  of a webhook and of a fire now, and each cron time that the server missed.
+  `ListWorkspaceTriggers`, `ListTriggerFires` and `GetTriggerFireStats` give them to the dashboard,
+  with the new catalog permission `triggers.view`. A cron schedule now uses the time zone of the
+  workspace, and a change of the zone moves the next fires.
 
 ### Removed
 

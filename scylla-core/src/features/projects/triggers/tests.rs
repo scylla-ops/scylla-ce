@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use scylla_domain::TimeZone;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 
@@ -14,8 +15,9 @@ use crate::infra::vcs::{VcsClients, VcsOptions};
 use crate::SignUpMode;
 
 /// Returns what the loop shares with the Git integration: the pool, no hook, no agent, and the
-/// public providers.
+/// public providers, with the TLS provider of the process.
 fn context(pool: PgPool) -> IntegrationContext {
+    crate::infra::tls::install();
     let settings = VcsOptions::default();
     IntegrationContext {
         pool,
@@ -44,7 +46,7 @@ fn a_schedule_gives_its_next_time() {
     let start = OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap();
 
     // when
-    let next = schedule::next("*/5 * * * *", start).unwrap();
+    let next = schedule::next("*/5 * * * *", TimeZone::UTC, start).unwrap();
 
     // then
     assert!(next > start && next.minute().is_multiple_of(5) && next.second() == 0);
@@ -60,7 +62,7 @@ fn a_schedule_on_the_last_sunday_gives_its_next_time() {
     let start = OffsetDateTime::from_unix_timestamp(1_793_491_200).unwrap();
 
     // when
-    let next = schedule::next("0 3 * * 7L", start);
+    let next = schedule::next("0 3 * * 7L", TimeZone::UTC, start);
 
     // then
     assert_eq!(
@@ -69,8 +71,46 @@ fn a_schedule_on_the_last_sunday_gives_its_next_time() {
     );
 }
 
-/// A due trigger fires one time with the origin `cron` and gets its next time. A stopped trigger
-/// does not fire.
+/// Returns the unix times of a schedule in Europe/Paris between two unix times.
+fn paris(schedule: &str, after: i64, until: i64) -> Vec<i64> {
+    let zone = TimeZone::parse("Europe/Paris".to_owned()).unwrap();
+    let at = |seconds| OffsetDateTime::from_unix_timestamp(seconds).unwrap();
+    schedule::between(schedule, zone, at(after), at(until), 10)
+        .into_iter()
+        .map(OffsetDateTime::unix_timestamp)
+        .collect()
+}
+
+/// On the night of the change to summer time, 02:30 does not exist in Paris: the schedule does
+/// not fire that night, and fires the next night at 00:30 UTC.
+#[test]
+fn a_wall_time_that_summer_time_skips_does_not_fire() {
+    // given
+    let (after, until) = (1_774_699_200, 1_774_872_000);
+
+    // when
+    let times = paris("30 2 * * *", after, until);
+
+    // then
+    assert_eq!(times, vec![1_774_830_600]);
+}
+
+/// On the night of the change to winter time, 02:30 occurs two times in Paris: the schedule fires
+/// one time, at 00:30 UTC, and the next night at 01:30 UTC.
+#[test]
+fn a_wall_time_that_winter_time_repeats_fires_one_time() {
+    // given
+    let (after, until) = (1_792_843_200, 1_793_016_000);
+
+    // when
+    let times = paris("30 2 * * *", after, until);
+
+    // then
+    assert_eq!(times, vec![1_792_888_200, 1_792_978_200]);
+}
+
+/// A due trigger fires one time with the origin `cron` and gets its next time. The history keeps
+/// the fire and the cron time that the loop missed. A stopped trigger does not fire.
 #[sqlx::test(migrator = "crate::infra::db::MIGRATOR")]
 async fn tick_fires_the_due_triggers(pool: PgPool) {
     // given
@@ -116,6 +156,20 @@ async fn tick_fires_the_due_triggers(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(jobs, 1);
+    let fires = sqlx::query!(
+        r#"SELECT source, status, job_id IS NOT NULL AS "job!" FROM trigger_fires
+           WHERE pipeline_id = $1 ORDER BY due_at"#,
+        pipeline.to_db()
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let fires: Vec<_> = fires
+        .into_iter()
+        .map(|row| (row.source, row.status, row.job))
+        .collect();
+    let row = |status: &str, job| ("schedule".to_owned(), status.to_owned(), job);
+    assert_eq!(fires, vec![row("ok", true), row("missed", false)]);
 }
 
 /// A due trigger of an archived pipeline does not fire, and it gets its next time.

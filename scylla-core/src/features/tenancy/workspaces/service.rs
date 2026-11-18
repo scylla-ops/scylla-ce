@@ -15,6 +15,7 @@ use sqlx::PgPool;
 use super::store;
 use crate::features::notifications::{self, kinds};
 use crate::features::platform::settings;
+use crate::features::projects::triggers::schedule;
 use crate::Error;
 
 /// Refuses a new workspace over the limit of its creator: `WORKSPACE_LIMIT`. It locks the user until
@@ -92,7 +93,8 @@ pub(super) async fn list(
 }
 
 /// Changes the name, the slug, the personal token switch or the time zone of a workspace, and
-/// returns it. A slug in use gives `SLUG_IN_USE`.
+/// returns it. A slug in use gives `SLUG_IN_USE`. A new time zone computes again the next fire of
+/// each cron trigger of the workspace.
 pub(super) async fn update(
     pool: &PgPool,
     id: WorkspaceId,
@@ -102,6 +104,9 @@ pub(super) async fn update(
     let workspace = store::update(&mut tx, id, &change)
         .await?
         .ok_or(Error::NotFound("workspace"))?;
+    if let Some(zone) = change.time_zone {
+        schedule::reschedule(&mut tx, id, zone).await?;
+    }
     tx.commit().await?;
     Ok(workspace)
 }
