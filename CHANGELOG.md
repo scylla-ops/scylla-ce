@@ -255,6 +255,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `dashboards` (`dashboards.view`, `dashboards.create`, `dashboards.manage`). A private layout is
   visible only to its creator, also for an instance admin. The migration
   `20261028000026_dashboards.sql` adds the table `dashboards`.
+- The agent tells its start, and sends the CPU use and the used memory of its machine each minute.
+  The server keeps these samples for 7 days. `GetApp` and `ListApps` show the last sample, and
+  `GetAgentMetrics` gives the samples by hour, day or week. `GetSlotUsage` gives the busy job slots
+  of the agents of a workspace and the slots of the connected agents. An older agent keeps its
+  stream. The agent uses the new dependency `sysinfo` 0.38.4.
 
 ### Removed
 

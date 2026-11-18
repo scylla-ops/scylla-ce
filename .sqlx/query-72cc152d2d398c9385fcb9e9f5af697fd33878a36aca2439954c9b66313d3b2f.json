@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE apps\n         SET disabled_at = CASE WHEN $2 THEN coalesce(disabled_at, now()) END\n         WHERE id = $1\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, disabled_at",
+  "query": "INSERT INTO apps (id, workspace_id, name, runner, created_by) VALUES ($1, $2, $3, $4, $5)\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, started_at, disabled_at",
   "describe": {
     "columns": [
       {
@@ -181,6 +181,17 @@
       },
       {
         "ordinal": 16,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
         "name": "disabled_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -194,7 +205,10 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Bool"
+        "Uuid",
+        "Text",
+        "Bool",
+        "Uuid"
       ]
     },
     "nullable": [
@@ -214,8 +228,9 @@
       false,
       true,
       false,
+      true,
       true
     ]
   },
-  "hash": "bf78f4eb3156b37b6ce2e89a37cfd00a941d602d2094c588c1b131c4c666202e"
+  "hash": "72cc152d2d398c9385fcb9e9f5af697fd33878a36aca2439954c9b66313d3b2f"
 }

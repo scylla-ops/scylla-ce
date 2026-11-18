@@ -1,10 +1,14 @@
-//! The `TestApp` helpers of the job stats of the agents in `AgentService`.
+//! The `TestApp` helpers of `AgentService` for the job stats, the busy slots and the samples of
+//! the machines of the agents.
 
 use prost_types::Timestamp;
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_proto::agents::v1::agent_service_client::AgentServiceClient;
-use scylla_proto::agents::v1::{AgentStats, GetAgentStatsRequest, ListAgentStatsRequest};
+use scylla_proto::agents::v1::{
+    AgentStats, GetAgentMetricsRequest, GetAgentMetricsResponse, GetAgentStatsRequest,
+    GetSlotUsageRequest, GetSlotUsageResponse, ListAgentStatsRequest,
+};
 use tonic::Status;
 
 use crate::{id, TestApp};
@@ -42,5 +46,27 @@ impl TestApp {
         let request = self.authed(actor, request).await;
         let mut client = AgentServiceClient::new(self.channel.clone());
         Ok(client.list_agent_stats(request).await?.into_inner().stats)
+    }
+
+    /// Calls `GetSlotUsage` as `actor`.
+    pub async fn get_slot_usage(
+        &self,
+        actor: ActorId,
+        request: GetSlotUsageRequest,
+    ) -> Result<GetSlotUsageResponse, Status> {
+        let request = self.authed(actor, request).await;
+        let mut client = AgentServiceClient::new(self.channel.clone());
+        Ok(client.get_slot_usage(request).await?.into_inner())
+    }
+
+    /// Calls `GetAgentMetrics` as `actor`.
+    pub async fn get_agent_metrics(
+        &self,
+        actor: ActorId,
+        request: GetAgentMetricsRequest,
+    ) -> Result<GetAgentMetricsResponse, Status> {
+        let request = self.authed(actor, request).await;
+        let mut client = AgentServiceClient::new(self.channel.clone());
+        Ok(client.get_agent_metrics(request).await?.into_inner())
     }
 }

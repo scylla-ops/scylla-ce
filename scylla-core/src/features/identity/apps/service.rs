@@ -225,12 +225,25 @@ pub(crate) async fn runner(pool: &PgPool, actor: &Actor) -> Result<AppId, Error>
     }
 }
 
-/// Stores the host of the hello of an agent, and its last seen time.
+/// Stores the host of the hello of an agent, and its last seen time. A start of the agent after
+/// now becomes now.
 pub(crate) async fn hello(pool: &PgPool, id: AppId, host: &Host) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     apps::set_host(&mut tx, id, host).await?;
     tx.commit().await?;
     Ok(())
+}
+
+/// Returns the sum of the capacities of the enabled agents of a workspace in `ids`.
+pub(crate) async fn capacity(
+    pool: &PgPool,
+    workspace: WorkspaceId,
+    ids: &[AppId],
+) -> Result<u32, Error> {
+    let mut tx = pool.begin().await?;
+    let capacity = apps::capacity(&mut tx, workspace, ids).await?;
+    tx.commit().await?;
+    Ok(capacity)
 }
 
 /// Sets the last seen time of an agent to now.

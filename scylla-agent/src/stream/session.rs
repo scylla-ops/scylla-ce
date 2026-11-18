@@ -1,5 +1,5 @@
-//! One session of the stream: a token, the hello, the messages in both directions, and the
-//! renewal of the token before its expiry.
+//! One session of the stream: a token, the hello, the messages in both directions, the samples
+//! of the machine at the interval of the welcome, and the renewal of the token before its expiry.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -15,6 +15,7 @@ use tonic::metadata::MetadataValue;
 use tonic::{Code, Request};
 
 use super::host::host;
+use super::machine::{tick, timer, Machine};
 use crate::agent::{AgentError, Settings};
 use crate::config::AgentConfig;
 use crate::identity::{connect, token};
@@ -37,6 +38,10 @@ pub(crate) struct Shared {
     pub(crate) inbox: mpsc::Receiver<OpenStreamRequest>,
     /// A message that a closed stream did not take.
     pub(crate) pending: Option<OpenStreamRequest>,
+    /// The machine, for the samples of its use.
+    pub(crate) machine: Machine,
+    /// The start of the agent.
+    pub(crate) started_at: SystemTime,
 }
 
 /// Runs one session until the stream ends or the agent stops. A refusal for good gives an
@@ -56,8 +61,9 @@ pub(crate) async fn session(
         .map(|value| Id { value })
         .collect();
     let git = Git::detect().await;
+    let machine = &mut shared.machine;
     let hello = Hello {
-        host: Some(host(&shared.settings, git)),
+        host: Some(host(&shared.settings, git, machine, shared.started_at)),
         running_jobs: running,
     };
     let _ = up.send(message(Up::Hello(hello))).await;
@@ -72,12 +78,18 @@ pub(crate) async fn session(
         .into_inner();
     tracing::info!(app = %shared.config.app_id, "the stream is open");
 
-    // Answer the server, send the messages of the jobs, and renew the token.
+    // Answer the server, send the messages of the jobs and the samples, and renew the token.
+    let mut samples = None;
     loop {
         let renew = renew_at(current.expires_at);
         tokio::select! {
             received = down.message() => match received {
-                Ok(Some(response)) => answer(shared, git, response.message),
+                Ok(Some(response)) => {
+                    if let Some(Down::Welcome(welcome)) = &response.message {
+                        samples = timer(welcome.metrics_interval_seconds);
+                    }
+                    answer(shared, git, response.message);
+                }
                 Ok(None) => return Ok(()),
                 Err(status) if matches!(status.code(), Code::Unauthenticated | Code::Aborted) => {
                     tracing::info!(reason = status.message(), "the server closed the stream");
@@ -91,6 +103,10 @@ pub(crate) async fn session(
                     shared.pending = Some(error.0);
                     return Ok(());
                 }
+            }
+            () = tick(&mut samples) => {
+                let sample = shared.machine.sample();
+                let _ = up.send(message(Up::Metrics(sample))).await;
             }
             () = sleep_until(renew) => {
                 current = token(channel.clone(), &shared.config).await?;

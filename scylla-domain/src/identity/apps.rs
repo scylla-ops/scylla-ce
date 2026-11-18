@@ -80,6 +80,8 @@ pub struct Host {
     pub container_runtime: Option<String>,
     /// The features of the agent, for example `checkout`.
     pub features: Vec<String>,
+    /// The start of the process of the agent, or `None` from an agent of an older version.
+    pub started_at: Option<OffsetDateTime>,
 }
 
 impl Host {

@@ -1,6 +1,7 @@
 //! The areas of the catalog in a workspace.
 
 use super::{Area, CatalogPermission, Level, Route};
+use crate::identity::agents::{AgentAccess, AgentHolder};
 use crate::identity::apps::{App, AppHolder};
 use crate::projects::ProjectHolder;
 use crate::tenancy::dashboards::DashboardHolder;
@@ -165,6 +166,9 @@ pub(super) const AREAS: &[Area] = &[
                     Route::of(AppHolder::GET_AGENT_STATS),
                     Route::of(AppHolder::LIST_AGENT_STATS),
                     Route::of(App::GET_AGENT_STATS),
+                    Route::of(AgentHolder::GET_SLOT_USAGE),
+                    Route::of(AgentHolder::GET_AGENT_METRICS),
+                    Route::of(AgentAccess::GET_AGENT_METRICS),
                 ],
             },
             CatalogPermission {

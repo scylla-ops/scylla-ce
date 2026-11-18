@@ -1,6 +1,6 @@
 //! The tests of the projects: their life, their changes, their secrets, their pipelines and jobs,
-//! the jobs on the agents, their number and their stats, the summaries and the job figures of the
-//! dashboard, and the roles that reach them.
+//! the jobs on the agents, their number and their stats, the summaries, the job figures and the
+//! busy slots of the dashboard, and the roles that reach them.
 
 mod cast;
 mod disabled;
@@ -20,6 +20,7 @@ mod runs;
 mod scopes;
 mod secret_access;
 mod secrets;
+mod slots;
 mod stats;
 mod triggers;
 mod updates;

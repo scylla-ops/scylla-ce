@@ -52,6 +52,7 @@ CREATE INDEX jobs_rejected_by_idx ON jobs (rejected_by);
 CREATE INDEX jobs_agent_id_idx ON jobs (agent_id) WHERE status IN ('pending', 'running');
 CREATE INDEX jobs_agent_created_idx ON jobs (agent_id, created_at);
 CREATE INDEX jobs_pool_idx ON jobs (workspace_id, id) WHERE status = 'pending' AND agent_id IS NULL;
+CREATE INDEX jobs_slots_idx ON jobs (workspace_id, finished_at) WHERE started_at IS NOT NULL;
 
 -- The commit of a job in the linked repository, and the event that started the job. An automatic
 -- event makes one job for each pipeline and commit.

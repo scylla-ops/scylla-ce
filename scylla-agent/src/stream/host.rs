@@ -1,12 +1,21 @@
 //! The machine of the agent, as its hello tells it.
 
+use std::time::SystemTime;
+
 use scylla_proto::apps::v1::Host;
 
+use super::machine::Machine;
 use crate::agent::Settings;
 use crate::jobs::{features, Git};
 
-/// Reads the facts of the machine, and the features of the git that it has.
-pub(super) fn host(settings: &Settings, git: Option<Git>) -> Host {
+/// Reads the facts of the machine, the features of the git that it has, and the start of the
+/// agent.
+pub(super) fn host(
+    settings: &Settings,
+    git: Option<Git>,
+    machine: &mut Machine,
+    started_at: SystemTime,
+) -> Host {
     let hostname = hostname().unwrap_or_else(|| "unknown".to_owned());
     let cpu_count = std::thread::available_parallelism()
         .map(|count| count.get() as u32)
@@ -17,10 +26,11 @@ pub(super) fn host(settings: &Settings, git: Option<Git>) -> Host {
         arch: std::env::consts::ARCH.to_owned(),
         hostname,
         cpu_count,
-        memory_bytes: memory(),
+        memory_bytes: machine.memory(),
         capacity: settings.capacity,
         container_runtime: settings.container_runtime.clone().unwrap_or_default(),
         features: features(git),
+        started_at: Some(started_at.into()),
     }
 }
 
@@ -29,14 +39,4 @@ pub(crate) fn hostname() -> Option<String> {
     let name = gethostname::gethostname();
     let name = name.to_string_lossy().trim().to_owned();
     (!name.is_empty()).then_some(name)
-}
-
-/// Reads the memory of the machine from `/proc/meminfo`, or 0.
-fn memory() -> u64 {
-    let text = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
-    text.lines()
-        .find_map(|line| line.strip_prefix("MemTotal:"))
-        .and_then(|rest| rest.split_whitespace().next())
-        .and_then(|kilobytes| kilobytes.parse::<u64>().ok())
-        .map_or(0, |kilobytes| kilobytes * 1024)
 }

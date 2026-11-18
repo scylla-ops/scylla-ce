@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO agent_samples (agent_id, at, cpu_percent, memory_used_bytes)\n         SELECT $1, $2, $3, $4\n         WHERE NOT EXISTS (SELECT 1 FROM agent_samples WHERE agent_id = $1 AND at > $5)\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Float4",
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "97d53b86c217b498d7df45937646031d94cf95922757406a74e217f57c49e8a7"
+}

@@ -2,7 +2,7 @@
 
 use crate::authz::{Model, Schema, SchemaError};
 use crate::identity::actors::{Actor, ActorId};
-use crate::identity::agents::AgentCaller;
+use crate::identity::agents::{AgentAccess, AgentCaller, AgentHolder};
 use crate::identity::apps::{App, AppHolder};
 use crate::identity::user_state::UserStateCaller;
 use crate::integrations::connections::VcsConnectionHolder;
@@ -39,6 +39,8 @@ fn core() -> Schema {
         App::part(),
         AppHolder::part(),
         AgentCaller::part(),
+        AgentHolder::part(),
+        AgentAccess::part(),
         Project::part(),
         ProjectHolder::part(),
         ProjectCaller::part(),

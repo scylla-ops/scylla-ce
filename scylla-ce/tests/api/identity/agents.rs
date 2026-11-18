@@ -23,7 +23,7 @@ use crate::{app, assert_code};
 const WAIT: Duration = Duration::from_secs(10);
 
 /// The host of the test agent.
-fn host() -> Host {
+pub(super) fn host() -> Host {
     Host {
         version: "1.0.0".to_owned(),
         os: "linux".to_owned(),
@@ -34,6 +34,7 @@ fn host() -> Host {
         capacity: 0,
         container_runtime: "docker".to_owned(),
         features: Vec::new(),
+        started_at: None,
     }
 }
 
@@ -48,7 +49,7 @@ fn hello() -> OpenStreamRequest {
 }
 
 /// Makes a renew message.
-fn renew(token: &str) -> OpenStreamRequest {
+pub(super) fn renew(token: &str) -> OpenStreamRequest {
     OpenStreamRequest {
         message: Some(Up::Renew(Renew {
             token: token.to_owned(),
@@ -57,7 +58,7 @@ fn renew(token: &str) -> OpenStreamRequest {
 }
 
 /// Reads the next message of the server.
-async fn next(stream: &mut Streaming<OpenStreamResponse>) -> Result<Down, Status> {
+pub(super) async fn next(stream: &mut Streaming<OpenStreamResponse>) -> Result<Down, Status> {
     let message = timeout(WAIT, stream.message())
         .await
         .expect("a message in time")?;
@@ -66,7 +67,7 @@ async fn next(stream: &mut Streaming<OpenStreamResponse>) -> Result<Down, Status
 
 /// Opens the stream of a new agent of a user and sends the hello. Returns the app id, the
 /// sender, and the stream after the welcome.
-async fn connected(
+pub(super) async fn connected(
     app: &TestApp,
     user: scylla_domain::identity::actors::ActorId,
 ) -> (

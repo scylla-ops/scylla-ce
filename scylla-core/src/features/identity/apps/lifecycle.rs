@@ -5,7 +5,7 @@ use scylla_proto::apps::v1 as pb;
 use tonic::Request;
 
 use super::grpc::AppsGrpc;
-use super::{convert, service};
+use super::service;
 use crate::api::parse;
 use crate::Error;
 
@@ -33,7 +33,7 @@ impl AppsGrpc {
         self.authorize(&caller, App::DISABLE_APP, id).await?;
         let app = service::disable(&self.pool, &self.registry, id).await?;
         Ok(pb::DisableAppResponse {
-            app: Some(convert::app(app, false, 0)),
+            app: self.messages(vec![app]).await?.pop(),
         })
     }
 

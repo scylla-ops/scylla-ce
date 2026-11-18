@@ -1,10 +1,11 @@
-//! The life of the stream of an agent: the hello, the renewals of its token, the commands of the
-//! server, and its end at the expiry of the token or at a stop of the server.
+//! The life of the stream of an agent: the hello, the renewals of its token, the samples of its
+//! machine, the commands of the server, and its end at the expiry of the token or at a stop of the
+//! server.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use scylla_domain::identity::agents::AgentCaller;
+use scylla_domain::identity::agents::{AgentCaller, Sample};
 use scylla_domain::identity::apps::{App, AppId};
 use scylla_domain::projects::jobs::RunScope;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -19,7 +20,7 @@ use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Status, Streaming};
 
 use super::registry::{Command, Features};
-use super::{work, Registry};
+use super::{samples, work, Registry};
 use crate::api::parse;
 use crate::features::identity::apps;
 use crate::features::integrations::IntegrationContext;
@@ -192,9 +193,28 @@ impl Stream {
             }
             Some(Up::Event(event)) => work::event(self, event, out).await,
             Some(Up::Logs(batch)) => work::logs(self, batch, out).await,
+            Some(Up::Metrics(metrics)) => {
+                self.sample(metrics).await;
+                Ok(true)
+            }
             Some(Up::Hello(_)) | None => Err(Status::invalid_argument(
                 "after the hello, send no other hello",
             )),
+        }
+    }
+
+    /// Records a sample of the machine. A sample that is not a number, or a failure of the
+    /// database, goes to the log only: the jobs of the stream go on.
+    async fn sample(&self, metrics: pb::Metrics) {
+        let sample = match Sample::parse(metrics.cpu_percent, metrics.memory_used_bytes) {
+            Ok(sample) => sample,
+            Err(error) => {
+                tracing::warn!(%error, app = %self.app, "the agent sent a bad sample");
+                return;
+            }
+        };
+        if let Err(error) = samples::record(&self.pool, self.app, sample).await {
+            tracing::warn!(%error, app = %self.app, "the sample of the agent is lost");
         }
     }
 

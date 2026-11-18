@@ -160,6 +160,7 @@ impl TestApp {
             capacity: 1,
             container_runtime: String::new(),
             features: Vec::new(),
+            started_at: None,
         };
         let hello = Up::Hello(Hello {
             host: Some(host),

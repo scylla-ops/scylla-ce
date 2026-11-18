@@ -109,6 +109,7 @@ impl TestApp {
             capacity: 1,
             container_runtime: String::new(),
             features: features.iter().map(|name| (*name).to_owned()).collect(),
+            started_at: None,
         };
         let hello = Up::Hello(Hello {
             host: Some(host),

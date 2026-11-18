@@ -121,6 +121,15 @@ impl Registry {
         self.streams().contains_key(&app)
     }
 
+    /// Returns the agents of a workspace with an open stream.
+    pub(crate) fn connected_in(&self, workspace: WorkspaceId) -> Vec<AppId> {
+        self.streams()
+            .iter()
+            .filter(|(_, entry)| entry.workspace == workspace)
+            .map(|(app, _)| *app)
+            .collect()
+    }
+
     /// Returns `true` if an agent of the workspace with each feature that a job needs has an
     /// open stream.
     pub(crate) fn can_serve(&self, workspace: WorkspaceId, needs: Features) -> bool {

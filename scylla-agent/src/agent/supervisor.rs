@@ -2,7 +2,7 @@
 //! growing wait, until a refusal for good or a stop.
 
 use std::future::Future;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
@@ -10,7 +10,7 @@ use tokio::time::Instant;
 use super::{AgentError, Settings};
 use crate::config::AgentConfig;
 use crate::jobs::JobSet;
-use crate::stream::{session, Shared};
+use crate::stream::{session, Machine, Shared};
 
 /// The first wait before a new connection.
 const FIRST_WAIT: Duration = Duration::from_secs(1);
@@ -40,6 +40,8 @@ pub async fn run(
         outbox,
         inbox,
         pending: None,
+        machine: Machine::new(),
+        started_at: SystemTime::now(),
     };
     let (stopping, stopped) = watch::channel(false);
     let stop = async move {

@@ -61,6 +61,8 @@ definition workspace {
     permission add_ci_identity = manage
     permission list_ci_identities = read
     permission remove_ci_identity = manage
+    permission get_slot_usage = read
+    permission get_agent_metrics = read
     permission create_project = work
     permission list_projects = read
     permission get_project = read
@@ -146,6 +148,7 @@ definition app {
     permission add_ci_identity = creator
     permission list_ci_identities = creator
     permission remove_ci_identity = creator
+    permission get_agent_metrics = creator
 }
 
 definition project {
