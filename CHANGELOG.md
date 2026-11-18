@@ -340,3 +340,6 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   the server and of the agent, to the hello of the agent and to `GetCapabilities`. The release
   workflow sets `SCYLLA_RELEASE=true` and `SCYLLA_BUILD`, which replaces `SCYLLA_AGENT_BUILD`. The
   downloads and the image of the agent keep the bare version.
+- The version is `0.7.0-rc.2`. The install scripts and the image of the agent now use the release
+  `v0.7.0-rc.2`, whose agent has the agent protocol 2. The release `v0.7.0-rc.1` gave an agent with
+  the agent protocol 0, which the server shows as out of date.
