@@ -2,6 +2,7 @@
 //! `InvitationService`.
 
 mod grpc;
+mod mail;
 mod manage;
 mod service;
 mod store;

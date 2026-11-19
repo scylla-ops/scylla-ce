@@ -346,3 +346,7 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - The server answers the gRPC reflection v1 and v1alpha again, with the services of the core and of
   the edition. A client such as `grpcurl` or the MCP bridge lists the services and calls them with
   no copy of the protos.
+- The account mails have the look of the web app: the logo as the only image, a badge, the facts of
+  the event, one button and a dark theme. A reset, a new password and a closed session tell the
+  device and the IP address. An invitation tells who invited and the role. A lock tells its end and
+  the count of wrong passwords.

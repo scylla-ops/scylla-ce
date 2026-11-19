@@ -23,7 +23,7 @@ pub use error::{HookError, Rejection};
 pub use gate::{AccessError, Gate, ObjectRole, RoleHolder, RolePage};
 pub use grants::{AccessRoutes, FindWorkspace, Grantable, Grants, WorkspaceFuture};
 pub use hooks::{AfterDelete, BeforeCreate, Hooks};
-pub use mail::{Mail, MailError, Mailer};
+pub use mail::{Mail, MailError, MailImage, Mailer};
 pub use notification_events::{
     Audience, AudienceContext, Event, EventRow, NotificationError, Notifier, Params, Recipient,
     REASON_SUBJECT,

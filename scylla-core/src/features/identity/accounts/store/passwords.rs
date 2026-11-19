@@ -20,6 +20,14 @@ pub(crate) struct Credentials {
     pub(crate) locked_until: Option<OffsetDateTime>,
 }
 
+/// The lock of an account after too many failed passwords.
+pub(crate) struct Lock {
+    /// The end of the lock.
+    pub(crate) until: OffsetDateTime,
+    /// The count of the failures since the last good password.
+    pub(crate) failures: i32,
+}
+
 /// Returns what a password sign-in needs for an email or a handle, or `None` if no user has
 /// it.
 pub(crate) async fn credentials(
@@ -50,10 +58,10 @@ pub(crate) async fn credentials(
 }
 
 /// Records a failed password: after 5 failures, each new one locks the account for longer, up
-/// to one hour. A failure while the account is locked does not count. Returns `true` if the
+/// to one hour. A failure while the account is locked does not count. Returns the lock if the
 /// failure locks the account.
-pub(crate) async fn record_failure(tx: &mut Tx<'_>, user: ActorId) -> Result<bool, Error> {
-    let locked = sqlx::query_scalar!(
+pub(crate) async fn record_failure(tx: &mut Tx<'_>, user: ActorId) -> Result<Option<Lock>, Error> {
+    let row = sqlx::query!(
         r#"UPDATE passwords
          SET failed_attempts = failed_attempts + 1,
              locked_until = CASE WHEN failed_attempts + 1 >= 5
@@ -62,12 +70,15 @@ pub(crate) async fn record_failure(tx: &mut Tx<'_>, user: ActorId) -> Result<boo
                                         * power(2, least(failed_attempts + 1 - 5, 6)))
                  END
          WHERE user_id = $1 AND (locked_until IS NULL OR locked_until <= now())
-         RETURNING locked_until IS NOT NULL AS "locked!""#,
+         RETURNING locked_until, failed_attempts"#,
         user.to_db()
     )
     .fetch_optional(&mut **tx)
     .await?;
-    Ok(locked.unwrap_or(false))
+    Ok(row.and_then(|row| {
+        let failures = row.failed_attempts;
+        row.locked_until.map(|until| Lock { until, failures })
+    }))
 }
 
 /// Sets the password of a user, and removes its lock.

@@ -51,6 +51,19 @@ impl AccountSettings {
         format!("{}/{page}#token={token}", self.app_url)
     }
 
+    /// Makes a link to a page of the web app, with no token: `<app>/<page>`.
+    pub fn page(&self, page: &str) -> String {
+        format!("{}/{page}", self.app_url)
+    }
+
+    /// Returns the address of the web app with no scheme, which names the instance in a mail:
+    /// `scylla.example.com`.
+    pub fn instance(&self) -> &str {
+        self.app_url
+            .split_once("://")
+            .map_or(self.app_url.as_str(), |(_, rest)| rest)
+    }
+
     /// Returns `true` if a request from this origin comes from the web app: the origin of
     /// `app_url`, which serves the app when the server holds it, or one of `web_origins`.
     pub fn is_web_origin(&self, origin: &str) -> bool {

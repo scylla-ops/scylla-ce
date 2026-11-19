@@ -17,6 +17,19 @@ pub struct Mail {
     pub body: String,
     /// The HTML body, with each value escaped.
     pub html: String,
+    /// The images that the HTML body shows with `cid:<id>`, sent in the mail.
+    pub images: Vec<MailImage>,
+}
+
+/// An image of an HTML body, sent in the mail, so a mail client shows it with no download.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MailImage {
+    /// The content id: the HTML body shows the image with `cid:<id>`.
+    pub id: String,
+    /// The media type, for example `image/png`.
+    pub content_type: String,
+    /// The bytes of the image.
+    pub bytes: Vec<u8>,
 }
 
 impl fmt::Debug for Mail {
@@ -24,6 +37,7 @@ impl fmt::Debug for Mail {
         f.debug_struct("Mail")
             .field("to", &self.to)
             .field("subject", &self.subject)
+            .field("images", &self.images.len())
             .finish_non_exhaustive()
     }
 }

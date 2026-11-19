@@ -49,10 +49,12 @@ pub(crate) async fn open(
 }
 
 /// Rotates the refresh token of a session, and returns the user and the new token. A refresh
-/// token that is used a second time closes its session: someone else has a copy of it.
+/// token that is used a second time closes its session: someone else has a copy of it. The alert
+/// names the device of the session and the address of the client.
 pub(crate) async fn refresh(
     ctx: &AccountContext,
     refresh: &str,
+    client: &Client,
 ) -> Result<(ActorId, Opened), Error> {
     // Read and lock the session of the token.
     let (session, secret) = parse(refresh)?;
@@ -71,7 +73,12 @@ pub(crate) async fn refresh(
         tx.commit().await?;
         tracing::warn!(event = "session.revoked", %user, %session, scope = "reuse");
         if let Some(to) = to.and_then(|found| found.email) {
-            let mail = mails::session_reuse(ctx, &to);
+            let user_agent = row.user_agent;
+            let session = Client {
+                user_agent,
+                ..client.clone()
+            };
+            let mail = mails::session_reuse(ctx, &to, &session);
             mails::send(ctx, "session-reuse", mail).await;
         }
         return Err(closed());

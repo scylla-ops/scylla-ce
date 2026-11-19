@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.user_id, u.status, s.refresh_hash,\n                  (s.revoked_at IS NOT NULL OR s.expires_at <= now()) AS \"closed!\"\n           FROM sessions s JOIN users u ON u.id = s.user_id\n           WHERE s.id = $1\n           FOR UPDATE OF s",
+  "query": "SELECT s.user_id, u.status, s.refresh_hash, s.user_agent,\n                  (s.revoked_at IS NOT NULL OR s.expires_at <= now()) AS \"closed!\"\n           FROM sessions s JOIN users u ON u.id = s.user_id\n           WHERE s.id = $1\n           FOR UPDATE OF s",
   "describe": {
     "columns": [
       {
@@ -38,6 +38,17 @@
       },
       {
         "ordinal": 3,
+        "name": "user_agent",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "user_agent"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
         "name": "closed!",
         "type_info": "Bool",
         "origin": "Expression"
@@ -52,8 +63,9 @@
       false,
       false,
       false,
+      true,
       null
     ]
   },
-  "hash": "dd4e163b9d78f11a2f127246a1d1b3a7d5b6b6f3a5823956d8ea0308daadc807"
+  "hash": "5b384761b2f4c4891de12bee8e93900ab52e4718858c0a3d9b954584371150a9"
 }
