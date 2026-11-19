@@ -343,3 +343,6 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - The version is `0.7.0-rc.2`. The install scripts and the image of the agent now use the release
   `v0.7.0-rc.2`, whose agent has the agent protocol 2. The release `v0.7.0-rc.1` gave an agent with
   the agent protocol 0, which the server shows as out of date.
+- The server answers the gRPC reflection v1 and v1alpha again, with the services of the core and of
+  the edition. A client such as `grpcurl` or the MCP bridge lists the services and calls them with
+  no copy of the protos.

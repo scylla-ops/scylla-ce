@@ -84,6 +84,7 @@ tonic = { version = "0.14.9", default-features = false, features = ["codegen", "
 tonic-health = { version = "0.14.9", default-features = false }
 tonic-prost = "0.14.9"
 tonic-prost-build = { version = "0.14.9", default-features = false }
+tonic-reflection = "0.14.9"
 tonic-types = "0.14.9"
 tonic-web = "0.14.9"
 tower = { version = "0.5.3", default-features = false, features = ["util"] }

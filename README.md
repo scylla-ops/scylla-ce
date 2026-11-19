@@ -104,8 +104,8 @@ To change the web app with hot reload, run the server with `just run` and Vite i
 ```sh
 just run                                   # Postgres, SpiceDB, Mailpit, migrations, schema, server on 127.0.0.1:3000
 echo "$PASSWORD" | just user alice@example.com Alice   # an active user with its personal workspace
-grpcurl -plaintext -import-path proto -proto scylla/accounts/v1/account_service.proto \
-  -d "{\"identifier\":\"alice@example.com\",\"password\":\"$PASSWORD\"}" \
+grpcurl -plaintext 127.0.0.1:3000 list    # the services, from the gRPC reflection
+grpcurl -plaintext -d "{\"identifier\":\"alice@example.com\",\"password\":\"$PASSWORD\"}" \
   127.0.0.1:3000 scylla.accounts.v1.AccountService/SignIn
 ```
 
@@ -256,7 +256,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 
 | Tests | Where |
 |---|---|
-| Workspaces, projects and their permissions, tokens, Apps and agents, gRPC-Web, CORS, TLS, health | `scylla-ce/tests/api/` |
+| Workspaces, projects and their permissions, tokens, Apps and agents, gRPC-Web, CORS, TLS, health, reflection | `scylla-ce/tests/api/` |
 | Pipelines: the nodes and their graph, the path of a bad value, the version of a change, each role, the snapshot of a run, the secrets of a run, the delete | `scylla-ce/tests/api/projects/pipelines.rs` |
 | Dashboard layouts: the widgets, the bad values, the version of a change, the list and its pages, the team default, each role, the creator, a private layout | `scylla-ce/tests/api/tenancy/dashboards.rs`, `dashboard_access.rs`, `dashboard_defaults.rs` |
 | The activity feed: the row of each change, a failed fire, a missed time, the members, the pages and the count since a time, the bad values, the readers of each area; the rows of the agents, of the GitLab connections and of the changes of an installation; the delete after 30 days | `scylla-ce/tests/api/activity/`, `identity/agents.rs`, `integrations/connections/gitlab.rs`, `integrations/events/installations.rs`, `scylla-core/src/features/activity/tests.rs`, `scylla-core/src/features/projects/triggers/tests.rs` |

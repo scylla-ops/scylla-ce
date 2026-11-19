@@ -1,6 +1,6 @@
-//! The gRPC server: gate, operations, gRPC-Web, CORS, TLS, health, the core services, the
-//! browser routes of the sign-in, the Git integration, the log of each call, timeout and graceful
-//! shutdown.
+//! The gRPC server: gate, operations, gRPC-Web, CORS, TLS, health, reflection, the core services,
+//! the browser routes of the sign-in, the Git integration, the log of each call, timeout and
+//! graceful shutdown.
 
 use std::fs;
 use std::future::Future;
@@ -191,10 +191,11 @@ pub async fn serve(
     };
     let providers = Providers::new(ctx.clone());
 
-    // Add the services: health, the core services, then the services of the edition.
+    // Add the services: health, reflection, the core services, then the services of the edition.
     let (health, health_service) = tonic_health::server::health_reporter();
     let mut routes = RoutesBuilder::default();
     routes.add_service(health_service);
+    super::reflection::add(&mut routes, edition.descriptor_sets())?;
     routes.add_service(tokens::server(providers.clone()));
     routes.add_service(accounts::account_server(ctx.clone()));
     routes.add_service(accounts::profile_server(ctx.clone()));

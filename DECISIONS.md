@@ -83,8 +83,8 @@ Each entry gives the decision, the reason, and the alternatives that we did not 
 
 ## 15. Server for production
 
-- **Decision:** graceful shutdown on SIGTERM and Ctrl+C, the standard `grpc.health.v1` service (it gives `NOT_SERVING` when the stop starts), one log line for each call (see 59), a request timeout, pool limits and a Postgres `statement_timeout`. The request timeout is longer than the statement timeout.
-- **Why:** Kubernetes and Docker stop a pod with SIGTERM and probe its health. A slow statement fails in Postgres first and frees its locks. A client error is an `INFO` line, not a server failure.
+- **Decision:** graceful shutdown on SIGTERM and Ctrl+C, the standard `grpc.health.v1` service (it gives `NOT_SERVING` when the stop starts), the gRPC reflection v1 and v1alpha with no token (the descriptors of the core and of the edition), one log line for each call (see 59), a request timeout, pool limits and a Postgres `statement_timeout`. The request timeout is longer than the statement timeout.
+- **Why:** Kubernetes and Docker stop a pod with SIGTERM and probe its health. A client such as `grpcurl` or the MCP bridge finds the services and their messages with no copy of the protos. A slow statement fails in Postgres first and frees its locks. A client error is an `INFO` line, not a server failure.
 
 ## 16. Tests
 
