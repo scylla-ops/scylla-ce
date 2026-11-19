@@ -69,7 +69,10 @@ async fn sign_up_with_a_known_email_sends_a_mail(pool: PgPool) {
     // then
     assert!(result.is_ok(), "{result:?}");
     let mails = app.mails.to(email);
-    assert_eq!(mails.last().unwrap().subject, "Your Scylla account");
+    assert_eq!(
+        mails.last().unwrap().subject,
+        "You already have a Scylla account"
+    );
     assert_code(
         app.sign_in(email, NEW_PASSWORD).await,
         Code::Unauthenticated,

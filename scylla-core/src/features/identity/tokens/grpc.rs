@@ -134,8 +134,9 @@ impl TokenService for TokensGrpc {
     ) -> Result<Response<pb::RefreshResponse>, Status> {
         // Read the refresh token, then rotate it.
         let ctx = self.ctx();
+        let client = Client::of_grpc(&request, ctx.settings.trust_forwarded);
         let (refresh, from_cookie) = refresh_token(ctx, request.metadata(), request.get_ref())?;
-        let (user, opened) = sessions::refresh(ctx, &refresh).await?;
+        let (user, opened) = sessions::refresh(ctx, &refresh, &client).await?;
 
         // Sign a token in the session, and give the new refresh token back the same way.
         let actor = Actor {

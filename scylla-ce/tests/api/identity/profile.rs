@@ -84,7 +84,10 @@ async fn an_email_change_needs_the_link_of_the_new_email(pool: PgPool) {
     assert_eq!(changed.email, new);
     assert_invalid_field(&again.unwrap_err(), "token");
     let notice = app.mails.to(old);
-    assert_eq!(notice.last().unwrap().subject, "Your Scylla email changed");
+    assert_eq!(
+        notice.last().unwrap().subject,
+        "The email of your Scylla account changed"
+    );
     assert!(notice.last().unwrap().body.contains(new));
     assert!(app.sign_in(new, PASSWORD).await.is_ok());
     assert_code(app.sign_in(old, PASSWORD).await, Code::Unauthenticated);

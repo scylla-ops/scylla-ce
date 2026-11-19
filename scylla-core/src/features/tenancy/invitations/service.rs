@@ -14,9 +14,9 @@ use scylla_domain::Page;
 use scylla_extension::{CreateContext, Grantable, Rejection, Tx};
 use sqlx::PgPool;
 
-use super::store;
+use super::{mail, store};
 use crate::features::activity;
-use crate::features::identity::accounts::{mails, refused, verified_emails, AccountContext};
+use crate::features::identity::accounts::{refused, verified_emails, AccountContext};
 use crate::features::notifications::{self, kinds};
 use crate::features::tenancy::grants;
 use crate::infra::logs::mask_email;
@@ -65,14 +65,14 @@ pub(crate) async fn create(
         store::insert(&mut tx, workspace, email.as_str(), role, invited_by, &hash).await?;
     let fact = kinds::invitation_received(&invitation, None);
     notifications::emit(&mut tx, fact).await?;
+    let inviter = mail::inviter(&mut tx, &invitation).await?;
     tx.commit().await?;
     let email = mask_email(&invitation.email);
     let (id, role) = (invitation.id, &invitation.role);
     tracing::info!(event = "invitation.created", invitation = %id, %workspace, email, role);
 
     // Send the link to the email only.
-    let mail = mails::invitation(ctx, &invitation.email, &name, &token);
-    mails::send(ctx, "invitation", mail).await;
+    mail::send(ctx, &invitation, &name, inviter, &token).await;
     Ok(invitation)
 }
 
@@ -140,10 +140,10 @@ pub(super) async fn resend(
     let name = store::workspace_name(&mut tx, workspace)
         .await?
         .ok_or(Error::NotFound("workspace"))?;
+    let inviter = mail::inviter(&mut tx, &invitation).await?;
     tx.commit().await?;
     tracing::info!(event = "invitation.resent", invitation = %id, %workspace);
-    let mail = mails::invitation(ctx, &invitation.email, &name, &token);
-    mails::send(ctx, "invitation", mail).await;
+    mail::send(ctx, &invitation, &name, inviter, &token).await;
     Ok(invitation)
 }
 

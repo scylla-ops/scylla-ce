@@ -11,7 +11,7 @@ use tracing::Instrument;
 use super::one_time::{self, Purpose};
 use super::{deletion, mails, password, refused, store, AccountContext};
 use crate::features::identity::providers::{self, IdentityInfo};
-use crate::features::identity::sessions;
+use crate::features::identity::sessions::{self, Client};
 use crate::features::notifications::{self, kinds};
 use crate::features::tenancy::invitations;
 use crate::infra::logs::mask_email;
@@ -71,13 +71,14 @@ pub(crate) async fn change_profile(
 }
 
 /// Changes a password. It needs the current password if the user has one, and closes the
-/// sessions of the user, except one if it is given.
+/// sessions of the user, except one if it is given. The notice names the client of the change.
 pub(crate) async fn change_password(
     ctx: &AccountContext,
     user: ActorId,
     keep: Option<SessionId>,
     current: String,
     new: Password,
+    client: &Client,
 ) -> Result<(), Error> {
     let mut tx = ctx.pool.begin().await?;
     check_password(&mut tx, user, current, "current_password").await?;
@@ -93,7 +94,7 @@ pub(crate) async fn change_password(
 
     // Tell the owner. A mail that fails does not stop the change.
     if let Some(to) = to {
-        let mail = mails::password_changed(ctx, &to);
+        let mail = mails::password_changed(ctx, &to, Some(client));
         mails::send(ctx, "password-changed", mail).await;
     }
     Ok(())
@@ -197,12 +198,15 @@ pub(crate) async fn request_email_change(
                 return Ok::<(), Error>(());
             }
 
-            // Replace the older links, then send the new one.
+            // Replace the older links, then send the new one with the current email.
+            let current = store::find_user(&mut tx, user)
+                .await?
+                .and_then(|user| user.email);
             one_time::cancel(&mut tx, Purpose::ChangeEmail, user).await?;
             let token = one_time::create(&mut tx, Purpose::ChangeEmail, user, email.as_str());
             let token = token.await?;
             tx.commit().await?;
-            let mail = mails::change_email(&ctx, email.as_str(), &token);
+            let mail = mails::change_email(&ctx, current.as_deref(), email.as_str(), &token);
             mails::send(&ctx, "change-email", mail).await;
             Ok(())
         };
@@ -242,12 +246,8 @@ pub(crate) async fn confirm_email_change(
     tx.commit().await?;
     tracing::info!(event = "email.changed", %user, email = mask_email(new.as_str()));
     if let Some(old) = old.filter(|old| old != new.as_str()) {
-        mails::send(
-            ctx,
-            "email-changed",
-            mails::email_changed(&old, new.as_str()),
-        )
-        .await;
+        let mail = mails::email_changed(ctx, &old, new.as_str());
+        mails::send(ctx, "email-changed", mail).await;
     }
     changed.ok_or(Error::NotFound("user"))
 }

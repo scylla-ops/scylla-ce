@@ -18,6 +18,8 @@ pub(super) struct SessionRow {
     pub(super) refresh_hash: Vec<u8>,
     /// `true` if the session is closed or expired.
     pub(super) closed: bool,
+    /// The user agent of the sign-in.
+    pub(super) user_agent: Option<String>,
 }
 
 /// An open session, as the user sees it.
@@ -74,7 +76,7 @@ pub(super) async fn insert(tx: &mut Tx<'_>, row: &NewSession<'_>) -> Result<(), 
 /// Reads and locks a session until the commit, or returns `None` if it is unknown.
 pub(super) async fn lock(tx: &mut Tx<'_>, id: SessionId) -> Result<Option<SessionRow>, Error> {
     let row = sqlx::query!(
-        r#"SELECT s.user_id, u.status, s.refresh_hash,
+        r#"SELECT s.user_id, u.status, s.refresh_hash, s.user_agent,
                   (s.revoked_at IS NOT NULL OR s.expires_at <= now()) AS "closed!"
            FROM sessions s JOIN users u ON u.id = s.user_id
            WHERE s.id = $1
@@ -88,6 +90,7 @@ pub(super) async fn lock(tx: &mut Tx<'_>, id: SessionId) -> Result<Option<Sessio
         status: UserStatus::from_name(&row.status),
         refresh_hash: row.refresh_hash,
         closed: row.closed,
+        user_agent: row.user_agent,
     }))
 }
 

@@ -38,7 +38,7 @@ pub(super) async fn create(
 
     // Tell the owner. A mail that fails does not stop the creation.
     if let Some(to) = owner.and_then(|owner| owner.email) {
-        let mail = mails::token_created(ctx, &to, name.as_str());
+        let mail = mails::token_created(ctx, &to, &token);
         mails::send(ctx, "token-created", mail).await;
     }
     Ok((token, secret))

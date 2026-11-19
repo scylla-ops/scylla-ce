@@ -11,6 +11,28 @@ use tonic::Request;
 /// The longest user agent that a session keeps, in characters.
 const MAX_USER_AGENT: usize = 200;
 
+/// The browsers and the marks of their user agents. The order is important: Edge, Opera and
+/// Samsung Internet also send `Chrome/` and `Safari/`.
+const BROWSERS: [(&str, &[&str]); 6] = [
+    ("Edge", &["Edg/", "EdgA/", "EdgiOS/", "Edge/"]),
+    ("Opera", &["OPR/", "OPT/", "OPiOS/", "Opera"]),
+    ("Samsung Internet", &["SamsungBrowser/"]),
+    ("Firefox", &["Firefox/", "FxiOS/"]),
+    ("Chrome", &["Chrome/", "CriOS/"]),
+    ("Safari", &["Safari/"]),
+];
+
+/// The systems and the marks of their user agents. The order is important: iOS sends
+/// `Mac OS X`, and Android and ChromeOS send `Linux`.
+const SYSTEMS: [(&str, &[&str]); 6] = [
+    ("iOS", &["iPhone", "iPad", "iPod"]),
+    ("Android", &["Android"]),
+    ("ChromeOS", &["CrOS"]),
+    ("Windows", &["Windows"]),
+    ("macOS", &["Macintosh", "Mac OS X"]),
+    ("Linux", &["Linux", "X11"]),
+];
+
 /// The client of a sign-in, as its session keeps it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Client {
@@ -50,6 +72,36 @@ impl Client {
             peer,
             trust_forwarded,
         )
+    }
+
+    /// Names the device for a person, as the web app does: `Firefox on macOS`, the product of an
+    /// API client, or `Unknown device`.
+    pub fn device(&self) -> String {
+        let agent = self.user_agent.as_deref().unwrap_or("").trim();
+        let find = |rules: &[(&'static str, &[&str])]| {
+            rules
+                .iter()
+                .find(|(_, marks)| marks.iter().any(|mark| agent.contains(mark)))
+                .map(|(name, _)| *name)
+        };
+        match (find(&BROWSERS), find(&SYSTEMS)) {
+            _ if agent.is_empty() => "Unknown device".to_owned(),
+            (Some(browser), Some(system)) => format!("{browser} on {system}"),
+            (Some(browser), None) => browser.to_owned(),
+            (None, _) => agent
+                .split(|c: char| c.is_whitespace() || c == '/')
+                .next()
+                .unwrap_or(agent)
+                .to_owned(),
+        }
+    }
+
+    /// Names the device and the IP address for a person: `Firefox on macOS · 203.0.113.42`.
+    pub fn describe(&self) -> String {
+        match self.ip {
+            Some(ip) => format!("{} · {ip}", self.device()),
+            None => self.device(),
+        }
     }
 
     /// Makes a client from its headers and its peer address. A forwarded address that is not
@@ -117,5 +169,33 @@ mod tests {
         // then
         assert_eq!(client.ip, Some("10.0.0.9".parse::<IpAddr>().unwrap()));
         assert_eq!(client.user_agent.map(|agent| agent.len()), Some(200));
+    }
+
+    /// A browser gets its name and its system, an Edge that also sends `Chrome/` is Edge, an
+    /// API client gets its product, and no user agent is an unknown device.
+    #[test]
+    fn device_names_the_browser_and_the_system() {
+        // given
+        let firefox = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:132.0) Gecko/20100101 \
+                       Firefox/132.0";
+        let edge = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like \
+                    Gecko) Chrome/131.0 Safari/537.36 Edg/131.0";
+        let iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 \
+                      (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1";
+
+        // when
+        let device = |agent: Option<&str>| {
+            let client = Client::new(agent, None, peer(), false);
+            (client.device(), client.describe())
+        };
+
+        // then
+        let firefox = device(Some(firefox));
+        assert_eq!(firefox.0, "Firefox on macOS");
+        assert_eq!(firefox.1, "Firefox on macOS · 10.0.0.9");
+        assert_eq!(device(Some(edge)).0, "Edge on Windows");
+        assert_eq!(device(Some(iphone)).0, "Safari on iOS");
+        assert_eq!(device(Some("grpc-python/1.66.0")).0, "grpc-python");
+        assert_eq!(device(None).0, "Unknown device");
     }
 }
