@@ -20,10 +20,10 @@ fn redirect(state: &str, installation: &str, action: &str) -> CompleteGitHubInst
     }
 }
 
-/// The install page is the page of the App on GitHub with a random state. The database keeps
-/// the hash of the state only.
+/// The install starts on the authorize page of the App on GitHub, with its callback and a random
+/// state. The database keeps the hash of the state only.
 #[sqlx::test(migrations = false)]
-async fn start_github_install_gives_the_install_page_with_a_state(pool: PgPool) {
+async fn start_github_install_gives_the_authorize_page_with_a_state(pool: PgPool) {
     // given
     let (app, fake) = app_with_fake(pool).await;
     let owner = app.user().await;
@@ -33,8 +33,14 @@ async fn start_github_install_gives_the_install_page_with_a_state(pool: PgPool) 
     let started = app.start_github_install(owner, &workspace).await.unwrap();
 
     // then
-    let page = format!("{}/apps/scylla-test/installations/new?state=", fake.url());
+    let page = format!("{}/login/oauth/authorize?client_id=Iv1.test&", fake.url());
     assert!(started.install_url.starts_with(&page), "{started:?}");
+    assert!(
+        started
+            .install_url
+            .contains("integrations%2Fgithub%2Fcallback"),
+        "{started:?}"
+    );
     let state = state_of(&started.install_url);
     assert!(state.len() >= 43);
     let hash = Sha256::digest(state.as_bytes()).to_vec();

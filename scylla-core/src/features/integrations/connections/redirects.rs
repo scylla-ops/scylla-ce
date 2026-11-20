@@ -1,13 +1,14 @@
-//! The redirects of GitHub that are not a new install: an install on an account where the App is
-//! installed comes back with no code, so the user authorizes the App on the authorize page of
-//! GitHub first; a change of an installation on GitHub comes back with no state, and refreshes
-//! the connections of the installation.
+//! The pages of GitHub where the browser goes (the authorize page and the install page of the
+//! App), and the redirects of GitHub that are not a new install: an install on an account where
+//! the App is installed comes back with no code, so the user authorizes the App on the authorize
+//! page of GitHub first; a change of an installation on GitHub comes back with no state, and
+//! refreshes the connections of the installation.
 
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::Rejection;
 use url::Url;
 
-use super::credentials;
+use super::credentials::{self, AppSource};
 use super::install;
 use super::store::installations;
 use crate::features::integrations::IntegrationContext;
@@ -27,6 +28,11 @@ pub(super) fn split(state: &str) -> Result<(&str, Option<u64>), Error> {
             .map(|installation| (state, Some(installation)))
             .map_err(|_| install::state_expired()),
     }
+}
+
+/// Returns a state that carries an installation to the authorize page and back.
+pub(super) fn carry(state: &str, installation: u64) -> String {
+    format!("{state}{MARK}{installation}")
 }
 
 /// Returns the refusal `AUTHORIZATION_REQUIRED` with the authorize page of GitHub in
@@ -57,14 +63,12 @@ pub(super) async fn workspaces(
     Ok(found)
 }
 
-/// Makes the authorize page of the App, with its callback on this server and the state that
-/// carries the installation.
-async fn page(ctx: &IntegrationContext, state: &str, installation: u64) -> Result<String, Error> {
-    // Find the App.
-    let source = credentials::github_app(ctx).await?;
-    let source = source.ok_or_else(credentials::app_missing)?;
-
-    // Make the page.
+/// Makes the authorize page of the App, with its callback on this server and a state.
+pub(super) fn authorize_page(
+    ctx: &IntegrationContext,
+    source: &AppSource,
+    state: &str,
+) -> Result<String, Error> {
     let page = format!("{}/login/oauth/authorize", ctx.settings.github_web_url);
     let mut url = Url::parse(&page).map_err(|_| Error::Internal(format!("{page} is not a URL")))?;
     let app_url = ctx.urls.app_url.trim_end_matches('/');
@@ -74,6 +78,29 @@ async fn page(ctx: &IntegrationContext, state: &str, installation: u64) -> Resul
             "redirect_uri",
             &format!("{app_url}/integrations/github/callback"),
         )
-        .append_pair("state", &format!("{state}{MARK}{installation}"));
+        .append_pair("state", state);
     Ok(url.into())
+}
+
+/// Makes the install page of the App, with a state.
+pub(super) fn install_page(
+    ctx: &IntegrationContext,
+    source: &AppSource,
+    state: &str,
+) -> Result<String, Error> {
+    let slug = &source.app.settings().slug;
+    let page = format!(
+        "{}/apps/{slug}/installations/new",
+        ctx.settings.github_web_url
+    );
+    let mut url = Url::parse(&page).map_err(|_| Error::Internal(format!("{page} is not a URL")))?;
+    url.query_pairs_mut().append_pair("state", state);
+    Ok(url.into())
+}
+
+/// Makes the authorize page of the App, with the state that carries the installation.
+async fn page(ctx: &IntegrationContext, state: &str, installation: u64) -> Result<String, Error> {
+    let source = credentials::github_app(ctx).await?;
+    let source = source.ok_or_else(credentials::app_missing)?;
+    authorize_page(ctx, &source, &carry(state, installation))
 }

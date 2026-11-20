@@ -8,6 +8,7 @@ use scylla_domain::integrations::VcsProvider;
 use scylla_proto::integrations::v1 as pb;
 
 use super::checks;
+use super::choices::Choice;
 use super::repositories::Seen;
 use super::service::ProviderInfo;
 use super::store::Counted;
@@ -56,6 +57,24 @@ pub(super) fn connection(counted: Counted, settings: &VcsOptions) -> pb::VcsConn
         missing_permissions: missing,
         created_by: Some(connection.created_by.to_proto()),
         created_at: Some(parse::timestamp(connection.created_at)),
+    }
+}
+
+/// Makes the proto value of the installations that a user can connect.
+pub(super) fn choice(choice: Choice) -> pb::GitHubInstallChoice {
+    let installations = choice
+        .options
+        .into_iter()
+        .map(|option| pb::GitHubInstallationOption {
+            installation_id: option.installation.to_string(),
+            account: option.account,
+            account_kind: account_kind(option.account_kind) as i32,
+            avatar_url: option.avatar_url.unwrap_or_default(),
+            connect_url: option.connect_url,
+        });
+    pb::GitHubInstallChoice {
+        installations: installations.collect(),
+        install_url: choice.install_url,
     }
 }
 

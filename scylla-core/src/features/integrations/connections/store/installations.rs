@@ -192,6 +192,24 @@ pub(crate) async fn set_visible(
     Ok((ids(stopped), ids(restored)))
 }
 
+/// Returns the installations of the App that have a connection in a workspace.
+pub(crate) async fn of_workspace(
+    tx: &mut Tx<'_>,
+    app: Option<VcsAppId>,
+    workspace: WorkspaceId,
+) -> Result<Vec<String>, Error> {
+    let rows = sqlx::query_scalar!(
+        "SELECT external_id FROM vcs_connections
+         WHERE workspace_id = $1 AND provider = 'github' AND auth_kind = 'app_installation'
+           AND app_id IS NOT DISTINCT FROM $2",
+        workspace.to_db(),
+        app.map(VcsAppId::to_db),
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows)
+}
+
 /// Returns the workspaces of the connections of an installation, the oldest connection first.
 pub(crate) async fn workspaces(
     tx: &mut Tx<'_>,
