@@ -14,7 +14,8 @@ use crate::DomainError;
 pub(super) type Refusal = (String, String);
 
 impl PipelineFile {
-    /// Makes the document of a pipeline, for an export. A default value is not written.
+    /// Makes the document of a pipeline, for an export. A default value is not written. A file
+    /// has no switch, no merge and no port: the caller refuses a pipeline with them first.
     pub fn of(name: &str, nodes: &[Node], rules: &GitRules, checkout: &CheckoutSettings) -> Self {
         Self {
             version: VERSION,

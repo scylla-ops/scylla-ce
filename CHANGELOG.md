@@ -103,6 +103,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `SCYLLA_ERROR`. `GetJob` gives the ports that each switch opened. A node on a path that the job
   did not take is skipped. An agent of v0.7.0-rc.1 gets no job with a switch, a merge or an
   `error` need: the job waits for a newer agent, and a plain job still goes to each agent.
+  A pipeline file has no switch, no merge and no need with a port, so `ExportPipeline` refuses a
+  pipeline with them (`CONDITIONAL_NODES`).
 - Cron and webhook triggers.
 - Apps with join codes and keys, API tokens with limits, CI identities, and the App creator role.
   An App can be disabled and enabled. Keys have names, and record their last use.

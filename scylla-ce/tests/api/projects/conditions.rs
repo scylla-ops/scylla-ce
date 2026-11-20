@@ -1,11 +1,16 @@
 //! The tests of the conditional nodes of a pipeline: the switch, the merge and the ports of the
-//! needs, their checks at the save, and their round trip through the reads.
+//! needs, their checks at the save, their round trip through the reads, and the refusal of their
+//! export.
 
-use scylla_proto::pipelines::v1::{env_var, node, Container, EnvVar, Merge, Node, Test};
+use scylla_proto::pipelines::v1::{
+    env_var, node, Container, EnvVar, Merge, Node, PipelineFileFormat, Test,
+};
 use scylla_testkit::{
     case, exec_node, literal, merge_node, output, rule, switch_node, text, var, TestApp,
 };
 use sqlx::PgPool;
+use tonic::Code;
+use tonic_types::StatusExt;
 
 use super::pipeline_layouts::layout;
 use crate::{app, assert_invalid_field};
@@ -83,6 +88,30 @@ async fn create_pipeline_keeps_the_conditional_nodes(pool: PgPool) {
         Some(node::Step::Merge(Merge {}))
     ));
     assert!(job.runs.iter().all(|run| run.ports.is_empty()));
+}
+
+/// A pipeline file has no conditional nodes, so `ExportPipeline` refuses a pipeline with them,
+/// with the reason `CONDITIONAL_NODES`.
+#[sqlx::test(migrations = false)]
+async fn export_pipeline_refuses_the_conditional_nodes(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let (owner, project) = project(&app).await;
+    let created = app
+        .create_pipeline(owner, &project, conditional())
+        .await
+        .unwrap();
+
+    // when
+    let refused = app
+        .export_pipeline(owner, text(&created.id), PipelineFileFormat::Toml)
+        .await
+        .expect_err("the export must fail");
+
+    // then
+    assert_eq!(refused.code(), Code::FailedPrecondition, "{refused:?}");
+    let info = refused.get_details_error_info().expect("ErrorInfo");
+    assert_eq!(info.reason, "CONDITIONAL_NODES");
 }
 
 /// Each check of the conditional nodes refuses its value with its path, in `CreatePipeline` and
