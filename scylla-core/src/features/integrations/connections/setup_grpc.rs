@@ -10,11 +10,12 @@ use scylla_domain::PageSize;
 use scylla_extension::{AccessError, Principal};
 use scylla_proto::common::v1::{Id, PageResponse};
 use scylla_proto::integrations::v1 as pb;
+use scylla_proto::integrations::v1::complete_git_hub_install_response::Outcome;
 use tonic::Request;
 
 use super::grpc::ConnectionsGrpc;
 use super::install::{self, Redirect};
-use super::{convert, redirects, repositories, service, tokens};
+use super::{choices, convert, redirects, repositories, service, tokens};
 use crate::api::parse;
 use crate::infra::vcs::Hidden;
 use crate::Error;
@@ -26,7 +27,7 @@ const MAX_TOKEN: usize = 1024;
 const MAX_SEARCH: usize = 255;
 
 impl ConnectionsGrpc {
-    /// Handles `StartGitHubInstall`: the install page with a new state.
+    /// Handles `StartGitHubInstall`: the authorize page with a new state.
     pub(super) async fn start_install(
         &self,
         request: Request<pb::StartGitHubInstallRequest>,
@@ -45,9 +46,9 @@ impl ConnectionsGrpc {
         })
     }
 
-    /// Handles `CompleteGitHubInstall`, on the workspace of the state. An install with no code
-    /// goes to the authorize page of GitHub first, and a redirect with no state refreshes a
-    /// connection.
+    /// Handles `CompleteGitHubInstall`, on the workspace of the state. The authorize page of a
+    /// new install gives the installations to choose, an install with no code goes to the
+    /// authorize page of GitHub first, and a redirect with no state refreshes a connection.
     pub(super) async fn complete_install(
         &self,
         request: Request<pb::CompleteGitHubInstallRequest>,
@@ -67,6 +68,8 @@ impl ConnectionsGrpc {
             && carried.is_none()
             && request.code.is_empty()
             && request.setup_action != "request";
+        let choose =
+            installation.is_none() && !request.code.is_empty() && request.setup_action.is_empty();
 
         // Find the workspace of the state, and check the route permission there.
         let actor = caller.actor.id;
@@ -74,7 +77,11 @@ impl ConnectionsGrpc {
         let permission = VcsConnectionHolder::COMPLETE_GIT_HUB_INSTALL;
         self.authorize(&caller, permission, workspace).await?;
 
-        // Send an install with no code to the authorize page, else connect the installation.
+        // Give the choice, or send an install with no code to authorize, else connect it.
+        if choose {
+            let choice = choices::list(&self.ctx, workspace, state, &request.code).await?;
+            return Ok(outcome(Outcome::Choice(convert::choice(choice))));
+        }
         if let (true, Some(installation)) = (authorize, installation) {
             return Err(redirects::authorize(&self.ctx, state, installation).await);
         }
@@ -84,9 +91,7 @@ impl ConnectionsGrpc {
             setup_action: request.setup_action,
         };
         let counted = install::complete(&self.ctx, state, actor, redirect).await?;
-        Ok(pb::CompleteGitHubInstallResponse {
-            connection: Some(self.answer(counted)),
-        })
+        Ok(outcome(Outcome::Connection(self.answer(counted))))
     }
 
     /// Handles `CompleteGitHubInstall` with no state: the redirect after a change of an
@@ -128,9 +133,7 @@ impl ConnectionsGrpc {
         self.authorize(caller, permission, workspace).await?;
         let actor = caller.actor.id;
         let counted = install::connect(&self.ctx, workspace, actor, installation, &code).await?;
-        Ok(pb::CompleteGitHubInstallResponse {
-            connection: Some(self.answer(counted)),
-        })
+        Ok(outcome(Outcome::Connection(self.answer(counted))))
     }
 
     /// Handles `ConnectGitLab`: a new connection with the token of a service account.
@@ -249,6 +252,13 @@ impl ConnectionsGrpc {
             )),
             (None, None) => Err(Error::invalid("project_id", "is required")),
         }
+    }
+}
+
+/// Makes the answer of `CompleteGitHubInstall`.
+fn outcome(outcome: Outcome) -> pb::CompleteGitHubInstallResponse {
+    pb::CompleteGitHubInstallResponse {
+        outcome: Some(outcome),
     }
 }
 

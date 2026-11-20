@@ -350,3 +350,6 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   the event, one button and a dark theme. A reset, a new password and a closed session tell the
   device and the IP address. An invitation tells who invited and the role. A lock tells its end and
   the count of wrong passwords.
+- Connect GitHub can connect an installation of the GitHub App that exists, also an installation
+  that another workspace uses. Before, GitHub opened the settings of the installation and did not go
+  back to Scylla.

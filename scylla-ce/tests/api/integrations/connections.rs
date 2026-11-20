@@ -3,6 +3,7 @@
 //! of the connections.
 
 mod access;
+mod choices;
 mod github;
 mod gitlab;
 mod lists;
@@ -46,8 +47,10 @@ fn permissions() -> Value {
     })
 }
 
-/// Returns the state in an install page.
-fn state_of(install_url: &str) -> String {
-    let (_, query) = install_url.split_once("?state=").expect("a state");
-    query.to_owned()
+/// Returns the state in a page of GitHub.
+fn state_of(page: &str) -> String {
+    let url = reqwest::Url::parse(page).expect("a URL");
+    let mut query = url.query_pairs();
+    let state = query.find(|(key, _)| key == "state").expect("a state");
+    state.1.into_owned()
 }
