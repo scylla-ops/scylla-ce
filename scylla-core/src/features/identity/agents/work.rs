@@ -1,21 +1,27 @@
-//! The jobs on the stream of an agent: the placement of the pending jobs, the events and the
-//! logs of the agent, and the messages of the server.
+//! The jobs on the stream of an agent: the placement of the pending jobs with their checkout, the
+//! events and the logs of the agent, and the messages of the server.
 
 use scylla_domain::authz::Object;
+use scylla_domain::identity::agents::{
+    CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL, SAMPLE_INTERVAL,
+};
 use scylla_domain::projects::jobs::{JobEvent, JobId, LogLine, LogStream, RunScope};
-use scylla_domain::projects::pipelines::{NodeId, PipelineAccess, PipelineHolder, PortName, Step};
+use scylla_domain::projects::pipelines::{NodeId, PipelineAccess, PipelineHolder, PortName};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Gate, Principal};
 use scylla_proto::agents::v1 as pb;
 use scylla_proto::agents::v1::open_stream_response::Message as Down;
+use scylla_proto::apps::v1 as apps_pb;
 use scylla_proto::pipelines::v1 as pipelines_pb;
 use time::OffsetDateTime;
 use tonic::Status;
 
+use super::dispatch::dispatch;
+use super::registry::Features;
 use super::stream::{Outbox, Stream};
 use crate::api::parse::{self, ToProto};
-use crate::features::projects::jobs::runs::{self, Assignment, Reply};
-use crate::features::projects::pipelines;
+use crate::features::integrations::checkout;
+use crate::features::projects::jobs::runs::{self, Reply};
 
 /// Sends one message to the agent. Returns `false` when the agent is gone.
 pub(super) async fn send(out: &Outbox, message: Down) -> bool {
@@ -25,11 +31,22 @@ pub(super) async fn send(out: &Outbox, message: Down) -> bool {
     out.send(Ok(message)).await.is_ok()
 }
 
-/// Makes the answer to the hello.
+/// Makes the answer to the hello, with the agent protocols that the server takes and the time
+/// between two samples of the machine.
 pub(super) fn welcome(expires_at: OffsetDateTime) -> Down {
     Down::Welcome(pb::Welcome {
         expires_at: Some(parse::timestamp(expires_at)),
+        agent_protocol: Some(protocol_range()),
+        metrics_interval_seconds: SAMPLE_INTERVAL.whole_seconds().try_into().unwrap_or(0),
     })
+}
+
+/// Returns the agent protocols that the server takes.
+fn protocol_range() -> apps_pb::AgentProtocolRange {
+    apps_pb::AgentProtocolRange {
+        min: MIN_AGENT_PROTOCOL,
+        current: CURRENT_AGENT_PROTOCOL,
+    }
 }
 
 /// Makes the answer to a renewal.
@@ -77,9 +94,11 @@ pub(super) async fn reconcile(stream: &Stream, running: &[JobId]) -> Result<Vec<
     Ok(stop)
 }
 
-/// Gives pending jobs to an agent with the role, while it holds fewer jobs than its capacity.
-/// Returns `false` when the agent is gone.
+/// Gives pending jobs to an agent with the role, while it holds fewer jobs than its capacity. A
+/// job with a checkout gets a short-lived token first, and a job with no token fails with the
+/// reason. Returns `false` when the agent is gone.
 pub(super) async fn fill(stream: &Stream, out: &Outbox) -> Result<bool, Status> {
+    // Find the jobs that the agent may take.
     let Some(workspace) = stream.workspace else {
         return Ok(true);
     };
@@ -89,21 +108,34 @@ pub(super) async fn fill(stream: &Stream, out: &Outbox) -> Result<bool, Status> 
         RunScope::Projects(projects) => Some(projects.as_slice()),
     };
     let sealer = stream.sealer.as_deref();
+
+    // Give a job with its secrets and its checkout while the agent has room.
     while runs::held(&stream.pool, stream.app).await? < stream.capacity {
+        let features = Features {
+            containers: stream.containers,
+            checkout: stream.checkout,
+            conditions: stream.conditions,
+        };
         let claimed = runs::claim(
             &stream.pool,
             sealer,
             workspace,
             projects,
             stream.app,
-            stream.containers,
-            stream.conditions,
+            features,
         );
         let Some(assignment) = claimed.await? else {
             break;
         };
+        let checkout = match checkout::prepare(&stream.vcs, &assignment.job).await {
+            Ok(checkout) => checkout,
+            Err(reason) => {
+                runs::fail(&stream.pool, assignment.job.id, &reason).await?;
+                continue;
+            }
+        };
         tracing::info!(event = "job.dispatched", job = %assignment.job.id, app = %stream.app);
-        if !send(out, dispatch(assignment)).await {
+        if !send(out, dispatch(assignment, checkout)).await {
             return Ok(false);
         }
     }
@@ -129,7 +161,8 @@ pub(super) async fn event(
     }
 }
 
-/// Stores a batch of lines. A job that the agent must not run gets a cancel.
+/// Stores a batch of lines of a node or of the checkout. A job that the agent must not run gets a
+/// cancel.
 pub(super) async fn logs(
     stream: &Stream,
     batch: pb::LogBatch,
@@ -200,55 +233,11 @@ fn event_of(event: pb::JobEvent) -> Result<JobEvent, Status> {
         pb::EventKind::NodeSkipped => JobEvent::NodeSkipped(node()?),
         pb::EventKind::JobCompleted => JobEvent::JobCompleted,
         pb::EventKind::JobFailed => JobEvent::JobFailed(event.error.clone()),
+        pb::EventKind::CheckoutStarted => JobEvent::CheckoutStarted,
+        pb::EventKind::CheckoutCompleted => JobEvent::CheckoutCompleted,
+        pb::EventKind::CheckoutFailed => JobEvent::CheckoutFailed(event.error.clone()),
         pb::EventKind::Unspecified => {
             return Err(Status::invalid_argument("event.kind is required"));
         }
-    })
-}
-
-/// Makes the dispatch of a job, with the values of its secrets.
-fn dispatch(assignment: Assignment) -> Down {
-    let Assignment { job, env } = assignment;
-    let nodes = job
-        .nodes
-        .into_iter()
-        .zip(env)
-        .map(|(node, env)| pb::DispatchNode {
-            id: node.id.as_str().to_owned(),
-            needs: node
-                .needs
-                .iter()
-                .map(|need| need.node.as_str().to_owned())
-                .collect(),
-            links: pipelines::needs(node.needs),
-            step: Some(match node.step {
-                Step::Exec(argv) => pb::dispatch_node::Step::Exec(pipelines_pb::Exec { argv }),
-                Step::Script { shell, source } => {
-                    pb::dispatch_node::Step::Script(pipelines::script(shell, source))
-                }
-                Step::Switch(definition) => {
-                    pb::dispatch_node::Step::Switch(pipelines::switch(definition))
-                }
-                Step::Merge => pb::dispatch_node::Step::Merge(pipelines_pb::Merge {}),
-            }),
-            env: env
-                .into_iter()
-                .map(|var| pb::DispatchEnv {
-                    name: var.name,
-                    value: var.value,
-                    masked: var.masked,
-                })
-                .collect(),
-            timeout_seconds: node.timeout_seconds,
-            retries: node.retries,
-            working_dir: node.working_dir.unwrap_or_default(),
-            container: pipelines::container(node.runtime),
-        })
-        .collect();
-    Down::Dispatch(pb::Dispatch {
-        job_id: Some(job.id.to_proto()),
-        pipeline_id: Some(job.pipeline_id.to_proto()),
-        project_id: Some(job.project_id.to_proto()),
-        nodes,
     })
 }

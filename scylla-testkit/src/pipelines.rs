@@ -27,7 +27,7 @@ impl TestApp {
     }
 
     /// Returns a client of `JobService`.
-    fn jobs(&self) -> JobServiceClient<Channel> {
+    pub(crate) fn jobs(&self) -> JobServiceClient<Channel> {
         JobServiceClient::new(self.channel.clone())
     }
 
@@ -43,6 +43,7 @@ impl TestApp {
             name: "build".to_owned(),
             nodes,
             layout: None,
+            checkout: None,
         };
         let request = self.authed(actor, request).await;
         let response = self
@@ -78,6 +79,7 @@ impl TestApp {
             name: name.map(str::to_owned),
             nodes: nodes.map(|nodes| NodeList { nodes }),
             layout: None,
+            checkout: None,
         };
         let request = self.authed(actor, request).await;
         let response = self
@@ -140,6 +142,7 @@ impl TestApp {
     pub async fn run_pipeline(&self, actor: ActorId, pipeline: &str) -> Result<Job, Status> {
         let request = RunPipelineRequest {
             pipeline_id: Some(id(pipeline)),
+            r#ref: None,
         };
         let request = self.authed(actor, request).await;
         let response = self.pipelines().run_pipeline(request).await?.into_inner();
@@ -197,6 +200,7 @@ impl TestApp {
         let request = ListPipelineJobsRequest {
             pipeline_id: Some(id(pipeline)),
             page: Some(page(size, token)),
+            filter: None,
         };
         let request = self.authed(actor, request).await;
         Ok(self.jobs().list_pipeline_jobs(request).await?.into_inner())
@@ -213,7 +217,17 @@ impl TestApp {
             workspace_id: Some(id(workspace.to_string())),
             agent_id: agent.map(id),
             page: Some(page(0, "")),
+            ..ListWorkspaceJobsRequest::default()
         };
+        self.list_workspace_jobs_of(actor, request).await
+    }
+
+    /// Calls  as  with a full request.
+    pub async fn list_workspace_jobs_of(
+        &self,
+        actor: ActorId,
+        request: ListWorkspaceJobsRequest,
+    ) -> Result<ListWorkspaceJobsResponse, Status> {
         let request = self.authed(actor, request).await;
         Ok(self.jobs().list_workspace_jobs(request).await?.into_inner())
     }

@@ -85,8 +85,7 @@ pub(super) async fn agent(
     connect(app, key, &token, capacity, runtime, true).await
 }
 
-/// Opens the stream of a registered agent with a capacity, a container runtime and the flag of
-/// the conditional nodes, and waits for the welcome.
+/// Opens the stream of a registered agent with the values of its hello, and waits for the welcome.
 pub(super) async fn connect(
     app: &TestApp,
     key: TestKey,
@@ -105,6 +104,10 @@ pub(super) async fn connect(
         memory_bytes: 1 << 30,
         capacity,
         container_runtime: runtime.to_owned(),
+        features: Vec::new(),
+        protocol: 2,
+        build: String::new(),
+        started_at: None,
     };
     let hello = OpenStreamRequest {
         message: Some(Up::Hello(Hello {
@@ -239,7 +242,8 @@ async fn the_placement_follows_the_role_and_the_capacity(pool: PgPool) {
     assert_eq!(failed.status, JobStatus::Failed as i32);
 }
 
-/// A job with a container goes only to an agent with a container runtime.
+/// A job with a container goes only to an agent with a container runtime. While no such agent is
+/// online, the job tells why it waits.
 #[sqlx::test(migrations = false)]
 async fn a_container_job_needs_a_container_runtime(pool: PgPool) {
     // given
@@ -250,13 +254,15 @@ async fn a_container_job_needs_a_container_runtime(pool: PgPool) {
     });
     let (owner, workspace, _, pipeline) = pipeline(&app, vec![node]).await;
     let mut plain = agent(&app, owner, workspace, true, 2, "").await;
-    let mut docker = agent(&app, owner, workspace, true, 2, "docker").await;
+    let job = text(&app.run_pipeline(owner, &pipeline).await.unwrap().id).to_owned();
 
     // when
-    let job = text(&app.run_pipeline(owner, &pipeline).await.unwrap().id).to_owned();
+    let waiting = app.get_job(owner, &job).await.unwrap();
+    let mut docker = agent(&app, owner, workspace, true, 2, "docker").await;
     let dispatch = docker.dispatch().await;
 
     // then
+    assert_eq!(waiting.waiting_reason, "NO_AGENT_WITH_CONTAINER");
     assert_eq!(text(&dispatch.job_id), job);
     assert_eq!(
         dispatch.nodes[0].container.as_ref().unwrap().image,

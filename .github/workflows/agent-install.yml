@@ -161,8 +161,14 @@ jobs:
           SCYLLA_CE: ${{ github.workspace }}/target/debug/scylla-ce.exe
           AGENT_BIN: ${{ github.workspace }}/target/debug/scylla-agent.exe
         run: scripts/agent-install-test.sh windows
+      - name: for this user
+        env:
+          SCYLLA_CE: ${{ github.workspace }}/target/debug/scylla-ce.exe
+          AGENT_BIN: ${{ github.workspace }}/target/debug/scylla-agent.exe
+        run: scripts/agent-install-test.sh windows-user
       - name: logs
         if: always()
         run: |
           tail -n 100 server.log || true
           tail -n 100 /c/ProgramData/scylla-agent/agent.*.log || true
+          tail -n 100 "$(cygpath -u "$LOCALAPPDATA")/scylla-agent/agent.log" || true

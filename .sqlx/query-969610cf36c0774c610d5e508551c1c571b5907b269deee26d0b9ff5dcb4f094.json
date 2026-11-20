@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_connections\n         SET account = $2, account_kind = $3, avatar_url = $4, sealed_token = $5,\n             token_expires_at = $6, token_warned_at = NULL, scopes = $7, repository_count = $8,\n             state = 'active', state_reason = NULL, updated_at = now()\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Bytea",
+        "Timestamptz",
+        "TextArray",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "969610cf36c0774c610d5e508551c1c571b5907b269deee26d0b9ff5dcb4f094"
+}

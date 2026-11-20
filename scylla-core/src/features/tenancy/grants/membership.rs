@@ -1,10 +1,11 @@
 //! A person in a workspace: a role on a project needs a role in the workspace, and the roles on
 //! the projects go with the last role in the workspace. See decision 88.
 
+use scylla_domain::activity::{Kind, Place};
 use scylla_domain::authz::Resource;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users;
-use scylla_domain::projects::Project;
+use scylla_domain::projects::{Project, ProjectId};
 use scylla_domain::tenancy::catalog::Level;
 use scylla_domain::tenancy::roles::RoleId;
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
@@ -13,6 +14,7 @@ use sqlx::PgPool;
 
 use super::give::scope_id;
 use super::{held, service, store};
+use crate::features::activity;
 use crate::features::identity::actors;
 use crate::features::notifications::{self, kinds};
 use crate::features::tenancy::roles;
@@ -102,11 +104,14 @@ pub(crate) async fn end_membership(
             let object = (Project::NAME, id);
             kinds::role_change(kinds::ROLE_REVOKED, name, object, workspace, actor, by.id)
         };
+        let place = Place::Project(ProjectId::from_db(scope.1));
+        let revoked = Kind::MemberRoleRevoked;
         match RoleId::parse(&role.role) {
             Ok(row) => {
                 let mut tx = pool.begin().await?;
                 roles::store::revoke_row(&mut tx, actor, row, scope).await?;
                 notifications::emit(&mut tx, fact(&role.name)).await?;
+                activity::role(&mut tx, revoked, place, (actor, &role.name), by.id).await?;
                 tx.commit().await?;
             }
             Err(_) => {
@@ -116,6 +121,7 @@ pub(crate) async fn end_membership(
                 let mut tx = pool.begin().await?;
                 store::forget_relation(&mut tx, actor, scope, &role.role).await?;
                 notifications::emit(&mut tx, fact(&role.role)).await?;
+                activity::role(&mut tx, revoked, place, (actor, &role.role), by.id).await?;
                 tx.commit().await?;
             }
         }

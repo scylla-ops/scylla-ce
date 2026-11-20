@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_reports\n         SET wanted_state = $3, sequence = sequence + 1, attempts = 0,\n             last_error = CASE WHEN $4::bool THEN NULL ELSE $5::text END,\n             state = CASE WHEN NOT $4::bool THEN 'not_sent'\n                          WHEN state IN ('sent', 'not_sent') THEN 'sending' ELSE state END,\n             next_attempt_at = CASE WHEN NOT $4::bool THEN NULL\n                                    WHEN state IN ('sent', 'not_sent') THEN now()\n                                    ELSE COALESCE(next_attempt_at, now()) END,\n             updated_at = now()\n         WHERE job_id = $1 AND context = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "97084a1c5f4ffb7368f29a8e39bfb0746f7ee85b4713b96d106b2bfb35f5efdb"
+}

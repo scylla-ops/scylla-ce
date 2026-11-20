@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use scylla_proto::agents::v1::Dispatch;
 use tokio::sync::watch;
 
+use super::checkout::Git;
 use super::dag;
 use super::events::Outbox;
 use crate::agent::Settings;
@@ -18,8 +19,15 @@ pub(crate) struct JobSet {
 }
 
 impl JobSet {
-    /// Starts a job in a task, unless it runs already. The job leaves the set at its end.
-    pub(crate) fn start(&self, dispatch: Dispatch, settings: Settings, outbox: Outbox) {
+    /// Starts a job in a task, unless it runs already, with the git that the hello found. The
+    /// job leaves the set at its end.
+    pub(crate) fn start(
+        &self,
+        dispatch: Dispatch,
+        settings: Settings,
+        git: Option<Git>,
+        outbox: Outbox,
+    ) {
         let Some(id) = dispatch.job_id.as_ref().map(|id| id.value.clone()) else {
             return;
         };
@@ -33,7 +41,7 @@ impl JobSet {
         }
         let set = self.clone();
         tokio::spawn(async move {
-            dag::run(dispatch, &settings, &outbox, stopped).await;
+            dag::run(dispatch, &settings, git, &outbox, stopped).await;
             set.jobs().remove(&id);
         });
     }

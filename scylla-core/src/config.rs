@@ -7,8 +7,10 @@ use std::time::Duration;
 
 use clap::Args;
 
+use crate::cli::values::{days, millis, seconds};
 use crate::features::identity::agents::{AGENT_DOWNLOADS, AGENT_IMAGE};
 use crate::infra::logs::LogFormat;
+use crate::infra::vcs::VcsSettings;
 
 /// The core settings. Each flag also reads the environment variable in its doc.
 #[derive(Args, Clone)]
@@ -148,6 +150,10 @@ pub struct Config {
     /// image of this version.
     #[arg(long, env = "SCYLLA_AGENT_IMAGE", default_value = AGENT_IMAGE)]
     pub agent_image: String,
+
+    /// The settings of the Git providers: their URLs and the GitHub App of the server.
+    #[command(flatten)]
+    pub vcs: VcsSettings,
 }
 
 impl AsRef<Config> for Config {
@@ -191,6 +197,7 @@ impl fmt::Debug for Config {
             .field("log_format", &self.log_format)
             .field("agent_downloads_url", &self.agent_downloads_url)
             .field("agent_image", &self.agent_image)
+            .field("vcs", &self.vcs)
             .finish()
     }
 }
@@ -229,27 +236,6 @@ impl SignUpMode {
             Self::Closed => "closed",
         }
     }
-}
-
-/// Reads a duration in days.
-fn days(text: &str) -> Result<Duration, String> {
-    text.parse::<u64>()
-        .map(|days| Duration::from_secs(days * 24 * 60 * 60))
-        .map_err(|_| format!("{text:?} is not a number of days"))
-}
-
-/// Reads a duration in seconds.
-fn seconds(text: &str) -> Result<Duration, String> {
-    text.parse()
-        .map(Duration::from_secs)
-        .map_err(|_| format!("{text:?} is not a number of seconds"))
-}
-
-/// Reads a duration in milliseconds.
-fn millis(text: &str) -> Result<Duration, String> {
-    text.parse()
-        .map(Duration::from_millis)
-        .map_err(|_| format!("{text:?} is not a number of milliseconds"))
 }
 
 /// Hides the password of a URL, for the logs.

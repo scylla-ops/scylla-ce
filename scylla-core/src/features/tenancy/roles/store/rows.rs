@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use scylla_domain::tenancy::catalog::Level;
+use scylla_domain::tenancy::catalog::{self, Level};
 use scylla_domain::tenancy::roles::{Holder, NewRole, RoleId, RoleRow};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::Tx;
@@ -35,16 +35,19 @@ struct Row {
 }
 
 impl Row {
-    /// Makes the domain value. The checks of the table give a known level and known holders.
+    /// Makes the domain value, with what a role of its level holds with its permissions. The
+    /// checks of the table give a known level and known holders.
     fn into_role(self) -> RoleRow {
+        let level = Level::parse(&self.level).unwrap_or(Level::Project);
+        let held = catalog::held(level, self.permissions.iter().map(String::as_str));
         RoleRow {
             id: RoleId::from_db(self.id),
             workspace: self.workspace_id.map(WorkspaceId::from_db),
             name: self.name,
             description: self.description,
-            level: Level::parse(&self.level).unwrap_or(Level::Project),
+            level,
             holder: Holder::parse(&self.holder).unwrap_or(Holder::People),
-            permissions: self.permissions,
+            permissions: held.into_iter().map(str::to_owned).collect(),
             holder_count: u32::try_from(self.holder_count).unwrap_or(u32::MAX),
         }
     }

@@ -1,0 +1,209 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT r.job_id, r.context, r.project_id, r.connection_id, c.provider, r.mode,\n                r.wanted_state, r.sequence, r.state, r.sent_state, r.sent_at, r.external_id,\n                r.external_url, r.attempts, r.next_attempt_at, r.last_error\n         FROM vcs_reports r JOIN vcs_connections c ON c.id = r.connection_id\n         WHERE r.job_id = $1 AND r.context = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "job_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "context",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "context"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "connection_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "connection_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "mode",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "mode"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "wanted_state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "wanted_state"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "sequence",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "sequence"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "sent_state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "sent_state"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "sent_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "sent_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "external_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "external_url"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "attempts",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "attempts"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "next_attempt_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "next_attempt_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "last_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "last_error"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "cbf9913ea9e938f7970b3868b7df43bc7558fa4186999d1616e9266518098e46"
+}

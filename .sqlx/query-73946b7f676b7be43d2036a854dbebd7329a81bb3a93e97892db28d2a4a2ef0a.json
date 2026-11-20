@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE dashboards SET team_default = false WHERE workspace_id = $1 AND team_default",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "73946b7f676b7be43d2036a854dbebd7329a81bb3a93e97892db28d2a4a2ef0a"
+}

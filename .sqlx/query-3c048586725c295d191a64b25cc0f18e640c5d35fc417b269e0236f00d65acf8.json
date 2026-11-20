@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_reports\n         SET state = 'sending', attempts = 0, last_error = NULL, next_attempt_at = now(),\n             updated_at = now()\n         WHERE job_id = $1 AND context = $2 AND state IN ('retrying', 'not_sent')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3c048586725c295d191a64b25cc0f18e640c5d35fc417b269e0236f00d65acf8"
+}

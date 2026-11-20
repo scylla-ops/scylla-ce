@@ -7,15 +7,16 @@ use tracing::Instrument;
 
 use super::one_time::{self, Purpose};
 use super::{mails, password, store, AccountContext};
-use crate::features::identity::sessions;
+use crate::features::identity::sessions::{self, Client};
 use crate::features::notifications::{self, kinds};
 use crate::features::tenancy::invitations;
 use crate::infra::logs::mask_email;
 use crate::Error;
 
 /// Answers at once, then sends a reset link to the email in a task, if the email has an
-/// account. The answer is the same for each email, and an error goes to the log only.
-pub(super) fn request_reset(ctx: &AccountContext, email: Email) {
+/// account. The mail names the client of the request. The answer is the same for each email, and
+/// an error goes to the log only.
+pub(super) fn request_reset(ctx: &AccountContext, email: Email, client: Client) {
     let masked = mask_email(email.as_str());
     tracing::info!(event = "password.reset_requested", email = masked);
     let ctx = ctx.clone();
@@ -28,7 +29,7 @@ pub(super) fn request_reset(ctx: &AccountContext, email: Email) {
 
             // Send a link to a known email only.
             match user {
-                Some(user) => send_link(&ctx, user, email.as_str()).await,
+                Some(user) => send_link(&ctx, user, email.as_str(), Some(&client)).await,
                 None => Ok(()),
             }
         };
@@ -55,7 +56,7 @@ pub(crate) async fn send_reset(ctx: &AccountContext, user: ActorId) -> Result<()
     tracing::info!(event = "password.reset_requested", %user);
     let ctx = ctx.clone();
     let task = async move {
-        if let Err(error) = send_link(&ctx, user, &email).await {
+        if let Err(error) = send_link(&ctx, user, &email, None).await {
             tracing::warn!(%error, "a reset link was not made");
         }
     };
@@ -64,8 +65,13 @@ pub(crate) async fn send_reset(ctx: &AccountContext, user: ActorId) -> Result<()
 }
 
 /// Makes a reset link and sends it, unless the user got one less than `COOLDOWN` ago. The new
-/// link replaces the older ones.
-async fn send_link(ctx: &AccountContext, user: ActorId, email: &str) -> Result<(), Error> {
+/// link replaces the older ones. The mail names the client that asked for it, if one is given.
+async fn send_link(
+    ctx: &AccountContext,
+    user: ActorId,
+    email: &str,
+    from: Option<&Client>,
+) -> Result<(), Error> {
     // Lock the user, so two requests at the same time make one link only.
     let mut tx = ctx.pool.begin().await?;
     if !store::lock_user(&mut tx, user).await?
@@ -81,18 +87,19 @@ async fn send_link(ctx: &AccountContext, user: ActorId, email: &str) -> Result<(
     mails::send(
         ctx,
         "reset-password",
-        mails::reset_password(ctx, email, &token),
+        mails::reset_password(ctx, email, &token, from),
     )
     .await;
     Ok(())
 }
 
 /// Sets a new password with the token of a reset link. The link proves the email, and each
-/// session of the user closes.
+/// session of the user closes. The notice names the client of the request.
 pub(super) async fn reset_password(
     ctx: &AccountContext,
     token: &str,
     password: Password,
+    client: &Client,
 ) -> Result<(), Error> {
     let hash = password::hash(password.as_str().to_owned()).await?;
     let mut tx = ctx.pool.begin().await?;
@@ -107,7 +114,7 @@ pub(super) async fn reset_password(
     invitations::announce_open(&mut tx, redeemed.user, &redeemed.email).await?;
     tx.commit().await?;
     tracing::info!(event = "password.changed", user = %redeemed.user, via = "reset");
-    let mail = mails::password_changed(ctx, &redeemed.email);
+    let mail = mails::password_changed(ctx, &redeemed.email, Some(client));
     mails::send(ctx, "password-changed", mail).await;
     Ok(())
 }

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE jobs SET status = $2, created_at = to_timestamp($3::float8),\n                started_at = to_timestamp($3::float8) + make_interval(secs => $4::float8),\n                finished_at = to_timestamp($3::float8) + make_interval(secs => $5::float8)\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Float8",
+        "Float8",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fd3c9402acad95cf53b8e807604783dcba97d48a00f476d51e21aaed45a2a543"
+}

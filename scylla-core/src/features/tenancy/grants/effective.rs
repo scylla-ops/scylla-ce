@@ -24,7 +24,7 @@ fn reaches(role: &HeldRole, level: Level, object: &str) -> bool {
 }
 
 /// Returns the ids of the permissions that a role gives. `rows` holds the permissions of the roles
-/// that are rows.
+/// that are rows: a role of a level holds what they need at that level.
 fn given(schema: &Schema, role: &HeldRole, rows: &HashMap<Uuid, Vec<String>>) -> Vec<&'static str> {
     if role.key == OWNER {
         return catalog::areas()
@@ -34,10 +34,7 @@ fn given(schema: &Schema, role: &HeldRole, rows: &HashMap<Uuid, Vec<String>>) ->
             .collect();
     }
     if let Some(permissions) = Uuid::parse_str(&role.key).ok().and_then(|id| rows.get(&id)) {
-        return permissions
-            .iter()
-            .filter_map(|id| catalog::find(id).map(|(_, permission)| permission.id))
-            .collect();
+        return catalog::held(role.scope.level, permissions.iter().map(String::as_str));
     }
     let definition = match role.scope.level {
         Level::Project => Project::NAME,

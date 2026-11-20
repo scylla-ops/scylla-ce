@@ -9,6 +9,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ### Changed
 
+- The web app follows the commit that keeps the state of a person on the server: the theme, the
+  language, the node style, the last workspace, the seen flags, the tour and the places of the nodes.
+- The web app follows the commit that repairs the guided tours: the ring, the card and the hold of a
+  dialog.
 - **Breaking:** a new backend replaces the old server. An install of the old product needs the
   one-off import: this is not an upgrade in place.
 - **Breaking:** the code is in two repositories, in one direction. `scylla-ce` holds the core and is
@@ -21,6 +25,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `Revoke` change it, and they also check the new permission `manage_owners`. `AddOwner`, `RemoveOwner`,
   `ListOwners` and `WorkspaceOwner` are gone from the API, and the events `owner.added` and
   `owner.removed` are gone from the log. The rows of `workspace_owners` stay, with no migration.
+- The Rust dependencies are at their latest versions: `croner` 4.0.3, `syn` 3.0.10, `uuid` 1.29.2,
+  and the latest patch versions in `Cargo.lock`. A cron schedule with `7L` (the last Sunday of the
+  month) now fires.
 
 ### Added
 
@@ -134,6 +141,157 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 - A one-off import of the old product: its schema, the users and their passwords, a disabled user,
   and a user with no email.
+- `GetAgentStats` counts the jobs of a period: from the day of the creation of the agent to today,
+  at most one year. With no period, it counts the last 30 days.
+- `ListMembers` and `ListRoleHolders` give `runner` for each actor: true for an App that runs jobs
+  (an agent).
+- The API has the contract of the GitHub and GitLab integration. A push, pull request or tag
+  trigger needs a linked repository (`NO_REPOSITORY_LINK`), and a file pipeline gets its Git
+  triggers from its file (`PIPELINE_READ_ONLY`).
+- The permission model of the Git integration: the catalog areas `git_providers` (instance),
+  `integrations` (workspace) and `repository` (project), and the cell `jobs.approve` for the runs
+  from a fork. A project editor approves a run and links a repository, and a project viewer reads
+  the link.
+- The agent fetches the code of a job into its work folder before the first node, when the dispatch
+  has a checkout. It sends the events of the checkout and its log on the node `.checkout`, and a
+  failed checkout fails the job with no node started. The token never goes to `.git/config`, a URL
+  or a log. With git 2.31 or newer it is not in the process list. The hello has the feature
+  `checkout` only when `git --version` runs.
+- A job can have a source: the commit, the branch or the tag, the pull requests and the author in
+  the linked repository. `RunPipeline` takes a `ref` (a branch, a tag or a SHA) and gets its commit
+  from GitHub or GitLab. Each node gets the `SCYLLA_GIT_*` variables. A job from a fork waits for an
+  approval and gets no secret value. `RerunJob` keeps the source and checks the secrets.
+  `ListPipelineJobs` and `ListWorkspaceJobs` filter on the branch, the event, the author and the
+  pull request.
+- The API connects a workspace to GitHub (install of the GitHub App) and to GitLab (the token of a
+  service account). It lists, gets and deletes the connections, and lists the repositories of a
+  connection. Only the admins of the workspace add, change or delete a connection. No answer and no
+  log line has a token.
+- `ValidatePipelineFile` reads a pipeline file that a client sends. It gives each error with its
+  line and column, and a warning for each secret that the project does not have. `ExportPipeline`
+  writes a pipeline as a TOML, YAML or JSON file, with its path in `.scylla/pipelines/`. `GET
+  /schemas/pipeline-v1.json` gives the JSON Schema of the pipeline files.
+- A job on a commit gets the code of its commit on the agent before the first node. Only an agent
+  with the feature `checkout` gets such a job, and a job that waits for one has the `waiting_reason`
+  `NO_AGENT_WITH_CHECKOUT`. The dispatch has a token that can only read the repository: an
+  installation token of one hour on GitHub, or a GitLab deploy token that the server deletes at the
+  end of the job. The job shows the state of its checkout, and `CreatePipeline` and `UpdatePipeline`
+  take the checkout settings of a pipeline.
+- A project takes its pipelines from the editor or from the pipeline files of its linked repository.
+  `SetPipelineSource` reads the files in `.scylla/` at the head of the default branch, archives the
+  editor pipelines and writes one pipeline for each file. A file pipeline follows the default
+  branch, is read only (`PIPELINE_READ_ONLY`), and gets the triggers of the `on` table of its file.
+  A trigger of an archived pipeline does not fire. `ListPipelineFiles` and `GetFilePipeline` give
+  the files and their errors. A move back to the editor restores the editor pipelines, and the jobs
+  stay.
+- `CreateTrigger` and `UpdateTrigger` take the push, pull request and tag triggers with their rules:
+  the globs of the branches or of the tags (at most 32 in each list), the events of a pull request,
+  the drafts and `[skip ci]`. A project with no linked repository gives `NO_REPOSITORY_LINK`, and a
+  file pipeline gives `PIPELINE_READ_ONLY`. `ExportPipeline` writes the enabled Git triggers in the
+  `on` table of the file.
+- `SetMergeBlock` turns on or off the rule that blocks the merge of a pull request until a pipeline
+  passes: one ruleset of Scylla with a required check for each pipeline on GitHub, and "Pipelines
+  must succeed" on GitLab. `ListMergeBlocks` gives the state of each rule, with `out_of_sync` when a
+  person changed the rule on the provider, and the reason and the page to open when the provider
+  refuses.
+- Each run on a commit reports its state to GitHub or GitLab as the commit status
+  `scylla/<pipeline>`, through an outbox with retries. `VcsReportService` lists the reports of jobs
+  and sends a report again. A refused call or an expired GitLab token moves the connection to "Needs
+  attention", and the owners and the admins of the workspace get a notification. A warning comes 14
+  days before a GitLab token expires.
+- `ApproveJob` and `RejectJob` decide on a job from a fork that waits for an approval. Only a person
+  with the edit of the project calls them. An approval makes the job pending, the agents get it, and
+  it runs with no secret value. A rejection cancels the job with `Rejected by` and the name of the
+  person. A job in another state gives `JOB_NOT_AWAITING_APPROVAL`. The report on the commit follows
+  the decision.
+- The server takes the webhooks of GitHub and GitLab: `POST /integrations/github/webhook`, `POST
+  /integrations/github/{app}/webhook` and `POST /integrations/gitlab/{project}/webhook`. It checks
+  the signature before any write, keeps each delivery one time, and reads the pushes, the tags, the
+  pull requests and the changes of the installations. An uninstall disconnects the connection, a
+  suspend stops it, and a repository that leaves the installation stops its link. When the webhooks
+  do not arrive or GitLab disables the webhook, the link polls the branches and the open pull
+  requests at its interval. A link with webhooks polls each 15 minutes to find a lost delivery.
+  `TestDelivery` asks the provider for a webhook, tells if it arrived within 10 seconds, and sets
+  the mode of the link.
+- On GitHub, each run on a commit now reports its state as the check run `scylla/<pipeline>` by
+  default: a title with the nodes that passed, a table of the checkout and the nodes with their
+  state, duration and attempts, the errors of an invalid pipeline file, and the last 50 log lines of
+  the failed node. A link in the commit status mode still posts commit statuses. "Re-run" of a check
+  run or of all the checks on GitHub starts a new run of the job, with the event of a re-run on the
+  provider.
+- A push, a pull request or a tag of the linked repository starts the editor pipelines whose Git
+  triggers match it, as the runner of the triggers. A pipeline has one run for each commit: a second
+  event on the commit adds its branch or its pull request to that run. A pull request from a fork
+  makes a run that waits for an approval, and the approval tells if the pull request changes
+  `.scylla/`. A new commit of the pull request cancels the run of its old commit that waits.
+- `VcsAppService` is served. An instance admin makes the GitHub App of a self-hosted instance with
+  the GitHub manifest flow (`StartGitHubManifest`, `CompleteGitHubManifest`), and the server seals
+  its key and its secrets with the id of its row. `GetVcsApp` gives the App with its webhook URL and
+  its last webhook, and gives the App of the settings as managed. `DeleteVcsApp` removes the App,
+  and each of its connections becomes disconnected with `APP_UNINSTALLED`.
+- A project of files runs its pipeline files at the commit of each push, pull request and tag: each
+  file whose `on` table matches the event gets one run for the commit, with the nodes and the
+  checkout of the file at that commit. A push to the default branch first syncs the file pipelines.
+  A file with errors gives a failed run with no node on each push and pull request, with its errors
+  and the report "Invalid pipeline file" (the commit status gives the line of the first error).
+  `RunPipeline` of a file pipeline reads its file at the ref, or at the head of the default branch
+  with no ref. A schedule or a webhook of a file pipeline, and a Git trigger that a person fires
+  now, run at the head of the default branch with the event `trigger`.
+- `ListConnectionRepositories` accepts a workspace in place of a project, and then checks the
+  permission on the workspace. The page of a new project uses it to list the repositories before it
+  creates the project.
+- A workspace has a time zone: an IANA name, `UTC` for a new workspace. `UpdateWorkspace` changes it
+  with the permission `update_workspace`, and a name that is not an IANA name gives
+  `INVALID_ARGUMENT` on `time_zone`. The server checks the names with the new dependency `chrono-tz`
+  0.10.4.
+- `ListPipelineSummaries` gives the dashboard the pipelines of a workspace that the caller can see:
+  the last jobs (at most 50), the counts and the median duration, the health of the default branch,
+  the jobs that run or wait, and the triggers. Its permission is in `jobs.view`.
+- Each job keeps its origin (`jobs.origin`). The job lists filter on the states, the origins and the
+  time of creation, and `ListWorkspaceJobs` also filters on projects and pipelines and has a summary
+  view. `ListWorkspaceJobs` shows the jobs of the projects that the caller can see, and gives an
+  empty list to another caller. A pending job with a container tells why it waits
+  (`NO_AGENT_WITH_CONTAINER`).
+- `GetJobStats` gives the dashboard the figures of the jobs of a workspace that the caller can see:
+  the counts by end, the median and the 95th percentile of the run time and of the wait for an
+  agent, and the run time, for a period of at most 400 days. It also gives at most 1000 buckets of
+  hours, days or weeks in the time zone of the workspace, the groups by project, pipeline, agent or
+  origin, and the previous period. Its permission is in `jobs.view`. `scylla-domain` now also uses
+  `chrono` 0.4.45 of the workspace.
+- `DashboardService` keeps the saved layouts of the dashboard of a workspace, with the catalog area
+  `dashboards` (`dashboards.view`, `dashboards.create`, `dashboards.manage`). A private layout is
+  visible only to its creator, also for an instance admin. The migration
+  `20261028000026_dashboards.sql` adds the table `dashboards`.
+- The agent tells its start, and sends the CPU use and the used memory of its machine each minute.
+  The server keeps these samples for 7 days. `GetApp` and `ListApps` show the last sample, and
+  `GetAgentMetrics` gives the samples by hour, day or week. `GetSlotUsage` gives the busy job slots
+  of the agents of a workspace and the slots of the connected agents. An older agent keeps its
+  stream. The agent uses the new dependency `sysinfo` 0.38.4.
+- The history of the fires of the triggers (`trigger_fires`, 30 days) keeps each fire of a schedule,
+  of a webhook and of a fire now, and each cron time that the server missed.
+  `ListWorkspaceTriggers`, `ListTriggerFires` and `GetTriggerFireStats` give them to the dashboard,
+  with the new catalog permission `triggers.view`. A cron schedule now uses the time zone of the
+  workspace, and a change of the zone moves the next fires.
+- `GetDeliveryStats` gives the counts of the webhook deliveries of a workspace to the dashboard: for
+  each connection with its newest event, repository and ref, for each webhook trigger (from
+  `trigger_fires`), and by hour, day or week in the time zone of the workspace. It uses the catalog
+  permission `integrations.view`. A delivery in `vcs_deliveries` keeps its GitHub installation, its
+  repository and its ref, and the server keeps these deliveries for 30 days, not 7.
+- `ListAttentionItems` gives the dashboard the open items of a workspace that need a person: a
+  failed or orphaned job until a later job of its pipeline and branch completes, a failed fire or a
+  missed cron time until the next good fire of its trigger (30 days at most), an agent that is not
+  connected for more than 5 minutes, and a job that waits for an approval. No person can dismiss an
+  item. Each caller gets only the kinds that it can read, in the projects that it can see, with the
+  counts of each kind. No migration changes.
+- The activity feed of a workspace: each change records its row in its transaction (the end of a
+  job, a trigger, a secret, a member, a Git connection, the stream of an agent), and `ListActivity`
+  shows each row only to the readers of its area. The server deletes a row after 30 days.
+
+### Removed
+
+- A GitHub repository reports only with a check run. The commit status mode of a link and the field
+  `report_mode` of `UpdateRepositoryLink` are removed. GitLab continues to report with a commit
+  status.
 
 ### Fixed
 
@@ -147,3 +305,55 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - A token is refused when a Datalog query of its claims fails.
 - The pretty logs show the random end of the ids.
 - Line endings are LF in each file.
+- The built-in role Project agent gives its permissions in `ListRoles`: `job_execution.edit` and
+  `job_execution.run`. The area `job_execution` is on the project level, so a custom role for apps
+  on a project can also hold it.
+- The build compiles the protos again when a file of the submodule `proto` changes. Before, a build
+  after a move of the submodule could use old generated code.
+- A custom role gets each permission that its pages need, also in another area, and what these need
+  in turn. For example, each permission of a project needs the view of the project and of its
+  pipelines, the agents need the view of the apps, and the instance access needs the view of the
+  users. Thus a page that a role opens does not show a refusal.
+- The Windows install script works with no admin rights. In a PowerShell with no admin rights, it
+  installs the agent for the user in `%LOCALAPPDATA%`, and a task of the user starts it at each
+  sign-in with no window. As administrator, it installs the service `ScyllaAgent`, and
+  `-CurrentUser` selects the install for the user. `-Uninstall` removes the two installs.
+- A role of the instance with a permission of a workspace or of a project also gets the view of all
+  the workspaces, so its holder finds the workspaces where it acts. A custom role that was saved
+  before a new dependency gets this dependency at once: the server adds what the permissions of a
+  role need each time that it reads the role, checks a route or lists the objects of a role.
+- A run on a branch, a tag or a SHA works with a connection of the GitHub App of the instance. It
+  gave `APP_MISSING`.
+- A new install of the GitHub App on the account of a connection that stopped (an uninstall, a
+  suspend or a refused call) takes over this connection in the workspace. The connection keeps its
+  id, so its repository links, merge rules and reports work again. Before, the install made a second
+  connection, and the links stayed on the old one. A report keeps the latest state of its run while
+  the link or its connection is not active, so `RetryJobReport` sends the final state after the
+  repair.
+- A new GitHub link polls at once when the GitHub App has no active webhook, with the reason
+  `APP_HAS_NO_WEBHOOK`, and its connection polls too. `TestDelivery` tells it and moves an existing
+  link to the polling mode. Before, a push started a run only at the safety poll after 15 minutes,
+  and the test gave a raw error of GitHub.
+- The GitHub App does not ask for the permission `statuses: write`: a GitHub report is a check run.
+  An App or an installation that still has this permission stays active, with no warning.
+- An agent tells its agent protocol and its build commit in its hello. The server compares the
+  protocol, not the version text, gives each agent a compatibility and its missing features, and
+  refuses an agent under its minimum protocol with `AGENT_TOO_OLD` (the minimum of 0.7.0 is 0). A
+  job that waits for an agent with `checkout` names the online agents that cannot get its code:
+  update the agent, or install Git. The install scripts read `scylla-agent --protocol` after the
+  download.
+- A build that is not a release now shows its commit in its version, for example
+  `0.7.0-rc.1+240da00`, or `0.7.0-rc.1+dev` when it has no commit. This applies to `--version` of
+  the server and of the agent, to the hello of the agent and to `GetCapabilities`. The release
+  workflow sets `SCYLLA_RELEASE=true` and `SCYLLA_BUILD`, which replaces `SCYLLA_AGENT_BUILD`. The
+  downloads and the image of the agent keep the bare version.
+- The version is `0.7.0-rc.2`. The install scripts and the image of the agent now use the release
+  `v0.7.0-rc.2`, whose agent has the agent protocol 2. The release `v0.7.0-rc.1` gave an agent with
+  the agent protocol 0, which the server shows as out of date.
+- The server answers the gRPC reflection v1 and v1alpha again, with the services of the core and of
+  the edition. A client such as `grpcurl` or the MCP bridge lists the services and calls them with
+  no copy of the protos.
+- The account mails have the look of the web app: the logo as the only image, a badge, the facts of
+  the event, one button and a dark theme. A reset, a new password and a closed session tell the
+  device and the IP address. An invitation tells who invited and the role. A lock tells its end and
+  the count of wrong passwords.

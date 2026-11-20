@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_setup_states SET used_at = now()\n           WHERE hash = $1 AND kind = 'github_install' AND created_by = $2 AND used_at IS NULL\n             AND expires_at > now()\n           RETURNING workspace_id AS \"workspace_id!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_setup_states",
+            "name": "workspace_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "fa47181d561fce36b9aed73bb3fb733834899abbbc14d62c33d5728e80a3f11f"
+}

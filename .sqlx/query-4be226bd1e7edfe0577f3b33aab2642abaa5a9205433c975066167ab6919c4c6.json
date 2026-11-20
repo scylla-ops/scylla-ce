@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pipeline_id AS pipeline, context, enabled, state, state_reason, updated_by,\n                  updated_at\n           FROM merge_blocks\n           WHERE project_id = $1 AND pipeline_id IS NOT DISTINCT FROM $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pipeline",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "pipeline_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "context",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "context"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "state_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "state_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "updated_by"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "merge_blocks",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "4be226bd1e7edfe0577f3b33aab2642abaa5a9205433c975066167ab6919c4c6"
+}

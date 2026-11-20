@@ -26,7 +26,7 @@ pub(super) const AREAS: &[Area] = &[
             CatalogPermission {
                 id: "users.create",
                 action: "create",
-                depends_on: &[],
+                depends_on: &["users.view"],
                 implicit: false,
                 routes: &[Route::of(UserAdminHolder::CREATE_USER)],
             },
@@ -89,7 +89,7 @@ pub(super) const AREAS: &[Area] = &[
         permissions: &[CatalogPermission {
             id: "instance_access.manage",
             action: "manage",
-            depends_on: &[],
+            depends_on: &["users.view"],
             implicit: false,
             routes: &[
                 Route::of(RoleAdmin::LIST_ROLES),

@@ -4,6 +4,7 @@ mod graph;
 mod layout;
 mod needs;
 mod nodes;
+mod summaries;
 mod switch;
 #[cfg(test)]
 mod tests;
@@ -12,10 +13,16 @@ pub use graph::Nodes;
 pub use layout::{PipelineLayout, Position};
 pub use needs::{Need, NodeId, PortName};
 pub use nodes::{env_name, EnvValue, EnvVar, Node, NodeError, Runtime, Shell, Step};
+pub use summaries::{
+    ListSummaries, NextFire, PipelineSummary, RecentJob, SummaryOrder, SummaryPage, TriggerType,
+    DEFAULT_RUNS, MAX_FILTER_IDS, MAX_RUNS,
+};
 pub use switch::{Case, Combinator, Operand, Rule, Switch, Test};
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId};
+use crate::integrations::links::PipelineSource;
+use crate::projects::pipeline_files::CheckoutSettings;
 use crate::projects::{Project, ProjectId};
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
 use crate::{Id, Name, Page, PageRequest, ResourceKind};
@@ -44,12 +51,35 @@ pub struct Pipeline {
     pub name: String,
     /// The nodes.
     pub nodes: Vec<Node>,
+    /// How the agent gets the code of a job with a source, before the first node.
+    pub checkout: CheckoutSettings,
     /// The version: 1 at the creation, and one more at each change.
     pub version: i64,
     /// The creation time.
     pub created_at: OffsetDateTime,
     /// The time of the last change.
     pub updated_at: OffsetDateTime,
+    /// Where the pipeline comes from: the editor, or a file of the linked repository.
+    pub source: PipelineSource,
+    /// The file of a file pipeline on the default branch, or `None` for an editor pipeline.
+    pub file: Option<FileOrigin>,
+    /// The time when the pipeline stopped: an editor pipeline when its project moved to the
+    /// files, a file pipeline when its project moved back to the editor. `None` while it is
+    /// active.
+    pub archived_at: Option<OffsetDateTime>,
+}
+
+/// The file of a file pipeline on the default branch of the linked repository.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FileOrigin {
+    /// The key: `pipeline`, or the name of the file with no extension.
+    pub key: String,
+    /// The path, for example `.scylla/pipelines/build.toml`.
+    pub path: String,
+    /// The number of errors of the file.
+    pub errors: u32,
+    /// The time when the file left the default branch, or `None` while it is there.
+    pub removed_at: Option<OffsetDateTime>,
 }
 
 /// The input of a pipeline creation.
@@ -65,6 +95,8 @@ pub struct NewPipeline {
     pub nodes: Nodes,
     /// The places of the new nodes.
     pub layout: PipelineLayout,
+    /// How the agent gets the code of a job with a source, before the first node.
+    pub checkout: CheckoutSettings,
 }
 
 /// A change of a pipeline. A field that is `None` does not change. The change passes only if
@@ -79,6 +111,8 @@ pub struct PipelineChange {
     pub nodes: Option<Nodes>,
     /// The places to save with the change. An empty layout saves nothing.
     pub layout: PipelineLayout,
+    /// The new checkout settings.
+    pub checkout: Option<CheckoutSettings>,
 }
 
 /// Where a pipeline list looks.
@@ -134,8 +168,32 @@ crate::authz! {
         permission rerun_job = edit;
         /// The route `ListPipelineJobs`, on each pipeline of this project.
         permission list_pipeline_jobs = view;
+        /// The route `ListWorkspaceJobs`: the jobs of this project are in the list.
+        permission list_workspace_jobs = view;
         /// The route `TailJobLogs`, on each job of this project.
         permission tail_job_logs = view;
+        /// The route `SetPipelineSource`, on this project.
+        permission set_pipeline_source = edit;
+        /// The route `ApproveJob`, on each job of this project.
+        permission approve_job = edit;
+        /// The route `RejectJob`, on each job of this project.
+        permission reject_job = edit;
+        /// The route `ListJobReports`, on each job of this project.
+        permission list_job_reports = view;
+        /// The route `RetryJobReport`, on each job of this project.
+        permission retry_job_report = edit;
+        /// The route `ValidatePipelineFile`, in this project.
+        permission validate_pipeline_file = view;
+        /// The route `ExportPipeline`, on each pipeline of this project.
+        permission export_pipeline = view;
+        /// The route `GetFilePipeline`, on each pipeline of this project.
+        permission get_file_pipeline = view;
+        /// The route `ListPipelineFiles`, in this project.
+        permission list_pipeline_files = view;
+        /// The route `ListPipelineSummaries`: the pipelines of this project are in the list.
+        permission list_pipeline_summaries = view;
+        /// The route `GetJobStats`: the jobs of this project are in the figures.
+        permission get_job_stats = view;
     }
 
     /// The routes of the pipelines and of their jobs on a workspace, and the role of the agents.
@@ -170,9 +228,44 @@ crate::authz! {
         permission rerun_job = work;
         /// The route `ListPipelineJobs`, in each project of this workspace.
         permission list_pipeline_jobs = read;
-        /// The route `ListWorkspaceJobs`: the jobs of this workspace.
+        /// The route `ListWorkspaceJobs`: the jobs of each project of this workspace are in the
+        /// list.
         permission list_workspace_jobs = read;
         /// The route `TailJobLogs`, in each project of this workspace.
         permission tail_job_logs = read;
+        /// The route `SetPipelineSource`, in each project of this workspace.
+        permission set_pipeline_source = work;
+        /// The route `ApproveJob`, in each project of this workspace.
+        permission approve_job = work;
+        /// The route `RejectJob`, in each project of this workspace.
+        permission reject_job = work;
+        /// The route `ListJobReports`, in each project of this workspace.
+        permission list_job_reports = read;
+        /// The route `RetryJobReport`, in each project of this workspace.
+        permission retry_job_report = work;
+        /// The route `ValidatePipelineFile`, in each project of this workspace.
+        permission validate_pipeline_file = read;
+        /// The route `ExportPipeline`, in each project of this workspace.
+        permission export_pipeline = read;
+        /// The route `GetFilePipeline`, in each project of this workspace.
+        permission get_file_pipeline = read;
+        /// The route `ListPipelineFiles`, in each project of this workspace.
+        permission list_pipeline_files = read;
+        /// The route `ListPipelineSummaries`: the pipelines of this workspace are in the list.
+        permission list_pipeline_summaries = read;
+        /// The route `GetJobStats`: the jobs of each project of this workspace are in the
+        /// figures.
+        permission get_job_stats = read;
+    }
+
+    /// The routes of the pipelines and of their jobs on the caller itself: a list shows only what
+    /// the caller can see.
+    extend Actor as PipelineCaller {
+        /// The route `ListPipelineSummaries`: each caller lists the pipelines that it can see.
+        permission list_pipeline_summaries = nil;
+        /// The route `ListWorkspaceJobs`: each caller lists the jobs that it can see.
+        permission list_workspace_jobs = nil;
+        /// The route `GetJobStats`: each caller counts the jobs that it can see.
+        permission get_job_stats = nil;
     }
 }

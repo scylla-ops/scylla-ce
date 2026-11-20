@@ -1,23 +1,38 @@
 //! The jobs: one run of a pipeline on an agent, with a snapshot of its nodes and the state of
 //! each node.
 
+mod figures;
+mod git;
+mod list;
 mod logs;
+mod origin;
+mod start;
 mod state;
 mod stats;
 #[cfg(test)]
 mod tests;
 
+pub use figures::{
+    buckets, top, Bucket, Figures, FiguresPeriod, FiguresQuery, Group, GroupBy, GroupKey,
+    GroupOrder, JobFigures, DEFAULT_GROUPS, MAX_BUCKETS, MAX_FIGURES_DAYS, MAX_GROUPS,
+};
+pub use git::{CheckoutRun, JobApproval, PipelineFileRef};
+pub use list::{JobFilter, JobPage, JobScope, ListJobs, WorkspaceJobs, MAX_LIST_IDS};
 pub use logs::{LogBatch, LogBatchId, LogLine, LogStream};
+pub use origin::JobOrigin;
+pub use start::{RerunOrigin, StartJob, INVALID_FILE};
 pub use state::{JobEvent, NodeRun};
-pub use stats::{AgentStats, DayOutcomes, Outcomes, STATS_DAYS};
+pub use stats::{AgentStats, DayOutcomes, Outcomes, StatsPeriod, MAX_STATS_DAYS, STATS_DAYS};
 use time::OffsetDateTime;
 
 use crate::identity::actors::ActorId;
 use crate::identity::apps::AppId;
-use crate::projects::pipelines::{Node, PipelineId};
+use crate::integrations::sources::JobSource;
+use crate::projects::pipeline_files::{CheckoutSettings, FileError};
+use crate::projects::pipelines::{Node, PipelineId, PortName, Runtime, Step};
 use crate::projects::ProjectId;
 use crate::tenancy::workspaces::WorkspaceId;
-use crate::{Id, Page, PageRequest, ResourceKind};
+use crate::{Id, ResourceKind};
 
 /// The kind of a job, for the hooks.
 pub const KIND: ResourceKind = ResourceKind::new("job");
@@ -31,6 +46,9 @@ pub const MAX_ERROR: usize = 4096;
 /// The state of a job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobStatus {
+    /// A job from a fork waits for an editor of the project to approve or reject it. No agent
+    /// gets it.
+    AwaitingApproval,
     /// The job waits for an agent, or for the start of its agent.
     Pending,
     /// The agent runs the job.
@@ -49,6 +67,7 @@ impl JobStatus {
     /// Returns the name of the state, as the database keeps it.
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::AwaitingApproval => "awaiting_approval",
             Self::Pending => "pending",
             Self::Running => "running",
             Self::Completed => "completed",
@@ -61,6 +80,7 @@ impl JobStatus {
     /// Reads the name of a state.
     pub fn parse(name: &str) -> Option<Self> {
         [
+            Self::AwaitingApproval,
             Self::Pending,
             Self::Running,
             Self::Completed,
@@ -74,7 +94,7 @@ impl JobStatus {
 
     /// Returns `true` for a state that does not change again.
     pub fn is_final(self) -> bool {
-        !matches!(self, Self::Pending | Self::Running)
+        !matches!(self, Self::AwaitingApproval | Self::Pending | Self::Running)
     }
 }
 
@@ -145,6 +165,8 @@ pub struct Job {
     pub rerun_of: Option<JobId>,
     /// The trigger that started the job, if a trigger did.
     pub trigger_id: Option<crate::projects::triggers::TriggerId>,
+    /// What started the job.
+    pub origin: JobOrigin,
     /// The state.
     pub status: JobStatus,
     /// The nodes of the pipeline at the start of the job.
@@ -163,6 +185,16 @@ pub struct Job {
     pub started_at: Option<OffsetDateTime>,
     /// The end.
     pub finished_at: Option<OffsetDateTime>,
+    /// The commit and the event of the job, or `None` for a job with no source.
+    pub source: Option<JobSource>,
+    /// The approval of a job from a fork, or `None` for another job.
+    pub approval: Option<JobApproval>,
+    /// The pipeline file of a job of a file pipeline, or `None` for an editor pipeline.
+    pub pipeline_file: Option<PipelineFileRef>,
+    /// The errors of an invalid pipeline file. The job failed with no node.
+    pub file_errors: Vec<FileError>,
+    /// The checkout of the code before the first node, or `None` for a job with no checkout.
+    pub checkout: Option<CheckoutRun>,
 }
 
 /// The input of a job creation: a run or a rerun.
@@ -180,30 +212,35 @@ pub struct NewJob {
     pub rerun_of: Option<JobId>,
     /// The trigger that starts the job.
     pub trigger_id: Option<crate::projects::triggers::TriggerId>,
+    /// What starts the job.
+    pub origin: JobOrigin,
     /// The nodes to run.
     pub nodes: Vec<Node>,
+    /// The commit and the event of the job.
+    pub source: Option<JobSource>,
+    /// `true` for a job that waits for an approval before an agent gets it.
+    pub awaiting: bool,
+    /// The pipeline file of a job of a file pipeline.
+    pub pipeline_file: Option<PipelineFileRef>,
+    /// The errors of an invalid pipeline file: the job fails at its creation.
+    pub file_errors: Vec<FileError>,
+    /// The checkout of the code before the first node, or `None` for a job with no checkout.
+    pub checkout: Option<CheckoutSettings>,
 }
 
-/// Where a job list looks.
-#[derive(Clone, Copy, Debug)]
-pub enum JobScope {
-    /// The jobs of one pipeline.
-    Pipeline(PipelineId),
-    /// The jobs of a workspace, of one agent if it is set.
-    Workspace(WorkspaceId, Option<AppId>),
+impl NewJob {
+    /// Returns the state of the new job: failed for an invalid pipeline file, awaiting approval,
+    /// or pending.
+    pub fn status(&self) -> JobStatus {
+        if !self.file_errors.is_empty() {
+            JobStatus::Failed
+        } else if self.awaiting {
+            JobStatus::AwaitingApproval
+        } else {
+            JobStatus::Pending
+        }
+    }
 }
-
-/// The input of a job list: newest first.
-#[derive(Clone, Copy, Debug)]
-pub struct ListJobs {
-    /// Where to look.
-    pub scope: JobScope,
-    /// The page to return: the jobs before the key of the page.
-    pub page: PageRequest<JobId>,
-}
-
-/// One page of jobs.
-pub type JobPage = Page<Job, JobId>;
 
 /// The jobs that an agent may take.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -215,6 +252,27 @@ pub enum RunScope {
     Workspace,
     /// The jobs of these projects only.
     Projects(Vec<ProjectId>),
+}
+
+/// Returns `true` if one of the nodes runs in a container: only an agent with a container runtime
+/// gets the job.
+pub fn needs_container(nodes: &[Node]) -> bool {
+    nodes
+        .iter()
+        .any(|node| !matches!(node.runtime, Runtime::Process))
+}
+
+/// Returns `true` if one of the nodes is a switch or a merge, or has an `error` need: only an
+/// agent that runs the conditional nodes gets the job.
+pub fn needs_conditions(nodes: &[Node]) -> bool {
+    nodes.iter().any(|node| {
+        matches!(node.step, Step::Switch(_) | Step::Merge)
+            || node.needs.iter().any(|need| {
+                need.port
+                    .as_ref()
+                    .is_some_and(|port| port.as_str() == PortName::ERROR)
+            })
+    })
 }
 
 /// Keeps at most `MAX_ERROR` characters of an error text.

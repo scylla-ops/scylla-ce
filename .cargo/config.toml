@@ -12,7 +12,8 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 # [target.aarch64-apple-darwin]
 # rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
-# sqlx::test shares 20 database connections between the tests that run at the same time.
-# Eight test threads keep the tests under this limit.
+# sqlx::test shares 20 database connections between the tests that run at the same time, and
+# the pool of each test keeps one. TestApp gives its server a pool of its own.
+# Sixteen test threads keep the tests under this limit.
 [env]
-RUST_TEST_THREADS = "8"
+RUST_TEST_THREADS = "16"

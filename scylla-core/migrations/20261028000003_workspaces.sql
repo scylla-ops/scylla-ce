@@ -3,7 +3,8 @@ CREATE TABLE workspaces (
     name text NOT NULL,
     slug text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9-]{0,37}[a-z0-9]$'),
     created_at timestamptz NOT NULL DEFAULT now(),
-    personal_tokens_enabled boolean NOT NULL DEFAULT true
+    personal_tokens_enabled boolean NOT NULL DEFAULT true,
+    time_zone text NOT NULL DEFAULT 'UTC'
 );
 
 CREATE TABLE workspace_owners (

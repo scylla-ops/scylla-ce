@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM vcs_poll_state WHERE project_id = $1 AND ref = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e62a69158cff9b373c3ea69fe0dd4b8b02964e5df0e18afa92722b644b2a6d81"
+}

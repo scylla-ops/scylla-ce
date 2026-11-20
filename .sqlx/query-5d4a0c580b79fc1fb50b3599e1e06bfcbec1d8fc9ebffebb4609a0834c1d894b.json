@@ -1,0 +1,96 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.id AS \"pipeline_id!\", j.id AS \"id!\", j.status AS \"status!\",\n                  s.branch AS \"branch?\", j.created_at AS \"created_at!\", j.started_at,\n                  j.finished_at\n           FROM unnest($1::uuid[]) AS p (id)\n           CROSS JOIN LATERAL (\n               SELECT id, status, created_at, started_at, finished_at FROM jobs\n               WHERE pipeline_id = p.id ORDER BY id DESC LIMIT $2\n           ) j\n           LEFT JOIN job_sources s ON s.job_id = j.id\n           ORDER BY p.id, j.id DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pipeline_id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "status!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "branch?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "branch"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "finished_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "5d4a0c580b79fc1fb50b3599e1e06bfcbec1d8fc9ebffebb4609a0834c1d894b"
+}

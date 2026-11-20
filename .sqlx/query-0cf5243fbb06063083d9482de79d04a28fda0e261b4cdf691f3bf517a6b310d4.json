@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO agent_samples (agent_id, at, cpu_percent, memory_used_bytes)\n         VALUES ($1, $2, 10, 100)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0cf5243fbb06063083d9482de79d04a28fda0e261b4cdf691f3bf517a6b310d4"
+}

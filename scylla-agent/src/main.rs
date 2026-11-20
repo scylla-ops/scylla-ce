@@ -2,7 +2,8 @@
 //! jobs until a stop: Ctrl+C, SIGTERM on Unix, Ctrl+Break, the close of the console or a
 //! shutdown on Windows. `run` joins first when the file of the agent does not exist and a join
 //! code is set. With `--service`, `run` is the Windows service `ScyllaAgent`. An error prints its
-//! reason, and a refusal for good exits with the code 78.
+//! reason, and a refusal for good exits with the code 78. `--protocol` prints the agent protocol
+//! of the binary.
 
 #[cfg(windows)]
 mod service;
@@ -11,12 +12,13 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Args, Parser, Subcommand};
+use clap::error::ErrorKind;
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use scylla_agent::{AgentError, Settings};
 
 /// The command line of `scylla-agent`.
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version = scylla_proto::version::text(), about)]
 struct Cli {
     /// The file of the agent: its App and its private key.
     #[arg(
@@ -26,9 +28,12 @@ struct Cli {
         global = true
     )]
     config: PathBuf,
+    /// Prints the agent protocol of this binary, and stops.
+    #[arg(long)]
+    protocol: bool,
     /// The command.
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 /// The commands of the agent.
@@ -92,9 +97,18 @@ fn main() -> ExitCode {
     }
 }
 
-/// Runs the command.
+/// Runs the command. With no command, prints the protocol for `--protocol`, else the help.
 fn execute(cli: Cli) -> Result<(), AgentError> {
-    match cli.command {
+    let Some(command) = cli.command else {
+        if cli.protocol {
+            println!("{}", scylla_agent::AGENT_PROTOCOL);
+            return Ok(());
+        }
+        Cli::command()
+            .error(ErrorKind::MissingSubcommand, "give a command: join or run")
+            .exit()
+    };
+    match command {
         Command::Join { url, code, force } => {
             logs();
             runtime()?.block_on(join(&cli.config, &url, &code, force))

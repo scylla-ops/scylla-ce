@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_connections c SET last_event_at = now()\n         FROM repository_links l WHERE l.project_id = $1 AND c.id = l.connection_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c227710b45049bac25d728fabd7eb1e8793715d4f18f4b31a27ca44c70bb97e4"
+}

@@ -161,6 +161,28 @@ async fn a_role_of_the_instance_reaches_each_project(pool: PgPool) {
     assert!(!other.contains(&"team".to_owned()));
 }
 
+/// A role of the instance with a permission in the projects also gets the view of all the
+/// workspaces, so its holder finds each workspace where it acts.
+#[sqlx::test(migrations = false)]
+async fn a_role_of_the_instance_that_acts_in_projects_finds_each_workspace(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let (admin, owner, user) = (app.admin().await, app.user().await, app.user().await);
+    let input = RoleInput::on_platform("Pipelines", &["pipelines.view"]);
+    let role = app.create_role(admin, input).await.unwrap();
+    app.grant_on_platform(admin, &role.grant_name, user)
+        .await
+        .unwrap();
+    app.create_workspace(owner, "team").await.unwrap();
+
+    // when
+    let workspaces = app.visible_workspaces(user).await.unwrap();
+
+    // then
+    assert!(role.permissions.contains(&"workspaces.view".to_owned()));
+    assert!(workspaces.contains(&"team".to_owned()));
+}
+
 /// `CheckPermissions` on the platform tells what a role gives, as a route check does.
 #[sqlx::test(migrations = false)]
 async fn check_permissions_sees_a_role_of_the_instance(pool: PgPool) {

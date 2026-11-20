@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ruleset_id FROM repository_links WHERE project_id = $1 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ruleset_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "ruleset_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "07ad7c2de1052cc64617f055d113e965ace293cc9fce1ebc5790bd9da31d9ff4"
+}

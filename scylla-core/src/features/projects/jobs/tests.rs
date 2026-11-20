@@ -6,7 +6,7 @@ use std::time::Duration;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::apps::{AppId, NewApp};
 use scylla_domain::identity::users::{Email, NewUser};
-use scylla_domain::projects::jobs::{JobEvent, JobId, JobStatus, NewJob};
+use scylla_domain::projects::jobs::{JobEvent, JobId, JobOrigin, JobStatus, NewJob};
 use scylla_domain::projects::pipelines::{Node, NodeId, Runtime, Step};
 use scylla_domain::projects::{NewProject, ProjectDescription, ProjectName};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -15,7 +15,7 @@ use scylla_extension::Hooks;
 use sqlx::PgPool;
 
 use super::{housekeeping, runs, service};
-use crate::features::identity::agents::Registry;
+use crate::features::identity::agents::{Features, Online, Registry};
 use crate::features::identity::{accounts, apps};
 use crate::features::projects::service as projects;
 
@@ -123,13 +123,20 @@ async fn placed_job(pool: &PgPool, place: &Place) -> JobId {
         created_by: place.user.id,
         rerun_of: None,
         trigger_id: None,
+        origin: JobOrigin::Manual,
         nodes: vec![node],
+        source: None,
+        awaiting: false,
+        pipeline_file: None,
+        file_errors: Vec::new(),
+        checkout: None,
     };
     let registry = Registry::default();
     let job = service::create(pool, &Hooks::default(), &registry, place.user.clone(), new)
         .await
         .unwrap();
-    let claimed = runs::claim(pool, None, place.workspace, None, place.agent, false, false)
+    let features = Features::default();
+    let claimed = runs::claim(pool, None, place.workspace, None, place.agent, features)
         .await
         .unwrap()
         .unwrap();
@@ -155,7 +162,14 @@ async fn reap_releases_the_jobs_of_a_lost_agent(pool: PgPool) {
         .unwrap();
     let waiting = placed_job(&pool, &place).await;
     let connected = Registry::default();
-    let _ticket = connected.open(place.agent);
+    let agent = Online {
+        name: "runner".to_owned(),
+        version: "1.0.0".to_owned(),
+        checkout_gap: None,
+        containers: false,
+        conditions: false,
+    };
+    let _ticket = connected.open(place.agent, place.workspace, agent);
 
     // when
     let kept = housekeeping::reap(&pool, &connected, Duration::ZERO)

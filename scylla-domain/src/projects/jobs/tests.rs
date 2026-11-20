@@ -1,12 +1,17 @@
 //! Unit tests of the state machine of a job.
 
+mod approval;
+mod checkout;
+mod ports;
+
 use time::OffsetDateTime;
 
-use super::{Job, JobEvent, JobStatus, NodeRun, NodeStatus};
+use super::{Job, JobEvent, JobStatus, NodeRun, NodeStatus, RerunOrigin, StartJob};
 use crate::identity::actors::ActorId;
-use crate::projects::pipelines::{
-    Case, Combinator, Node, NodeId, Operand, PortName, Rule, Runtime, Step, Switch, Test,
-};
+use crate::integrations::sources::{JobSource, SourceEvent};
+use crate::integrations::VcsProvider;
+use crate::projects::pipeline_files::FileError;
+use crate::projects::pipelines::{EnvValue, EnvVar, Node, NodeId, Runtime, Step};
 use crate::DomainError;
 
 /// Makes a node with one retry.
@@ -34,6 +39,7 @@ fn job() -> Job {
         created_by: ActorId::generate(),
         rerun_of: None,
         trigger_id: None,
+        origin: super::JobOrigin::Manual,
         status: JobStatus::Pending,
         runs: nodes.iter().map(NodeRun::pending).collect(),
         nodes,
@@ -43,6 +49,11 @@ fn job() -> Job {
         created_at: OffsetDateTime::now_utc(),
         started_at: None,
         finished_at: None,
+        source: None,
+        approval: None,
+        pipeline_file: None,
+        file_errors: Vec::new(),
+        checkout: None,
     }
 }
 
@@ -163,79 +174,124 @@ fn an_end_cancels_the_open_nodes() {
     assert_eq!(states, vec![NodeStatus::Completed, NodeStatus::Cancelled]);
 }
 
-/// Makes a running job with a switch of the ports `a`, `b` and `other`, and a node `build`.
-fn switch_job(all_matches: bool) -> Job {
-    let port = |name: &str| PortName::parse(name.to_owned()).unwrap();
-    let case = |name: &str| Case {
-        port: port(name),
-        combinator: Combinator::Any,
-        rules: vec![Rule {
-            left: Operand::Var("A".to_owned()),
-            test: Test::NotEmpty,
-            right: None,
-        }],
-    };
-    let mut gate = node("gate");
-    gate.retries = 0;
-    gate.step = Step::Switch(Switch {
-        cases: vec![case("a"), case("b")],
-        otherwise: Some(port("other")),
-        all_matches,
-    });
-    let mut job = job();
-    job.nodes = vec![node("build"), gate];
-    job.runs = job.nodes.iter().map(NodeRun::pending).collect();
-    let now = OffsetDateTime::now_utc();
-    job.apply(&JobEvent::JobStarted, now).unwrap();
-    for name in ["build", "gate"] {
-        job.apply(&JobEvent::NodeStarted(id(name)), now).unwrap();
+/// Makes the source of a push on `main`, from a fork if `fork` is set.
+fn source(fork: Option<&str>) -> JobSource {
+    JobSource {
+        provider: VcsProvider::GitHub,
+        repository: "octo/app".to_owned(),
+        url: "https://github.com/octo/app".to_owned(),
+        sha: "0123456789abcdef0123456789abcdef01234567".to_owned(),
+        git_ref: Some("refs/heads/main".to_owned()),
+        branch: Some("main".to_owned()),
+        tag: None,
+        pull_requests: Vec::new(),
+        fork_repository: fork.map(str::to_owned),
+        author_login: Some("octocat".to_owned()),
+        avatar: None,
+        message_title: "Fix the build".to_owned(),
+        event: SourceEvent::Push,
+        automatic: true,
+        changes_pipeline_files: false,
     }
-    job
 }
 
-/// Returns the result of a completion of a node with some ports.
-fn complete(job: &mut Job, node: &str, ports: &[&str]) -> Result<(), DomainError> {
-    let ports = ports
-        .iter()
-        .map(|port| PortName::parse((*port).to_owned()).unwrap())
-        .collect();
-    let event = JobEvent::NodeCompleted {
-        node: id(node),
-        exit_code: None,
-        ports,
-    };
-    job.apply(&event, OffsetDateTime::now_utc())
-}
-
-/// A switch completes with its own ports, each one time, and one port at most with no
-/// `all_matches`. A node that is not a switch has no port.
+/// A job that waits for an approval is not final, and each state reads back from its name.
 #[test]
-fn a_completion_must_fit_the_ports_of_the_switch() {
+fn a_job_that_waits_for_an_approval_is_not_final() {
     // given
-    let mut one = switch_job(false);
-    let mut all = switch_job(true);
+    let all = [
+        JobStatus::AwaitingApproval,
+        JobStatus::Pending,
+        JobStatus::Running,
+        JobStatus::Completed,
+        JobStatus::Failed,
+        JobStatus::Cancelled,
+        JobStatus::Orphaned,
+    ];
 
     // when
-    let refused = [
-        complete(&mut one.clone(), "build", &["a"]),
-        complete(&mut one.clone(), "gate", &["c"]),
-        complete(&mut one.clone(), "gate", &["a", "b"]),
-        complete(&mut all.clone(), "gate", &["a", "a"]),
-    ];
-    let first = complete(&mut one, "gate", &["other"]);
-    let both = complete(&mut all, "gate", &["a", "b"]);
+    let open: Vec<_> = all
+        .into_iter()
+        .filter(|status| !status.is_final())
+        .collect();
 
     // then
-    for result in refused {
-        assert_eq!(result, Err(DomainError::NotAllowed));
+    assert_eq!(
+        open,
+        vec![
+            JobStatus::AwaitingApproval,
+            JobStatus::Pending,
+            JobStatus::Running
+        ]
+    );
+    for status in all {
+        assert_eq!(JobStatus::parse(status.as_str()), Some(status));
     }
-    assert!(first.is_ok() && both.is_ok());
-    assert_eq!(
-        one.runs[1].ports,
-        vec![PortName::parse("other".to_owned()).unwrap()]
-    );
-    assert_eq!(
-        (all.runs[1].status, all.runs[1].ports.len()),
-        (NodeStatus::Completed, 2)
-    );
+}
+
+/// A start adds the variables that a node does not have. A job from a fork waits for an
+/// approval, and a job of an invalid file fails at its creation.
+#[test]
+fn a_start_adds_the_variables_and_waits_for_a_fork() {
+    // given
+    let mut start = StartJob::rerun(job(), RerunOrigin::Person);
+    start.nodes[0].env.push(EnvVar {
+        name: "TARGET".to_owned(),
+        value: EnvValue::Literal("own".to_owned()),
+    });
+    start.variables = vec![EnvVar {
+        name: "TARGET".to_owned(),
+        value: EnvValue::Literal("trigger".to_owned()),
+    }];
+    let actor = ActorId::generate();
+
+    // when
+    let plain = start.clone().into_new(actor);
+    let fork = StartJob {
+        source: Some(source(Some("evil/app"))),
+        ..start.clone()
+    }
+    .into_new(actor);
+    let invalid = StartJob {
+        file_errors: vec![FileError::of_file(".scylla/pipeline.toml", "bad")],
+        ..start
+    }
+    .into_new(actor);
+
+    // then
+    let values: Vec<_> = plain
+        .nodes
+        .iter()
+        .map(|node| node.env[0].value.clone())
+        .collect();
+    assert_eq!(values[0], EnvValue::Literal("own".to_owned()));
+    assert_eq!(values[1], EnvValue::Literal("trigger".to_owned()));
+    assert_eq!(plain.status(), JobStatus::Pending);
+    assert_eq!(fork.status(), JobStatus::AwaitingApproval);
+    assert_eq!(invalid.status(), JobStatus::Failed);
+}
+
+/// A new run keeps the source of the job, and it is not automatic. A new run from the provider
+/// has its event. Each new run has the origin of who asked for it.
+#[test]
+fn a_rerun_keeps_the_source() {
+    // given
+    let mut old = job();
+    old.source = Some(source(None));
+
+    // when
+    let person = StartJob::rerun(old.clone(), RerunOrigin::Person);
+    let provider = StartJob::rerun(old.clone(), RerunOrigin::Provider);
+    let created = person.clone().into_new(ActorId::generate());
+
+    // then
+    let kept = person.source.unwrap();
+    assert_eq!(kept.sha, old.source.as_ref().unwrap().sha);
+    assert_eq!((kept.event, kept.automatic), (SourceEvent::Push, false));
+    assert_eq!(provider.source.unwrap().event, SourceEvent::ProviderRerun);
+    assert_eq!(person.rerun_of, Some(old.id));
+    assert_eq!(person.nodes, old.nodes);
+    assert_eq!(person.origin, super::JobOrigin::Rerun);
+    assert_eq!(provider.origin, super::JobOrigin::ProviderRerun);
+    assert_eq!(created.origin, super::JobOrigin::Rerun);
 }

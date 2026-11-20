@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO activity (id, workspace_id, project_id, area, kind, actor_id, subject_kind,\n             subject_id, params)\n         VALUES ($1, COALESCE($2, (SELECT workspace_id FROM projects WHERE id = $3)), $3, $4, $5,\n             $6, $7, $8, $9)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "27cdb6c4a8ab946001c24fa06a9a784b8b7940c530194e569300598f10fd352b"
+}

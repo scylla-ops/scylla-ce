@@ -1,6 +1,6 @@
 //! The plugin of the pipelines and of their jobs.
 
-use scylla_domain::projects::pipelines::{PipelineAccess, PipelineHolder};
+use scylla_domain::projects::pipelines::{PipelineAccess, PipelineCaller, PipelineHolder};
 use scylla_extension::{EditionBuilder, Plugin};
 
 /// Adds the permission model of the pipelines and of the jobs, and the role `runner` of the
@@ -13,6 +13,7 @@ impl Plugin for Pipelines {
         edition
             .authz::<PipelineAccess>()
             .authz::<PipelineHolder>()
+            .authz::<PipelineCaller>()
             .role(PipelineHolder::RUNNER)
             .role(PipelineAccess::RUNNER)
     }

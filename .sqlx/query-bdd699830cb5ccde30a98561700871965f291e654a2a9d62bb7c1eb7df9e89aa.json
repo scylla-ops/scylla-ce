@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_connections SET delivery_mode = 'polling', updated_at = now() WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bdd699830cb5ccde30a98561700871965f291e654a2a9d62bb7c1eb7df9e89aa"
+}

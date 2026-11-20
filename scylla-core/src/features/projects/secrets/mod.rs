@@ -8,4 +8,4 @@ mod store;
 mod tests;
 
 pub(crate) use grpc::server;
-pub(crate) use service::{missing, reveal};
+pub(crate) use service::{known, missing, reveal};

@@ -89,7 +89,7 @@ async fn list_roles_gives_the_built_in_roles(pool: PgPool) {
     let owner = find("instance-admin");
     assert!(owner.builtin && owner.full_control);
     assert_eq!(owner.holder_count, 1);
-    assert_eq!(owner.permissions.len(), 38);
+    assert_eq!(owner.permissions.len(), 48);
     assert!(!roles.iter().any(|role| role.key == "workspace-creator"));
     let viewer = find("project-viewer");
     assert_eq!(viewer.grant_name, "viewer");
@@ -98,6 +98,48 @@ async fn list_roles_gives_the_built_in_roles(pool: PgPool) {
     assert!(!viewer.permissions.contains(&"pipelines.edit".to_owned()));
     assert!(find("project-admin").full_control);
     assert_eq!(find("agent").holder, "apps");
+}
+
+/// The built-in roles of the agents give the area of the machines, on a workspace and on a project.
+#[sqlx::test(migrations = false)]
+async fn list_roles_gives_job_execution_to_the_agent_roles(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let admin = app.admin().await;
+
+    // when
+    let roles = app.list_roles(admin, None).await.unwrap();
+
+    // then
+    let find = |key: &str| roles.iter().find(|role| role.key == key).unwrap();
+    let machine = ["job_execution.edit", "job_execution.run"];
+    assert_eq!(find("agent").permissions, machine);
+    assert_eq!(find("project-agent").permissions, machine);
+}
+
+/// `CreateRole` gives the area of the machines to a role for apps on a project.
+#[sqlx::test(migrations = false)]
+async fn create_role_gives_job_execution_to_a_project_role_for_apps(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let workspace = app.workspace_of(owner).await.to_string();
+    let input = RoleInput {
+        name: "Runner",
+        level: "project",
+        holder: "apps",
+        permissions: &["job_execution.run"],
+        workspace: Some(&workspace),
+    };
+
+    // when
+    let role = app.create_role(owner, input).await.unwrap();
+
+    // then
+    assert_eq!(
+        role.permissions,
+        ["job_execution.edit", "job_execution.run"]
+    );
 }
 
 /// A role of the schema counts its holders on all the objects, and a list for a workspace counts

@@ -1,5 +1,5 @@
-//! One session of the stream: a token, the hello, the messages in both directions, and the
-//! renewal of the token before its expiry.
+//! One session of the stream: a token, the hello, the messages in both directions, the samples
+//! of the machine at the interval of the welcome, and the renewal of the token before its expiry.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -15,10 +15,12 @@ use tonic::metadata::MetadataValue;
 use tonic::{Code, Request};
 
 use super::host::host;
+use super::machine::{tick, timer, Machine};
+use super::protocol;
 use crate::agent::{AgentError, Settings};
 use crate::config::AgentConfig;
 use crate::identity::{connect, token};
-use crate::jobs::{JobSet, Outbox};
+use crate::jobs::{Git, JobSet, Outbox};
 
 /// The time before the expiry of a token when the agent renews it.
 const RENEW_BEFORE: i64 = 60;
@@ -37,6 +39,10 @@ pub(crate) struct Shared {
     pub(crate) inbox: mpsc::Receiver<OpenStreamRequest>,
     /// A message that a closed stream did not take.
     pub(crate) pending: Option<OpenStreamRequest>,
+    /// The machine, for the samples of its use.
+    pub(crate) machine: Machine,
+    /// The start of the agent.
+    pub(crate) started_at: SystemTime,
 }
 
 /// Runs one session until the stream ends or the agent stops. A refusal for good gives an
@@ -45,7 +51,7 @@ pub(crate) async fn session(
     shared: &mut Shared,
     mut stop: watch::Receiver<bool>,
 ) -> Result<(), AgentError> {
-    // Get a token, and open the stream with the hello.
+    // Get a token, find the git of the machine, and open the stream with the hello.
     let channel = connect(&shared.config.url).await?;
     let mut current = token(channel.clone(), &shared.config).await?;
     let (up, messages) = mpsc::channel(64);
@@ -55,8 +61,10 @@ pub(crate) async fn session(
         .into_iter()
         .map(|value| Id { value })
         .collect();
+    let git = Git::detect().await;
+    let machine = &mut shared.machine;
     let hello = Hello {
-        host: Some(host(&shared.settings)),
+        host: Some(host(&shared.settings, git, machine, shared.started_at)),
         running_jobs: running,
         conditional_nodes: true,
     };
@@ -68,22 +76,28 @@ pub(crate) async fn session(
     let mut down = AgentServiceClient::new(channel.clone())
         .open_stream(request)
         .await
-        .map_err(|status| AgentError::of_status(&status))?
+        .map_err(|status| protocol::refusal(&status, &shared.config.url))?
         .into_inner();
     tracing::info!(app = %shared.config.app_id, "the stream is open");
 
-    // Answer the server, send the messages of the jobs, and renew the token.
+    // Answer the server, send the messages of the jobs and the samples, and renew the token.
+    let mut samples = None;
     loop {
         let renew = renew_at(current.expires_at);
         tokio::select! {
             received = down.message() => match received {
-                Ok(Some(response)) => answer(shared, response.message),
+                Ok(Some(response)) => {
+                    if let Some(Down::Welcome(welcome)) = &response.message {
+                        samples = timer(welcome.metrics_interval_seconds);
+                    }
+                    answer(shared, git, response.message);
+                }
                 Ok(None) => return Ok(()),
                 Err(status) if matches!(status.code(), Code::Unauthenticated | Code::Aborted) => {
                     tracing::info!(reason = status.message(), "the server closed the stream");
                     return Ok(());
                 }
-                Err(status) => return Err(AgentError::of_status(&status)),
+                Err(status) => return Err(protocol::refusal(&status, &shared.config.url)),
             },
             next = next(shared) => {
                 let Some(next) = next else { return Ok(()) };
@@ -91,6 +105,10 @@ pub(crate) async fn session(
                     shared.pending = Some(error.0);
                     return Ok(());
                 }
+            }
+            () = tick(&mut samples) => {
+                let sample = shared.machine.sample();
+                let _ = up.send(message(Up::Metrics(sample))).await;
             }
             () = sleep_until(renew) => {
                 current = token(channel.clone(), &shared.config).await?;
@@ -102,8 +120,9 @@ pub(crate) async fn session(
     }
 }
 
-/// Acts on a message of the server: a dispatch starts a job, and a cancel stops one.
-fn answer(shared: &Shared, message: Option<Down>) {
+/// Acts on a message of the server: the welcome tells if the agent is older than the server, a
+/// dispatch starts a job with the git of the hello, and a cancel stops one.
+fn answer(shared: &Shared, git: Option<Git>, message: Option<Down>) {
     match message {
         Some(Down::Dispatch(dispatch)) => {
             let job = dispatch
@@ -112,16 +131,18 @@ fn answer(shared: &Shared, message: Option<Down>) {
                 .map(|id| id.value.clone())
                 .unwrap_or_default();
             tracing::info!(%job, "a job starts");
-            shared
-                .jobs
-                .start(dispatch, shared.settings.clone(), shared.outbox.clone());
+            let (settings, outbox) = (shared.settings.clone(), shared.outbox.clone());
+            shared.jobs.start(dispatch, settings, git, outbox);
         }
         Some(Down::Cancel(cancel)) => {
             let job = cancel.job_id.map(|id| id.value).unwrap_or_default();
             tracing::info!(%job, "a job stops");
             shared.jobs.cancel(&job);
         }
-        Some(Down::Welcome(_)) | Some(Down::Renewed(_)) | None => {}
+        Some(Down::Welcome(welcome)) => {
+            protocol::check(welcome.agent_protocol.as_ref(), &shared.config.url);
+        }
+        Some(Down::Renewed(_)) | None => {}
     }
 }
 

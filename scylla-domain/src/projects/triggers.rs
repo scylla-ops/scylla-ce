@@ -1,10 +1,25 @@
-//! The triggers of a pipeline: a cron schedule or a webhook that starts a job, with inputs that
-//! each node of the job gets in its environment.
+//! The triggers of a pipeline: a cron schedule, a webhook or an event of the linked repository
+//! that starts a job, with inputs that each node of the job gets in its environment.
 
+mod fires;
+mod inputs;
+mod summaries;
+#[cfg(test)]
+mod tests;
+
+pub use fires::{
+    FireFigures, FireGroup, FireGroupBy, FireGroupKey, FireId, FireSource, FireStats,
+    FireStatsQuery, FireStatus, ListFires, TriggerFire, WorkspaceFires, FIRE_RETENTION_DAYS,
+};
+pub use inputs::{Input, InputValue, Inputs};
+pub use summaries::{
+    ListWorkspaceTriggers, TriggerOrder, TriggerSummary, MAX_UPCOMING_DAYS, MAX_UPCOMING_FIRES,
+};
 use time::OffsetDateTime;
 
-use crate::identity::actors::{ActorId, ActorKind};
-use crate::projects::pipelines::{env_name, PipelineId};
+use crate::identity::actors::{Actor, ActorId, ActorKind};
+use crate::projects::git_rules::{GitRules, PullRequestRule, PushRule, TagRule};
+use crate::projects::pipelines::PipelineId;
 use crate::projects::{Project, ProjectId};
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
 use crate::{DomainError, Id, Name, Page, PageRequest};
@@ -21,74 +36,60 @@ pub type TriggerName = Name;
 /// What starts the jobs of a trigger.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TriggerKind {
-    /// A schedule of 5 cron fields, in UTC.
+    /// A schedule of 5 cron fields, in the time zone of the workspace.
     Cron(String),
     /// A signed request to the webhook route of the trigger.
     Webhook,
+    /// A push to a branch of the linked repository.
+    Push(PushRule),
+    /// A pull request of the linked repository.
+    PullRequest(PullRequestRule),
+    /// A new tag of the linked repository.
+    Tag(TagRule),
 }
 
-/// The value of an input.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum InputValue {
-    /// A text.
-    Literal(String),
-    /// A JSON pointer (RFC 6901) into the body of a webhook, for example `/after`.
-    Pointer(String),
-}
-
-/// An input of a trigger: a variable that each node of the job gets. A variable of the node with
-/// the same name wins.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Input {
-    /// The name of the variable.
-    pub name: String,
-    /// The value.
-    pub value: InputValue,
-}
-
-/// The checked inputs of a trigger.
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct Inputs(Vec<Input>);
-
-impl Inputs {
-    /// The most inputs.
-    pub const MAX: usize = 128;
-
-    /// Checks the inputs: at most 128, unique names of variables, a pointer only for a webhook,
-    /// and a pointer that is empty or starts with `/`. Returns the path and the rule of a refusal.
-    pub fn parse(inputs: Vec<Input>, webhook: bool) -> Result<Self, (String, DomainError)> {
-        if inputs.len() > Self::MAX {
-            return Err(("inputs".to_owned(), DomainError::TooMany { max: Self::MAX }));
+impl TriggerKind {
+    /// Returns the name of the kind, as the database keeps it.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Cron(_) => "cron",
+            Self::Webhook => "webhook",
+            Self::Push(_) => "push",
+            Self::PullRequest(_) => "pull_request",
+            Self::Tag(_) => "tag",
         }
-        let mut names = std::collections::HashSet::new();
-        for (index, input) in inputs.iter().enumerate() {
-            let at = format!("inputs[{index}]");
-            env_name(&input.name).map_err(|error| (format!("{at}.name"), error))?;
-            if !names.insert(input.name.as_str()) {
-                return Err((format!("{at}.name"), DomainError::Duplicate));
-            }
-            match &input.value {
-                InputValue::Literal(text) if text.len() > 64 << 10 => {
-                    let error = DomainError::TooLarge { max: 64 << 10 };
-                    return Err((format!("{at}.literal"), error));
-                }
-                InputValue::Pointer(_) if !webhook => {
-                    return Err((format!("{at}.json_pointer"), DomainError::NotAllowed));
-                }
-                InputValue::Pointer(pointer)
-                    if !pointer.is_empty() && !pointer.starts_with('/') =>
-                {
-                    return Err((format!("{at}.json_pointer"), DomainError::NotAPointer));
-                }
-                _ => {}
-            }
-        }
-        Ok(Self(inputs))
     }
 
-    /// Returns the inputs.
-    pub fn as_slice(&self) -> &[Input] {
-        &self.0
+    /// Returns the schedule of a cron trigger, or `None` for another kind.
+    pub fn schedule(&self) -> Option<&str> {
+        match self {
+            Self::Cron(schedule) => Some(schedule),
+            _ => None,
+        }
+    }
+
+    /// Returns the rule of a Git kind alone in `GitRules`, or `None` for a cron or webhook kind.
+    pub fn git_rules(&self) -> Option<GitRules> {
+        let mut rules = GitRules::default();
+        match self {
+            Self::Push(rule) => rules.push = Some(rule.clone()),
+            Self::PullRequest(rule) => rules.pull_request = Some(rule.clone()),
+            Self::Tag(rule) => rules.tag = Some(rule.clone()),
+            Self::Cron(_) | Self::Webhook => return None,
+        }
+        Some(rules)
+    }
+
+    /// Checks the globs of a Git kind: at most 32 in each list, each one valid. Returns the path
+    /// (for example `push.exclude[2]`) and the rule of the first refusal.
+    pub fn check_rules(&self) -> Result<(), (String, DomainError)> {
+        let refused = self
+            .git_rules()
+            .and_then(|rules| rules.check("").into_iter().next());
+        match refused {
+            Some((path, error)) => Err((path.trim_start_matches('.').to_owned(), error)),
+            None => Ok(()),
+        }
     }
 }
 
@@ -132,6 +133,8 @@ pub struct Trigger {
     pub created_at: OffsetDateTime,
     /// The time of the last change.
     pub updated_at: OffsetDateTime,
+    /// `true` for a trigger from the `on` table of a pipeline file. It is read only.
+    pub from_file: bool,
 }
 
 /// The input of a trigger creation.
@@ -156,6 +159,8 @@ pub struct TriggerChange {
     pub name: Option<TriggerName>,
     /// The new schedule of a cron trigger.
     pub schedule: Option<String>,
+    /// The new rule of a Git trigger, in a kind of the same name.
+    pub rules: Option<TriggerKind>,
     /// The new inputs.
     pub inputs: Option<Inputs>,
 }
@@ -189,6 +194,12 @@ crate::authz! {
         permission fire_trigger_now = edit;
         /// The route `ListPipelineTriggers`, on each pipeline of this project.
         permission list_pipeline_triggers = view;
+        /// The route `ListWorkspaceTriggers`: the triggers of this project are in the list.
+        permission list_workspace_triggers = view;
+        /// The route `ListTriggerFires`: the fires of this project are in the list.
+        permission list_trigger_fires = view;
+        /// The route `GetTriggerFireStats`: the fires of this project are in the counts.
+        permission get_trigger_fire_stats = view;
     }
 
     /// The routes of the triggers on a workspace.
@@ -207,5 +218,21 @@ crate::authz! {
         permission fire_trigger_now = work;
         /// The route `ListPipelineTriggers`, in each project of this workspace.
         permission list_pipeline_triggers = read;
+        /// The route `ListWorkspaceTriggers`: the triggers of each project of this workspace.
+        permission list_workspace_triggers = read;
+        /// The route `ListTriggerFires`: the fires of each project of this workspace.
+        permission list_trigger_fires = read;
+        /// The route `GetTriggerFireStats`: the fires of each project of this workspace.
+        permission get_trigger_fire_stats = read;
+    }
+
+    /// The routes of the triggers on the caller itself: a list shows only what it can see.
+    extend Actor as TriggerCaller {
+        /// The route `ListWorkspaceTriggers`: each caller lists the triggers that it can see.
+        permission list_workspace_triggers = nil;
+        /// The route `ListTriggerFires`: each caller lists the fires that it can see.
+        permission list_trigger_fires = nil;
+        /// The route `GetTriggerFireStats`: each caller counts the fires that it can see.
+        permission get_trigger_fire_stats = nil;
     }
 }

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_reports\n         SET attempts = attempts + 1, last_error = $4,\n             state = CASE WHEN sequence = $3 THEN 'not_sent' ELSE 'sending' END,\n             next_attempt_at = CASE WHEN sequence = $3 THEN NULL ELSE now() END,\n             updated_at = now()\n         WHERE job_id = $1 AND context = $2\n         RETURNING state",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_reports",
+            "name": "state"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "784f3834045b0fb74c9db43232230c5661b46474fb354f309956d8141f606460"
+}

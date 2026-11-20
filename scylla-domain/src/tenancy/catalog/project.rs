@@ -1,5 +1,6 @@
 //! The areas of the catalog in a project. Each route is on the project and on its workspace.
 
+use super::integrations::JOBS_APPROVE;
 use super::{Area, CatalogPermission, Level, Route};
 use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
 use crate::projects::triggers::{TriggerAccess, TriggerHolder};
@@ -40,7 +41,7 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "project.view",
                 "view",
-                &[],
+                &["pipelines.view"],
                 &[
                     Route::of(ProjectHolder::GET_PROJECT),
                     Route::of(ProjectHolder::LIST_PROJECTS),
@@ -74,7 +75,7 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "project_members.view",
                 "view",
-                &[],
+                &["project.view"],
                 &[
                     Route::of(Project::LIST_ACCESS),
                     Route::of(ProjectMembers::LIST_MEMBERS),
@@ -95,19 +96,27 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "pipelines.view",
                 "view",
-                &[],
+                &["project.view"],
                 &[
                     Route::of(PipelineHolder::GET_PIPELINE),
                     Route::of(PipelineHolder::LIST_PROJECT_PIPELINES),
                     Route::of(PipelineHolder::LIST_WORKSPACE_PIPELINES),
                     Route::of(PipelineAccess::GET_PIPELINE),
                     Route::of(PipelineAccess::LIST_PROJECT_PIPELINES),
+                    Route::of(PipelineHolder::VALIDATE_PIPELINE_FILE),
+                    Route::of(PipelineHolder::EXPORT_PIPELINE),
+                    Route::of(PipelineHolder::GET_FILE_PIPELINE),
+                    Route::of(PipelineHolder::LIST_PIPELINE_FILES),
+                    Route::of(PipelineAccess::VALIDATE_PIPELINE_FILE),
+                    Route::of(PipelineAccess::EXPORT_PIPELINE),
+                    Route::of(PipelineAccess::GET_FILE_PIPELINE),
+                    Route::of(PipelineAccess::LIST_PIPELINE_FILES),
                 ],
             ),
             cell(
                 "pipelines.create",
                 "create",
-                &[],
+                &["pipelines.view"],
                 &[
                     Route::of(PipelineHolder::CREATE_PIPELINE),
                     Route::of(PipelineAccess::CREATE_PIPELINE),
@@ -146,27 +155,42 @@ pub(super) const AREAS: &[Area] = &[
     ),
     area(
         "triggers",
-        &[cell(
-            "triggers.manage",
-            "manage",
-            &[],
-            &[
-                Route::of(TriggerHolder::CREATE_TRIGGER),
-                Route::of(TriggerHolder::GET_TRIGGER),
-                Route::of(TriggerHolder::UPDATE_TRIGGER),
-                Route::of(TriggerHolder::DELETE_TRIGGER),
-                Route::of(TriggerHolder::SET_TRIGGER_ENABLED),
-                Route::of(TriggerHolder::FIRE_TRIGGER_NOW),
-                Route::of(TriggerHolder::LIST_PIPELINE_TRIGGERS),
-                Route::of(TriggerAccess::CREATE_TRIGGER),
-                Route::of(TriggerAccess::GET_TRIGGER),
-                Route::of(TriggerAccess::UPDATE_TRIGGER),
-                Route::of(TriggerAccess::DELETE_TRIGGER),
-                Route::of(TriggerAccess::SET_TRIGGER_ENABLED),
-                Route::of(TriggerAccess::FIRE_TRIGGER_NOW),
-                Route::of(TriggerAccess::LIST_PIPELINE_TRIGGERS),
-            ],
-        )],
+        &[
+            cell(
+                "triggers.view",
+                "view",
+                &["pipelines.view"],
+                &[
+                    Route::of(TriggerHolder::GET_TRIGGER),
+                    Route::of(TriggerHolder::LIST_PIPELINE_TRIGGERS),
+                    Route::of(TriggerHolder::LIST_WORKSPACE_TRIGGERS),
+                    Route::of(TriggerHolder::LIST_TRIGGER_FIRES),
+                    Route::of(TriggerHolder::GET_TRIGGER_FIRE_STATS),
+                    Route::of(TriggerAccess::GET_TRIGGER),
+                    Route::of(TriggerAccess::LIST_PIPELINE_TRIGGERS),
+                    Route::of(TriggerAccess::LIST_WORKSPACE_TRIGGERS),
+                    Route::of(TriggerAccess::LIST_TRIGGER_FIRES),
+                    Route::of(TriggerAccess::GET_TRIGGER_FIRE_STATS),
+                ],
+            ),
+            cell(
+                "triggers.manage",
+                "manage",
+                &["triggers.view"],
+                &[
+                    Route::of(TriggerHolder::CREATE_TRIGGER),
+                    Route::of(TriggerHolder::UPDATE_TRIGGER),
+                    Route::of(TriggerHolder::DELETE_TRIGGER),
+                    Route::of(TriggerHolder::SET_TRIGGER_ENABLED),
+                    Route::of(TriggerHolder::FIRE_TRIGGER_NOW),
+                    Route::of(TriggerAccess::CREATE_TRIGGER),
+                    Route::of(TriggerAccess::UPDATE_TRIGGER),
+                    Route::of(TriggerAccess::DELETE_TRIGGER),
+                    Route::of(TriggerAccess::SET_TRIGGER_ENABLED),
+                    Route::of(TriggerAccess::FIRE_TRIGGER_NOW),
+                ],
+            ),
+        ],
     ),
     area(
         "jobs",
@@ -174,13 +198,20 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "jobs.view",
                 "view",
-                &[],
+                &["pipelines.view"],
                 &[
                     Route::of(PipelineHolder::GET_JOB),
                     Route::of(PipelineHolder::LIST_PIPELINE_JOBS),
                     Route::of(PipelineHolder::LIST_WORKSPACE_JOBS),
                     Route::of(PipelineAccess::GET_JOB),
                     Route::of(PipelineAccess::LIST_PIPELINE_JOBS),
+                    Route::of(PipelineAccess::LIST_WORKSPACE_JOBS),
+                    Route::of(PipelineHolder::LIST_JOB_REPORTS),
+                    Route::of(PipelineAccess::LIST_JOB_REPORTS),
+                    Route::of(PipelineHolder::LIST_PIPELINE_SUMMARIES),
+                    Route::of(PipelineAccess::LIST_PIPELINE_SUMMARIES),
+                    Route::of(PipelineHolder::GET_JOB_STATS),
+                    Route::of(PipelineAccess::GET_JOB_STATS),
                 ],
             ),
             cell(
@@ -192,6 +223,8 @@ pub(super) const AREAS: &[Area] = &[
                     Route::of(PipelineHolder::RERUN_JOB),
                     Route::of(PipelineAccess::CANCEL_JOB),
                     Route::of(PipelineAccess::RERUN_JOB),
+                    Route::of(PipelineHolder::RETRY_JOB_REPORT),
+                    Route::of(PipelineAccess::RETRY_JOB_REPORT),
                 ],
             ),
             cell(
@@ -203,6 +236,7 @@ pub(super) const AREAS: &[Area] = &[
                     Route::of(PipelineAccess::DELETE_JOB),
                 ],
             ),
+            JOBS_APPROVE,
         ],
     ),
     area(
@@ -210,7 +244,7 @@ pub(super) const AREAS: &[Area] = &[
         &[cell(
             "job_logs.view",
             "view",
-            &[],
+            &["jobs.view"],
             &[
                 Route::of(PipelineHolder::TAIL_JOB_LOGS),
                 Route::of(PipelineAccess::TAIL_JOB_LOGS),
@@ -223,7 +257,7 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "secrets.view",
                 "view",
-                &[],
+                &["project.view"],
                 &[
                     Route::of(ProjectHolder::LIST_SECRETS),
                     Route::of(Project::LIST_SECRETS),
@@ -232,7 +266,7 @@ pub(super) const AREAS: &[Area] = &[
             cell(
                 "secrets.create",
                 "create",
-                &[],
+                &["secrets.view"],
                 &[
                     Route::of(ProjectHolder::CREATE_SECRET),
                     Route::of(ProjectHolder::UPDATE_SECRET),

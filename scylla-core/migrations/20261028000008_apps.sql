@@ -14,6 +14,10 @@ CREATE TABLE apps (
     memory_bytes bigint CHECK (memory_bytes >= 0),
     capacity integer NOT NULL DEFAULT 1 CHECK (capacity >= 1),
     container_runtime text,
+    features text[] NOT NULL DEFAULT '{}',
+    protocol integer NOT NULL DEFAULT 0 CHECK (protocol >= 0),
+    build text,
+    started_at timestamptz,
     disabled_at timestamptz
 );
 
@@ -43,3 +47,14 @@ CREATE TABLE app_join_codes (
 
 CREATE INDEX app_join_codes_app_id_idx ON app_join_codes (app_id);
 CREATE INDEX app_join_codes_created_by_idx ON app_join_codes (created_by);
+
+-- The samples of the use of the machine of each agent, for 7 days.
+CREATE TABLE agent_samples (
+    agent_id uuid NOT NULL REFERENCES apps (id) ON DELETE CASCADE,
+    at timestamptz NOT NULL,
+    cpu_percent real NOT NULL CHECK (cpu_percent >= 0 AND cpu_percent <= 100),
+    memory_used_bytes bigint NOT NULL CHECK (memory_used_bytes >= 0),
+    PRIMARY KEY (agent_id, at)
+);
+
+CREATE INDEX agent_samples_at_idx ON agent_samples (at);

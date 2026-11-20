@@ -14,7 +14,7 @@ use tonic::{Request, Response, Status};
 
 use super::{convert, service};
 use crate::api::parse::{self, ToProto};
-use crate::features::identity::agents::Registry;
+use crate::features::identity::agents::{self, Registry};
 use crate::features::projects::jobs::runs;
 use crate::Error;
 
@@ -180,7 +180,7 @@ impl AppsGrpc {
         let creator = App::CREATOR.of(app.id, caller.actor.id);
         self.gate.write(&[creator]).await?;
         Ok(pb::CreateAppResponse {
-            app: Some(convert::app(app, false, 0)),
+            app: Some(convert::app(app, false, 0, None)),
             join_code: code.code,
             join_code_expires_at: Some(parse::timestamp(code.expires_at)),
         })
@@ -229,15 +229,17 @@ impl AppsGrpc {
         })
     }
 
-    /// Makes the messages of Apps, with their presence on this server and the number of jobs
-    /// that each holds.
+    /// Makes the messages of Apps, with their presence on this server, the number of jobs that
+    /// each holds, and the last sample of each machine.
     pub(super) async fn messages(&self, apps: Vec<App>) -> Result<Vec<pb::App>, Error> {
         let ids: Vec<AppId> = apps.iter().map(|app| app.id).collect();
         let held = runs::held_counts(&self.pool, &ids).await?;
+        let samples = agents::last_samples(&self.pool, &ids).await?;
         let messages = apps.into_iter().map(|app| {
             let connected = self.registry.is_connected(app.id);
             let running_jobs = held.get(&app.id).copied().unwrap_or(0);
-            convert::app(app, connected, running_jobs)
+            let sample = samples.get(&app.id).copied();
+            convert::app(app, connected, running_jobs, sample)
         });
         Ok(messages.collect())
     }

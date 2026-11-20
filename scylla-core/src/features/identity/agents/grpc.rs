@@ -1,4 +1,5 @@
-//! The gRPC handler of `AgentService`: an agent opens its stream. The stats are in `stats.rs`.
+//! The gRPC handler of `AgentService`: an agent opens its stream. The stats are in `stats.rs`,
+//! and the busy slots and the samples of the machines are in `usage.rs`.
 
 use std::sync::Arc;
 
@@ -14,26 +15,20 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::Instrument;
 
 use super::stream::Stream;
-use super::Registry;
 use crate::features::identity::apps;
-use crate::infra::secret::Sealer;
+use crate::features::integrations::IntegrationContext;
 use crate::Error;
 
 /// The number of messages that wait for a slow agent.
 const OUTBOX_SIZE: usize = 16;
 
-/// Makes the service.
-pub(crate) fn server(
-    pool: PgPool,
-    gate: Arc<dyn Gate>,
-    registry: Arc<Registry>,
-    sealer: Option<Arc<Sealer>>,
-) -> AgentServiceServer<AgentsGrpc> {
+/// Makes the service, with what the Git integration shares: the open streams of the agents, the
+/// key of the secrets, and the clients of the providers for the checkouts.
+pub(crate) fn server(vcs: &IntegrationContext) -> AgentServiceServer<AgentsGrpc> {
     AgentServiceServer::new(AgentsGrpc {
-        pool,
-        gate,
-        registry,
-        sealer,
+        pool: vcs.pool.clone(),
+        gate: Arc::clone(&vcs.gate),
+        vcs: vcs.clone(),
     })
 }
 
@@ -43,10 +38,9 @@ pub(crate) struct AgentsGrpc {
     pub(super) pool: PgPool,
     /// The access gate.
     pub(super) gate: Arc<dyn Gate>,
-    /// The open streams of the server.
-    registry: Arc<Registry>,
-    /// The key of the secrets, for the dispatch of the jobs.
-    sealer: Option<Arc<Sealer>>,
+    /// What the Git integration shares: the open streams of the server, the key of the secrets
+    /// and the clients of the providers.
+    pub(super) vcs: IntegrationContext,
 }
 
 #[tonic::async_trait]
@@ -73,6 +67,20 @@ impl AgentService for AgentsGrpc {
     ) -> Result<Response<pb::ListAgentStatsResponse>, Status> {
         Ok(Response::new(self.list_stats(request).await?))
     }
+
+    async fn get_slot_usage(
+        &self,
+        request: Request<pb::GetSlotUsageRequest>,
+    ) -> Result<Response<pb::GetSlotUsageResponse>, Status> {
+        Ok(Response::new(self.slot_usage(request).await?))
+    }
+
+    async fn get_agent_metrics(
+        &self,
+        request: Request<pb::GetAgentMetricsRequest>,
+    ) -> Result<Response<pb::GetAgentMetricsResponse>, Status> {
+        Ok(Response::new(self.agent_metrics(request).await?))
+    }
 }
 
 impl AgentsGrpc {
@@ -95,13 +103,15 @@ impl AgentsGrpc {
         let stream = Stream {
             pool: self.pool.clone(),
             gate: Arc::clone(&self.gate),
-            registry: Arc::clone(&self.registry),
-            sealer: self.sealer.clone(),
+            registry: Arc::clone(&self.vcs.registry),
+            sealer: self.vcs.sealer.clone(),
+            vcs: self.vcs.clone(),
             app,
             principal: caller,
             workspace: None,
             capacity: 1,
             containers: false,
+            checkout: false,
             conditions: false,
             scope: RunScope::Nothing,
         };

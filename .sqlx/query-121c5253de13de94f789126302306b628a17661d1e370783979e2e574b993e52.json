@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO vcs_poll_state (project_id, ref, last_sha)\n         SELECT project_id, $2, $3 FROM repository_links WHERE project_id = $1\n         ON CONFLICT (project_id, ref) DO UPDATE SET last_sha = $3, polled_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "121c5253de13de94f789126302306b628a17661d1e370783979e2e574b993e52"
+}

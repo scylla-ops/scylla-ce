@@ -18,7 +18,7 @@ use crate::{api, Config, Error};
 
 /// The command line of a binary with only the core settings.
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version = scylla_proto::version::text(), about)]
 pub struct Cli {
     /// The command to run.
     #[command(subcommand)]

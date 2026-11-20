@@ -40,6 +40,17 @@ impl TestApp {
         Ok(response.into_inner().project.expect("project in response"))
     }
 
+    /// Counts the projects of a workspace in the database.
+    pub async fn project_count(&self, workspace: WorkspaceId) -> i64 {
+        sqlx::query_scalar!(
+            r#"SELECT count(*) AS "count!" FROM projects WHERE workspace_id = $1"#,
+            workspace.to_db(),
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("count projects")
+    }
+
     /// Calls `GetProject` as `actor`. The id is text, so a test can send a bad id.
     pub async fn get_project(&self, actor: ActorId, project_id: &str) -> Result<Project, Status> {
         let request = GetProjectRequest {

@@ -45,18 +45,18 @@ pub(crate) async fn verify_password(
         Some(credentials) if matches => credentials,
         Some(credentials) => {
             let mut tx = ctx.pool.begin().await?;
-            let now_locked = store::record_failure(&mut tx, credentials.user).await?;
-            let new_lock = now_locked && record_lock(&mut tx, credentials.user).await?;
+            let lock = store::record_failure(&mut tx, credentials.user).await?;
+            let new_lock = lock.is_some() && record_lock(&mut tx, credentials.user).await?;
             let to = match new_lock {
                 true => store::find_user(&mut tx, credentials.user).await?,
                 false => None,
             };
             tx.commit().await?;
             failed(label, if locked { "locked" } else { "password" });
-            if now_locked {
+            if lock.is_some() {
                 tracing::info!(event = "account.locked", user = %credentials.user);
             }
-            send_lock_mail(ctx, to.and_then(|user| user.email));
+            send_lock_mail(ctx, to.and_then(|user| user.email).zip(lock));
             return Err(invalid());
         }
         None => {
@@ -86,15 +86,15 @@ async fn record_lock(tx: &mut scylla_extension::Tx<'_>, user: ActorId) -> Result
     notifications::emit(tx, fact).await
 }
 
-/// Sends the mail of a lockout in a task: the time of the answer does not tell that the account
-/// exists.
-fn send_lock_mail(ctx: &AccountContext, to: Option<String>) {
-    let Some(to) = to else {
+/// Sends the mail of a lockout to an email in a task: the time of the answer does not tell that
+/// the account exists.
+fn send_lock_mail(ctx: &AccountContext, to: Option<(String, store::Lock)>) {
+    let Some((to, lock)) = to else {
         return;
     };
     let ctx = ctx.clone();
     let task = async move {
-        let mail = mails::account_locked(&ctx, &to);
+        let mail = mails::account_locked(&ctx, &to, lock.until, lock.failures);
         mails::send(&ctx, "account-locked", mail).await;
     };
     tokio::spawn(task.in_current_span());

@@ -21,6 +21,6 @@ pub(crate) use grpc::server;
 pub(crate) use plugin::Apps;
 #[cfg(test)]
 pub(crate) use service::create;
-pub(crate) use service::{get, hello, runner, touch, workspace, workspace_of};
+pub(crate) use service::{capacity, get, hello, runner, stream_changed, touch, workspace_of};
 pub use service::{join, JOIN_CODE_TTL};
 pub(crate) use token_service::exchange as exchange_token;

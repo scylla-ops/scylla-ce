@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id, width_bucket(d.received_at, $2::timestamptz[]) AS \"bucket!\",\n                  count(*) AS \"delivered!\",\n                  count(*) FILTER (WHERE d.error IS NOT NULL) AS \"failed!\",\n                  max(d.received_at) AS \"last!\"\n           FROM vcs_connections c\n           JOIN vcs_deliveries d\n             ON (c.provider = 'gitlab' AND d.connection_id = c.id)\n             OR (c.provider = 'github' AND d.provider = 'github'\n                 AND d.installation = c.external_id AND d.app_id IS NOT DISTINCT FROM c.app_id)\n           WHERE c.workspace_id = $1 AND d.received_at >= $3 AND d.received_at < $4\n           GROUP BY c.id, 2\n           ORDER BY c.id, 2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bucket!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "delivered!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "failed!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "last!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TimestamptzArray",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "448709d737a299620cb31ba8606e4bf8774ca5e11f1d2a87950d70c0b576df6d"
+}

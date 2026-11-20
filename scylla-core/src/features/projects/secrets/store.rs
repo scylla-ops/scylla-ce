@@ -68,13 +68,17 @@ pub(super) async fn update_value(
     row.map(Row::into_secret).transpose()
 }
 
-/// Deletes a secret. Returns `false` if no secret has this id.
-pub(super) async fn delete(tx: &mut Tx<'_>, id: SecretId) -> Result<bool, Error> {
-    let deleted = sqlx::query!("DELETE FROM secrets WHERE id = $1", id.to_db())
-        .execute(&mut **tx)
-        .await?
-        .rows_affected();
-    Ok(deleted > 0)
+/// Deletes a secret, and returns it, or `None` if no secret has this id.
+pub(super) async fn delete(tx: &mut Tx<'_>, id: SecretId) -> Result<Option<Secret>, Error> {
+    let row = sqlx::query_as!(
+        Row,
+        "DELETE FROM secrets WHERE id = $1
+         RETURNING id, project_id, name, created_by, created_at, updated_at",
+        id.to_db(),
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    row.map(Row::into_secret).transpose()
 }
 
 /// Returns the secrets of a project after the name of the page, in name order, with one extra

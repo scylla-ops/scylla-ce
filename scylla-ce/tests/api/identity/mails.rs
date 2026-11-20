@@ -82,12 +82,121 @@ async fn a_mail_has_a_text_and_an_escaped_html_body(pool: PgPool) {
 
     // then
     let mail = app.mails.to(email).pop().unwrap();
-    assert!(mail
-        .body
-        .contains("join the workspace <b>Tom & Jerry</b> on Scylla"));
+    assert!(mail.body.starts_with("Join <b>Tom & Jerry</b>\n"));
     assert!(mail.html.starts_with("<!DOCTYPE html>"));
     assert!(mail.html.contains("&lt;b&gt;Tom &amp; Jerry&lt;/b&gt;"));
     assert!(!mail.html.contains(name));
+}
+
+/// An invitation names the person who invited and the role, and sends the logo as the only
+/// image of the mail.
+#[sqlx::test(migrations = false)]
+async fn an_invitation_names_the_person_and_the_role(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let workspace = app.create_workspace(owner, "Acme Platform").await.unwrap();
+    let workspace = WorkspaceId::parse(text(&workspace.id)).unwrap();
+    let email = "ivy@example.com";
+
+    // when
+    app.create_invitation(owner, workspace, email, "viewer")
+        .await
+        .unwrap();
+
+    // then
+    let mail = app.mails.to(email).pop().unwrap();
+    assert_eq!(
+        mail.subject,
+        "Test User invited you to Acme Platform on Scylla"
+    );
+    assert!(mail
+        .body
+        .contains("\nWorkspace: Acme Platform\nRole: Viewer\n"));
+    let images: Vec<_> = mail
+        .images
+        .iter()
+        .map(|image| &image.content_type)
+        .collect();
+    assert_eq!(images, ["image/png", "image/png"]);
+}
+
+/// A reset link names the time and the client of the request, and the notice of the new
+/// password names the client of the change.
+#[sqlx::test(migrations = false)]
+async fn a_reset_names_the_client_of_each_request(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let email = "kim@example.com";
+    app.user_with(email, Some(PASSWORD)).await;
+
+    // when
+    app.request_reset(email).await.unwrap();
+    app.mails.wait(email, 1).await;
+    let token = app.mails.token(email, "reset-password");
+    app.reset_password(&token, "a new password").await.unwrap();
+    let mails = app.mails.wait(email, 2).await;
+
+    // then
+    assert_eq!(mails[0].subject, "Reset your Scylla password");
+    assert!(mails[0].body.contains("\nRequested: "));
+    assert_eq!(mails[1].subject, "Your Scylla password changed");
+    for mail in &mails {
+        assert!(mail.body.contains(" · 127.0.0.1\n"), "{}", mail.body);
+    }
+    assert!(mails[1]
+        .body
+        .contains("Reset your password: http://127.0.0.1:3000/forgot-password\n"));
+}
+
+/// The mail of a lock tells its end and the count of the wrong passwords.
+#[sqlx::test(migrations = false)]
+async fn a_lock_mail_tells_the_end_and_the_failures(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let email = "lea@example.com";
+    app.user_with(email, Some(PASSWORD)).await;
+
+    // when
+    for _ in 0..5 {
+        app.sign_in(email, "a wrong password").await.unwrap_err();
+    }
+    let mails = app.mails.wait(email, 1).await;
+
+    // then
+    assert!(mails[0]
+        .subject
+        .starts_with("Your Scylla account is locked until "));
+    assert!(mails[0].body.contains("\nLocked until: "));
+    assert!(mails[0].body.contains("\nWrong passwords: 5 in a row\n"));
+}
+
+/// The alert of a reuse names the device of the session and the address of the old token, and a
+/// new personal token tells its expiry.
+#[sqlx::test(migrations = false)]
+async fn a_notice_names_the_session_and_the_token(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let email = "max@example.com";
+    let user = app.user_with(email, Some(PASSWORD)).await;
+    let session = app.sign_in(email, PASSWORD).await.unwrap();
+
+    // when
+    app.refresh(&session.refresh_token).await.unwrap();
+    app.refresh(&session.refresh_token).await.unwrap_err();
+    app.create_personal_token(user, "ci-deploy", None)
+        .await
+        .unwrap();
+    let mails = app.mails.wait(email, 2).await;
+
+    // then
+    assert_eq!(mails[0].subject, "A Scylla session of your account closed");
+    assert!(mails[0].body.contains("\nSession: "));
+    assert!(mails[0].body.contains("\nLast address: 127.0.0.1\n"));
+    assert!(mails[1].body.contains("\nName: ci-deploy\nExpires: "));
+    assert!(mails[1]
+        .body
+        .contains("Review your tokens: http://127.0.0.1:3000/account/tokens\n"));
 }
 
 /// The server sends at most one reset link each minute for one account. After a minute, a new

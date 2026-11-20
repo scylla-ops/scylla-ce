@@ -1,12 +1,15 @@
-//! The open streams of the agents on this server: at most one stream for each agent, and the
-//! commands that the server sends to a stream.
+//! The open streams of the agents on this server: at most one stream for each agent, its
+//! workspace, its name, its version and its features, and the commands that the server sends
+//! to a stream.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use scylla_domain::identity::agents::Unfit;
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::JobId;
+use scylla_domain::tenancy::workspaces::WorkspaceId;
 use tokio::sync::mpsc;
 
 /// The number of commands that wait for a busy stream.
@@ -38,6 +41,36 @@ struct Entry {
     number: u64,
     /// The commands to the stream.
     commands: mpsc::Sender<Command>,
+    /// The workspace of the agent.
+    workspace: WorkspaceId,
+    /// The agent, from its hello.
+    agent: Online,
+}
+
+/// An agent with an open stream, as its hello tells it.
+#[derive(Clone, Debug)]
+pub(crate) struct Online {
+    /// The display name of the App.
+    pub(crate) name: String,
+    /// The version of the agent.
+    pub(crate) version: String,
+    /// Why the agent cannot get the code of a job, or `None` if it can.
+    pub(crate) checkout_gap: Option<Unfit>,
+    /// `true` if the agent has a container runtime.
+    pub(crate) containers: bool,
+    /// `true` if the agent runs the conditional nodes.
+    pub(crate) conditions: bool,
+}
+
+/// The features that a job needs from an agent, or that an agent has.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Features {
+    /// `true` if the job needs a container runtime.
+    pub(crate) containers: bool,
+    /// `true` if the job needs the code before its first node.
+    pub(crate) checkout: bool,
+    /// `true` if the job has a switch, a merge or an `error` need.
+    pub(crate) conditions: bool,
 }
 
 /// The ticket of an open stream: its number and its commands.
@@ -49,13 +82,15 @@ pub(crate) struct Ticket {
 }
 
 impl Registry {
-    /// Records the stream of an agent, and stops its previous stream.
-    pub(crate) fn open(&self, app: AppId) -> Ticket {
+    /// Records the stream of an agent of a workspace, and stops its previous stream.
+    pub(crate) fn open(&self, app: AppId, workspace: WorkspaceId, agent: Online) -> Ticket {
         let number = self.next.fetch_add(1, Ordering::Relaxed);
         let (sender, commands) = mpsc::channel(COMMANDS);
         let entry = Entry {
             number,
             commands: sender,
+            workspace,
+            agent,
         };
         if let Some(previous) = self.streams().insert(app, entry) {
             let _ = previous
@@ -102,6 +137,40 @@ impl Registry {
     /// Returns `true` if the agent has an open stream.
     pub(crate) fn is_connected(&self, app: AppId) -> bool {
         self.streams().contains_key(&app)
+    }
+
+    /// Returns the agents of a workspace with an open stream.
+    pub(crate) fn connected_in(&self, workspace: WorkspaceId) -> Vec<AppId> {
+        self.streams()
+            .iter()
+            .filter(|(_, entry)| entry.workspace == workspace)
+            .map(|(app, _)| *app)
+            .collect()
+    }
+
+    /// Returns `true` if an agent of the workspace with each feature that a job needs has an
+    /// open stream.
+    pub(crate) fn can_serve(&self, workspace: WorkspaceId, needs: Features) -> bool {
+        self.streams().values().any(|entry| {
+            entry.workspace == workspace
+                && (entry.agent.containers || !needs.containers)
+                && (entry.agent.checkout_gap.is_none() || !needs.checkout)
+                && (entry.agent.conditions || !needs.conditions)
+        })
+    }
+
+    /// Returns the agents of the workspace with an open stream that cannot get the code of a
+    /// job, in the order of their ids.
+    pub(crate) fn without_checkout(&self, workspace: WorkspaceId) -> Vec<(AppId, Online)> {
+        let mut agents: Vec<(AppId, Online)> = self
+            .streams()
+            .iter()
+            .filter(|(_, entry)| entry.workspace == workspace)
+            .filter(|(_, entry)| entry.agent.checkout_gap.is_some())
+            .map(|(app, entry)| (*app, entry.agent.clone()))
+            .collect();
+        agents.sort_by_key(|(app, _)| app.to_string());
+        agents
     }
 
     /// Locks the map. A panic in another holder leaves the map usable.

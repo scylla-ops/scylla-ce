@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE jobs SET status = $2, runs = $3, agent_id = $4, error = $5, started_at = $6,\n                         finished_at = $7, approval = $8, approved_by = $9, approved_at = $10,\n                         rejected_by = $11, rejected_at = $12, checkout = $13,\n                         version = version + 1\n         WHERE id = $1 RETURNING version",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Uuid",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Text",
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
+        "Timestamptz",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4051c30c33880617b2e8c1ff3c0ed1ef172e8456986c1314ac6a0bd3d215a8f9"
+}

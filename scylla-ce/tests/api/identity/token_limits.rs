@@ -64,6 +64,7 @@ impl Calls<'_> {
     async fn run(&self, pipeline: &str) -> Result<(), Status> {
         let request = RunPipelineRequest {
             pipeline_id: Some(id(pipeline)),
+            r#ref: None,
         };
         let mut client = PipelineServiceClient::new(self.app.channel.clone());
         client

@@ -1,11 +1,14 @@
 //! The tests of identity: accounts, handles, the profile, the mails, the deletion of an
 //! account, the instance admins and their console, sessions, sign-in with an identity provider,
 //! tokens, the Apps, their creators, their keys, their API tokens with their limits and their CI
-//! identities, the personal tokens and their switches, the streams of the agents and their
-//! install scripts, and the state of a user.
+//! identities, the personal tokens and their switches, the streams of the agents, the samples of
+//! their machines and their install scripts, and the state of a user.
 
 pub(crate) mod accounts;
 mod admins;
+mod agent_metrics;
+mod agent_protocol;
+mod agent_samples;
 mod agents;
 mod app_creators;
 mod app_tokens;

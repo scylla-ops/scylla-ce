@@ -1,6 +1,7 @@
 //! The logic of the invitations: a link by mail that gives a role in a workspace to the person
 //! with the email, and the management of the open invitations.
 
+use scylla_domain::activity::Place;
 use scylla_domain::authz::Resource;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::{self, Email};
@@ -13,8 +14,9 @@ use scylla_domain::Page;
 use scylla_extension::{CreateContext, Grantable, Rejection, Tx};
 use sqlx::PgPool;
 
-use super::store;
-use crate::features::identity::accounts::{mails, refused, verified_emails, AccountContext};
+use super::{mail, store};
+use crate::features::activity;
+use crate::features::identity::accounts::{refused, verified_emails, AccountContext};
 use crate::features::notifications::{self, kinds};
 use crate::features::tenancy::grants;
 use crate::infra::logs::mask_email;
@@ -63,14 +65,14 @@ pub(crate) async fn create(
         store::insert(&mut tx, workspace, email.as_str(), role, invited_by, &hash).await?;
     let fact = kinds::invitation_received(&invitation, None);
     notifications::emit(&mut tx, fact).await?;
+    let inviter = mail::inviter(&mut tx, &invitation).await?;
     tx.commit().await?;
     let email = mask_email(&invitation.email);
     let (id, role) = (invitation.id, &invitation.role);
     tracing::info!(event = "invitation.created", invitation = %id, %workspace, email, role);
 
     // Send the link to the email only.
-    let mail = mails::invitation(ctx, &invitation.email, &name, &token);
-    mails::send(ctx, "invitation", mail).await;
+    mail::send(ctx, &invitation, &name, inviter, &token).await;
     Ok(invitation)
 }
 
@@ -138,10 +140,10 @@ pub(super) async fn resend(
     let name = store::workspace_name(&mut tx, workspace)
         .await?
         .ok_or(Error::NotFound("workspace"))?;
+    let inviter = mail::inviter(&mut tx, &invitation).await?;
     tx.commit().await?;
     tracing::info!(event = "invitation.resent", invitation = %id, %workspace);
-    let mail = mails::invitation(ctx, &invitation.email, &name, &token);
-    mails::send(ctx, "invitation", mail).await;
+    mail::send(ctx, &invitation, &name, inviter, &token).await;
     Ok(invitation)
 }
 
@@ -225,6 +227,8 @@ pub(crate) async fn accept(
     let scope = (Workspace::NAME, invitation.workspace_id.to_db());
     let by = invitation.invited_by;
     grants::store::note_relation(&mut tx, user, scope, &invitation.role, by).await?;
+    let place = Place::Workspace(invitation.workspace_id);
+    activity::joined(&mut tx, place, (user, &invitation.role), by).await?;
     let fact = kinds::invitation_answered(kinds::INVITATION_ACCEPTED, &invitation, user);
     notifications::emit(&mut tx, fact).await?;
     let kind = invitations::KIND.as_str();

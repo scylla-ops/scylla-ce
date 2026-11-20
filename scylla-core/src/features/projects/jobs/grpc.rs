@@ -1,11 +1,11 @@
-//! The gRPC handler of `JobService`. The tail of the logs is in `tail.rs`.
+//! The gRPC handler of `JobService`. The tail of the logs is in `tail.rs`, the approval of a job
+//! from a fork in `approval.rs`, the lists in `lists.rs`, and the figures in `figures_grpc.rs`.
 
 use std::sync::Arc;
 
 use scylla_domain::authz::Permission;
-use scylla_domain::identity::apps::AppId;
-use scylla_domain::projects::jobs::{JobId, JobScope, ListJobs};
-use scylla_domain::projects::pipelines::{PipelineAccess, PipelineHolder, PipelineId};
+use scylla_domain::projects::jobs::{JobId, RerunOrigin};
+use scylla_domain::projects::pipelines::PipelineAccess;
 use scylla_domain::projects::{Project, ProjectId};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{Gate, Hooks, Principal};
@@ -14,10 +14,10 @@ use scylla_proto::pipelines::v1::job_service_server::{JobService, JobServiceServ
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
-use super::{service, tail};
-use crate::api::parse::{self, ToProto};
+use super::{convert, service, tail};
+use crate::api::parse;
 use crate::features::identity::agents::Registry;
-use crate::features::projects::pipelines::{access, service as pipelines};
+use crate::features::projects::pipelines::access;
 use crate::Error;
 
 /// Makes the service.
@@ -44,7 +44,7 @@ pub(crate) struct JobsGrpc {
     /// The access gate.
     pub(super) gate: Arc<dyn Gate>,
     /// The open streams of the agents.
-    registry: Arc<Registry>,
+    pub(super) registry: Arc<Registry>,
 }
 
 #[tonic::async_trait]
@@ -67,7 +67,7 @@ impl JobService for JobsGrpc {
             .await?
             .ok_or(Error::NotFound("job"))?;
         Ok(Response::new(pb::GetJobResponse {
-            job: Some(job.to_proto()),
+            job: Some(convert::job_of(job, &self.registry)),
         }))
     }
 
@@ -85,7 +85,7 @@ impl JobService for JobsGrpc {
             .await?;
         let job = service::cancel(&self.pool, &self.registry, id).await?;
         Ok(Response::new(pb::CancelJobResponse {
-            job: Some(job.to_proto()),
+            job: Some(convert::job_of(job, &self.registry)),
         }))
     }
 
@@ -118,73 +118,47 @@ impl JobService for JobsGrpc {
                 PipelineAccess::RERUN_JOB,
             )
             .await?;
-        let actor = caller.actor;
-        let job = service::rerun(&self.pool, &self.hooks, &self.registry, actor, id).await?;
+        let (actor, origin) = (caller.actor, RerunOrigin::Person);
+        let job = service::rerun(&self.pool, &self.hooks, &self.registry, actor, id, origin);
+        let job = job.await?;
         Ok(Response::new(pb::RerunJobResponse {
-            job: Some(job.to_proto()),
+            job: Some(convert::job_of(job, &self.registry)),
         }))
+    }
+
+    async fn approve_job(
+        &self,
+        request: Request<pb::ApproveJobRequest>,
+    ) -> Result<Response<pb::ApproveJobResponse>, Status> {
+        self.approve(request).await
+    }
+
+    async fn reject_job(
+        &self,
+        request: Request<pb::RejectJobRequest>,
+    ) -> Result<Response<pb::RejectJobResponse>, Status> {
+        self.reject(request).await
     }
 
     async fn list_pipeline_jobs(
         &self,
         request: Request<pb::ListPipelineJobsRequest>,
     ) -> Result<Response<pb::ListPipelineJobsResponse>, Status> {
-        // Authenticate the caller, read the request, and check the permission on the pipeline.
-        let caller = self.gate.caller(&request).await.map_err(Error::from)?;
-        let request = request.into_inner();
-        let id: PipelineId = parse::required(request.pipeline_id, "pipeline_id")?;
-        let page = parse::optional(request.page, "page")?;
-        let place = pipelines::place(&self.pool, id).await?;
-        let permission = PipelineAccess::LIST_PIPELINE_JOBS;
-        access::authorize(
-            self.gate.as_ref(),
-            &caller,
-            permission,
-            format!("pipeline:{id}"),
-            place,
-        )
-        .await?;
-
-        // Read one page.
-        let query = ListJobs {
-            scope: JobScope::Pipeline(id),
-            page,
-        };
-        let page = service::list(&self.pool, query).await?;
-        Ok(Response::new(pb::ListPipelineJobsResponse {
-            jobs: page.items.into_iter().map(ToProto::to_proto).collect(),
-            page: Some(page.next_after.to_proto()),
-        }))
+        Ok(Response::new(self.list_pipeline(request).await?))
     }
 
     async fn list_workspace_jobs(
         &self,
         request: Request<pb::ListWorkspaceJobsRequest>,
     ) -> Result<Response<pb::ListWorkspaceJobsResponse>, Status> {
-        // Authenticate the caller, read the request, and check the permission on the workspace.
-        let caller = self.gate.caller(&request).await.map_err(Error::from)?;
-        let request = request.into_inner();
-        let workspace: WorkspaceId = parse::required(request.workspace_id, "workspace_id")?;
-        let agent: Option<AppId> = request
-            .agent_id
-            .map(|id| parse::field(id, "agent_id"))
-            .transpose()?;
-        let page = parse::optional(request.page, "page")?;
-        self.gate
-            .authorize(&caller, PipelineHolder::LIST_WORKSPACE_JOBS.on(workspace))
-            .await
-            .map_err(Error::from)?;
+        Ok(Response::new(self.list_workspace(request).await?))
+    }
 
-        // Read one page.
-        let query = ListJobs {
-            scope: JobScope::Workspace(workspace, agent),
-            page,
-        };
-        let page = service::list(&self.pool, query).await?;
-        Ok(Response::new(pb::ListWorkspaceJobsResponse {
-            jobs: page.items.into_iter().map(ToProto::to_proto).collect(),
-            page: Some(page.next_after.to_proto()),
-        }))
+    async fn get_job_stats(
+        &self,
+        request: Request<pb::GetJobStatsRequest>,
+    ) -> Result<Response<pb::GetJobStatsResponse>, Status> {
+        Ok(Response::new(self.figures(request).await?))
     }
 
     async fn tail_job_logs(

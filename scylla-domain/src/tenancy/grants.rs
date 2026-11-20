@@ -29,6 +29,8 @@ pub struct AccessEntry {
     pub display_name: String,
     /// The handle of a user, if it has one.
     pub handle: Option<String>,
+    /// True for an App that runs jobs: an agent.
+    pub runner: bool,
     /// The role.
     pub role: String,
 }

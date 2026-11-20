@@ -280,6 +280,7 @@ impl ToProto<pb::Member> for Member {
             actor_kind: self.profile.actor_kind.as_str().to_owned(),
             display_name: self.profile.display_name,
             handle: self.profile.handle.unwrap_or_default(),
+            runner: self.profile.runner,
             roles: self.roles.into_iter().map(ToProto::to_proto).collect(),
         }
     }

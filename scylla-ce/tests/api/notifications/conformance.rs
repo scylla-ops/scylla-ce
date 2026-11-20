@@ -6,8 +6,8 @@ use scylla_domain::projects::Project;
 use scylla_domain::tenancy::workspaces::Workspace;
 use scylla_extension::Access;
 
-/// The kinds of the first release.
-const KINDS: [&str; 17] = [
+/// The kinds of the core.
+const KINDS: [&str; 19] = [
     "admin.granted",
     "admin.revoked",
     "instance_role.changed",
@@ -25,6 +25,8 @@ const KINDS: [&str; 17] = [
     "security.password_changed",
     "security.session_reuse",
     "token.created",
+    "vcs.connection_broken",
+    "vcs.token_expiring",
 ];
 
 /// The edition has each kind of the catalog and no other: the web app has a text for each one.
@@ -56,7 +58,7 @@ fn each_kind_has_a_category_and_a_valid_access_rule() {
     // then
     for kind in kinds.all() {
         assert!(
-            ["access", "security"].contains(&kind.category),
+            ["access", "security", "integrations"].contains(&kind.category),
             "{}",
             kind.key
         );
@@ -69,7 +71,8 @@ fn each_kind_has_a_category_and_a_valid_access_rule() {
     }
 }
 
-/// Each kind of the first release is mandatory, except the answers to an invitation.
+/// Each kind is mandatory, except the answers to an invitation and the notices of the Git
+/// connections.
 #[test]
 fn each_mandatory_kind_is_in_security_or_access() {
     // given
@@ -84,7 +87,9 @@ fn each_mandatory_kind_is_in_security_or_access() {
         .collect();
 
     // then
-    assert_eq!(optional.len(), 2);
+    assert_eq!(optional.len(), 4);
     assert!(optional.contains(&"invitation.accepted"));
     assert!(optional.contains(&"invitation.declined"));
+    assert!(optional.contains(&"vcs.connection_broken"));
+    assert!(optional.contains(&"vcs.token_expiring"));
 }

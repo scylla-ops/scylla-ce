@@ -1,23 +1,24 @@
-//! The run of one job: the agent waits until each need of a node ended, then runs the node if its
-//! needs are open, else skips it. A failure that no `error` need takes stops the job.
+//! The run of one job: the agent fetches its code, waits until each need of a node ended, then
+//! runs the node if its needs are open, else skips it. A failure that no `error` need takes stops
+//! the job.
+
+mod needs;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 
 use scylla_proto::agents::v1::{dispatch_node, Dispatch, DispatchEnv, DispatchNode, EventKind};
-use scylla_proto::pipelines::v1::Need;
 use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
+use super::checkout::{self, Failure, Git};
 use super::events::{self, Event, Outbox};
 use super::step::{self, NodeContext, Outcome};
 use super::switch;
 use crate::agent::Settings;
-
-/// The port of a run node that opens when the node failed after its last attempt.
-const ERROR: &str = "error";
+use needs::{ended, errors, routed, runs};
 
 /// The state of a node in the run.
 #[derive(Clone, PartialEq, Eq)]
@@ -34,11 +35,12 @@ enum State {
     Skipped,
 }
 
-/// Runs a job until its end, then deletes its work folder. A stop of the server ends it with no
-/// more event.
+/// Runs a job until its end, then deletes its work folder. A failed checkout fails the job before
+/// the first node. A stop of the server ends it with no more event.
 pub(super) async fn run(
     dispatch: Dispatch,
     settings: &Settings,
+    git: Option<Git>,
     outbox: &Outbox,
     mut stopped: watch::Receiver<bool>,
 ) {
@@ -55,7 +57,7 @@ pub(super) async fn run(
     }
     events::send(outbox, &job, EventKind::JobStarted, Event::default()).await;
 
-    // Run the nodes in the order of their needs.
+    // Fetch the code, then run the nodes in the order of their needs.
     let image = dispatch.nodes.iter().find_map(|node| {
         node.container
             .as_ref()
@@ -69,7 +71,20 @@ pub(super) async fn run(
         runtime: settings.container_runtime.clone(),
         outbox: outbox.clone(),
     };
-    let (failure, cancelled) = drive(dispatch.nodes, &context, &mut stopped).await;
+    let fetched = match &dispatch.checkout {
+        Some(spec) => checkout::run(spec, git, &dir, &job, outbox, stopped.clone()).await,
+        None => Ok(()),
+    };
+    let (failure, cancelled) = match fetched {
+        Ok(()) => drive(dispatch.nodes, &context, &mut stopped).await,
+        Err(Failure::Failed(error)) => {
+            for node in &dispatch.nodes {
+                skip(&context, &node.id).await;
+            }
+            (Some(format!("the checkout failed: {error}")), false)
+        }
+        Err(Failure::Halted) => (None, true),
+    };
 
     // Report the end, unless the server stopped the job.
     if !cancelled {
@@ -171,16 +186,6 @@ async fn drive(
     (failure, cancelled)
 }
 
-/// Returns `true` if a node whose needs ended runs: a merge with one open need or more, another
-/// node with each need open.
-fn runs(node: &DispatchNode, states: &HashMap<String, State>) -> bool {
-    let open = node.links.iter().filter(|need| open(states, need)).count();
-    match node.step {
-        Some(dispatch_node::Step::Merge(_)) => open > 0,
-        _ => open == node.links.len(),
-    }
-}
-
 /// Starts a node: a switch and a merge end at once, and a run node starts in a task. A node with
 /// an open `error` need gets `SCYLLA_ERROR`. Returns the new state of the node.
 async fn begin(
@@ -216,48 +221,6 @@ async fn begin(
             State::Running
         }
     }
-}
-
-/// Returns `true` if the node of a need ended: it completed, failed, or did not run.
-fn ended(states: &HashMap<String, State>, need: &Need) -> bool {
-    !matches!(
-        states.get(&need.node),
-        Some(State::Pending | State::Running)
-    )
-}
-
-/// Returns `true` if a need is open: its node completed with no port asked, a switch opened its
-/// port, or a run node failed for the port `error`.
-fn open(states: &HashMap<String, State>, need: &Need) -> bool {
-    match (states.get(&need.node), need.port.as_str()) {
-        (Some(State::Completed(_)), "") => true,
-        (Some(State::Completed(ports)), port) => ports.iter().any(|open| open == port),
-        (Some(State::Failed(_)), ERROR) => true,
-        _ => false,
-    }
-}
-
-/// Returns one line for each open `error` need of a node, in the order of its needs:
-/// `<node>: <error>`. `None` if no `error` need is open.
-fn errors(node: &DispatchNode, states: &HashMap<String, State>) -> Option<String> {
-    let lines: Vec<String> = node
-        .links
-        .iter()
-        .filter(|need| need.port == ERROR)
-        .filter_map(|need| match states.get(&need.node) {
-            Some(State::Failed(error)) => Some(format!("{}: {error}", need.node)),
-            _ => None,
-        })
-        .collect();
-    (!lines.is_empty()).then(|| lines.join("\n"))
-}
-
-/// Returns `true` if another node takes the failure of a node with an `error` need.
-fn routed(nodes: &[DispatchNode], id: &str) -> bool {
-    nodes
-        .iter()
-        .flat_map(|node| &node.links)
-        .any(|need| need.node == id && need.port == ERROR)
 }
 
 /// Sends the skip of a node.

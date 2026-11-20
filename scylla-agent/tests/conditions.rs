@@ -1,7 +1,7 @@
 //! The tests of the conditional nodes on a real agent and the real server of the Community
 //! edition: a switch on a variable and on an output, the ports of `all_matches`, a merge, the
 //! port `error` of a failure, and a failure that no need takes. Keep at most 4 tests here
-//! (decision 102).
+//! (decision 112).
 
 use std::time::Duration;
 

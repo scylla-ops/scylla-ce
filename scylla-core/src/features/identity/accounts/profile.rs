@@ -93,10 +93,11 @@ impl ProfileService for ProfileGrpc {
         request: Request<pb::ChangePasswordRequest>,
     ) -> Answer<pb::ChangePasswordResponse> {
         let (caller, user) = self.user(&request, AccountCaller::CHANGE_PASSWORD).await?;
+        let client = sessions::Client::of_grpc(&request, self.ctx.settings.trust_forwarded);
         let request = request.into_inner();
         let new = parse::field(request.new_password, "new_password")?;
-        let keep = caller.session();
-        manage::change_password(&self.ctx, user, keep, request.current_password, new).await?;
+        let (keep, current) = (caller.session(), request.current_password);
+        manage::change_password(&self.ctx, user, keep, current, new, &client).await?;
         Ok(Response::new(pb::ChangePasswordResponse {}))
     }
 

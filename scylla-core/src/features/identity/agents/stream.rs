@@ -1,14 +1,18 @@
-//! The life of the stream of an agent: the hello, the renewals of its token, the commands of the
-//! server, and its end at the expiry of the token or at a stop of the server.
+//! The life of the stream of an agent: the hello, the renewals of its token, the samples of its
+//! machine, the commands of the server, and its end at the expiry of the token or at a stop of the
+//! server.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use scylla_domain::identity::agents::AgentCaller;
+use scylla_domain::activity::Kind;
+use scylla_domain::identity::agents::{
+    AgentCaller, Compatibility, Sample, CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL,
+};
 use scylla_domain::identity::apps::{App, AppId};
 use scylla_domain::projects::jobs::RunScope;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_extension::{AccessError, Gate, Principal};
+use scylla_extension::{AccessError, Gate, Principal, Rejection};
 use scylla_proto::agents::v1 as pb;
 use scylla_proto::agents::v1::open_stream_request::Message as Up;
 use sqlx::PgPool;
@@ -18,10 +22,11 @@ use tokio::time::{interval, sleep_until, timeout, Instant};
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Status, Streaming};
 
-use super::registry::Command;
-use super::{work, Registry};
+use super::registry::{Command, Online};
+use super::{samples, work, Registry};
 use crate::api::parse;
 use crate::features::identity::apps;
+use crate::features::integrations::IntegrationContext;
 use crate::infra::secret::Sealer;
 use crate::Error;
 
@@ -44,6 +49,8 @@ pub(super) struct Stream {
     pub(super) registry: Arc<Registry>,
     /// The key of the secrets, for the dispatch.
     pub(super) sealer: Option<Arc<Sealer>>,
+    /// What the Git integration shares, for the tokens of the checkouts.
+    pub(super) vcs: IntegrationContext,
     /// The agent.
     pub(super) app: AppId,
     /// The principal of the current token of the stream.
@@ -54,6 +61,8 @@ pub(super) struct Stream {
     pub(super) capacity: usize,
     /// `true` if the agent has a container runtime.
     pub(super) containers: bool,
+    /// `true` if the agent gets the code of a job before its first node.
+    pub(super) checkout: bool,
     /// `true` if the agent runs the conditional nodes, from the hello.
     pub(super) conditions: bool,
     /// The jobs that the agent may take, from its roles `runner`.
@@ -65,14 +74,13 @@ impl Stream {
     pub(super) async fn run(mut self, mut inbound: Streaming<pb::OpenStreamRequest>, out: Outbox) {
         // Wait for the hello, then record the stream.
         let ending = match self.hello(&mut inbound, &out).await {
-            Ok(()) => {
-                let ticket = self.registry.open(self.app);
+            Ok((workspace, agent)) => {
+                let ticket = self.registry.open(self.app, workspace, agent);
+                self.record(Kind::AgentConnected).await;
                 tracing::info!(event = "agent.connected", app = %self.app);
                 let ending = self.serve(&mut inbound, &out, ticket.commands).await;
                 self.registry.close(self.app, ticket.number);
-                if let Err(error) = apps::touch(&self.pool, self.app).await {
-                    tracing::warn!(%error, app = %self.app, "the last seen time did not change");
-                }
+                self.record(Kind::AgentDisconnected).await;
                 tracing::info!(event = "agent.disconnected", app = %self.app);
                 ending
             }
@@ -85,13 +93,24 @@ impl Stream {
         }
     }
 
-    /// Reads the first message: it must be a hello. Stores the host, checks the jobs that the
-    /// agent still runs, and learns the place and the role of the agent.
+    /// Sets the last seen time of the agent, and records its stream that opened or ended in the
+    /// activity feed. A failure goes to the log only.
+    async fn record(&self, kind: Kind) {
+        if let Err(error) = apps::stream_changed(&self.pool, self.app, kind).await {
+            let kind = kind.as_str();
+            tracing::warn!(%error, app = %self.app, kind, "the activity of the agent did not change");
+        }
+    }
+
+    /// Reads the first message: it must be a hello. Stores the host, refuses an agent older than
+    /// the minimum protocol, checks the jobs that the agent still runs, and learns the place, the
+    /// features and the role of the agent. Returns the workspace of the agent and what the
+    /// registry keeps of it.
     async fn hello(
         &mut self,
         inbound: &mut Streaming<pb::OpenStreamRequest>,
         out: &Outbox,
-    ) -> Result<(), Status> {
+    ) -> Result<(WorkspaceId, Online), Status> {
         // Read the hello.
         let first = timeout(HELLO_TIMEOUT, inbound.message())
             .await
@@ -111,14 +130,20 @@ impl Stream {
             .map(|id| parse::field(id, "hello.running_jobs"))
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Store the host, then learn the workspace and the role.
+        // Store the host, then refuse an agent older than the minimum protocol.
         apps::hello(&self.pool, self.app, &host).await?;
+        if host.compatibility() == Compatibility::Unsupported {
+            return Err(Error::Rejected(too_old(host.protocol)).into());
+        }
+
+        // Learn the workspace and the role.
         let app = apps::get(&self.pool, self.app)
             .await?
             .ok_or_else(|| Status::unauthenticated("the app was deleted"))?;
         self.workspace = Some(app.workspace_id);
         self.capacity = host.capacity as usize;
         self.containers = host.container_runtime.is_some();
+        self.checkout = host.can_check_out();
         self.conditions = hello.conditional_nodes;
         self.scope = self.run_scope().await;
 
@@ -127,7 +152,14 @@ impl Stream {
         for job in work::reconcile(self, &running).await? {
             work::send(out, work::cancel(job)).await;
         }
-        Ok(())
+        let agent = Online {
+            name: app.name,
+            version: host.version.clone(),
+            checkout_gap: host.checkout_gap(),
+            containers: self.containers,
+            conditions: self.conditions,
+        };
+        Ok((app.workspace_id, agent))
     }
 
     /// Answers the messages and the commands until the stream ends. Returns the status to send,
@@ -184,9 +216,28 @@ impl Stream {
             }
             Some(Up::Event(event)) => work::event(self, event, out).await,
             Some(Up::Logs(batch)) => work::logs(self, batch, out).await,
+            Some(Up::Metrics(metrics)) => {
+                self.sample(metrics).await;
+                Ok(true)
+            }
             Some(Up::Hello(_)) | None => Err(Status::invalid_argument(
                 "after the hello, send no other hello",
             )),
+        }
+    }
+
+    /// Records a sample of the machine. A sample that is not a number, or a failure of the
+    /// database, goes to the log only: the jobs of the stream go on.
+    async fn sample(&self, metrics: pb::Metrics) {
+        let sample = match Sample::parse(metrics.cpu_percent, metrics.memory_used_bytes) {
+            Ok(sample) => sample,
+            Err(error) => {
+                tracing::warn!(%error, app = %self.app, "the agent sent a bad sample");
+                return;
+            }
+        };
+        if let Err(error) = samples::record(&self.pool, self.app, sample).await {
+            tracing::warn!(%error, app = %self.app, "the sample of the agent is lost");
         }
     }
 
@@ -222,6 +273,17 @@ impl Stream {
             }
         }
     }
+}
+
+/// Makes the refusal of an agent older than the minimum protocol.
+fn too_old(protocol: u32) -> Rejection {
+    let message = format!(
+        "the agent has the protocol {protocol}, and this server needs at least          {MIN_AGENT_PROTOCOL}: update the agent"
+    );
+    Rejection::new("AGENT_TOO_OLD", message)
+        .detail("protocol", protocol)
+        .detail("min", MIN_AGENT_PROTOCOL)
+        .detail("current", CURRENT_AGENT_PROTOCOL)
 }
 
 /// Returns the instant of an expiry, or now if it is in the past.

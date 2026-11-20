@@ -5,7 +5,7 @@ use scylla_domain::tenancy::workspaces::{
     NewSlug, NewWorkspace, VisibleWorkspaces, Workspace, WorkspaceChange, WorkspaceId,
     WorkspaceName,
 };
-use scylla_domain::PageRequest;
+use scylla_domain::{PageRequest, TimeZone};
 use scylla_extension::{Rejection, Tx};
 use time::OffsetDateTime;
 
@@ -44,6 +44,7 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewWorkspace) -> Result<Worksp
         slug: slug.as_str().to_owned(),
         created_at,
         personal_tokens_enabled: true,
+        time_zone: TimeZone::UTC.as_str().to_owned(),
     })
 }
 
@@ -109,7 +110,8 @@ async fn try_insert(
 pub(crate) async fn find(tx: &mut Tx<'_>, id: WorkspaceId) -> Result<Option<Workspace>, Error> {
     let row = sqlx::query_as!(
         Row,
-        "SELECT id, name, slug, created_at, personal_tokens_enabled FROM workspaces WHERE id = $1",
+        "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone FROM workspaces
+         WHERE id = $1",
         id.to_db()
     )
     .fetch_optional(&mut **tx)
@@ -121,7 +123,8 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: WorkspaceId) -> Result<Option<Work
 pub(crate) async fn find_by_slug(tx: &mut Tx<'_>, slug: &Slug) -> Result<Option<Workspace>, Error> {
     let row = sqlx::query_as!(
         Row,
-        "SELECT id, name, slug, created_at, personal_tokens_enabled FROM workspaces WHERE slug = $1",
+        "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone FROM workspaces
+         WHERE slug = $1",
         slug.as_str()
     )
     .fetch_optional(&mut **tx)
@@ -150,7 +153,7 @@ pub(crate) async fn list_visible(
     let granted: Vec<_> = visible.granted.iter().map(|id| id.to_db()).collect();
     let rows = sqlx::query_as!(
         Row,
-        "SELECT id, name, slug, created_at, personal_tokens_enabled FROM workspaces
+        "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone FROM workspaces
          WHERE ($5
                 OR id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)
                 OR id = ANY($2))
@@ -168,8 +171,8 @@ pub(crate) async fn list_visible(
     Ok(rows.into_iter().map(Row::into_workspace).collect())
 }
 
-/// Changes the name, the slug or the personal token switch of a workspace, and returns it, or `None` if no workspace has
-/// this id. A slug in use gives `SLUG_IN_USE`.
+/// Changes the name, the slug, the personal token switch or the time zone of a workspace, and
+/// returns it, or `None` if no workspace has this id. A slug in use gives `SLUG_IN_USE`.
 pub(crate) async fn update(
     tx: &mut Tx<'_>,
     id: WorkspaceId,
@@ -178,13 +181,15 @@ pub(crate) async fn update(
     let row = sqlx::query_as!(
         Row,
         "UPDATE workspaces SET name = coalesce($2, name), slug = coalesce($3, slug),
-             personal_tokens_enabled = coalesce($4, personal_tokens_enabled)
+             personal_tokens_enabled = coalesce($4, personal_tokens_enabled),
+             time_zone = coalesce($5, time_zone)
          WHERE id = $1
-         RETURNING id, name, slug, created_at, personal_tokens_enabled",
+         RETURNING id, name, slug, created_at, personal_tokens_enabled, time_zone",
         id.to_db(),
         change.name.as_ref().map(WorkspaceName::as_str),
         change.slug.as_ref().map(Slug::as_str),
         change.personal_tokens_enabled,
+        change.time_zone.as_ref().map(TimeZone::as_str),
     )
     .fetch_optional(&mut **tx)
     .await
@@ -267,6 +272,8 @@ struct Row {
     created_at: OffsetDateTime,
     /// The personal token switch.
     personal_tokens_enabled: bool,
+    /// The name of the time zone.
+    time_zone: String,
 }
 
 impl Row {
@@ -278,6 +285,7 @@ impl Row {
             slug: self.slug,
             created_at: self.created_at,
             personal_tokens_enabled: self.personal_tokens_enabled,
+            time_zone: self.time_zone,
         }
     }
 }

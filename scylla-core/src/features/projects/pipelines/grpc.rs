@@ -1,16 +1,16 @@
 //! The gRPC handler of `PipelineService`: authenticate, parse, authorize on the project, call
-//! the service, answer.
+//! the service, answer. The RPCs of the pipeline files are in `files_grpc.rs`, and the summaries
+//! of the dashboard in `summaries_grpc.rs`.
 
 use std::sync::Arc;
 
-use scylla_domain::authz::Permission;
+use scylla_domain::projects::jobs::JobOrigin;
 use scylla_domain::projects::pipelines::{
-    ListPipelines, NewPipeline, PipelineAccess, PipelineChange, PipelineHolder, PipelineId,
-    PipelineScope,
+    ListPipelines, NewPipeline, PipelineAccess, PipelineChange, PipelineHolder, PipelineScope,
 };
-use scylla_domain::projects::{Project, ProjectId};
+use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_extension::{Gate, Hooks, Principal};
+use scylla_extension::{Gate, Hooks};
 use scylla_proto::pipelines::v1 as pb;
 use scylla_proto::pipelines::v1::pipeline_service_server::{
     PipelineService, PipelineServiceServer,
@@ -18,36 +18,35 @@ use scylla_proto::pipelines::v1::pipeline_service_server::{
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
-use super::{access, convert, service};
+use super::{convert, service};
 use crate::api::parse::{self, ToProto};
 use crate::features::identity::agents::Registry;
+use crate::features::integrations::IntegrationContext;
 use crate::Error;
 
-/// Makes the service.
-pub(crate) fn server(
-    pool: PgPool,
-    hooks: Arc<Hooks>,
-    gate: Arc<dyn Gate>,
-    registry: Arc<Registry>,
-) -> PipelineServiceServer<PipelinesGrpc> {
+/// Makes the service, with what the Git integration shares.
+pub(crate) fn server(ctx: &IntegrationContext) -> PipelineServiceServer<PipelinesGrpc> {
     PipelineServiceServer::new(PipelinesGrpc {
-        pool,
-        hooks,
-        gate,
-        registry,
+        pool: ctx.pool.clone(),
+        hooks: Arc::clone(&ctx.hooks),
+        gate: Arc::clone(&ctx.gate),
+        registry: Arc::clone(&ctx.registry),
+        vcs: ctx.clone(),
     })
 }
 
 /// The handler.
 pub(crate) struct PipelinesGrpc {
     /// The database pool.
-    pool: PgPool,
+    pub(super) pool: PgPool,
     /// The hooks of the edition.
     hooks: Arc<Hooks>,
     /// The access gate.
-    gate: Arc<dyn Gate>,
+    pub(super) gate: Arc<dyn Gate>,
     /// The open streams of the agents.
     registry: Arc<Registry>,
+    /// What the Git integration shares: the repository of a run on a commit.
+    pub(super) vcs: IntegrationContext,
 }
 
 #[tonic::async_trait]
@@ -69,6 +68,7 @@ impl PipelineService for PipelinesGrpc {
                 .map(convert::layout)
                 .transpose()?
                 .unwrap_or_default(),
+            checkout: request.checkout.map(convert::checkout).unwrap_or_default(),
         };
 
         // Check the route permission on the project, then create the pipeline.
@@ -94,7 +94,7 @@ impl PipelineService for PipelinesGrpc {
                 PipelineAccess::GET_PIPELINE,
             )
             .await?;
-        let (pipeline, layout) = service::get_with_layout(&self.pool, id)
+        let (pipeline, layout) = service::get_with_layout(&self.vcs, id)
             .await?
             .ok_or(Error::NotFound("pipeline"))?;
         Ok(Response::new(pb::GetPipelineResponse {
@@ -146,6 +146,7 @@ impl PipelineService for PipelinesGrpc {
                 .map(convert::layout)
                 .transpose()?
                 .unwrap_or_default(),
+            checkout: request.checkout.map(convert::checkout),
         };
 
         // Check the route permission, then change the pipeline.
@@ -190,7 +191,7 @@ impl PipelineService for PipelinesGrpc {
             scope: PipelineScope::Project(project),
             page,
         };
-        let page = service::list(&self.pool, query).await?;
+        let page = service::list(&self.vcs, query).await?;
         Ok(Response::new(pb::ListProjectPipelinesResponse {
             pipelines: page.items.into_iter().map(ToProto::to_proto).collect(),
             page: Some(page.next_after.to_proto()),
@@ -219,11 +220,18 @@ impl PipelineService for PipelinesGrpc {
             scope: PipelineScope::Workspace(workspace),
             page,
         };
-        let page = service::list(&self.pool, query).await?;
+        let page = service::list(&self.vcs, query).await?;
         Ok(Response::new(pb::ListWorkspacePipelinesResponse {
             pipelines: page.items.into_iter().map(ToProto::to_proto).collect(),
             page: Some(page.next_after.to_proto()),
         }))
+    }
+
+    async fn list_pipeline_summaries(
+        &self,
+        request: Request<pb::ListPipelineSummariesRequest>,
+    ) -> Result<Response<pb::ListPipelineSummariesResponse>, Status> {
+        self.list_summaries(request).await
     }
 
     async fn run_pipeline(
@@ -231,47 +239,52 @@ impl PipelineService for PipelinesGrpc {
         request: Request<pb::RunPipelineRequest>,
     ) -> Result<Response<pb::RunPipelineResponse>, Status> {
         let caller = self.gate.caller(&request).await.map_err(Error::from)?;
+        let request = request.into_inner();
+        let git_ref = request.r#ref.map(|value| parse::field(value, "ref"));
+        let git_ref = git_ref.transpose()?;
         let permission = PipelineAccess::RUN_PIPELINE;
         let id = self
-            .pipeline_of(&caller, request.into_inner().pipeline_id, permission)
+            .pipeline_of(&caller, request.pipeline_id, permission)
             .await?;
-        let actor = caller.actor;
-        let job = service::run(&self.pool, &self.hooks, &self.registry, actor, id).await?;
+        let origin = JobOrigin::of_caller(caller.session().is_some());
+        let job = service::run(&self.vcs, caller.actor, id, git_ref, origin).await?;
         Ok(Response::new(pb::RunPipelineResponse {
             job: Some(job.to_proto()),
         }))
     }
-}
 
-impl PipelinesGrpc {
-    /// Checks a route permission on a project and on its workspace, and returns the workspace.
-    /// An unknown project gets the answer of a refusal.
-    async fn authorize_in(
+    async fn validate_pipeline_file(
         &self,
-        caller: &Principal,
-        permission: Permission<Project>,
-        id: ProjectId,
-    ) -> Result<WorkspaceId, Error> {
-        let workspace = service::project_workspace(&self.pool, id).await?;
-        let place = workspace.map(|workspace| (id, workspace));
-        let object = format!("project:{id}");
-        let (_, workspace) =
-            access::authorize(self.gate.as_ref(), caller, permission, object, place).await?;
-        Ok(workspace)
+        request: Request<pb::ValidatePipelineFileRequest>,
+    ) -> Result<Response<pb::ValidatePipelineFileResponse>, Status> {
+        self.validate_file(request).await
     }
 
-    /// Reads the pipeline id of a request and checks a route permission on its project. An
-    /// unknown pipeline gets the answer of a refusal.
-    async fn pipeline_of(
+    async fn export_pipeline(
         &self,
-        caller: &Principal,
-        id: Option<scylla_proto::common::v1::Id>,
-        permission: Permission<Project>,
-    ) -> Result<PipelineId, Error> {
-        let id: PipelineId = parse::required(id, "pipeline_id")?;
-        let place = service::place(&self.pool, id).await?;
-        let object = format!("pipeline:{id}");
-        access::authorize(self.gate.as_ref(), caller, permission, object, place).await?;
-        Ok(id)
+        request: Request<pb::ExportPipelineRequest>,
+    ) -> Result<Response<pb::ExportPipelineResponse>, Status> {
+        self.export(request).await
+    }
+
+    async fn get_file_pipeline(
+        &self,
+        request: Request<pb::GetFilePipelineRequest>,
+    ) -> Result<Response<pb::GetFilePipelineResponse>, Status> {
+        self.get_file(request).await
+    }
+
+    async fn list_pipeline_files(
+        &self,
+        request: Request<pb::ListPipelineFilesRequest>,
+    ) -> Result<Response<pb::ListPipelineFilesResponse>, Status> {
+        self.list_files(request).await
+    }
+
+    async fn set_pipeline_source(
+        &self,
+        request: Request<pb::SetPipelineSourceRequest>,
+    ) -> Result<Response<pb::SetPipelineSourceResponse>, Status> {
+        self.set_source(request).await
     }
 }

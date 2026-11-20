@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE repository_links SET pipeline_source = $2, updated_at = now()\n         WHERE project_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "abc17d1ebcd5058e81e23e501ee7b9720a7b26478e7689f911b254e549e39b92"
+}

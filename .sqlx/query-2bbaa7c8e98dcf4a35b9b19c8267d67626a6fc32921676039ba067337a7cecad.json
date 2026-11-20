@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO vcs_connections (id, workspace_id, provider, auth_kind, app_id, external_id,\n                                      account, account_kind, avatar_url, permissions,\n                                      all_repositories, repository_count, state, state_reason,\n                                      created_by)\n         VALUES ($1, $2, 'github', 'app_installation', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,\n                 $13)\n         ON CONFLICT (workspace_id, provider, external_id) DO UPDATE SET\n             app_id = EXCLUDED.app_id, account = EXCLUDED.account,\n             account_kind = EXCLUDED.account_kind, avatar_url = EXCLUDED.avatar_url,\n             permissions = EXCLUDED.permissions, all_repositories = EXCLUDED.all_repositories,\n             repository_count = EXCLUDED.repository_count, state = EXCLUDED.state,\n             state_reason = EXCLUDED.state_reason, updated_at = now()\n         RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Bool",
+        "Int4",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2bbaa7c8e98dcf4a35b9b19c8267d67626a6fc32921676039ba067337a7cecad"
+}

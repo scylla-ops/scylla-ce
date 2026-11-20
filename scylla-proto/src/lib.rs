@@ -1,4 +1,14 @@
-//! The generated code of `proto/`. Docs come from the proto comments, which the lint of `scylla-protos` checks.
+//! The generated code of `proto/`, and the version text of a build of the server or of the agent.
+//! Docs come from the proto comments, which the lint of `scylla-protos` checks.
+
+/// The activity API: the feed of the changes of a workspace.
+pub mod activity {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.activity.v1");
+    }
+}
 
 /// The capabilities API.
 pub mod capabilities {
@@ -15,6 +25,25 @@ pub mod common {
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
     pub mod v1 {
         tonic::include_proto!("scylla.common.v1");
+    }
+}
+
+/// The dashboards API: the saved layouts of the dashboard of a workspace.
+pub mod dashboards {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.dashboards.v1");
+    }
+}
+
+/// The integrations API: the connections to GitHub and GitLab, the repository of a project, the
+/// merge rules and the reports of the jobs.
+pub mod integrations {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.integrations.v1");
     }
 }
 
@@ -100,7 +129,7 @@ pub mod accounts {
     }
 }
 
-/// The platform API: the settings of the instance.
+/// The platform API: the settings and the GitHub App of the instance.
 pub mod platform {
     /// Version 1.
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
@@ -112,3 +141,76 @@ pub mod platform {
 /// The descriptors of each proto file, for the JSON gateway.
 pub const FILE_DESCRIPTOR_SET: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/scylla_descriptors.bin"));
+
+/// The version text that a build of the server or of the agent reports: in `--version`, in the
+/// hello of the agent and in `GetCapabilities`. The downloads use the bare `CARGO_PKG_VERSION`.
+pub mod version {
+    use std::sync::LazyLock;
+
+    /// The commit of this build, from `SCYLLA_BUILD` at the build, or empty.
+    pub const BUILD: &str = match option_env!("SCYLLA_BUILD") {
+        Some(build) => build,
+        None => "",
+    };
+
+    /// The version text of this build. Only the release workflow sets `SCYLLA_RELEASE`.
+    static TEXT: LazyLock<String> = LazyLock::new(|| {
+        let release = option_env!("SCYLLA_RELEASE") == Some("true");
+        of(env!("CARGO_PKG_VERSION"), release, BUILD)
+    });
+
+    /// Returns the version text of this build.
+    pub fn text() -> &'static str {
+        &TEXT
+    }
+
+    /// Returns `version` for a release build. Else adds the first 7 characters of the commit as
+    /// build metadata (`0.7.0+240da00`), or `dev` with no commit (`0.7.0+dev`).
+    fn of(version: &str, release: bool, build: &str) -> String {
+        if release {
+            return version.to_owned();
+        }
+        let commit = build.get(..7).unwrap_or(build);
+        let metadata = if commit.is_empty() { "dev" } else { commit };
+        format!("{version}+{metadata}")
+    }
+
+    #[cfg(test)]
+    mod tests {
+        //! Unit tests of the version text of a build.
+
+        use super::of;
+
+        /// Only a release build reports the bare version. Another build adds its short commit,
+        /// or `dev` with no commit.
+        #[test]
+        fn the_version_text_tells_the_build() {
+            // given
+            let builds = [
+                (
+                    true,
+                    "240da00c4dfdf313619d59f1ed389a65b4357189",
+                    "0.7.0-rc.1",
+                ),
+                (true, "", "0.7.0-rc.1"),
+                (
+                    false,
+                    "240da00c4dfdf313619d59f1ed389a65b4357189",
+                    "0.7.0-rc.1+240da00",
+                ),
+                (false, "1a2b", "0.7.0-rc.1+1a2b"),
+                (false, "", "0.7.0-rc.1+dev"),
+            ];
+
+            // when
+            let texts: Vec<String> = builds
+                .iter()
+                .map(|(release, build, _)| of("0.7.0-rc.1", *release, build))
+                .collect();
+
+            // then
+            let expected: Vec<&str> = builds.iter().map(|(_, _, text)| *text).collect();
+            assert_eq!(texts, expected);
+        }
+    }
+}

@@ -15,6 +15,7 @@ use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::Name;
 use scylla_extension::{AccessError, Binding, Edition, Gate, NotificationKinds, Operation};
 use scylla_proto::projects::v1::project_service_client::ProjectServiceClient;
+use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use tokio::net::TcpListener;
 use tonic::transport::{Channel, Endpoint};
@@ -35,7 +36,7 @@ const TEST_SERVICE: &str = "/scylla.test.v1.TestService";
 
 /// A running server, its gate and its clients.
 pub struct TestApp {
-    /// The pool of the test database.
+    /// The pool of the server on the test database.
     pub pool: PgPool,
     /// The gate of the server, to sign tokens and write relationships in a test.
     pub access: Arc<Access>,
@@ -61,18 +62,21 @@ impl TestApp {
 
     /// Writes the schema of the edition to a new SpiceDB store, then starts its server.
     pub async fn spawn_with(pool: PgPool, edition: Edition, options: ServeOptions) -> Self {
+        let pool = server_pool(&pool);
         let access = schema_access(&pool, &edition).await;
         Self::start(pool, edition, options, access, true).await
     }
 
     /// Starts an edition with no key of the secrets: the server refuses to seal a secret.
     pub async fn spawn_without_secret_key(pool: PgPool, edition: Edition) -> Self {
+        let pool = server_pool(&pool);
         let access = schema_access(&pool, &edition).await;
         Self::start(pool, edition, ServeOptions::default(), access, false).await
     }
 
     /// Starts an edition with a SpiceDB that never answers: each SpiceDB call fails.
     pub async fn spawn_without_spicedb(pool: PgPool, edition: Edition) -> Self {
+        let pool = server_pool(&pool);
         let access = access_at(pool.clone(), edition.authz_model().clone(), NO_SPICEDB);
         Self::start(pool, edition, ServeOptions::default(), access, true).await
     }
@@ -115,7 +119,7 @@ impl TestApp {
             edition,
             Arc::clone(&access),
             options,
-            std::future::pending(),
+            pool.close_event(),
         ));
         let channel = Endpoint::from_shared(format!("http://{addr}"))
             .expect("endpoint")
@@ -224,17 +228,6 @@ impl TestApp {
         }
     }
 
-    /// Counts the projects of a workspace in the database.
-    pub async fn project_count(&self, workspace: WorkspaceId) -> i64 {
-        sqlx::query_scalar!(
-            r#"SELECT count(*) AS "count!" FROM projects WHERE workspace_id = $1"#,
-            workspace.to_db(),
-        )
-        .fetch_one(&self.pool)
-        .await
-        .expect("count projects")
-    }
-
     /// Counts the owners of a workspace.
     pub async fn owner_count(&self, workspace: WorkspaceId) -> i64 {
         sqlx::query_scalar!(
@@ -250,6 +243,22 @@ impl TestApp {
     fn gate(&self) -> &dyn Gate {
         self.access.as_ref()
     }
+}
+
+/// Opens a pool on the database of a test pool, with its size and no parent, so the server and its
+/// tasks do not share the 20 connections of `sqlx::test`. The pool closes, and the server stops,
+/// when the test pool closes: sqlx can then drop the test database.
+fn server_pool(test_pool: &PgPool) -> PgPool {
+    let pool = PgPoolOptions::new()
+        .max_connections(test_pool.options().get_max_connections())
+        .connect_lazy_with((*test_pool.connect_options()).clone());
+    let test_closed = test_pool.close_event();
+    let closing = pool.clone();
+    tokio::spawn(async move {
+        test_closed.await;
+        closing.close().await;
+    });
+    pool
 }
 
 /// Makes the gate of a test: a new signing key, and a new key of the SpiceDB of the tests, so

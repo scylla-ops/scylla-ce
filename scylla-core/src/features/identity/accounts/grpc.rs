@@ -83,8 +83,9 @@ impl AccountService for AccountsGrpc {
         &self,
         request: Request<pb::RequestPasswordResetRequest>,
     ) -> Result<Response<pb::RequestPasswordResetResponse>, Status> {
+        let client = Client::of_grpc(&request, self.ctx.settings.trust_forwarded);
         let email = parse::field(request.into_inner().email, "email")?;
-        reset::request_reset(&self.ctx, email);
+        reset::request_reset(&self.ctx, email, client);
         Ok(Response::new(pb::RequestPasswordResetResponse {}))
     }
 
@@ -92,9 +93,10 @@ impl AccountService for AccountsGrpc {
         &self,
         request: Request<pb::ResetPasswordRequest>,
     ) -> Result<Response<pb::ResetPasswordResponse>, Status> {
+        let client = Client::of_grpc(&request, self.ctx.settings.trust_forwarded);
         let request = request.into_inner();
         let password = parse::field(request.password, "password")?;
-        reset::reset_password(&self.ctx, &request.token, password).await?;
+        reset::reset_password(&self.ctx, &request.token, password, &client).await?;
         Ok(Response::new(pb::ResetPasswordResponse {}))
     }
 

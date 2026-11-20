@@ -1,15 +1,16 @@
 //! The gRPC handler of `TriggerService`: authenticate, parse, authorize on the project, call the
-//! service, answer.
+//! service, answer. The lists of a workspace are in `lists_grpc.rs`.
 
 use std::sync::Arc;
 
 use scylla_domain::authz::Permission;
+use scylla_domain::projects::jobs::JobOrigin;
 use scylla_domain::projects::pipelines::PipelineId;
 use scylla_domain::projects::triggers::{
-    ListTriggers, NewTrigger, TriggerAccess, TriggerChange, TriggerId, TriggerKind,
+    FireSource, ListTriggers, NewTrigger, TriggerAccess, TriggerChange, TriggerId, TriggerKind,
 };
 use scylla_domain::projects::Project;
-use scylla_extension::{Gate, Hooks, Principal};
+use scylla_extension::{Gate, Principal};
 use scylla_proto::common::v1::Id;
 use scylla_proto::pipelines::v1 as pb;
 use scylla_proto::pipelines::v1::trigger_service_server::{TriggerService, TriggerServiceServer};
@@ -18,40 +19,32 @@ use tonic::{Request, Response, Status};
 
 use super::{convert, fire, service};
 use crate::api::parse::{self, ToProto};
-use crate::features::identity::agents::Registry;
+use crate::features::integrations::IntegrationContext;
 use crate::features::projects::pipelines::access;
 use crate::infra::secret::Sealer;
 use crate::Error;
 
-/// Makes the service.
-pub(crate) fn server(
-    pool: PgPool,
-    hooks: Arc<Hooks>,
-    gate: Arc<dyn Gate>,
-    registry: Arc<Registry>,
-    sealer: Option<Arc<Sealer>>,
-) -> TriggerServiceServer<TriggersGrpc> {
+/// Makes the service, with what the Git integration shares.
+pub(crate) fn server(ctx: &IntegrationContext) -> TriggerServiceServer<TriggersGrpc> {
     TriggerServiceServer::new(TriggersGrpc {
-        pool,
-        hooks,
-        gate,
-        registry,
-        sealer,
+        pool: ctx.pool.clone(),
+        gate: Arc::clone(&ctx.gate),
+        sealer: ctx.sealer.clone(),
+        vcs: ctx.clone(),
     })
 }
 
 /// The handler.
 pub(crate) struct TriggersGrpc {
     /// The database pool.
-    pool: PgPool,
-    /// The hooks of the edition.
-    hooks: Arc<Hooks>,
+    pub(super) pool: PgPool,
     /// The access gate.
-    gate: Arc<dyn Gate>,
-    /// The open streams of the agents.
-    registry: Arc<Registry>,
+    pub(super) gate: Arc<dyn Gate>,
     /// The key of the secrets of the webhooks.
     sealer: Option<Arc<Sealer>>,
+    /// What the Git integration shares: the commit of a fire of a file pipeline or of a Git
+    /// trigger.
+    vcs: IntegrationContext,
 }
 
 #[tonic::async_trait]
@@ -64,11 +57,7 @@ impl TriggerService for TriggersGrpc {
         let caller = self.gate.caller(&request).await.map_err(Error::from)?;
         let request = request.into_inner();
         let pipeline: PipelineId = parse::required(request.pipeline_id, "pipeline_id")?;
-        let kind = match request.kind {
-            Some(pb::create_trigger_request::Kind::Cron(cron)) => TriggerKind::Cron(cron.schedule),
-            Some(pb::create_trigger_request::Kind::Webhook(_)) => TriggerKind::Webhook,
-            None => return Err(Error::invalid("kind", "is required").into()),
-        };
+        let kind = convert::kind(request.kind)?;
         let webhook = kind == TriggerKind::Webhook;
         let new = NewTrigger {
             pipeline_id: pipeline,
@@ -128,6 +117,7 @@ impl TriggerService for TriggersGrpc {
                 .map(|name| parse::field(name, "name"))
                 .transpose()?,
             schedule: request.schedule,
+            rules: convert::rules(request.rules)?,
             inputs: request
                 .inputs
                 .map(|list| convert::inputs(list.inputs, webhook))
@@ -135,7 +125,7 @@ impl TriggerService for TriggersGrpc {
         };
 
         // Change the trigger.
-        let trigger = service::update(&self.pool, id, change).await?;
+        let trigger = service::update(&self.pool, id, change, caller.actor.id).await?;
         Ok(Response::new(pb::UpdateTriggerResponse {
             trigger: Some(trigger.to_proto()),
         }))
@@ -150,7 +140,7 @@ impl TriggerService for TriggersGrpc {
         let id = self
             .trigger_of(&caller, request.into_inner().trigger_id, permission)
             .await?;
-        service::delete(&self.pool, id).await?;
+        service::delete(&self.pool, id, caller.actor.id).await?;
         Ok(Response::new(pb::DeleteTriggerResponse {}))
     }
 
@@ -190,7 +180,8 @@ impl TriggerService for TriggersGrpc {
         let id = self
             .trigger_of(&caller, request.trigger_id, permission)
             .await?;
-        let trigger = service::set_enabled(&self.pool, id, request.enabled).await?;
+        let enabled = request.enabled;
+        let trigger = service::set_enabled(&self.pool, id, enabled, caller.actor.id).await?;
         Ok(Response::new(pb::SetTriggerEnabledResponse {
             trigger: Some(trigger.to_proto()),
         }))
@@ -205,7 +196,9 @@ impl TriggerService for TriggersGrpc {
         let id = self
             .trigger_of(&caller, request.into_inner().trigger_id, permission)
             .await?;
-        let job = match fire::by_id(&self.pool, &self.hooks, &self.registry, id).await {
+        let origin = JobOrigin::of_caller(caller.session().is_some());
+        let call = fire::Call::now(FireSource::Manual);
+        let job = match fire::by_id(&self.vcs, id, origin, call).await {
             Ok(job) => job,
             Err(fire::FireError::Failed(error)) => return Err(error.into()),
             Err(fire::FireError::Payload(reason)) => {
@@ -215,6 +208,27 @@ impl TriggerService for TriggersGrpc {
         Ok(Response::new(pb::FireTriggerNowResponse {
             job: Some(job.to_proto()),
         }))
+    }
+
+    async fn list_workspace_triggers(
+        &self,
+        request: Request<pb::ListWorkspaceTriggersRequest>,
+    ) -> Result<Response<pb::ListWorkspaceTriggersResponse>, Status> {
+        Ok(Response::new(self.list_workspace(request).await?))
+    }
+
+    async fn list_trigger_fires(
+        &self,
+        request: Request<pb::ListTriggerFiresRequest>,
+    ) -> Result<Response<pb::ListTriggerFiresResponse>, Status> {
+        Ok(Response::new(self.list_fires(request).await?))
+    }
+
+    async fn get_trigger_fire_stats(
+        &self,
+        request: Request<pb::GetTriggerFireStatsRequest>,
+    ) -> Result<Response<pb::GetTriggerFireStatsResponse>, Status> {
+        Ok(Response::new(self.fire_stats(request).await?))
     }
 }
 

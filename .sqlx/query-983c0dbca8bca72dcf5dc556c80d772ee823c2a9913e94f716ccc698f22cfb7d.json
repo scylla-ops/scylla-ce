@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE merge_blocks SET state = $3, state_reason = $4, updated_at = now()\n         WHERE project_id = $1 AND pipeline_id IS NOT DISTINCT FROM $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "983c0dbca8bca72dcf5dc556c80d772ee823c2a9913e94f716ccc698f22cfb7d"
+}

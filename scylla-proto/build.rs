@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 /// The proto files, relative to the `proto` folder.
 const PROTOS: &[&str] = &[
+    "scylla/activity/v1/activity.proto",
+    "scylla/activity/v1/activity_service.proto",
     "scylla/access/v1/access_service.proto",
     "scylla/access/v1/role_service.proto",
     "scylla/accounts/v1/account_service.proto",
@@ -23,14 +25,30 @@ const PROTOS: &[&str] = &[
     "scylla/capabilities/v1/capability_service.proto",
     "scylla/common/v1/id.proto",
     "scylla/common/v1/page.proto",
+    "scylla/dashboards/v1/attention.proto",
+    "scylla/dashboards/v1/dashboard.proto",
+    "scylla/dashboards/v1/dashboard_service.proto",
+    "scylla/integrations/v1/delivery_stats.proto",
+    "scylla/integrations/v1/merge_block_service.proto",
+    "scylla/integrations/v1/repository_service.proto",
+    "scylla/integrations/v1/vcs.proto",
+    "scylla/integrations/v1/vcs_connection_service.proto",
+    "scylla/integrations/v1/vcs_report_service.proto",
     "scylla/notifications/v1/notification_service.proto",
     "scylla/pipelines/v1/job.proto",
     "scylla/pipelines/v1/job_service.proto",
+    "scylla/pipelines/v1/job_stats.proto",
     "scylla/pipelines/v1/pipeline.proto",
+    "scylla/pipelines/v1/pipeline_file.proto",
     "scylla/pipelines/v1/pipeline_service.proto",
+    "scylla/pipelines/v1/pipeline_summary.proto",
+    "scylla/pipelines/v1/source.proto",
     "scylla/pipelines/v1/trigger.proto",
+    "scylla/pipelines/v1/trigger_fire.proto",
     "scylla/pipelines/v1/trigger_service.proto",
+    "scylla/pipelines/v1/trigger_summary.proto",
     "scylla/platform/v1/settings_service.proto",
+    "scylla/platform/v1/vcs_app_service.proto",
     "scylla/projects/v1/project.proto",
     "scylla/projects/v1/project_service.proto",
     "scylla/projects/v1/secret.proto",
@@ -40,11 +58,13 @@ const PROTOS: &[&str] = &[
     "scylla/workspaces/v1/workspace_service.proto",
 ];
 
-/// Compiles the protos, then prints the include folder for the dependent build scripts.
+/// Compiles the protos, then prints the include folder for the dependent build scripts. Runs again
+/// when a file of the `proto` folder changes: the folder is outside the package.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?)
         .join("..")
         .join("proto");
+    println!("cargo::rerun-if-changed={}", root.display());
     let files: Vec<PathBuf> = PROTOS.iter().map(|file| root.join(file)).collect();
     let descriptors = PathBuf::from(env::var("OUT_DIR")?).join("scylla_descriptors.bin");
     tonic_prost_build::configure()

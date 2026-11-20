@@ -1,0 +1,160 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id AS connection_id, c.provider, c.app_id, c.external_id AS account_id,\n                c.sealed_token, c.state AS connection_state, c.state_reason AS connection_reason,\n                l.external_id, l.full_name, l.web_url, l.state, l.state_reason\n         FROM repository_links l JOIN vcs_connections c ON c.id = l.connection_id\n         WHERE l.project_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "connection_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "app_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "app_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "account_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "sealed_token",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "sealed_token"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "connection_state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "connection_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "state_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "full_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "full_name"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "web_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "web_url"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "state_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "state_reason"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "5e83c74369edd8277baf0bd25c8041714dd6de43c6ca16a800661540f5e0b305"
+}

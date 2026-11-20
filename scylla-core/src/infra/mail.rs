@@ -1,9 +1,10 @@
-//! The mailers of the core: SMTP with a text part and an HTML part, and a log for a server with
-//! no SMTP server.
+//! The mailers of the core: SMTP with a text part and an HTML part with its images, and a log for
+//! a server with no SMTP server.
 
-use lettre::message::{Mailbox, MultiPart};
+use lettre::message::header::ContentType;
+use lettre::message::{Attachment, Mailbox, MultiPart, SinglePart};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
-use scylla_extension::{async_trait, Mail, MailError, Mailer};
+use scylla_extension::{async_trait, Mail, MailError, MailImage, Mailer};
 
 use super::logs::mask_email;
 
@@ -35,11 +36,16 @@ impl Mailer for SmtpMailer {
             .to
             .parse()
             .map_err(|error| MailError(format!("the recipient is not an address: {error}")))?;
+        let html = html_part(mail.html, mail.images)?;
         let message = Message::builder()
             .from(self.from.clone())
             .to(to)
             .subject(mail.subject)
-            .multipart(MultiPart::alternative_plain_html(mail.body, mail.html))
+            .multipart(
+                MultiPart::alternative()
+                    .singlepart(SinglePart::plain(mail.body))
+                    .multipart(html),
+            )
             .map_err(|error| MailError(format!("the mail is not valid: {error}")))?;
         self.transport
             .send(message)
@@ -47,6 +53,18 @@ impl Mailer for SmtpMailer {
             .map(|_| ())
             .map_err(|error| MailError(format!("the SMTP server refused the mail: {error}")))
     }
+}
+
+/// Makes the HTML part with its images: `multipart/related`, so a client shows each image of a
+/// `cid:` address with no download.
+fn html_part(html: String, images: Vec<MailImage>) -> Result<MultiPart, MailError> {
+    let mut related = MultiPart::related().singlepart(SinglePart::html(html));
+    for image in images {
+        let kind = ContentType::parse(&image.content_type)
+            .map_err(|error| MailError(format!("the image is not valid: {error}")))?;
+        related = related.singlepart(Attachment::new_inline(image.id).body(image.bytes, kind));
+    }
+    Ok(related)
 }
 
 /// Sends no mail: it logs the masked recipient and the subject, never the body with its link.

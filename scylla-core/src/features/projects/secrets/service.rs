@@ -2,6 +2,8 @@
 //! the server and the id of its secret as associated data, so a sealed value copied to another
 //! secret does not open.
 
+use scylla_domain::activity::Kind;
+use scylla_domain::identity::actors::ActorId;
 use scylla_domain::projects::secrets::{
     ListSecrets, NewSecret, Secret, SecretId, SecretName, SecretPage, SecretValue,
 };
@@ -12,6 +14,7 @@ use scylla_extension::Rejection;
 use sqlx::PgPool;
 
 use super::store;
+use crate::features::activity;
 use crate::infra::secret::Sealer;
 use crate::Error;
 
@@ -26,37 +29,41 @@ pub(super) async fn create(
     let sealed = key(sealer)?.seal_with(new.value.expose().as_bytes(), &id.to_bytes());
     let mut tx = pool.begin().await?;
     let secret = store::insert(&mut tx, id, &new, &sealed).await?;
+    activity::secret(&mut tx, Kind::SecretCreated, &secret, new.created_by).await?;
     tx.commit().await?;
     let (project, name) = (secret.project_id, secret.name.as_str());
     tracing::info!(event = "secret.created", secret = %id, %project, name);
     Ok(secret)
 }
 
-/// Gives a secret a new value, and returns it. The last change wins. A server with no key gives
-/// `SECRET_KEY_MISSING`.
+/// Gives a secret a new value for an actor, and returns it. The last change wins. A server with no
+/// key gives `SECRET_KEY_MISSING`.
 pub(super) async fn update(
     pool: &PgPool,
     sealer: Option<&Sealer>,
     id: SecretId,
     value: SecretValue,
+    actor: ActorId,
 ) -> Result<Secret, Error> {
     let sealed = key(sealer)?.seal_with(value.expose().as_bytes(), &id.to_bytes());
     let mut tx = pool.begin().await?;
     let secret = store::update_value(&mut tx, id, &sealed)
         .await?
         .ok_or(Error::NotFound("secret"))?;
+    activity::secret(&mut tx, Kind::SecretUpdated, &secret, actor).await?;
     tx.commit().await?;
     let (project, name) = (secret.project_id, secret.name.as_str());
     tracing::info!(event = "secret.updated", secret = %id, %project, name);
     Ok(secret)
 }
 
-/// Deletes a secret. A pipeline that names it fails at its next run.
-pub(super) async fn delete(pool: &PgPool, id: SecretId) -> Result<(), Error> {
+/// Deletes a secret for an actor. A pipeline that names it fails at its next run.
+pub(super) async fn delete(pool: &PgPool, id: SecretId, actor: ActorId) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
-    if !store::delete(&mut tx, id).await? {
-        return Err(Error::NotFound("secret"));
-    }
+    let secret = store::delete(&mut tx, id)
+        .await?
+        .ok_or(Error::NotFound("secret"))?;
+    activity::secret(&mut tx, Kind::SecretDeleted, &secret, actor).await?;
     tx.commit().await?;
     tracing::info!(event = "secret.deleted", secret = %id);
     Ok(())
@@ -106,6 +113,18 @@ pub(crate) async fn reveal(
     let text = String::from_utf8(plain)
         .map_err(|_| Error::Internal(format!("secret {id}: the value is not UTF-8")))?;
     SecretValue::parse(text).map_err(|error| Error::Internal(format!("secret {id}: {error}")))
+}
+
+/// Returns the names of a list that the project has as secrets.
+pub(crate) async fn known(
+    pool: &PgPool,
+    project: ProjectId,
+    names: &[String],
+) -> Result<Vec<String>, Error> {
+    let mut tx = pool.begin().await?;
+    let known = store::known(&mut tx, project, names).await?;
+    tx.commit().await?;
+    Ok(known)
 }
 
 /// Returns the first name of a list that the project does not have as a secret, or `None` if

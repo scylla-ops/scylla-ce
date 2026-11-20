@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO pipelines (id, project_id, workspace_id, created_by, name, nodes, checkout)\n         SELECT $1, p.id, p.workspace_id, $3, $4, $5, $6 FROM projects p WHERE p.id = $2\n         RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "239df7e6be095e064c04bc95cf96b664c7f2b24284977beadb7ac65f1cc879ba"
+}

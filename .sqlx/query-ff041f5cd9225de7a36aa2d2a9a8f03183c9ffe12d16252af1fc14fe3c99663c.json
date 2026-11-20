@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT sealed_token FROM vcs_connections WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sealed_token",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "sealed_token"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "ff041f5cd9225de7a36aa2d2a9a8f03183c9ffe12d16252af1fc14fe3c99663c"
+}

@@ -6,13 +6,11 @@ use scylla_domain::authz::Permission;
 use scylla_domain::identity::actors::Actor;
 use scylla_domain::identity::user_state::{UserStateCaller, UserStateEntry, MAX_VALUE_BYTES};
 use scylla_domain::identity::users::KIND;
-use scylla_domain::DomainError;
 use scylla_extension::{AccessError, Gate, Principal};
 use scylla_proto::accounts::v1 as pb;
 use scylla_proto::accounts::v1::user_state_service_server::{
     UserStateService, UserStateServiceServer,
 };
-use serde_json::Value;
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
@@ -54,7 +52,7 @@ impl UserStateService for UserStateGrpc {
         let caller = self.user(&request, permission).await?;
         let request = request.into_inner();
         let key = parse::field(request.key, "key")?;
-        let value = value_of(&request.value_json)?;
+        let value = parse::json(&request.value_json, "value_json", MAX_VALUE_BYTES)?;
         let expected = request.expected_version;
         let entry = service::put(&self.pool, caller.actor.id, &key, &value, expected).await?;
         Ok(Response::new(pb::PutUserStateEntryResponse {
@@ -91,31 +89,5 @@ impl ToProto<pb::UserStateEntry> for UserStateEntry {
             version: self.version,
             updated_at: Some(parse::timestamp(self.updated_at)),
         }
-    }
-}
-
-/// Reads a value: a JSON text of at most `MAX_VALUE_BYTES` bytes that `jsonb` can keep.
-fn value_of(text: &str) -> Result<Value, Error> {
-    let invalid = |reason: String| Error::invalid("value_json", reason);
-    if text.len() > MAX_VALUE_BYTES {
-        let max = MAX_VALUE_BYTES;
-        return Err(invalid(DomainError::TooLarge { max }.to_string()));
-    }
-    let value = serde_json::from_str(text).map_err(|_| invalid("must be JSON".to_owned()))?;
-    if holds_nul(&value) {
-        return Err(invalid("must have no NUL character".to_owned()));
-    }
-    Ok(value)
-}
-
-/// Returns `true` if a text in a value holds a NUL character, which `jsonb` refuses.
-fn holds_nul(value: &Value) -> bool {
-    match value {
-        Value::String(text) => text.contains('\0'),
-        Value::Array(items) => items.iter().any(holds_nul),
-        Value::Object(fields) => fields
-            .iter()
-            .any(|(key, value)| key.contains('\0') || holds_nul(value)),
-        Value::Null | Value::Bool(_) | Value::Number(_) => false,
     }
 }

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE apps SET last_seen_at = now() - make_interval(mins => $2::int4) WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c387ba5c40e27a8c06a06cec088229f6d2ceb2fd778c88efd1fe563d9773a7ae"
+}

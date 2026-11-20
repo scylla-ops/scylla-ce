@@ -1,9 +1,10 @@
-//! The areas of the catalog in a workspace, and the area of the machines.
+//! The areas of the catalog in a workspace.
 
 use super::{Area, CatalogPermission, Level, Route};
+use crate::identity::agents::{AgentAccess, AgentHolder};
 use crate::identity::apps::{App, AppHolder};
-use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
 use crate::projects::ProjectHolder;
+use crate::tenancy::dashboards::DashboardHolder;
 use crate::tenancy::grants::WorkspaceMembers;
 use crate::tenancy::roles::RoleHolder;
 use crate::tenancy::workspaces::Workspace;
@@ -51,7 +52,7 @@ pub(super) const AREAS: &[Area] = &[
             CatalogPermission {
                 id: "members.view",
                 action: "view",
-                depends_on: &[],
+                depends_on: &["project_members.view"],
                 implicit: false,
                 routes: &[
                     Route::of(Workspace::LIST_ACCESS),
@@ -63,7 +64,7 @@ pub(super) const AREAS: &[Area] = &[
             CatalogPermission {
                 id: "members.manage",
                 action: "manage",
-                depends_on: &["members.view"],
+                depends_on: &["members.view", "project_members.manage"],
                 implicit: false,
                 routes: &[
                     Route::of(Workspace::GRANT),
@@ -83,7 +84,7 @@ pub(super) const AREAS: &[Area] = &[
         permissions: &[CatalogPermission {
             id: "workspace_roles.manage",
             action: "manage",
-            depends_on: &[],
+            depends_on: &["members.view"],
             implicit: false,
             routes: &[
                 Route::of(RoleHolder::CREATE_ROLE),
@@ -115,7 +116,7 @@ pub(super) const AREAS: &[Area] = &[
             CatalogPermission {
                 id: "apps.create",
                 action: "create",
-                depends_on: &[],
+                depends_on: &["apps.view"],
                 implicit: false,
                 routes: &[Route::of(AppHolder::CREATE_APP)],
             },
@@ -159,18 +160,21 @@ pub(super) const AREAS: &[Area] = &[
             CatalogPermission {
                 id: "agents.view",
                 action: "view",
-                depends_on: &[],
+                depends_on: &["apps.view"],
                 implicit: false,
                 routes: &[
                     Route::of(AppHolder::GET_AGENT_STATS),
                     Route::of(AppHolder::LIST_AGENT_STATS),
                     Route::of(App::GET_AGENT_STATS),
+                    Route::of(AgentHolder::GET_SLOT_USAGE),
+                    Route::of(AgentHolder::GET_AGENT_METRICS),
+                    Route::of(AgentAccess::GET_AGENT_METRICS),
                 ],
             },
             CatalogPermission {
                 id: "agents.create",
                 action: "create",
-                depends_on: &[],
+                depends_on: &["agents.view"],
                 implicit: false,
                 routes: &[Route::of(AppHolder::CREATE_APP)],
             },
@@ -183,34 +187,42 @@ pub(super) const AREAS: &[Area] = &[
         permissions: &[CatalogPermission {
             id: "projects.create",
             action: "create",
-            depends_on: &[],
+            depends_on: &["project.view"],
             implicit: false,
             routes: &[Route::of(ProjectHolder::CREATE_PROJECT)],
         }],
     },
     Area {
-        id: "job_execution",
+        id: "dashboards",
         level: Level::Workspace,
-        machine: true,
+        machine: false,
         permissions: &[
             CatalogPermission {
-                id: "job_execution.edit",
-                action: "edit",
+                id: "dashboards.view",
+                action: "view",
                 depends_on: &[],
                 implicit: false,
                 routes: &[
-                    Route::of(PipelineHolder::RUN_JOBS),
-                    Route::of(PipelineAccess::RUN_JOBS),
+                    Route::of(DashboardHolder::LIST_DASHBOARDS),
+                    Route::of(DashboardHolder::GET_DASHBOARD),
                 ],
             },
             CatalogPermission {
-                id: "job_execution.run",
-                action: "run",
-                depends_on: &["job_execution.edit"],
+                id: "dashboards.create",
+                action: "create",
+                depends_on: &["dashboards.view"],
+                implicit: false,
+                routes: &[Route::of(DashboardHolder::CREATE_DASHBOARD)],
+            },
+            CatalogPermission {
+                id: "dashboards.manage",
+                action: "manage",
+                depends_on: &["dashboards.view"],
                 implicit: false,
                 routes: &[
-                    Route::of(PipelineHolder::RUN_JOBS),
-                    Route::of(PipelineAccess::RUN_JOBS),
+                    Route::of(DashboardHolder::UPDATE_DASHBOARD),
+                    Route::of(DashboardHolder::DELETE_DASHBOARD),
+                    Route::of(DashboardHolder::SET_TEAM_DEFAULT_DASHBOARD),
                 ],
             },
         ],
