@@ -39,6 +39,7 @@ impl AccountService for AccountsGrpc {
             password: parse::field(request.password, "password")?,
             display_name: parse::field(request.display_name, "display_name")?,
             invitation: Some(request.invitation_token).filter(|token| !token.is_empty()),
+            accepted_terms: request.accepted_terms_version,
         };
         service::sign_up(&self.ctx, input).await?;
         Ok(Response::new(pb::SignUpResponse {}))

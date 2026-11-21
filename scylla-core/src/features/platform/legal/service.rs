@@ -1,6 +1,6 @@
 //! The logic of the legal settings of the instance.
 
-use scylla_domain::platform::legal::{LegalChange, LegalSettings};
+use scylla_domain::platform::legal::{DocumentKind, DocumentVersion, LegalChange, LegalSettings};
 use scylla_extension::Tx;
 use sqlx::PgPool;
 
@@ -13,6 +13,14 @@ pub(crate) async fn get(pool: &PgPool) -> Result<LegalSettings, Error> {
     let settings = read(&mut tx).await?;
     tx.commit().await?;
     Ok(settings)
+}
+
+/// Returns the version of the document of a kind, or `None` when the kind is off.
+pub(crate) async fn version(
+    tx: &mut Tx<'_>,
+    kind: DocumentKind,
+) -> Result<Option<DocumentVersion>, Error> {
+    Ok(store::version(tx, kind).await?)
 }
 
 /// Changes the legal settings of the instance, and returns them.

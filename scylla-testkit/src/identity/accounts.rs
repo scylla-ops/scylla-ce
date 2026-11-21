@@ -11,7 +11,7 @@ use tonic::Status;
 use crate::TestApp;
 
 impl TestApp {
-    /// Calls `SignUp`. An empty invitation token means none.
+    /// Calls `SignUp`, with no acceptance of the terms. An empty invitation token means none.
     pub async fn sign_up(
         &self,
         email: &str,
@@ -23,6 +23,25 @@ impl TestApp {
             password: password.to_owned(),
             display_name: "New User".to_owned(),
             invitation_token: invitation.to_owned(),
+            accepted_terms_version: None,
+        };
+        self.accounts().sign_up(request).await?;
+        Ok(())
+    }
+
+    /// Calls `SignUp` with the version of the terms that the form accepts, and no invitation.
+    pub async fn sign_up_accepting(
+        &self,
+        email: &str,
+        password: &str,
+        terms: Option<&str>,
+    ) -> Result<(), Status> {
+        let request = pb::SignUpRequest {
+            email: email.to_owned(),
+            password: password.to_owned(),
+            display_name: "New User".to_owned(),
+            invitation_token: String::new(),
+            accepted_terms_version: terms.map(str::to_owned),
         };
         self.accounts().sign_up(request).await?;
         Ok(())

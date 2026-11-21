@@ -287,6 +287,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   Each document is off, a link to a page or a text in Markdown. Anyone reads them with
   `GetLegalInfo`, and only an instance admin changes them. The footer of each mail shows the links
   to the legal documents.
+- The acceptance of the terms of service. When the legal settings ask each user to accept the terms,
+  a sign-up with a password must accept their current version, and `AcceptTerms` keeps the
+  acceptance of each new version. The server keeps each acceptance with its version, its time and
+  its method as proof. The export of the account gives them, and they go with a deleted account.
 
 ### Removed
 

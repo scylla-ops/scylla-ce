@@ -7,4 +7,4 @@ mod service;
 mod store;
 
 pub(crate) use grpc::server;
-pub(crate) use service::get;
+pub(crate) use service::{get, version};

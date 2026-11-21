@@ -129,6 +129,15 @@ pub struct LegalDocument {
     pub updated_at: OffsetDateTime,
 }
 
+/// The version of a document that is on, and its rule of acceptance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DocumentVersion {
+    /// The version.
+    pub version: String,
+    /// `true` when each user must accept this version.
+    pub acceptance_required: bool,
+}
+
 /// A change of one document: new values, or `None` to turn its kind off.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DocumentChange {

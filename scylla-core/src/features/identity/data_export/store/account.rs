@@ -1,5 +1,6 @@
 //! The reads of the account of a user for its export: the user, its emails, its identities, its
-//! sessions, its personal tokens and the state of the web app, as JSON.
+//! sessions, its personal tokens, the state of the web app and its acceptances of the terms, as
+//! JSON.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::api_tokens::ApiTokenId;
@@ -168,6 +169,30 @@ pub(crate) async fn interface_state(tx: &mut Tx<'_>, user: ActorId) -> Result<Ve
                 "key": row.key,
                 "value": row.value,
                 "updated_at": time(row.updated_at),
+            })
+        })
+        .collect())
+}
+
+/// Returns the acceptances of the terms by a user, oldest first.
+pub(crate) async fn terms_acceptances(tx: &mut Tx<'_>, user: ActorId) -> Result<Vec<Value>, Error> {
+    let rows = sqlx::query!(
+        "SELECT kind, version, method, accepted_at
+         FROM terms_acceptances
+         WHERE user_id = $1
+         ORDER BY accepted_at, kind, version",
+        user.to_db()
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            json!({
+                "document": row.kind,
+                "version": row.version,
+                "method": row.method,
+                "accepted_at": time(row.accepted_at),
             })
         })
         .collect())

@@ -32,6 +32,7 @@ pub(crate) async fn export(
     let sessions = store::sessions(&mut tx, user).await?;
     let personal_tokens = store::personal_tokens(&mut tx, user).await?;
     let interface_state = store::interface_state(&mut tx, user).await?;
+    let terms_acceptances = store::terms_acceptances(&mut tx, user).await?;
     let workspaces = store::owned_workspaces(&mut tx, user).await?;
     let roles = store::roles(&mut tx, user).await?;
 
@@ -56,6 +57,7 @@ pub(crate) async fn export(
         "sessions": sessions,
         "personal_tokens": personal_tokens,
         "interface_state": interface_state,
+        "terms_acceptances": terms_acceptances,
         "owned_workspaces": workspaces,
         "roles": roles,
         "edition": edition,

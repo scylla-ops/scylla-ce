@@ -1,5 +1,6 @@
-//! The proto messages of the users and of the sessions.
+//! The proto messages of the users, of the sessions and of the acceptances of the terms.
 
+use scylla_domain::identity::terms::Acceptance;
 use scylla_domain::identity::users::{ProfileChange, SessionId, User};
 use scylla_proto::accounts::v1 as pb;
 
@@ -31,6 +32,14 @@ pub(crate) fn session(info: SessionInfo, current: Option<SessionId>) -> pb::Sess
         ip_address: info.ip_address.unwrap_or_default(),
         created_at: Some(parse::timestamp(info.created_at)),
         last_used_at: Some(parse::timestamp(info.last_used_at)),
+    }
+}
+
+/// Makes the proto of an acceptance of the terms.
+pub(crate) fn acceptance(acceptance: Acceptance) -> pb::TermsAcceptance {
+    pb::TermsAcceptance {
+        version: acceptance.version,
+        accepted_at: Some(parse::timestamp(acceptance.accepted_at)),
     }
 }
 

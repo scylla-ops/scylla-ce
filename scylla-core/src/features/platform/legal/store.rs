@@ -2,7 +2,7 @@
 //! each kind that is on).
 
 use scylla_domain::platform::legal::{
-    DocumentContent, DocumentKind, DocumentValues, LegalDocument, Operator,
+    DocumentContent, DocumentKind, DocumentValues, DocumentVersion, LegalDocument, Operator,
 };
 use scylla_extension::Tx;
 use time::{Date, OffsetDateTime};
@@ -83,6 +83,23 @@ pub(super) async fn documents(tx: &mut Tx<'_>) -> Result<Vec<LegalDocument>, sql
         rows.into_iter().filter_map(DocumentRow::document).collect();
     documents.sort_by_key(|document| document.kind);
     Ok(documents)
+}
+
+/// Returns the version of the document of a kind, or `None` when the kind is off.
+pub(super) async fn version(
+    tx: &mut Tx<'_>,
+    kind: DocumentKind,
+) -> Result<Option<DocumentVersion>, sqlx::Error> {
+    let row = sqlx::query!(
+        "SELECT version, acceptance_required FROM legal_documents WHERE kind = $1",
+        kind.as_str()
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(row.map(|row| DocumentVersion {
+        version: row.version,
+        acceptance_required: row.acceptance_required,
+    }))
 }
 
 /// Replaces the operator.

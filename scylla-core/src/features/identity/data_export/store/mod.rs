@@ -6,5 +6,7 @@ mod account;
 mod format;
 
 pub(crate) use access::{owned_workspaces, roles};
-pub(crate) use account::{emails, identities, interface_state, personal_tokens, sessions, user};
+pub(crate) use account::{
+    emails, identities, interface_state, personal_tokens, sessions, terms_acceptances, user,
+};
 pub(crate) use format::time;
