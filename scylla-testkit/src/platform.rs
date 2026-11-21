@@ -1,12 +1,16 @@
-//! The `TestApp` helpers of the platform RPCs: the capabilities, the legal settings, the health
-//! check and the gRPC reflection.
+//! The `TestApp` helpers of the platform RPCs: the capabilities, the legal settings, the consent,
+//! the health check and the gRPC reflection.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_proto::capabilities::v1::capability_service_client::CapabilityServiceClient;
 use scylla_proto::capabilities::v1::{GetCapabilitiesRequest, GetCapabilitiesResponse};
+use scylla_proto::platform::v1::consent_service_client::ConsentServiceClient;
 use scylla_proto::platform::v1::legal_service_client::LegalServiceClient;
-use scylla_proto::platform::v1::{GetLegalInfoRequest, LegalInfo, UpdateLegalSettingsRequest};
-use tonic::Status;
+use scylla_proto::platform::v1::{
+    GetLegalInfoRequest, LegalInfo, RecordConsentRequest, RecordConsentResponse,
+    UpdateLegalSettingsRequest,
+};
+use tonic::{Request, Status};
 use tonic_health::pb::health_check_response::ServingStatus;
 use tonic_health::pb::health_client::HealthClient;
 use tonic_health::pb::HealthCheckRequest;
@@ -39,6 +43,20 @@ impl TestApp {
         let mut client = LegalServiceClient::new(self.channel.clone());
         let response = client.update_legal_settings(request).await?;
         Ok(response.into_inner().info.expect("info"))
+    }
+
+    /// Calls `RecordConsent` with no token, or as `actor`.
+    pub async fn record_consent(
+        &self,
+        actor: Option<ActorId>,
+        request: RecordConsentRequest,
+    ) -> Result<RecordConsentResponse, Status> {
+        let request = match actor {
+            Some(actor) => self.authed(actor, request).await,
+            None => Request::new(request),
+        };
+        let mut client = ConsentServiceClient::new(self.channel.clone());
+        Ok(client.record_consent(request).await?.into_inner())
     }
 
     /// Calls the standard health check for the whole server.

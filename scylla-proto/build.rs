@@ -47,6 +47,7 @@ const PROTOS: &[&str] = &[
     "scylla/pipelines/v1/trigger_fire.proto",
     "scylla/pipelines/v1/trigger_service.proto",
     "scylla/pipelines/v1/trigger_summary.proto",
+    "scylla/platform/v1/consent_service.proto",
     "scylla/platform/v1/legal_service.proto",
     "scylla/platform/v1/settings_service.proto",
     "scylla/platform/v1/vcs_app_service.proto",

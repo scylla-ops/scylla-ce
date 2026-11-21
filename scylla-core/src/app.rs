@@ -7,6 +7,7 @@ use scylla_domain::identity::users::AccountCaller;
 use scylla_domain::integrations::apps::VcsAppHolder;
 use scylla_domain::integrations::connections::VcsConnectionHolder;
 use scylla_domain::integrations::links::{RepositoryAccess, RepositoryHolder};
+use scylla_domain::platform::consent::ConsentCaller;
 use scylla_domain::platform::legal::LegalHolder;
 use scylla_domain::platform::{Platform, SettingsHolder};
 use scylla_extension::{Edition, EditionBuilder};
@@ -37,6 +38,7 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .authz::<UserAdminHolder>()
         .authz::<SettingsHolder>()
         .authz::<LegalHolder>()
+        .authz::<ConsentCaller>()
         .authz::<TokenOwner>()
         .plugin(Workspaces)
         .plugin(Apps)

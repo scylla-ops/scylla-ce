@@ -35,6 +35,7 @@ pub(crate) async fn export(
     let terms_acceptances = store::terms_acceptances(&mut tx, user).await?;
     let workspaces = store::owned_workspaces(&mut tx, user).await?;
     let roles = store::roles(&mut tx, user).await?;
+    let consents = store::consents(&mut tx, user).await?;
 
     // Add the parts of the edition.
     let parts = hooks
@@ -60,6 +61,7 @@ pub(crate) async fn export(
         "terms_acceptances": terms_acceptances,
         "owned_workspaces": workspaces,
         "roles": roles,
+        "consents": consents,
         "edition": edition,
     });
     Ok((format!("{document:#}"), exported_at))

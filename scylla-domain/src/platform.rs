@@ -1,6 +1,7 @@
 //! The platform: the instance itself, the object of the routes that act on the whole instance,
-//! its settings and its legal settings.
+//! its settings, its legal settings and the consent of the browsers.
 
+pub mod consent;
 pub mod legal;
 
 use crate::Id;

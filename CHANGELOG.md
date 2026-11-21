@@ -291,6 +291,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   a sign-up with a password must accept their current version, and `AcceptTerms` keeps the
   acceptance of each new version. The server keeps each acceptance with its version, its time and
   its method as proof. The export of the account gives them, and they go with a deleted account.
+- The server keeps a record of each choice about cookies (`consent_records`), through the public
+  route `ConsentService.RecordConsent`, with a limit for each IP address. The export of an account
+  has the records of its user, and the deletion of the account deletes them.
 
 ### Removed
 

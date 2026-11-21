@@ -310,6 +310,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Invitations: the role of the link, admins only, the email of the invitation, sign-up with a link | `scylla-ce/tests/api/tenancy/invitations.rs` |
 | Open invitations: the list, the revoke, the resend and its cooldown, one open invitation for each email | `scylla-ce/tests/api/tenancy/open_invitations.rs` |
 | An acceptance at the same time as a revoke or a resend | `scylla-ce/tests/api/tenancy/invitation_races.rs` |
+| Cookie choices: a record with no token, a withdrawal as a new record, the user of a token in the export and the deletion, the token of an App, each field, the limit of an address | `scylla-ce/tests/api/platform/consent.rs` |
 | Route rule: no check, a group check, the own check, an error | `scylla-ce/tests/api/platform/routes.rs` |
 | Tasks of an edition: a run at the start with the pool, the log of a failed run | `scylla-ce/tests/api/platform/tasks.rs` |
 | Retention: a pass deletes the sessions, the links of the mails and the invitations that ended before their time, and keeps the others; the last sign-in of a user stays | `scylla-ce/tests/api/platform/retention.rs` |
