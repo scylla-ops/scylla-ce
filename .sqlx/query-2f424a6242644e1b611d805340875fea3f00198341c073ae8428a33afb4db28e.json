@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE legal_settings\n         SET operator_name = $1, operator_address = $2, operator_registration = $3,\n             publication_director = $4, operator_contact = $5, operator_host = $6",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2f424a6242644e1b611d805340875fea3f00198341c073ae8428a33afb4db28e"
+}

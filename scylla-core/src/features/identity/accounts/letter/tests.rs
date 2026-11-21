@@ -13,7 +13,7 @@ fn at(seconds: i64) -> OffsetDateTime {
 
 /// A mail with each block: a strong value with markup, two facts, a one-time link and a link
 /// for a person who did not ask for the mail.
-fn letter() -> Letter<'static> {
+fn letter() -> Letter {
     Letter {
         subject: "Join <team>".to_owned(),
         preheader: "Join the workspace <team>.".to_owned(),

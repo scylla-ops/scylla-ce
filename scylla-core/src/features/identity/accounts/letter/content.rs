@@ -1,10 +1,11 @@
 //! The content of an account mail before its layout: a badge, a title, a lead, the facts, the
-//! main link, the block for a person who did not ask for the mail, and the footer.
+//! main link, the block for a person who did not ask for the mail, and the footer with the legal
+//! links of the instance.
 
 use scylla_extension::{Mail, MailImage};
 use time::{OffsetDateTime, UtcOffset};
 
-use super::{html, text};
+use super::{html, text, Legal};
 
 /// The logo with dark letters, for a light client.
 const LOGO: &[u8] = include_bytes!("logo.png");
@@ -188,11 +189,11 @@ impl NotYou {
 
 /// The content of a mail.
 #[derive(Clone, Debug)]
-pub(crate) struct Letter<'a> {
+pub(crate) struct Letter {
     /// The address of the recipient.
-    pub(crate) to: &'a str,
+    pub(crate) to: String,
     /// The address of the instance, with no scheme: `scylla.example.com`.
-    pub(crate) instance: &'a str,
+    pub(crate) instance: String,
     /// The subject.
     pub(crate) subject: String,
     /// The text that a client shows after the subject in a list of mails.
@@ -211,14 +212,16 @@ pub(crate) struct Letter<'a> {
     pub(crate) not_you: NotYou,
     /// Why the recipient gets the mail, in the footer.
     pub(crate) reason: String,
+    /// The legal links and the operator of the instance, at the end of the footer.
+    pub(crate) legal: Legal,
 }
 
-impl<'a> Letter<'a> {
+impl Letter {
     /// Makes an empty mail to a recipient, from an instance.
-    pub(crate) fn new(to: &'a str, instance: &'a str) -> Self {
+    pub(crate) fn new(to: &str, instance: &str) -> Self {
         Self {
-            to,
-            instance,
+            to: to.to_owned(),
+            instance: instance.to_owned(),
             subject: String::new(),
             preheader: String::new(),
             badge: Badge::ACCOUNT,
@@ -228,6 +231,7 @@ impl<'a> Letter<'a> {
             action: None,
             not_you: NotYou::new("", ""),
             reason: String::new(),
+            legal: Legal::default(),
         }
     }
 
@@ -239,7 +243,7 @@ impl<'a> Letter<'a> {
             bytes: bytes.to_vec(),
         };
         Mail {
-            to: self.to.to_owned(),
+            to: self.to.clone(),
             body: text::body(&self),
             html: html::body(&self),
             subject: self.subject,

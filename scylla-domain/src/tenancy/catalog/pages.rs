@@ -7,6 +7,8 @@ use crate::identity::apps::AppHolder;
 use crate::integrations::apps::VcsAppHolder;
 use crate::integrations::connections::VcsConnectionHolder;
 use crate::integrations::links::{RepositoryAccess, RepositoryHolder};
+use crate::platform::legal::LegalHolder;
+use crate::platform::SettingsHolder;
 use crate::projects::pipelines::PipelineAccess;
 use crate::projects::triggers::TriggerAccess;
 use crate::projects::{Project, ProjectHolder};
@@ -46,6 +48,11 @@ const PAGES: &[Page] = &[
             Route::of(UserAdminHolder::LIST_USERS),
             Route::of(RoleAdmin::LIST_ROLES),
         ],
+    },
+    Page {
+        name: "the legal and privacy page of the instance",
+        opens: Route::of(SettingsHolder::UPDATE_INSTANCE_SETTINGS),
+        needs: &[Route::of(LegalHolder::UPDATE_LEGAL_SETTINGS)],
     },
     Page {
         name: "the Git providers of the instance",

@@ -2,7 +2,6 @@
 //! way to sign in, a new personal token, a closed session and a locked account.
 
 use scylla_domain::identity::api_tokens::ApiTokenInfo;
-use scylla_extension::Mail;
 use time::OffsetDateTime;
 
 use super::super::letter::{clock, Action, Badge, Fact, Letter, NotYou, Part};
@@ -14,7 +13,7 @@ const SECURITY: &str =
     "Scylla sends this notice after each change to the security of your account.";
 
 /// The notice to the old email of an account, after a change of its email.
-pub(crate) fn email_changed(ctx: &AccountContext, old: &str, new: &str) -> Mail {
+pub(crate) fn email_changed(ctx: &AccountContext, old: &str, new: &str) -> Letter {
     Letter {
         subject: "The email of your Scylla account changed".to_owned(),
         preheader: format!("Your account now signs in with {new}, not with this email."),
@@ -37,12 +36,11 @@ pub(crate) fn email_changed(ctx: &AccountContext, old: &str, new: &str) -> Mail 
         reason: "Scylla sends this notice to the old email after each change of email.".to_owned(),
         ..Letter::new(old, ctx.settings.instance())
     }
-    .compose()
 }
 
 /// The notice to the owner of an account after a change of its password, with the client that
 /// made the change.
-pub(crate) fn password_changed(ctx: &AccountContext, to: &str, from: Option<&Client>) -> Mail {
+pub(crate) fn password_changed(ctx: &AccountContext, to: &str, from: Option<&Client>) -> Letter {
     let mut facts = vec![Fact::time("Changed", OffsetDateTime::now_utc())];
     facts.extend(from.map(|client| Fact::new("From", client.describe())));
     Letter {
@@ -65,11 +63,10 @@ pub(crate) fn password_changed(ctx: &AccountContext, to: &str, from: Option<&Cli
         reason: SECURITY.to_owned(),
         ..Letter::new(to, ctx.settings.instance())
     }
-    .compose()
 }
 
 /// The notice to the owner of an account that got a new way to sign in.
-pub(crate) fn identity_linked(ctx: &AccountContext, to: &str, provider: &str) -> Mail {
+pub(crate) fn identity_linked(ctx: &AccountContext, to: &str, provider: &str) -> Letter {
     Letter {
         subject: format!("A new sign-in method on your Scylla account: {provider}"),
         preheader: format!("You can now sign in with {provider}. Not you? Remove it now."),
@@ -92,11 +89,10 @@ pub(crate) fn identity_linked(ctx: &AccountContext, to: &str, provider: &str) ->
         reason: SECURITY.to_owned(),
         ..Letter::new(to, ctx.settings.instance())
     }
-    .compose()
 }
 
 /// The notice to the owner of an account that lost a way to sign in.
-pub(crate) fn identity_unlinked(ctx: &AccountContext, to: &str, provider: &str) -> Mail {
+pub(crate) fn identity_unlinked(ctx: &AccountContext, to: &str, provider: &str) -> Letter {
     Letter {
         subject: format!("A sign-in method left your Scylla account: {provider}"),
         preheader: format!(
@@ -121,11 +117,10 @@ pub(crate) fn identity_unlinked(ctx: &AccountContext, to: &str, provider: &str) 
         reason: SECURITY.to_owned(),
         ..Letter::new(to, ctx.settings.instance())
     }
-    .compose()
 }
 
 /// The notice to the owner of an account that got a new personal token, with its expiry.
-pub(crate) fn token_created(ctx: &AccountContext, to: &str, token: &ApiTokenInfo) -> Mail {
+pub(crate) fn token_created(ctx: &AccountContext, to: &str, token: &ApiTokenInfo) -> Letter {
     let name = token.name.as_str();
     Letter {
         subject: format!("A new personal token on your Scylla account: {name}"),
@@ -150,12 +145,11 @@ pub(crate) fn token_created(ctx: &AccountContext, to: &str, token: &ApiTokenInfo
         reason: SECURITY.to_owned(),
         ..Letter::new(to, ctx.settings.instance())
     }
-    .compose()
 }
 
 /// The alert to the owner of a session that closed because someone used an old refresh token:
 /// the device of the session, and the last address that used it.
-pub(crate) fn session_reuse(ctx: &AccountContext, to: &str, session: &Client) -> Mail {
+pub(crate) fn session_reuse(ctx: &AccountContext, to: &str, session: &Client) -> Letter {
     let mut facts = vec![Fact::new("Session", session.device())];
     facts.extend(
         session
@@ -182,7 +176,6 @@ pub(crate) fn session_reuse(ctx: &AccountContext, to: &str, session: &Client) ->
         reason: SECURITY.to_owned(),
         ..Letter::new(to, ctx.settings.instance())
     }
-    .compose()
 }
 
 /// The alert to the owner of an account that many failed passwords locked, with the end of the
@@ -192,7 +185,7 @@ pub(crate) fn account_locked(
     to: &str,
     until: OffsetDateTime,
     failures: i32,
-) -> Mail {
+) -> Letter {
     Letter {
         subject: format!("Your Scylla account is locked until {}", clock(until)),
         preheader: "Too many wrong passwords. Sign in again after the lock, or choose a new \
@@ -220,7 +213,6 @@ pub(crate) fn account_locked(
         reason: SECURITY.to_owned(),
         ..Letter::new(to, ctx.settings.instance())
     }
-    .compose()
 }
 
 /// Makes the link to a page of the account in the web app.

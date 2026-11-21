@@ -25,7 +25,7 @@ use crate::features::identity::tokens;
 use crate::features::identity::{admins, apps, personal_tokens};
 use crate::features::integrations::{self, IntegrationContext};
 use crate::features::notifications::{self, PgNotifier};
-use crate::features::platform::settings;
+use crate::features::platform::{legal, settings};
 use crate::features::projects::jobs::{self, housekeeping};
 use crate::features::projects::triggers::webhook::{self, Webhooks};
 use crate::features::projects::triggers::{self, schedule};
@@ -202,6 +202,7 @@ pub async fn serve(
     routes.add_service(admins::server(ctx.clone()));
     routes.add_service(personal_tokens::server(ctx.clone()));
     routes.add_service(settings::server(pool.clone(), Arc::clone(&gate)));
+    routes.add_service(legal::server(pool.clone(), Arc::clone(&gate)));
     routes.add_service(invitations::server(ctx.clone()));
     routes.add_service(secrets::server(
         pool.clone(),

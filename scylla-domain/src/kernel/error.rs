@@ -146,4 +146,7 @@ pub enum DomainError {
     /// The text is not the name of a zone of the IANA database.
     #[error("must be an IANA time zone, for example Europe/Paris")]
     NotATimeZone,
+    /// The text is not a date.
+    #[error("must be a date YYYY-MM-DD")]
+    NotADate,
 }

@@ -1,8 +1,11 @@
-//! The `TestApp` helpers of the platform RPCs: the capabilities, the health check and the gRPC
-//! reflection.
+//! The `TestApp` helpers of the platform RPCs: the capabilities, the legal settings, the health
+//! check and the gRPC reflection.
 
+use scylla_domain::identity::actors::ActorId;
 use scylla_proto::capabilities::v1::capability_service_client::CapabilityServiceClient;
 use scylla_proto::capabilities::v1::{GetCapabilitiesRequest, GetCapabilitiesResponse};
+use scylla_proto::platform::v1::legal_service_client::LegalServiceClient;
+use scylla_proto::platform::v1::{GetLegalInfoRequest, LegalInfo, UpdateLegalSettingsRequest};
 use tonic::Status;
 use tonic_health::pb::health_check_response::ServingStatus;
 use tonic_health::pb::health_client::HealthClient;
@@ -17,6 +20,25 @@ impl TestApp {
         let mut client = CapabilityServiceClient::new(self.channel.clone());
         let response = client.get_capabilities(GetCapabilitiesRequest {}).await?;
         Ok(response.into_inner())
+    }
+
+    /// Calls `GetLegalInfo`, with no token.
+    pub async fn get_legal_info(&self) -> Result<LegalInfo, Status> {
+        let mut client = LegalServiceClient::new(self.channel.clone());
+        let response = client.get_legal_info(GetLegalInfoRequest {}).await?;
+        Ok(response.into_inner().info.expect("info"))
+    }
+
+    /// Calls `UpdateLegalSettings` as `actor`.
+    pub async fn update_legal_settings(
+        &self,
+        actor: ActorId,
+        request: UpdateLegalSettingsRequest,
+    ) -> Result<LegalInfo, Status> {
+        let request = self.authed(actor, request).await;
+        let mut client = LegalServiceClient::new(self.channel.clone());
+        let response = client.update_legal_settings(request).await?;
+        Ok(response.into_inner().info.expect("info"))
     }
 
     /// Calls the standard health check for the whole server.

@@ -283,6 +283,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   the identities, the sessions, the personal tokens (with no secret), the state of the web app, the
   workspaces and the roles. The new extension points `ExportUser` and `AfterDeleteUser` let an
   edition add its data to the export and delete its rows of a deleted user.
+- The legal settings of the instance: the operator, the privacy contact and seven legal documents.
+  Each document is off, a link to a page or a text in Markdown. Anyone reads them with
+  `GetLegalInfo`, and only an instance admin changes them. The footer of each mail shows the links
+  to the legal documents.
 
 ### Removed
 
