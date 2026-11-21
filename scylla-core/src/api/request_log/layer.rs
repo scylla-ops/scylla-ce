@@ -15,7 +15,7 @@ use tracing::Instrument;
 use super::body::Watched;
 use super::result::Call;
 use crate::features::identity::sessions::Client;
-use crate::infra::logs::CALL;
+use crate::infra::logs::{LogClientIp, CALL};
 
 /// The header of the request id in each answer.
 pub const REQUEST_ID: &str = "x-request-id";
@@ -29,12 +29,18 @@ pub enum ServerRequest {}
 pub struct RequestLog {
     /// Reads the client IP address from the last `X-Forwarded-For` address.
     trust_forwarded: bool,
+    /// What the log keeps of the client IP address.
+    client_ip: LogClientIp,
 }
 
 impl RequestLog {
-    /// Makes the layer. The client IP address follows the rule of the sessions.
-    pub fn new(trust_forwarded: bool) -> Self {
-        Self { trust_forwarded }
+    /// Makes the layer. The client IP address follows the rule of the sessions, then the log
+    /// keeps what `client_ip` tells.
+    pub fn new(trust_forwarded: bool, client_ip: LogClientIp) -> Self {
+        Self {
+            trust_forwarded,
+            client_ip,
+        }
     }
 }
 
@@ -45,6 +51,7 @@ impl<S> Layer<S> for RequestLog {
         Logged {
             inner,
             trust_forwarded: self.trust_forwarded,
+            client_ip: self.client_ip,
         }
     }
 }
@@ -56,6 +63,8 @@ pub struct Logged<S> {
     inner: S,
     /// Reads the client IP address from the last `X-Forwarded-For` address.
     trust_forwarded: bool,
+    /// What the log keeps of the client IP address.
+    client_ip: LogClientIp,
 }
 
 /// The future of an answer of `Logged`.
@@ -93,7 +102,7 @@ where
             CALL,
             request_id = %id,
             rpc = %route,
-            ip = client.ip.map(display),
+            ip = client.ip.and_then(|ip| self.client_ip.show(ip)).map(display),
             actor = Empty,
             actor_kind = Empty,
         );

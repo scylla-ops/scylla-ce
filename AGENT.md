@@ -95,7 +95,7 @@ Load the skill of the task from `.claude/skills/`:
 
 ## Logs
 
-- `api/request_log/` logs one line for each call: its code, its duration, its actor, its IP address and the cause of a refusal. A route does not log its start, its end or its refusal again.
+- `api/request_log/` logs one line for each call: its code, its duration, its actor, its IP address (all, its network or none, as `SCYLLA_LOG_CLIENT_IP` tells) and the cause of a refusal. A route does not log its start, its end or its refusal again.
 - A fact that an operator must see is a business event after the commit: `tracing::info!(event = "secret.created", secret = %id, %project, name)`. The name is `<subject>.<action>` in the past tense, and it does not change. Add a new name to decision 59.
 - A fact for the notifications goes through `notifications::emit`, in the transaction of the write. Add its kind in `features/notifications/kinds.rs` (the kinds of the Git integration are in `features/integrations/plugin.rs`) and a text for it in the web app. A parameter is a short text: never a sentence, `jobs.error`, a secret, a token, a link with a token, or the email of another person. A new kind must say who gets a row (`Audience`) and what a reader needs (`Access`). A kind about the reader alone is `Access::Own`.
 - A change that a person must see in the activity feed records its row with the helpers of `features/activity` (`activity::record` and the helpers of each subject), in the transaction of the change, next to its `notifications::emit`. A new kind goes in `scylla_domain::activity::Kind` with its area, and its parameters in the comment of `Activity.kind` in the protos. A row is not an audit of the access checks (decision 53): never record a refusal or a read.

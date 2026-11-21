@@ -361,3 +361,5 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - Connect GitHub can connect an installation of the GitHub App that exists, also an installation
   that another workspace uses. Before, GitHub opened the settings of the installation and did not go
   back to Scylla.
+- An edition can add a background task with `EditionBuilder::task`: the server runs it at its start,
+  then at its period, and logs a failed run with the name of the task.

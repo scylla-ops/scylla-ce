@@ -12,7 +12,7 @@ use tonic::service::RoutesBuilder;
 use crate::grants::{AccessRoutes, FindWorkspace, Grants};
 use crate::{
     AfterDelete, AfterDeleteUser, BeforeCreate, ExportUser, Gate, Hooks, NotificationKind,
-    NotificationKinds, Notifier, ServiceContext,
+    NotificationKinds, Notifier, ScheduledTask, ServiceContext,
 };
 
 /// A function that adds the gRPC services of one plugin.
@@ -43,6 +43,8 @@ pub struct Edition {
     services: Vec<AddServices>,
     /// The encoded descriptor sets of the protos of the edition, for the JSON gateway.
     descriptors: Vec<&'static [u8]>,
+    /// The background tasks, in registration order.
+    pub(crate) tasks: Vec<ScheduledTask>,
 }
 
 impl Edition {
@@ -60,6 +62,7 @@ impl Edition {
                 notification_kinds: Arc::default(),
                 services: Vec::new(),
                 descriptors: Vec::new(),
+                tasks: Vec::new(),
             },
             grants: Grants::default(),
             hooks: Hooks::default(),
@@ -148,7 +151,7 @@ pub trait Plugin {
 /// Collects the parts of an edition. `build` makes the `Edition`.
 pub struct EditionBuilder {
     /// The edition under construction.
-    edition: Edition,
+    pub(crate) edition: Edition,
     /// The roles that `AccessService` can give, mutable until `build`.
     grants: Grants,
     /// The hooks, mutable until `build`.

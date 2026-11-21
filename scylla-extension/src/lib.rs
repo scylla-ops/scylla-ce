@@ -1,4 +1,5 @@
-//! The contract between the core and the editions: plugins, hooks and the access gate.
+//! The contract between the core and the editions: plugins, hooks, background tasks and the
+//! access gate.
 
 mod context;
 mod edition;
@@ -12,6 +13,7 @@ mod notifications;
 mod operation;
 mod principal;
 mod service_context;
+mod tasks;
 #[cfg(test)]
 mod tests;
 mod tx;
@@ -32,4 +34,5 @@ pub use notifications::{Access, Collapse, NotificationKind, NotificationKinds};
 pub use operation::Operation;
 pub use principal::{Binding, IssuedToken, Principal};
 pub use service_context::ServiceContext;
+pub use tasks::{ScheduledTask, Task, TaskContext, TaskError};
 pub use tx::Tx;
