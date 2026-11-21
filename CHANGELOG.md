@@ -279,6 +279,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - The activity feed of a workspace: each change records its row in its transaction (the end of a
   job, a trigger, a secret, a member, a Git connection, the stream of an agent), and `ListActivity`
   shows each row only to the readers of its area. The server deletes a row after 30 days.
+- `ExportAccountData` gives the data of the account as one JSON document: the profile, the emails,
+  the identities, the sessions, the personal tokens (with no secret), the state of the web app, the
+  workspaces and the roles. The new extension points `ExportUser` and `AfterDeleteUser` let an
+  edition add its data to the export and delete its rows of a deleted user.
 
 ### Removed
 

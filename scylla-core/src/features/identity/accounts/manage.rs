@@ -261,7 +261,7 @@ pub(crate) async fn delete_account(
     let mut tx = ctx.pool.begin().await?;
     check_password(&mut tx, user, current, "password").await?;
     tx.commit().await?;
-    deletion::delete_user(ctx, user).await
+    deletion::delete_user(ctx, user, user).await
 }
 
 /// Passes if the user has no password, or if the text matches it. A wrong text gives

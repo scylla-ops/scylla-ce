@@ -1,5 +1,5 @@
 //! The `TestApp` helpers of `ProfileService`, sent with an access token: the profile, the
-//! email, the password, the identities and the sessions of the caller.
+//! email, the password, the identities, the sessions and the data export of the caller.
 
 use scylla_proto::accounts::v1 as pb;
 use scylla_proto::accounts::v1::profile_service_client::ProfileServiceClient;
@@ -138,6 +138,19 @@ impl TestApp {
             .unlink_identity(with_token(token, request))
             .await?;
         Ok(())
+    }
+
+    /// Calls `ExportAccountData` with an access token.
+    pub async fn export_account_data(
+        &self,
+        token: &str,
+    ) -> Result<pb::ExportAccountDataResponse, Status> {
+        let request = with_token(token, pb::ExportAccountDataRequest {});
+        Ok(self
+            .profile()
+            .export_account_data(request)
+            .await?
+            .into_inner())
     }
 
     /// Returns a client of `ProfileService`.

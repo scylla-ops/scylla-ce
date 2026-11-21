@@ -17,12 +17,12 @@ mod tests;
 mod tx;
 
 pub use async_trait::async_trait;
-pub use context::{CreateContext, DeleteContext};
+pub use context::{CreateContext, DeleteContext, ExportPart, UserContext};
 pub use edition::{Edition, EditionBuilder, Plugin, WebFiles};
 pub use error::{HookError, Rejection};
 pub use gate::{AccessError, Gate, ObjectRole, RoleHolder, RolePage};
 pub use grants::{AccessRoutes, FindWorkspace, Grantable, Grants, WorkspaceFuture};
-pub use hooks::{AfterDelete, BeforeCreate, Hooks};
+pub use hooks::{AfterDelete, AfterDeleteUser, BeforeCreate, ExportUser, Hooks};
 pub use mail::{Mail, MailError, MailImage, Mailer};
 pub use notification_events::{
     Audience, AudienceContext, Event, EventRow, NotificationError, Notifier, Params, Recipient,

@@ -11,7 +11,7 @@ use tonic::{Request, Response, Status};
 
 use super::{convert, manage, AccountContext};
 use crate::api::parse::{self, ToProto};
-use crate::features::identity::sessions;
+use crate::features::identity::{data_export, sessions};
 use crate::Error;
 
 /// Makes the service.
@@ -165,6 +165,20 @@ impl ProfileService for ProfileGrpc {
             .await?;
         manage::revoke_sessions(&self.ctx.pool, user, caller.session()).await?;
         Ok(Response::new(pb::RevokeOtherSessionsResponse {}))
+    }
+
+    async fn export_account_data(
+        &self,
+        request: Request<pb::ExportAccountDataRequest>,
+    ) -> Answer<pb::ExportAccountDataResponse> {
+        let (_, user) = self
+            .user(&request, AccountCaller::EXPORT_ACCOUNT_DATA)
+            .await?;
+        let (json, at) = data_export::export(&self.ctx.pool, &self.ctx.hooks, user).await?;
+        Ok(Response::new(pb::ExportAccountDataResponse {
+            json,
+            exported_at: Some(parse::timestamp(at)),
+        }))
     }
 }
 

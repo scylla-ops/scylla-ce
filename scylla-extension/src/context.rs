@@ -3,6 +3,7 @@
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::ResourceKind;
+use serde_json::Value;
 
 /// A creation that a `BeforeCreate` hook can refuse.
 #[derive(Clone, Debug)]
@@ -87,5 +88,39 @@ impl DeleteContext {
         self.object = Some(object);
         self.role = Some(role.to_owned());
         self
+    }
+}
+
+/// A user that a hook of a user follows: its deletion, or the export of its data.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct UserContext {
+    /// The user.
+    pub user: ActorId,
+    /// The actor that acts: the user itself, or an instance admin.
+    pub actor: ActorId,
+}
+
+impl UserContext {
+    /// Makes the context of a user.
+    pub fn new(user: ActorId, actor: ActorId) -> Self {
+        Self { user, actor }
+    }
+}
+
+/// The part of an edition in the export of the data of a user.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct ExportPart {
+    /// The key of the part in the export: lower snake case, unique in the edition.
+    pub name: &'static str,
+    /// The data of the part.
+    pub data: Value,
+}
+
+impl ExportPart {
+    /// Makes a part of the export.
+    pub fn new(name: &'static str, data: Value) -> Self {
+        Self { name, data }
     }
 }
