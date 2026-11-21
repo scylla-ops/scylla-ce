@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT version, acceptance_required FROM legal_documents WHERE kind = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "legal_documents",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "acceptance_required",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "legal_documents",
+            "name": "acceptance_required"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "06eb0ced427fb348dc466d56fd50f626070686a46a601bb47595a2a9c97b7c49"
+}

@@ -11,7 +11,7 @@ use tonic::{Request, Response, Status};
 
 use super::{convert, manage, AccountContext};
 use crate::api::parse::{self, ToProto};
-use crate::features::identity::sessions;
+use crate::features::identity::{data_export, sessions, terms};
 use crate::Error;
 
 /// Makes the service.
@@ -32,9 +32,12 @@ type Answer<T> = Result<Response<T>, Status>;
 impl ProfileService for ProfileGrpc {
     async fn get_me(&self, request: Request<pb::GetMeRequest>) -> Answer<pb::GetMeResponse> {
         let (_, user) = self.user(&request, AccountCaller::GET_ME).await?;
+        let terms = terms::state(&self.ctx.pool, user).await?;
         let user = manage::get_user(&self.ctx.pool, user).await?;
         Ok(Response::new(pb::GetMeResponse {
             user: Some(user.to_proto()),
+            terms_acceptance_required: terms.acceptance_required,
+            accepted_terms: terms.accepted.map(convert::acceptance),
         }))
     }
 
@@ -165,6 +168,32 @@ impl ProfileService for ProfileGrpc {
             .await?;
         manage::revoke_sessions(&self.ctx.pool, user, caller.session()).await?;
         Ok(Response::new(pb::RevokeOtherSessionsResponse {}))
+    }
+
+    async fn export_account_data(
+        &self,
+        request: Request<pb::ExportAccountDataRequest>,
+    ) -> Answer<pb::ExportAccountDataResponse> {
+        let (_, user) = self
+            .user(&request, AccountCaller::EXPORT_ACCOUNT_DATA)
+            .await?;
+        let (json, at) = data_export::export(&self.ctx.pool, &self.ctx.hooks, user).await?;
+        Ok(Response::new(pb::ExportAccountDataResponse {
+            json,
+            exported_at: Some(parse::timestamp(at)),
+        }))
+    }
+
+    async fn accept_terms(
+        &self,
+        request: Request<pb::AcceptTermsRequest>,
+    ) -> Answer<pb::AcceptTermsResponse> {
+        let (_, user) = self.user(&request, AccountCaller::ACCEPT_TERMS).await?;
+        let version = request.into_inner().version;
+        let acceptance = terms::accept(&self.ctx.pool, user, &version).await?;
+        Ok(Response::new(pb::AcceptTermsResponse {
+            acceptance: Some(convert::acceptance(acceptance)),
+        }))
     }
 }
 

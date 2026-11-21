@@ -129,7 +129,8 @@ pub mod accounts {
     }
 }
 
-/// The platform API: the settings and the GitHub App of the instance.
+/// The platform API: the settings, the legal settings, the records of the consent and the GitHub
+/// App of the instance.
 pub mod platform {
     /// Version 1.
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]

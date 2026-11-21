@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE sessions SET revoked_at = now() - interval '91 days' WHERE user_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e487ec74a9131f2c0ec4a4aa49bb2356141e1ac1f9ad8e2d9ef1f94277bb8b0f"
+}

@@ -25,7 +25,8 @@ use crate::features::identity::tokens;
 use crate::features::identity::{admins, apps, personal_tokens};
 use crate::features::integrations::{self, IntegrationContext};
 use crate::features::notifications::{self, PgNotifier};
-use crate::features::platform::settings;
+use crate::features::platform::retention::{self, RetentionSettings};
+use crate::features::platform::{consent, legal, settings};
 use crate::features::projects::jobs::{self, housekeeping};
 use crate::features::projects::triggers::webhook::{self, Webhooks};
 use crate::features::projects::triggers::{self, schedule};
@@ -33,7 +34,7 @@ use crate::features::projects::{pipelines, secrets};
 use crate::features::tenancy::{dashboards, invitations};
 use crate::infra::mail::{LogMailer, SmtpMailer};
 use crate::infra::secret::Sealer;
-use crate::infra::{db, dev_keys, vcs::VcsOptions};
+use crate::infra::{db, dev_keys, logs::LogClientIp, vcs::VcsOptions};
 use crate::{Config, Error, SignUpMode};
 
 /// The options of `serve`.
@@ -56,6 +57,10 @@ pub struct ServeOptions {
     pub log_retention: Duration,
     /// The time that the server keeps a notification after its last fact.
     pub notification_retention: Duration,
+    /// The time that the server keeps the sessions, the links of the mails and the invitations.
+    pub retention: RetentionSettings,
+    /// What the log of each call keeps of the client IP address.
+    pub log_client_ip: LogClientIp,
     /// The folder of the built web app, if the server serves it.
     pub web_dir: Option<std::path::PathBuf>,
     /// The folder of the downloads of the agent, for the install scripts.
@@ -85,6 +90,8 @@ impl Default for ServeOptions {
             sealer: None,
             log_retention: Duration::from_secs(30 * 24 * 60 * 60),
             notification_retention: Duration::from_secs(90 * 24 * 60 * 60),
+            retention: RetentionSettings::default(),
+            log_client_ip: LogClientIp::default(),
             web_dir: None,
             agent_downloads: agents::AGENT_DOWNLOADS.to_owned(),
             agent_image: agents::AGENT_IMAGE.to_owned(),
@@ -140,6 +147,8 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
         sealer,
         log_retention: config.log_retention,
         notification_retention: config.notification_retention,
+        retention: config.retention.clone(),
+        log_client_ip: config.log_client_ip,
         web_dir: config.web_dir.clone(),
         agent_downloads: config.agent_downloads_url.trim_end_matches('/').to_owned(),
         agent_image: config.agent_image.clone(),
@@ -176,7 +185,7 @@ pub async fn serve(
     stop: impl Future<Output = ()>,
 ) -> Result<(), Error> {
     // Make what the account routes share, and the clients of the identity providers.
-    let log = RequestLog::new(options.accounts.trust_forwarded);
+    let log = RequestLog::new(options.accounts.trust_forwarded, options.log_client_ip);
     let install = agents::install_router(&options.accounts.api_url, &options.agent_downloads);
     let gate: Arc<dyn Gate> = access;
     let ctx = AccountContext {
@@ -202,6 +211,8 @@ pub async fn serve(
     routes.add_service(admins::server(ctx.clone()));
     routes.add_service(personal_tokens::server(ctx.clone()));
     routes.add_service(settings::server(pool.clone(), Arc::clone(&gate)));
+    routes.add_service(legal::server(pool.clone(), Arc::clone(&gate)));
+    routes.add_service(consent::server(&pool, &gate, ctx.settings.trust_forwarded));
     routes.add_service(invitations::server(ctx.clone()));
     routes.add_service(secrets::server(
         pool.clone(),
@@ -226,18 +237,22 @@ pub async fn serve(
     // Mount the Git integration: its services, its public routes and its tasks.
     let (vcs_routes, vcs_tasks) = integrations::mount(&vcs, &mut routes);
 
-    // Start the background tasks: the lost agents, the old logs, and the cron triggers.
-    let housekeeping = housekeeping::spawn(pool.clone(), share(), options.log_retention);
-    let schedules = schedule::spawn(vcs.clone());
+    // Start the background tasks of the core, then the tasks of the edition.
+    let mut tasks = vec![
+        housekeeping::spawn(pool.clone(), share(), options.log_retention),
+        retention::spawn(pool.clone(), options.retention),
+        schedule::spawn(vcs.clone()),
+        notifications::spawn(
+            pool.clone(),
+            Arc::clone(&gate),
+            edition.notification_kinds(),
+            options.notification_retention,
+        ),
+    ];
+    tasks.extend(super::tasks::spawn(&pool, edition.tasks()));
     let webhooks = Webhooks::new(&vcs);
     let notifier: Arc<dyn Notifier> = Arc::new(PgNotifier { pool: pool.clone() });
     edition.add_services(&mut routes, &pool, &gate, &notifier, &options.agent_image);
-    let notifications = notifications::spawn(
-        pool.clone(),
-        Arc::clone(&gate),
-        edition.notification_kinds(),
-        options.notification_retention,
-    );
 
     // Log the calls inside gRPC-Web, then add the browser routes and the JSON gateway.
     let grpc = routes
@@ -279,9 +294,7 @@ pub async fn serve(
         .add_routes(Routes::from(router))
         .serve_with_incoming_shutdown(TcpIncoming::from(listener), stop)
         .await?;
-    housekeeping.abort();
-    schedules.abort();
-    notifications.abort();
+    tasks.iter().for_each(|task| task.abort());
     vcs_tasks.stop();
     Ok(())
 }

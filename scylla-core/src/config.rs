@@ -9,7 +9,8 @@ use clap::Args;
 
 use crate::cli::values::{days, millis, seconds};
 use crate::features::identity::agents::{AGENT_DOWNLOADS, AGENT_IMAGE};
-use crate::infra::logs::LogFormat;
+use crate::features::platform::retention::RetentionSettings;
+use crate::infra::logs::{LogClientIp, LogFormat};
 use crate::infra::vcs::VcsSettings;
 
 /// The core settings. Each flag also reads the environment variable in its doc.
@@ -99,6 +100,10 @@ pub struct Config {
     #[arg(long, env = "SCYLLA_NOTIFICATION_RETENTION_DAYS", default_value = "90", value_parser = days)]
     pub notification_retention: Duration,
 
+    /// The time that the server keeps the sessions, the links of the mails and the invitations.
+    #[command(flatten)]
+    pub retention: RetentionSettings,
+
     /// The SMTP server of the mails: `smtp://host:port`, or `smtps://user:password@host` for
     /// TLS. Without it, the server sends no mail and logs each one with no link.
     #[arg(long, env = "SCYLLA_SMTP_URL", hide_env_values = true)]
@@ -139,6 +144,11 @@ pub struct Config {
     /// pretty in a terminal, else JSON. `RUST_LOG` sets the filter.
     #[arg(long, env = "SCYLLA_LOG_FORMAT", value_enum, default_value_t = LogFormat::Auto)]
     pub log_format: LogFormat,
+
+    /// What the log of each call keeps of the client IP address: `full`, `truncated` (the first
+    /// 24 bits of IPv4, 48 bits of IPv6) or `off`. The sessions keep the full address.
+    #[arg(long, env = "SCYLLA_LOG_CLIENT_IP", value_enum, default_value_t = LogClientIp::Truncated)]
+    pub log_client_ip: LogClientIp,
 
     /// The folder of the downloads of the agent for the install scripts, with
     /// `scylla-agent-<target>.tar.gz` or `.zip` and `SHA256SUMS`. The default is the release of
@@ -187,6 +197,7 @@ impl fmt::Debug for Config {
             .field("web_dir", &self.web_dir)
             .field("log_retention", &self.log_retention)
             .field("notification_retention", &self.notification_retention)
+            .field("retention", &self.retention)
             .field("smtp_url", &self.smtp_url.as_deref().map(redact))
             .field("mail_from", &self.mail_from)
             .field("secret_key", &self.secret_key.as_ref().map(|_| "***"))
@@ -195,6 +206,7 @@ impl fmt::Debug for Config {
             .field("tls_cert", &self.tls_cert)
             .field("tls_key", &self.tls_key)
             .field("log_format", &self.log_format)
+            .field("log_client_ip", &self.log_client_ip)
             .field("agent_downloads_url", &self.agent_downloads_url)
             .field("agent_image", &self.agent_image)
             .field("vcs", &self.vcs)

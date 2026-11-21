@@ -146,4 +146,16 @@ pub enum DomainError {
     /// The text is not the name of a zone of the IANA database.
     #[error("must be an IANA time zone, for example Europe/Paris")]
     NotATimeZone,
+    /// The text is not a date.
+    #[error("must be a date YYYY-MM-DD")]
+    NotADate,
+    /// The text is not the name of a purpose of the consent.
+    #[error("must be 1 to 32 lower case letters, digits or dashes")]
+    NotAPurpose,
+    /// The text is not a SHA-256.
+    #[error("must be 64 lower case hexadecimal characters")]
+    NotASha256,
+    /// The choices of a consent do not fit its action.
+    #[error("must accept each purpose for accept all, and refuse each purpose for reject all")]
+    NotTheAction,
 }

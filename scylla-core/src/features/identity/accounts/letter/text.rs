@@ -2,9 +2,10 @@
 //! body, with each link alone after its label.
 
 use super::content::{Letter, Part};
+use super::legal;
 
 /// Writes the text body of a mail: blocks with a blank line between two of them.
-pub(super) fn body(letter: &Letter<'_>) -> String {
+pub(super) fn body(letter: &Letter) -> String {
     // Write the title, the lead and the facts.
     let lead: String = letter
         .lead
@@ -37,10 +38,13 @@ pub(super) fn body(letter: &Letter<'_>) -> String {
     }
     blocks.push(block);
 
-    // Write the footer.
+    // Write the footer, with the legal links of the instance.
     blocks.push(format!(
-        "--\nSent to {} by the Scylla instance at {}.\n{}",
-        letter.to, letter.instance, letter.reason
+        "--\nSent to {} by the Scylla instance at {}.\n{}{}",
+        letter.to,
+        letter.instance,
+        letter.reason,
+        legal::text(&letter.legal)
     ));
     blocks.join("\n\n") + "\n"
 }
