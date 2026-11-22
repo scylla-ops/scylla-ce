@@ -82,6 +82,8 @@ pub struct DocumentValues {
     pub effective_date: Option<Date>,
     /// `true` when each user must accept this version.
     pub acceptance_required: bool,
+    /// What changes in this version, one change on each line. Empty: nothing to show.
+    pub changes: String,
 }
 
 impl DocumentValues {
@@ -93,6 +95,8 @@ impl DocumentValues {
     pub const URL_MAX: usize = 2048;
     /// The most bytes of a text in Markdown.
     pub const MARKDOWN_MAX: usize = 256 * 1024;
+    /// The most characters of the text of what changes.
+    pub const CHANGES_MAX: usize = 2000;
 
     /// Checks the values of a document. Returns the field and the error of a bad value.
     pub fn new(
@@ -101,6 +105,7 @@ impl DocumentValues {
         version: &str,
         effective_date: &str,
         acceptance_required: bool,
+        changes: &str,
     ) -> Result<Self, (&'static str, DomainError)> {
         let content = match content {
             DocumentContent::Url(url) => DocumentContent::Url(address(&url).map_err(at("url"))?),
@@ -114,6 +119,7 @@ impl DocumentValues {
             version: line(version, Self::VERSION_MAX).map_err(at("version"))?,
             effective_date: date(effective_date).map_err(at("effective_date"))?,
             acceptance_required,
+            changes: block(changes, Self::CHANGES_MAX).map_err(at("changes"))?,
         })
     }
 }

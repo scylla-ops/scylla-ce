@@ -294,6 +294,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - The server keeps a record of each choice about cookies (`consent_records`), through the public
   route `ConsentService.RecordConsent`, with a limit for each IP address. The export of an account
   has the records of its user, and the deletion of the account deletes them.
+- A legal document keeps what changes in its version: a plain text of at most 2000 characters, with
+  one change on each line. A longer text or a control character gives `INVALID_ARGUMENT`.
 
 ### Removed
 

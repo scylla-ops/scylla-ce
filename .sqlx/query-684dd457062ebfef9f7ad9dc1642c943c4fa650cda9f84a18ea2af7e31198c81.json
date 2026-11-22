@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT kind, title, url, markdown, version, effective_date, acceptance_required, updated_at\n         FROM legal_documents",
+  "query": "SELECT kind, title, url, markdown, version, effective_date, acceptance_required, changes,\n                updated_at\n         FROM legal_documents",
   "describe": {
     "columns": [
       {
@@ -82,6 +82,17 @@
       },
       {
         "ordinal": 7,
+        "name": "changes",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "legal_documents",
+            "name": "changes"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -103,8 +114,9 @@
       false,
       true,
       false,
+      false,
       false
     ]
   },
-  "hash": "4fd1eec9897e6d7d12b3bf1d995f694750152be90121d5972abf7f9eece00aff"
+  "hash": "684dd457062ebfef9f7ad9dc1642c943c4fa650cda9f84a18ea2af7e31198c81"
 }

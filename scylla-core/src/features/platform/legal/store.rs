@@ -23,6 +23,8 @@ struct DocumentRow {
     effective_date: Option<Date>,
     /// `true` when each user must accept this version.
     acceptance_required: bool,
+    /// What changes in this version.
+    changes: String,
     /// The time of the last change.
     updated_at: OffsetDateTime,
 }
@@ -41,6 +43,7 @@ impl DocumentRow {
             version: self.version,
             effective_date: self.effective_date,
             acceptance_required: self.acceptance_required,
+            changes: self.changes,
         };
         Some(LegalDocument {
             kind,
@@ -74,7 +77,8 @@ pub(super) async fn settings(tx: &mut Tx<'_>) -> Result<(Operator, String), sqlx
 pub(super) async fn documents(tx: &mut Tx<'_>) -> Result<Vec<LegalDocument>, sqlx::Error> {
     let rows = sqlx::query_as!(
         DocumentRow,
-        "SELECT kind, title, url, markdown, version, effective_date, acceptance_required, updated_at
+        "SELECT kind, title, url, markdown, version, effective_date, acceptance_required, changes,
+                updated_at
          FROM legal_documents"
     )
     .fetch_all(&mut **tx)
@@ -140,12 +144,13 @@ pub(super) async fn put_document(
     };
     sqlx::query!(
         "INSERT INTO legal_documents
-             (kind, title, url, markdown, version, effective_date, acceptance_required)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+             (kind, title, url, markdown, version, effective_date, acceptance_required, changes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (kind) DO UPDATE
          SET title = excluded.title, url = excluded.url, markdown = excluded.markdown,
              version = excluded.version, effective_date = excluded.effective_date,
-             acceptance_required = excluded.acceptance_required, updated_at = now()",
+             acceptance_required = excluded.acceptance_required, changes = excluded.changes,
+             updated_at = now()",
         kind.as_str(),
         values.title,
         url,
@@ -153,6 +158,7 @@ pub(super) async fn put_document(
         values.version,
         values.effective_date,
         values.acceptance_required,
+        values.changes,
     )
     .execute(&mut **tx)
     .await?;

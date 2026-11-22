@@ -23,6 +23,7 @@ CREATE TABLE legal_documents (
     version text NOT NULL DEFAULT '',
     effective_date date,
     acceptance_required boolean NOT NULL DEFAULT false,
+    changes text NOT NULL DEFAULT '',
     updated_at timestamptz NOT NULL DEFAULT now(),
     CHECK ((url IS NULL) <> (markdown IS NULL))
 );

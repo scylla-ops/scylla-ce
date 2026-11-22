@@ -53,6 +53,7 @@ fn document(document: LegalDocument) -> pb::LegalDocument {
             .unwrap_or_default(),
         acceptance_required: values.acceptance_required,
         updated_at: Some(parse::timestamp(document.updated_at)),
+        changes: values.changes,
     }
 }
 
@@ -102,6 +103,7 @@ pub(super) fn change(request: pb::UpdateLegalSettingsRequest) -> Result<LegalCha
                     &raw.version,
                     &raw.effective_date,
                     raw.acceptance_required,
+                    &raw.changes,
                 )
                 .map_err(|(field, error)| invalid(path(field), error))
             })

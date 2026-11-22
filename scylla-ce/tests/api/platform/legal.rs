@@ -45,7 +45,7 @@ async fn get_legal_info_needs_no_token(pool: PgPool) {
 
 /// An instance admin sets the operator, the privacy contact and the documents. Each document
 /// replaces the document of its kind, a document with no content turns its kind off, and the
-/// list follows the order of the kinds.
+/// list follows the order of the kinds. The text of what changes keeps its lines.
 #[sqlx::test(migrations = false)]
 async fn update_legal_settings_changes_the_documents(pool: PgPool) {
     // given
@@ -61,6 +61,7 @@ async fn update_legal_settings_changes_the_documents(pool: PgPool) {
         version: "2.0".to_owned(),
         effective_date: "2027-01-01".to_owned(),
         acceptance_required: true,
+        changes: "\n- Export of your data.\n- Clearer rules for runners.\n".to_owned(),
         ..document(
             LegalDocumentKind::Terms,
             Some(Content::Markdown("# Terms\n".to_owned())),
@@ -93,6 +94,10 @@ async fn update_legal_settings_changes_the_documents(pool: PgPool) {
     assert_eq!(terms.version, "2.0");
     assert_eq!(terms.effective_date, "2027-01-01");
     assert!(terms.acceptance_required && terms.updated_at.is_some());
+    assert_eq!(
+        terms.changes,
+        "- Export of your data.\n- Clearer rules for runners."
+    );
     assert_eq!(
         terms.content,
         Some(Content::Markdown("# Terms\n".to_owned()))
@@ -132,6 +137,10 @@ async fn update_legal_settings_refuses_a_bad_value(pool: PgPool) {
         ..document(LegalDocumentKind::Dpa, url("https://acme.example/dpa"))
     };
     let cookies = document(LegalDocumentKind::Cookies, url("https://acme.example"));
+    let changes = |text: String| LegalDocument {
+        changes: text,
+        ..document(LegalDocumentKind::Terms, url("https://acme.example/terms"))
+    };
     let cases = [
         (
             documents(vec![document(LegalDocumentKind::Privacy, url("ftp://x"))]),
@@ -144,6 +153,14 @@ async fn update_legal_settings_refuses_a_bad_value(pool: PgPool) {
         (
             documents(vec![cookies.clone(), cookies]),
             "documents[1].kind",
+        ),
+        (
+            documents(vec![changes("a".repeat(2001))]),
+            "documents[0].changes",
+        ),
+        (
+            documents(vec![changes("a\u{0}b".to_owned())]),
+            "documents[0].changes",
         ),
         (
             documents(vec![document(
