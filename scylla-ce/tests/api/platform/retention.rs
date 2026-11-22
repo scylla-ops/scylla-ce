@@ -1,5 +1,6 @@
 //! The tests of the retention: a pass deletes the closed sessions, the used or ended links of the
-//! mails and the ended invitations after their time in the settings, and keeps the others.
+//! mails, the ended invitations and the proof of the terms of the deleted accounts after their time
+//! in the settings, and keeps the others.
 
 use scylla_core::features::platform::retention::{self, RetentionSettings};
 use scylla_domain::identity::actors::ActorId;
@@ -173,6 +174,45 @@ async fn a_pass_deletes_the_invitations_that_ended_before_their_time(pool: PgPoo
     .await
     .unwrap();
     assert_eq!(left, ["open@example.com", "recent@example.com"]);
+}
+
+/// A pass deletes the proof of the terms of the accounts deleted more than 5 years ago, and keeps
+/// the proof of the accounts deleted less than 5 years ago and the acceptances of the live
+/// accounts.
+#[sqlx::test(migrations = false)]
+async fn a_pass_deletes_the_terms_proofs_after_five_years(pool: PgPool) {
+    // given
+    let app = app(pool.clone()).await;
+    let old = app.user().await;
+    let recent = app.user().await;
+    let live = app.user().await;
+    for (user, deleted) in [(old, Some(1828)), (recent, Some(1826)), (live, None)] {
+        sqlx::query!(
+            "INSERT INTO terms_acceptances (user_id, kind, version, method, accepted_at,
+                                            account_deleted_at)
+             VALUES ($1, 'terms', '1.0', 'acceptance_step', now() - interval '3000 days',
+                     now() - make_interval(days => $2))",
+            user.to_db(),
+            deleted,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    // when
+    retention::run(&pool, &RetentionSettings::default())
+        .await
+        .unwrap();
+
+    // then
+    let left = sqlx::query_scalar!("SELECT user_id FROM terms_acceptances ORDER BY user_id")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    let mut kept = vec![recent.to_db(), live.to_db()];
+    kept.sort();
+    assert_eq!(left, kept);
 }
 
 /// Returns the ids of the sessions of a user, oldest first.

@@ -44,3 +44,17 @@ pub(super) async fn purge_invitations(
     .await?;
     Ok(())
 }
+
+/// Deletes the proof of the acceptances of the terms of the accounts deleted before a time.
+pub(super) async fn purge_terms_proofs(
+    tx: &mut Tx<'_>,
+    before: OffsetDateTime,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "DELETE FROM terms_acceptances WHERE account_deleted_at < $1",
+        before
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}

@@ -377,3 +377,6 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   strict-origin-when-cross-origin`. With HTTPS, the server cookies have the prefix `__Host-`
   (`__Host-scylla_session`, `__Host-scylla_flow`, `__Host-scylla_pending`): after the update, a
   person who is signed in must sign in again.
+- The deletion of an account keeps the proof of its acceptances of the terms: the account id, the
+  SHA-256 hash of its primary email, the version, the method and the date. The retention task
+  deletes this proof `SCYLLA_TERMS_PROOF_RETENTION_DAYS` (1827, 5 years) days after the deletion.

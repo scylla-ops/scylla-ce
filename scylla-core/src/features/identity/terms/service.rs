@@ -1,5 +1,5 @@
-//! The logic of the terms of service: the check of a sign-up, the terms of a user, and the
-//! acceptance of the current version.
+//! The logic of the terms of service: the check of a sign-up, the terms of a user, the
+//! acceptance of the current version, and the proof of a deleted account.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::terms::{Acceptance, AcceptanceMethod, TermsState};
@@ -9,6 +9,7 @@ use sqlx::PgPool;
 
 use super::store;
 use crate::features::platform::legal;
+use crate::infra::secret;
 use crate::Error;
 
 /// Returns the version that each user must accept, or `None` when the terms are off or need no
@@ -43,6 +44,19 @@ pub(crate) async fn record_sign_up(
     version: &str,
 ) -> Result<(), Error> {
     store::insert(tx, user, version, AcceptanceMethod::SignUpForm).await?;
+    Ok(())
+}
+
+/// Keeps the acceptances of a user as the proof, in the transaction of the deletion of its
+/// account: the account id, the SHA-256 hash of its primary email in lowercase, the version, the
+/// method and the date. The retention task deletes them some time after the deletion.
+pub(crate) async fn keep_as_proof(
+    tx: &mut Tx<'_>,
+    user: ActorId,
+    email: Option<&str>,
+) -> Result<(), Error> {
+    let email_hash = email.map(|email| secret::hash(&email.to_lowercase()));
+    store::keep_as_proof(tx, user, email_hash.as_deref()).await?;
     Ok(())
 }
 
