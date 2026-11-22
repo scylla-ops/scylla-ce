@@ -121,6 +121,7 @@ async fn rows(
                   count(*) FILTER (WHERE status = 'ok') AS "ok!",
                   count(*) FILTER (WHERE status = 'error') AS "failed!",
                   count(*) FILTER (WHERE status = 'missed') AS "missed!",
+                  count(*) FILTER (WHERE status = 'skipped') AS "skipped!",
                   percentile_cont(0.5) WITHIN GROUP
                       (ORDER BY extract(epoch FROM fired_at - due_at)::float8)
                       FILTER (WHERE source = 'schedule' AND fired_at IS NOT NULL) AS p50,
@@ -164,6 +165,7 @@ async fn rows(
                 ok: count(row.ok),
                 failed: count(row.failed),
                 missed: count(row.missed),
+                skipped: count(row.skipped),
                 p50_delay: time(row.p50),
                 p95_delay: time(row.p95),
             },

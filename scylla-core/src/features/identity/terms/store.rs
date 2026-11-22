@@ -1,4 +1,6 @@
-//! The SQL of the `terms_acceptances` table: one row for each version that a user accepted.
+//! The SQL of the `terms_acceptances` table: one row for each version that a user accepted. The
+//! rows of a deleted account stay as the proof, with the time of the deletion and the hash of its
+//! email.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::terms::{Acceptance, AcceptanceMethod};
@@ -63,4 +65,22 @@ pub(super) async fn last(
     )
     .fetch_optional(&mut **tx)
     .await
+}
+
+/// Marks the acceptances of a user as the proof of a deleted account, with the time of the
+/// deletion and the hash of the email of the account.
+pub(super) async fn keep_as_proof(
+    tx: &mut Tx<'_>,
+    user: ActorId,
+    email_hash: Option<&[u8]>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE terms_acceptances SET account_deleted_at = now(), email_hash = $2
+         WHERE user_id = $1",
+        user.to_db(),
+        email_hash,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }

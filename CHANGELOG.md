@@ -296,6 +296,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   has the records of its user, and the deletion of the account deletes them.
 - A legal document keeps what changes in its version: a plain text of at most 2000 characters, with
   one change on each line. A longer text or a control character gives `INVALID_ARGUMENT`.
+- A webhook trigger can have conditions on a header or on a value of the body (a JSON pointer), with
+  is, matches (a glob) or is one of. A delivery that does not match all of them gets 200, starts no
+  job, and shows as skipped with the reason. A skipped fire is not a failure. `FireTriggerNow` does
+  not read the conditions.
 
 ### Removed
 
@@ -377,3 +381,6 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   strict-origin-when-cross-origin`. With HTTPS, the server cookies have the prefix `__Host-`
   (`__Host-scylla_session`, `__Host-scylla_flow`, `__Host-scylla_pending`): after the update, a
   person who is signed in must sign in again.
+- The deletion of an account keeps the proof of its acceptances of the terms: the account id, the
+  SHA-256 hash of its primary email, the version, the method and the date. The retention task
+  deletes this proof `SCYLLA_TERMS_PROOF_RETENTION_DAYS` (1827, 5 years) days after the deletion.

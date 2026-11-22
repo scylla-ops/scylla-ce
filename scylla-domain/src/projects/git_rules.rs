@@ -1,7 +1,7 @@
 //! The rules of the Git triggers: a push to some branches, a pull request into some branches, or
 //! a tag. The Git triggers of the editor and the `on` table of a pipeline file both use them.
 
-mod globs;
+pub(crate) mod globs;
 #[cfg(test)]
 mod tests;
 

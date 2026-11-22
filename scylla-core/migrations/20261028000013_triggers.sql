@@ -13,20 +13,20 @@ CREATE TABLE triggers (
     kind text NOT NULL CHECK (kind IN ('cron', 'webhook', 'push', 'pull_request', 'tag')),
     schedule text,
     sealed_secret bytea,
-    -- The rules of a Git kind: branches, events or tag patterns.
+    -- The rules of a Git kind (branches, events or tag patterns), or the conditions of a webhook.
     rules jsonb,
     inputs jsonb NOT NULL,
     enabled boolean NOT NULL DEFAULT true,
     next_fire_at timestamptz,
     last_fired_at timestamptz,
-    last_status text CHECK (last_status IN ('ok', 'error')),
+    last_status text CHECK (last_status IN ('ok', 'error', 'skipped')),
     last_error text,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (pipeline_id, name),
     CHECK ((kind = 'cron') = (schedule IS NOT NULL)),
     CHECK ((kind = 'webhook') = (sealed_secret IS NOT NULL)),
-    CHECK ((kind IN ('push', 'pull_request', 'tag')) = (rules IS NOT NULL))
+    CHECK ((kind = 'cron') = (rules IS NULL))
 );
 
 CREATE INDEX triggers_project_id_idx ON triggers (project_id);

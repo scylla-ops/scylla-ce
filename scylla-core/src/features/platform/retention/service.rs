@@ -1,5 +1,6 @@
 //! The task of the retention: each hour, it deletes the sessions, the one-time tokens and the
-//! invitations whose use ended before their time in the settings.
+//! invitations whose use ended before their time in the settings, and the proof of the terms of the
+//! accounts deleted before their time.
 
 use std::time::Duration;
 
@@ -20,20 +21,22 @@ pub(crate) fn spawn(pool: PgPool, settings: RetentionSettings) -> JoinHandle<()>
         loop {
             ticks.tick().await;
             if let Err(error) = run(&pool, &settings).await {
-                tracing::warn!(%error, "the old sessions, links and invitations stay");
+                tracing::warn!(%error, "the old sessions, links, invitations and proofs stay");
             }
         }
     })
 }
 
-/// Runs one pass: deletes the closed sessions, the used or ended one-time tokens and the
-/// accepted or ended invitations, each after its time in the settings.
+/// Runs one pass: deletes the closed sessions, the used or ended one-time tokens, the accepted or
+/// ended invitations and the proof of the terms of the deleted accounts, each after its time in the
+/// settings.
 pub async fn run(pool: &PgPool, settings: &RetentionSettings) -> Result<(), Error> {
     let now = OffsetDateTime::now_utc();
     let mut tx = pool.begin().await?;
     store::purge_sessions(&mut tx, now - settings.session_history).await?;
     store::purge_one_time_tokens(&mut tx, now - settings.one_time_token_retention).await?;
     store::purge_invitations(&mut tx, now - settings.invitation_retention).await?;
+    store::purge_terms_proofs(&mut tx, now - settings.terms_proof_retention).await?;
     tx.commit().await?;
     Ok(())
 }

@@ -1,12 +1,17 @@
 //! The triggers of a pipeline: a cron schedule, a webhook or an event of the linked repository
 //! that starts a job, with inputs that each node of the job gets in its environment.
 
+mod conditions;
 mod fires;
 mod inputs;
 mod summaries;
 #[cfg(test)]
 mod tests;
 
+pub use conditions::{
+    Condition, ConditionOperator, ConditionSource, Delivery, WebhookRule, MAX_CONDITIONS,
+    MAX_CONDITION_VALUES,
+};
 pub use fires::{
     FireFigures, FireGroup, FireGroupBy, FireGroupKey, FireId, FireSource, FireStats,
     FireStatsQuery, FireStatus, ListFires, TriggerFire, WorkspaceFires, FIRE_RETENTION_DAYS,
@@ -38,8 +43,8 @@ pub type TriggerName = Name;
 pub enum TriggerKind {
     /// A schedule of 5 cron fields, in the time zone of the workspace.
     Cron(String),
-    /// A signed request to the webhook route of the trigger.
-    Webhook,
+    /// A signed request to the webhook route of the trigger, with its conditions.
+    Webhook(WebhookRule),
     /// A push to a branch of the linked repository.
     Push(PushRule),
     /// A pull request of the linked repository.
@@ -53,7 +58,7 @@ impl TriggerKind {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Cron(_) => "cron",
-            Self::Webhook => "webhook",
+            Self::Webhook(_) => "webhook",
             Self::Push(_) => "push",
             Self::PullRequest(_) => "pull_request",
             Self::Tag(_) => "tag",
@@ -75,14 +80,18 @@ impl TriggerKind {
             Self::Push(rule) => rules.push = Some(rule.clone()),
             Self::PullRequest(rule) => rules.pull_request = Some(rule.clone()),
             Self::Tag(rule) => rules.tag = Some(rule.clone()),
-            Self::Cron(_) | Self::Webhook => return None,
+            Self::Cron(_) | Self::Webhook(_) => return None,
         }
         Some(rules)
     }
 
-    /// Checks the globs of a Git kind: at most 32 in each list, each one valid. Returns the path
-    /// (for example `push.exclude[2]`) and the rule of the first refusal.
+    /// Checks the globs of a Git kind (at most 32 in each list, each one valid) or the conditions
+    /// of a webhook. Returns the path (for example `push.exclude[2]`) and the rule of the first
+    /// refusal.
     pub fn check_rules(&self) -> Result<(), (String, DomainError)> {
+        if let Self::Webhook(rule) = self {
+            return rule.check("webhook");
+        }
         let refused = self
             .git_rules()
             .and_then(|rules| rules.check("").into_iter().next());
@@ -100,6 +109,9 @@ pub enum FireResult {
     Ok,
     /// The fire failed, with the reason.
     Error(String),
+    /// The delivery of a webhook did not match its conditions, with the reason. It is not a
+    /// failure.
+    Skipped(String),
 }
 
 /// A trigger, as the store returns it. The secret of a webhook is not in it.
@@ -159,7 +171,8 @@ pub struct TriggerChange {
     pub name: Option<TriggerName>,
     /// The new schedule of a cron trigger.
     pub schedule: Option<String>,
-    /// The new rule of a Git trigger, in a kind of the same name.
+    /// The new rule of a Git trigger or the new conditions of a webhook, in a kind of the same
+    /// name.
     pub rules: Option<TriggerKind>,
     /// The new inputs.
     pub inputs: Option<Inputs>,

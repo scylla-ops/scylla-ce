@@ -16,7 +16,7 @@ use crate::{app, assert_code};
 
 /// Sets the terms of the instance: a version, with or without an acceptance of each user.
 /// `None` turns the terms off.
-async fn set_terms(app: &TestApp, admin: ActorId, terms: Option<(&str, bool)>) {
+pub(crate) async fn set_terms(app: &TestApp, admin: ActorId, terms: Option<(&str, bool)>) {
     let document = LegalDocument {
         kind: LegalDocumentKind::Terms as i32,
         content: terms.map(|_| Content::Markdown("# Terms\n".to_owned())),
@@ -229,7 +229,7 @@ async fn accept_terms_keeps_the_first_acceptance(pool: PgPool) {
     assert_eq!(exported(&app, &token).await.len(), 1);
 }
 
-/// `AcceptTerms` needs a valid token, and the acceptances go with the deleted account.
+/// `AcceptTerms` needs a valid token of an account that exists.
 #[sqlx::test(migrations = false)]
 async fn accept_terms_needs_an_account(pool: PgPool) {
     // given
@@ -248,9 +248,4 @@ async fn accept_terms_needs_an_account(pool: PgPool) {
     // then
     assert_code(anonymous, Code::Unauthenticated);
     assert_code(deleted, Code::Unauthenticated);
-    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM terms_acceptances")
-        .fetch_one(&app.pool)
-        .await
-        .unwrap();
-    assert_eq!(rows, 0);
 }

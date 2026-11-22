@@ -10,6 +10,9 @@ use crate::cli::values::days;
 /// The number of seconds in one day.
 const DAY: u64 = 24 * 60 * 60;
 
+/// The number of days in 5 years, with the leap days: the time of the proof of the terms.
+const TERMS_PROOF_DAYS: u64 = 5 * 365 + 2;
+
 /// The time that the server keeps a row with personal data after its use. Each flag also reads
 /// the environment variable in its doc.
 #[derive(Args, Clone, Debug, PartialEq, Eq)]
@@ -29,6 +32,12 @@ pub struct RetentionSettings {
     /// end, in days.
     #[arg(long, env = "SCYLLA_INVITATION_RETENTION_DAYS", default_value = "90", value_parser = days)]
     pub invitation_retention: Duration,
+
+    /// The time that the server keeps the proof of the acceptances of the terms of a deleted
+    /// account (its id, the hash of its email, the version, the method and the date) after the
+    /// deletion, in days. The default is 5 years.
+    #[arg(long, env = "SCYLLA_TERMS_PROOF_RETENTION_DAYS", default_value = "1827", value_parser = days)]
+    pub terms_proof_retention: Duration,
 }
 
 impl Default for RetentionSettings {
@@ -37,6 +46,7 @@ impl Default for RetentionSettings {
             session_history: Duration::from_secs(90 * DAY),
             one_time_token_retention: Duration::from_secs(30 * DAY),
             invitation_retention: Duration::from_secs(90 * DAY),
+            terms_proof_retention: Duration::from_secs(TERMS_PROOF_DAYS * DAY),
         }
     }
 }
