@@ -15,6 +15,13 @@ pub trait BeforeCreate: Send + Sync + 'static {
     async fn before_create(&self, tx: &mut Tx<'_>, ctx: &CreateContext) -> Result<(), HookError>;
 }
 
+/// Runs before the core deletes a resource. It can refuse. It never commits.
+#[async_trait]
+pub trait BeforeDelete: Send + Sync + 'static {
+    /// Accepts the deletion, or refuses it with `HookError::Rejected`.
+    async fn before_delete(&self, tx: &mut Tx<'_>, ctx: &DeleteContext) -> Result<(), HookError>;
+}
+
 /// Runs after the core deletes a resource, before the commit. It never commits.
 #[async_trait]
 pub trait AfterDelete: Send + Sync + 'static {
@@ -47,6 +54,8 @@ pub trait ExportUser: Send + Sync + 'static {
 pub struct Hooks {
     /// The `BeforeCreate` hooks of each kind, in registration order.
     before_create: HashMap<ResourceKind, Vec<Arc<dyn BeforeCreate>>>,
+    /// The `BeforeDelete` hooks of each kind, in registration order.
+    before_delete: HashMap<ResourceKind, Vec<Arc<dyn BeforeDelete>>>,
     /// The `AfterDelete` hooks of each kind, in registration order.
     after_delete: HashMap<ResourceKind, Vec<Arc<dyn AfterDelete>>>,
     /// The `AfterDeleteUser` hooks, in registration order.
@@ -64,6 +73,18 @@ impl Hooks {
     ) -> Result<(), HookError> {
         for hook in self.before_create.get(&ctx.kind).into_iter().flatten() {
             hook.before_create(tx, ctx).await?;
+        }
+        Ok(())
+    }
+
+    /// Runs the `BeforeDelete` hooks of `ctx.kind` in order. The first error stops the run.
+    pub async fn before_delete(
+        &self,
+        tx: &mut Tx<'_>,
+        ctx: &DeleteContext,
+    ) -> Result<(), HookError> {
+        for hook in self.before_delete.get(&ctx.kind).into_iter().flatten() {
+            hook.before_delete(tx, ctx).await?;
         }
         Ok(())
     }
@@ -109,6 +130,11 @@ impl Hooks {
     /// Adds a `BeforeCreate` hook for one kind, after the existing ones.
     pub(crate) fn add_before_create(&mut self, kind: ResourceKind, hook: Arc<dyn BeforeCreate>) {
         self.before_create.entry(kind).or_default().push(hook);
+    }
+
+    /// Adds a `BeforeDelete` hook for one kind, after the existing ones.
+    pub(crate) fn add_before_delete(&mut self, kind: ResourceKind, hook: Arc<dyn BeforeDelete>) {
+        self.before_delete.entry(kind).or_default().push(hook);
     }
 
     /// Adds an `AfterDelete` hook for one kind, after the existing ones.
