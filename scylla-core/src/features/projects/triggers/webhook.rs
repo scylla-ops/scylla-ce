@@ -14,7 +14,7 @@ use axum::routing::post;
 use axum::{Json, Router};
 use hmac::{Hmac, KeyInit, Mac};
 use scylla_domain::projects::jobs::JobOrigin;
-use scylla_domain::projects::triggers::{FireSource, TriggerId};
+use scylla_domain::projects::triggers::{Delivery, FireSource, Trigger, TriggerId, TriggerKind};
 use serde_json::{json, Value};
 use sha2::Sha256;
 
@@ -64,9 +64,9 @@ pub(crate) fn router(webhooks: Webhooks) -> Router {
         .with_state(webhooks)
 }
 
-/// Handles one delivery: 202 with the job, 200 for a ping or a second delivery, 401 for a bad
-/// signature, 404 for an unknown or stopped trigger, 422 for a body with no value at a pointer,
-/// 429 over the rate limit.
+/// Handles one delivery: 202 with the job, 200 for a ping, a second delivery or a delivery that
+/// does not match the conditions, 401 for a bad signature, 404 for an unknown or stopped trigger,
+/// 422 for a body with no value at a pointer, 429 over the rate limit.
 async fn receive(
     State(webhooks): State<Webhooks>,
     Path(id): Path<String>,
@@ -121,13 +121,23 @@ async fn receive(
         Err(error) => return failure(error),
     }
 
-    // Fire the trigger. A failure forgets the key, so a retry of the sender fires.
+    // Skip a delivery that misses a condition, else fire. A failure forgets the key.
     let payload: Option<Value> = serde_json::from_slice(&body).ok();
+    let call = fire::Call::now(FireSource::Webhook);
     let result = match service::get(pool, id).await {
-        Ok(Some(trigger)) => {
-            let (origin, call) = (JobOrigin::Webhook, fire::Call::now(FireSource::Webhook));
-            fire::fire(&webhooks.vcs, &trigger, payload.as_ref(), origin, call).await
-        }
+        Ok(Some(trigger)) => match skip_reason(&trigger, &headers, payload.as_ref()) {
+            Some(reason) => match fire::skip(pool, &trigger, &reason, call).await {
+                Ok(()) => {
+                    let body = json!({ "skipped": true, "reason": reason });
+                    return answer(StatusCode::OK, body);
+                }
+                Err(error) => Err(fire::FireError::Failed(error)),
+            },
+            None => {
+                let origin = JobOrigin::Webhook;
+                fire::fire(&webhooks.vcs, &trigger, payload.as_ref(), origin, call).await
+            }
+        },
         Ok(None) => Err(fire::FireError::Failed(crate::Error::NotFound("trigger"))),
         Err(error) => Err(fire::FireError::Failed(error)),
     };
@@ -165,6 +175,19 @@ impl Webhooks {
         *count += 1;
         *count <= RATE
     }
+}
+
+/// Returns the reason of a skip when a delivery does not match the conditions of a webhook
+/// trigger, or `None` when it matches each one.
+fn skip_reason(trigger: &Trigger, headers: &HeaderMap, body: Option<&Value>) -> Option<String> {
+    let TriggerKind::Webhook(rule) = &trigger.kind else {
+        return None;
+    };
+    let header = |name: &str| header(headers, name).map(str::to_owned);
+    rule.skip_reason(&Delivery {
+        header: &header,
+        body,
+    })
 }
 
 /// Reads the signature of a request: hex, with or without the prefix `sha256=`.

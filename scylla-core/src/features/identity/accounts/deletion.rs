@@ -1,21 +1,27 @@
-//! The deletion of a user: its account rows, its workspace ownerships and its personal tokens in
-//! one transaction, then its roles in SpiceDB. Its actor stays, so each `created_by` stays valid.
+//! The deletion of a user: its account rows, its workspace ownerships, its personal tokens and the
+//! rows of the edition in one transaction, then its roles in SpiceDB. Its actor stays, so each
+//! `created_by` stays valid, and its acceptances of the terms stay as the proof, with the hash of
+//! its email.
 
 use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_extension::{Rejection, Tx};
+use scylla_extension::{Rejection, Tx, UserContext};
 
 use super::{store, AccountContext};
-use crate::features::identity::admins;
-use crate::features::identity::api_tokens;
+use crate::features::identity::{admins, api_tokens, terms};
 use crate::features::tenancy::{grants, roles, workspaces};
 use crate::Error;
 
-/// Deletes a user. A workspace where the user is the only owner goes with the user if it is
-/// empty: no project, no App, and no role of another actor. Else the deletion stops with
-/// `LAST_OWNER`, and names these workspaces. The last active instance admin stays.
-pub(crate) async fn delete_user(ctx: &AccountContext, user: ActorId) -> Result<(), Error> {
+/// Deletes a user for an actor: the user itself or an instance admin. A workspace where the user
+/// is the only owner goes with the user if it is empty: no project, no App, and no role of
+/// another actor. Else the deletion stops with `LAST_OWNER`, and names these workspaces. The last
+/// active instance admin stays. The `AfterDeleteUser` hooks run before the commit.
+pub(crate) async fn delete_user(
+    ctx: &AccountContext,
+    by: ActorId,
+    user: ActorId,
+) -> Result<(), Error> {
     // Lock the user, and keep an active instance admin.
     let mut tx = ctx.pool.begin().await?;
     if !store::lock_user(&mut tx, user).await? {
@@ -38,12 +44,20 @@ pub(crate) async fn delete_user(ctx: &AccountContext, user: ActorId) -> Result<(
         return Err(Error::Rejected(rejection));
     }
 
-    // Delete the empty workspaces, the ownerships, the personal tokens and the user.
+    // Delete the rows of the user, and keep the proof of its acceptances of the terms.
+    let email = store::find_user(&mut tx, user)
+        .await?
+        .and_then(|found| found.email);
     workspaces::delete_all(&mut tx, &sole).await?;
     workspaces::leave_all(&mut tx, user).await?;
     api_tokens::delete_all(&mut tx, user).await?;
     roles::delete_grants_of(&mut tx, user).await?;
+    terms::keep_as_proof(&mut tx, user, email.as_deref()).await?;
     store::delete_user(&mut tx, user).await?;
+
+    // Let the edition remove its rows of the user, then commit.
+    let hook = UserContext::new(user, by);
+    ctx.hooks.after_delete_user(&mut tx, &hook).await?;
     tx.commit().await?;
     tracing::info!(event = "user.deleted", %user, workspaces = sole.len());
 

@@ -6,7 +6,7 @@ use super::{MAX_GLOBS, MAX_GLOB_LEN};
 use crate::DomainError;
 
 /// Checks a list of globs at the path `at`: at most `MAX_GLOBS`, each one valid.
-pub(super) fn check_globs(at: &str, globs: &[String]) -> Vec<(String, DomainError)> {
+pub(crate) fn check_globs(at: &str, globs: &[String]) -> Vec<(String, DomainError)> {
     if globs.len() > MAX_GLOBS {
         return vec![(at.to_owned(), DomainError::TooMany { max: MAX_GLOBS })];
     }
@@ -42,7 +42,7 @@ fn set(globs: &[String]) -> GlobSet {
 }
 
 /// Returns `true` if a glob of the list takes the name.
-pub(super) fn any(globs: &[String], name: &str) -> bool {
+pub(crate) fn any(globs: &[String], name: &str) -> bool {
     !globs.is_empty() && set(globs).is_match(name)
 }
 

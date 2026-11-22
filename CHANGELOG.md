@@ -288,6 +288,27 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - The activity feed of a workspace: each change records its row in its transaction (the end of a
   job, a trigger, a secret, a member, a Git connection, the stream of an agent), and `ListActivity`
   shows each row only to the readers of its area. The server deletes a row after 30 days.
+- `ExportAccountData` gives the data of the account as one JSON document: the profile, the emails,
+  the identities, the sessions, the personal tokens (with no secret), the state of the web app, the
+  workspaces and the roles. The new extension points `ExportUser` and `AfterDeleteUser` let an
+  edition add its data to the export and delete its rows of a deleted user.
+- The legal settings of the instance: the operator, the privacy contact and seven legal documents.
+  Each document is off, a link to a page or a text in Markdown. Anyone reads them with
+  `GetLegalInfo`, and only an instance admin changes them. The footer of each mail shows the links
+  to the legal documents.
+- The acceptance of the terms of service. When the legal settings ask each user to accept the terms,
+  a sign-up with a password must accept their current version, and `AcceptTerms` keeps the
+  acceptance of each new version. The server keeps each acceptance with its version, its time and
+  its method as proof. The export of the account gives them, and they go with a deleted account.
+- The server keeps a record of each choice about cookies (`consent_records`), through the public
+  route `ConsentService.RecordConsent`, with a limit for each IP address. The export of an account
+  has the records of its user, and the deletion of the account deletes them.
+- A legal document keeps what changes in its version: a plain text of at most 2000 characters, with
+  one change on each line. A longer text or a control character gives `INVALID_ARGUMENT`.
+- A webhook trigger can have conditions on a header or on a value of the body (a JSON pointer), with
+  is, matches (a glob) or is one of. A delivery that does not match all of them gets 200, starts no
+  job, and shows as skipped with the reason. A skipped fire is not a failure. `FireTriggerNow` does
+  not read the conditions.
 
 ### Removed
 
@@ -359,3 +380,16 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   the event, one button and a dark theme. A reset, a new password and a closed session tell the
   device and the IP address. An invitation tells who invited and the role. A lock tells its end and
   the count of wrong passwords.
+- Connect GitHub can connect an installation of the GitHub App that exists, also an installation
+  that another workspace uses. Before, GitHub opened the settings of the installation and did not go
+  back to Scylla.
+- An edition can add a background task with `EditionBuilder::task`: the server runs it at its start,
+  then at its period, and logs a failed run with the name of the task.
+- The web app answers have a `Content-Security-Policy` that allows only the own origin, the API and
+  the avatar hosts of GitHub, GitLab and Gravatar, and `Referrer-Policy:
+  strict-origin-when-cross-origin`. With HTTPS, the server cookies have the prefix `__Host-`
+  (`__Host-scylla_session`, `__Host-scylla_flow`, `__Host-scylla_pending`): after the update, a
+  person who is signed in must sign in again.
+- The deletion of an account keeps the proof of its acceptances of the terms: the account id, the
+  SHA-256 hash of its primary email, the version, the method and the date. The retention task
+  deletes this proof `SCYLLA_TERMS_PROOF_RETENTION_DAYS` (1827, 5 years) days after the deletion.

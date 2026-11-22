@@ -7,6 +7,7 @@ use scylla_domain::projects::triggers::{
 use scylla_proto::pipelines::v1 as pb;
 use scylla_proto::pipelines::v1::{create_trigger_request, update_trigger_request};
 
+use super::conditions;
 use crate::api::parse::{self, ToProto};
 use crate::features::projects::pipelines::files_convert;
 use crate::Error;
@@ -15,7 +16,9 @@ use crate::Error;
 pub(super) fn kind(kind: Option<create_trigger_request::Kind>) -> Result<TriggerKind, Error> {
     let kind = match kind {
         Some(create_trigger_request::Kind::Cron(cron)) => TriggerKind::Cron(cron.schedule),
-        Some(create_trigger_request::Kind::Webhook(_)) => TriggerKind::Webhook,
+        Some(create_trigger_request::Kind::Webhook(webhook)) => {
+            TriggerKind::Webhook(conditions::rule(webhook)?)
+        }
         Some(create_trigger_request::Kind::Push(push)) => TriggerKind::Push(push_rule(push)),
         Some(create_trigger_request::Kind::PullRequest(pull_request)) => {
             TriggerKind::PullRequest(pull_request_rule(pull_request)?)
@@ -26,7 +29,8 @@ pub(super) fn kind(kind: Option<create_trigger_request::Kind>) -> Result<Trigger
     checked(kind)
 }
 
-/// Reads and checks the new rules of a Git trigger, as a kind with the new rule.
+/// Reads and checks the new rules of a Git trigger or the new conditions of a webhook, as a kind
+/// with the new rule.
 pub(super) fn rules(
     rules: Option<update_trigger_request::Rules>,
 ) -> Result<Option<TriggerKind>, Error> {
@@ -36,12 +40,16 @@ pub(super) fn rules(
             TriggerKind::PullRequest(pull_request_rule(pull_request)?)
         }
         Some(update_trigger_request::Rules::Tag(tag)) => TriggerKind::Tag(tag_rule(tag)),
+        Some(update_trigger_request::Rules::Webhook(webhook)) => {
+            TriggerKind::Webhook(conditions::rule(webhook)?)
+        }
         None => return Ok(None),
     };
     checked(kind).map(Some)
 }
 
-/// Checks the globs of a Git kind, with the path of the field of the request.
+/// Checks the globs of a Git kind or the conditions of a webhook, with the path of the field of
+/// the request.
 fn checked(kind: TriggerKind) -> Result<TriggerKind, Error> {
     kind.check_rules().map_err(|(path, error)| {
         let path = path.replacen("push.exclude", "push.exclude_branches", 1);
@@ -121,8 +129,9 @@ impl ToProto<pb::Trigger> for Trigger {
     fn to_proto(self) -> pb::Trigger {
         let kind = match self.kind {
             TriggerKind::Cron(schedule) => pb::trigger::Kind::Cron(pb::Cron { schedule }),
-            TriggerKind::Webhook => pb::trigger::Kind::Webhook(pb::Webhook {
+            TriggerKind::Webhook(rule) => pb::trigger::Kind::Webhook(pb::Webhook {
                 path: format!("/webhooks/{}", self.id),
+                conditions: conditions::to_proto(rule),
             }),
             TriggerKind::Push(rule) => pb::trigger::Kind::Push(files_convert::push_of(rule)),
             TriggerKind::PullRequest(rule) => {
@@ -145,6 +154,7 @@ impl ToProto<pb::Trigger> for Trigger {
             None => (pb::FireStatus::Unspecified, String::new()),
             Some(FireResult::Ok) => (pb::FireStatus::Ok, String::new()),
             Some(FireResult::Error(reason)) => (pb::FireStatus::Error, reason),
+            Some(FireResult::Skipped(reason)) => (pb::FireStatus::Skipped, reason),
         };
         pb::Trigger {
             id: Some(self.id.to_proto()),

@@ -32,4 +32,4 @@ pub use mail::Mailbox;
 pub use nodes::{case, exec_node, literal, merge_node, output, rule, switch_node, var};
 pub use rpc::{id, text, with_token};
 pub use tenancy::{dashboard_widgets, Role, RoleInput};
-pub use triggers::{literal_input, pointer_input};
+pub use triggers::{header_condition, literal_input, pointer_condition, pointer_input};

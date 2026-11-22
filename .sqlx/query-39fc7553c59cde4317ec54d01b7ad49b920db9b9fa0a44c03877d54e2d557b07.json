@@ -1,0 +1,98 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT operator_name, operator_address, operator_registration, publication_director,\n                operator_contact, operator_host, privacy_contact\n         FROM legal_settings",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "operator_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "legal_settings",
+            "name": "operator_name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "operator_address",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "legal_settings",
+            "name": "operator_address"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "operator_registration",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "legal_settings",
+            "name": "operator_registration"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "publication_director",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "legal_settings",
+            "name": "publication_director"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "operator_contact",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "legal_settings",
+            "name": "operator_contact"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "operator_host",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "legal_settings",
+            "name": "operator_host"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "privacy_contact",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "legal_settings",
+            "name": "privacy_contact"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "39fc7553c59cde4317ec54d01b7ad49b920db9b9fa0a44c03877d54e2d557b07"
+}

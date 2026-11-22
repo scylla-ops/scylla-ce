@@ -58,7 +58,7 @@ impl TriggerService for TriggersGrpc {
         let request = request.into_inner();
         let pipeline: PipelineId = parse::required(request.pipeline_id, "pipeline_id")?;
         let kind = convert::kind(request.kind)?;
-        let webhook = kind == TriggerKind::Webhook;
+        let webhook = matches!(kind, TriggerKind::Webhook(_));
         let new = NewTrigger {
             pipeline_id: pipeline,
             created_by: caller.actor.id,
@@ -110,7 +110,7 @@ impl TriggerService for TriggersGrpc {
         let current = service::get(&self.pool, id)
             .await?
             .ok_or(Error::NotFound("trigger"))?;
-        let webhook = current.kind == TriggerKind::Webhook;
+        let webhook = matches!(current.kind, TriggerKind::Webhook(_));
         let change = TriggerChange {
             name: request
                 .name

@@ -3,10 +3,11 @@
 use scylla_domain::identity::actors::ActorId;
 use scylla_proto::pipelines::v1::trigger_service_client::TriggerServiceClient;
 use scylla_proto::pipelines::v1::{
-    create_trigger_request, trigger_input, update_trigger_request, CreateTriggerRequest,
-    CreateTriggerResponse, Cron, DeleteTriggerRequest, FireTriggerNowRequest, GetTriggerRequest,
-    Job, ListPipelineTriggersRequest, ListPipelineTriggersResponse, SetTriggerEnabledRequest,
-    Trigger, TriggerInput, TriggerInputList, UpdateTriggerRequest, Webhook,
+    create_trigger_request, trigger_input, update_trigger_request, webhook_condition,
+    ConditionOperator, CreateTriggerRequest, CreateTriggerResponse, Cron, DeleteTriggerRequest,
+    FireTriggerNowRequest, GetTriggerRequest, Job, ListPipelineTriggersRequest,
+    ListPipelineTriggersResponse, SetTriggerEnabledRequest, Trigger, TriggerInput,
+    TriggerInputList, UpdateTriggerRequest, Webhook, WebhookCondition,
 };
 use tonic::transport::Channel;
 use tonic::Status;
@@ -27,6 +28,32 @@ pub fn pointer_input(name: &str, pointer: &str) -> TriggerInput {
     TriggerInput {
         name: name.to_owned(),
         value: Some(trigger_input::Value::JsonPointer(pointer.to_owned())),
+    }
+}
+
+/// Makes a condition of a webhook on a header.
+pub fn header_condition(
+    name: &str,
+    operator: ConditionOperator,
+    values: &[&str],
+) -> WebhookCondition {
+    WebhookCondition {
+        source: Some(webhook_condition::Source::Header(name.to_owned())),
+        operator: operator.into(),
+        values: values.iter().map(|value| (*value).to_owned()).collect(),
+    }
+}
+
+/// Makes a condition of a webhook on a JSON pointer into the body.
+pub fn pointer_condition(
+    pointer: &str,
+    operator: ConditionOperator,
+    values: &[&str],
+) -> WebhookCondition {
+    WebhookCondition {
+        source: Some(webhook_condition::Source::JsonPointer(pointer.to_owned())),
+        operator: operator.into(),
+        values: values.iter().map(|value| (*value).to_owned()).collect(),
     }
 }
 
@@ -52,6 +79,7 @@ impl TestApp {
             }),
             None => create_trigger_request::Kind::Webhook(Webhook {
                 path: String::new(),
+                conditions: Vec::new(),
             }),
         };
         let request = CreateTriggerRequest {
@@ -59,6 +87,27 @@ impl TestApp {
             name: name.to_owned(),
             kind: Some(kind),
             inputs,
+        };
+        let request = self.authed(actor, request).await;
+        Ok(self.triggers().create_trigger(request).await?.into_inner())
+    }
+
+    /// Calls `CreateTrigger` as `actor` for a webhook trigger with conditions and no input.
+    pub async fn create_webhook_trigger(
+        &self,
+        actor: ActorId,
+        pipeline: &str,
+        name: &str,
+        conditions: Vec<WebhookCondition>,
+    ) -> Result<CreateTriggerResponse, Status> {
+        let request = CreateTriggerRequest {
+            pipeline_id: Some(id(pipeline)),
+            name: name.to_owned(),
+            kind: Some(create_trigger_request::Kind::Webhook(Webhook {
+                path: String::new(),
+                conditions,
+            })),
+            inputs: Vec::new(),
         };
         let request = self.authed(actor, request).await;
         Ok(self.triggers().create_trigger(request).await?.into_inner())

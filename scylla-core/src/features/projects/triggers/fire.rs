@@ -1,7 +1,8 @@
 //! The fire of a trigger: a job of its pipeline with its inputs, as the runner of the triggers
 //! of its workspace, and the record of the result on the trigger, in the history of its fires
 //! and, for a failure, in the activity feed. A file pipeline runs its file at the head of the
-//! default branch, and a Git trigger runs its pipeline on that head.
+//! default branch, and a Git trigger runs its pipeline on that head. A delivery of a webhook that
+//! its conditions skip makes no job: only its record.
 
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::integrations::sources::SourceEvent;
@@ -116,6 +117,32 @@ pub(crate) async fn fire(
         Err(_) => tracing::warn!(event = "trigger.failed", trigger = %trigger.id, ?record),
     }
     result
+}
+
+/// Records a delivery of a webhook that the conditions of the trigger skip: no job, and the
+/// reason on the trigger and in the history of its fires. It is not a failure, so the activity
+/// feed does not get it.
+pub(crate) async fn skip(
+    pool: &PgPool,
+    trigger: &Trigger,
+    reason: &str,
+    call: Call,
+) -> Result<(), Error> {
+    let record = FireResult::Skipped(reason.to_owned());
+    let fire = NewFire {
+        trigger: trigger.id,
+        source: call.source,
+        due_at: call.due_at,
+        fired_at: runs::now(),
+        result: &record,
+        job: None,
+    };
+    let mut tx = pool.begin().await?;
+    triggers::record(&mut tx, trigger.id, &record).await?;
+    fires::insert(&mut tx, fire).await?;
+    tx.commit().await?;
+    tracing::info!(event = "trigger.skipped", trigger = %trigger.id);
+    Ok(())
 }
 
 /// Starts the job of a fire. A file pipeline takes its file at the head of the default branch,

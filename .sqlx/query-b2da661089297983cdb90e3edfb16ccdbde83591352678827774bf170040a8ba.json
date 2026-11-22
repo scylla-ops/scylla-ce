@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT CASE $1::text WHEN 'trigger' THEN trigger_id WHEN 'pipeline' THEN pipeline_id\n                                WHEN 'project' THEN project_id END AS id,\n                  CASE $1::text WHEN 'bucket' THEN width_bucket(due_at, $2::timestamptz[])\n                  END AS bucket,\n                  count(*) AS \"total!\",\n                  count(*) FILTER (WHERE status = 'ok') AS \"ok!\",\n                  count(*) FILTER (WHERE status = 'error') AS \"failed!\",\n                  count(*) FILTER (WHERE status = 'missed') AS \"missed!\",\n                  count(*) FILTER (WHERE status = 'skipped') AS \"skipped!\",\n                  percentile_cont(0.5) WITHIN GROUP\n                      (ORDER BY extract(epoch FROM fired_at - due_at)::float8)\n                      FILTER (WHERE source = 'schedule' AND fired_at IS NOT NULL) AS p50,\n                  percentile_cont(0.95) WITHIN GROUP\n                      (ORDER BY extract(epoch FROM fired_at - due_at)::float8)\n                      FILTER (WHERE source = 'schedule' AND fired_at IS NOT NULL) AS p95\n           FROM trigger_fires\n           WHERE workspace_id = $3\n             AND ($4::bool OR project_id = ANY($5::uuid[]))\n             AND (cardinality($6::uuid[]) = 0 OR project_id = ANY($6))\n             AND (cardinality($7::uuid[]) = 0 OR pipeline_id = ANY($7))\n             AND (cardinality($8::uuid[]) = 0 OR trigger_id = ANY($8))\n             AND (cardinality($9::text[]) = 0 OR source = ANY($9))\n             AND due_at >= $10 AND due_at < $11\n           GROUP BY 1, 2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "bucket",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "total!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "ok!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "failed!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "missed!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "skipped!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "p50",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "p95",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TimestamptzArray",
+        "Uuid",
+        "Bool",
+        "UuidArray",
+        "UuidArray",
+        "UuidArray",
+        "UuidArray",
+        "TextArray",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "b2da661089297983cdb90e3edfb16ccdbde83591352678827774bf170040a8ba"
+}

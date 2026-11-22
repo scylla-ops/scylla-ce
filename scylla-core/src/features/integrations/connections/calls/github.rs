@@ -3,6 +3,8 @@
 
 use std::collections::BTreeMap;
 
+use scylla_domain::integrations::connections::AccountKind;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use time::OffsetDateTime;
 
@@ -35,6 +37,25 @@ pub(crate) struct Account {
     /// `Organization` or `User`.
     #[serde(rename = "type")]
     pub(crate) kind: String,
+}
+
+impl Account {
+    /// Returns the kind of the account: an organization, else a user.
+    pub(crate) fn account_kind(&self) -> AccountKind {
+        match self.kind.as_str() {
+            "Organization" => AccountKind::Organization,
+            _ => AccountKind::User,
+        }
+    }
+}
+
+/// An installation of the App that a user sees, with its account.
+#[derive(Debug, Deserialize)]
+pub(crate) struct UserInstallation {
+    /// The id of the installation.
+    pub(crate) id: u64,
+    /// The account of the installation.
+    pub(crate) account: Account,
 }
 
 /// A repository of an installation.
@@ -73,14 +94,30 @@ pub(crate) async fn user_sees(
     user: &Hidden,
     installation: u64,
 ) -> Result<bool, ProviderError> {
-    let listed: Vec<Listed> = clients
+    let listed: Vec<Listed> = user_list(clients, user).await?;
+    Ok(listed.iter().any(|item| item.id == installation))
+}
+
+/// Returns the installations of the App that the user of a token sees, in the order of GitHub.
+pub(crate) async fn user_installations(
+    clients: &VcsClients,
+    user: &Hidden,
+) -> Result<Vec<UserInstallation>, ProviderError> {
+    user_list(clients, user).await
+}
+
+/// Reads each page of `GET /user/installations` with the token of a user.
+async fn user_list<T: DeserializeOwned>(
+    clients: &VcsClients,
+    user: &Hidden,
+) -> Result<Vec<T>, ProviderError> {
+    clients
         .github
         .get("/user/installations")
         .auth(Auth::Bearer(user))
         .query("per_page", PAGE)
         .list(Some("installations"))
-        .await?;
-    Ok(listed.iter().any(|item| item.id == installation))
+        .await
 }
 
 /// Reads an installation with the JWT of the App.

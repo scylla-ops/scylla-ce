@@ -182,6 +182,7 @@ fn statuses(raw: Vec<i32>) -> Result<Vec<FireStatus>, Error> {
             Ok(pb::FireStatus::Ok) => Some(FireStatus::Ok),
             Ok(pb::FireStatus::Error) => Some(FireStatus::Error),
             Ok(pb::FireStatus::Missed) => Some(FireStatus::Missed),
+            Ok(pb::FireStatus::Skipped) => Some(FireStatus::Skipped),
             Ok(pb::FireStatus::Unspecified) | Err(_) => None,
         })
         .collect::<Option<Vec<_>>>()

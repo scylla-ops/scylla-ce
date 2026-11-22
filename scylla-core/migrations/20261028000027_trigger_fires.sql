@@ -8,12 +8,13 @@ CREATE TABLE trigger_fires (
     -- The cron time of a schedule, else the time of the request.
     due_at timestamptz NOT NULL,
     fired_at timestamptz,
-    status text NOT NULL CHECK (status IN ('ok', 'error', 'missed')),
+    status text NOT NULL CHECK (status IN ('ok', 'error', 'missed', 'skipped')),
     error text,
     job_id uuid REFERENCES jobs (id) ON DELETE SET NULL,
     CHECK ((status = 'missed') = (fired_at IS NULL)),
     CHECK (status <> 'missed' OR source = 'schedule'),
-    CHECK ((status = 'error') = (error IS NOT NULL))
+    CHECK (status <> 'skipped' OR source = 'webhook'),
+    CHECK ((status IN ('error', 'skipped')) = (error IS NOT NULL))
 );
 
 CREATE INDEX trigger_fires_workspace_idx ON trigger_fires (workspace_id, due_at);

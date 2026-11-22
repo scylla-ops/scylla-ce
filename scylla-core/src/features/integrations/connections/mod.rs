@@ -4,6 +4,7 @@
 
 pub(crate) mod calls;
 pub(crate) mod checks;
+mod choices;
 mod convert;
 pub(crate) mod credentials;
 mod grpc;

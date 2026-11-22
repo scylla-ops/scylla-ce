@@ -1,7 +1,6 @@
 //! The account mails of a sign-up and of a one-time link: the check of an email, a sign-up with a
 //! known email, the reset of a password, a new email, and an invitation into a workspace.
 
-use scylla_extension::Mail;
 use time::OffsetDateTime;
 
 use super::super::letter::{Action, Badge, Fact, Letter, NotYou, Part};
@@ -9,7 +8,7 @@ use super::super::AccountContext;
 use crate::features::identity::sessions::Client;
 
 /// The mail with the link that verifies the email of a new user.
-pub(crate) fn verify_email(ctx: &AccountContext, to: &str, token: &str) -> Mail {
+pub(crate) fn verify_email(ctx: &AccountContext, to: &str, token: &str) -> Letter {
     let link = ctx.settings.link("verify-email", token);
     Letter {
         subject: "Verify your email".to_owned(),
@@ -36,11 +35,10 @@ pub(crate) fn verify_email(ctx: &AccountContext, to: &str, token: &str) -> Mail 
             .to_owned(),
         ..Letter::new(to, ctx.settings.instance())
     }
-    .compose()
 }
 
 /// The mail to the owner of an email that a sign-up used again.
-pub(crate) fn account_exists(ctx: &AccountContext, to: &str) -> Mail {
+pub(crate) fn account_exists(ctx: &AccountContext, to: &str) -> Letter {
     Letter {
         subject: "You already have a Scylla account".to_owned(),
         preheader: format!("Someone tried to sign up with {to}. Sign in, or reset your password."),
@@ -63,7 +61,6 @@ pub(crate) fn account_exists(ctx: &AccountContext, to: &str) -> Mail {
             .to_owned(),
         ..Letter::new(to, ctx.settings.instance())
     }
-    .compose()
 }
 
 /// The mail with the link that resets a password. It names the client that asked for it, when a
@@ -73,7 +70,7 @@ pub(crate) fn reset_password(
     to: &str,
     token: &str,
     from: Option<&Client>,
-) -> Mail {
+) -> Letter {
     let mut facts = vec![Fact::time("Requested", OffsetDateTime::now_utc())];
     facts.extend(from.map(|client| Fact::new("From", client.describe())));
     let link = ctx.settings.link("reset-password", token);
@@ -102,7 +99,6 @@ pub(crate) fn reset_password(
             .to_owned(),
         ..Letter::new(to, ctx.settings.instance())
     }
-    .compose()
 }
 
 /// The mail to a new email, with the link that makes it the email of an account.
@@ -111,7 +107,7 @@ pub(crate) fn change_email(
     current: Option<&str>,
     to: &str,
     token: &str,
-) -> Mail {
+) -> Letter {
     let mut facts: Vec<Fact> = current
         .map(|current| Fact::new("Current email", current))
         .into_iter()
@@ -141,7 +137,6 @@ pub(crate) fn change_email(
             .to_owned(),
         ..Letter::new(to, ctx.settings.instance())
     }
-    .compose()
 }
 
 /// The mail with the link of an invitation into a workspace, with the person who invited and
@@ -153,7 +148,7 @@ pub(crate) fn invitation(
     inviter: Option<&str>,
     role: &str,
     token: &str,
-) -> Mail {
+) -> Letter {
     let role = role_name(role);
     let article = if role.starts_with(['A', 'E', 'I', 'O', 'U']) {
         "an"
@@ -197,7 +192,6 @@ pub(crate) fn invitation(
         reason: format!("You get this mail because a member of {workspace} invited this email."),
         ..Letter::new(to, ctx.settings.instance())
     }
-    .compose()
 }
 
 /// Writes the name of a role for a person: `billing_admin` gives `Billing admin`.

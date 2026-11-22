@@ -96,7 +96,8 @@ pub(crate) fn token_of(ctx: &AccountContext, metadata: &MetadataMap) -> Result<S
         .get_all("cookie")
         .iter()
         .filter_map(|value| value.to_str().ok());
-    cookie::read(headers, cookie::PENDING).ok_or(Error::NotFound("pending link"))
+    let secure = ctx.settings.secure_cookies();
+    cookie::read(headers, cookie::PENDING, secure).ok_or(Error::NotFound("pending link"))
 }
 
 /// Returns the link that waits, or `NOT_FOUND`.

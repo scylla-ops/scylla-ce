@@ -247,5 +247,9 @@ crate::authz! {
         permission list_sessions = nil;
         /// The route `RevokeSession`.
         permission revoke_session = nil;
+        /// The route `ExportAccountData`.
+        permission export_account_data = nil;
+        /// The route `AcceptTerms`.
+        permission accept_terms = nil;
     }
 }

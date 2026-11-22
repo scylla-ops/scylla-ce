@@ -1,23 +1,23 @@
-//! The install of the GitHub App in a workspace: a state of one use for 10 minutes, the install
+//! The install of the GitHub App in a workspace: a state of one use for 10 minutes, the authorize
 //! page of GitHub, then the check of the redirect and the connection of the installation.
 
 use scylla_domain::activity::Kind;
 use scylla_domain::identity::actors::ActorId;
-use scylla_domain::integrations::connections::{AccountKind, VcsConnectionId};
+use scylla_domain::integrations::connections::VcsConnectionId;
 use scylla_domain::integrations::VcsProvider;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::Rejection;
 use time::{Duration, OffsetDateTime};
-use url::Url;
 
 use super::calls::github;
 use super::checks;
 use super::credentials::{self, AppSource};
+use super::redirects;
 use super::store::{self, states, Counted, Installation};
 use crate::features::activity;
 use crate::features::integrations::IntegrationContext;
 use crate::infra::secret;
-use crate::infra::vcs::ProviderError;
+use crate::infra::vcs::{Hidden, ProviderError};
 use crate::Error;
 
 /// The life of a state of an install.
@@ -33,8 +33,10 @@ pub(super) struct Redirect {
     pub(super) setup_action: String,
 }
 
-/// Starts an install: keeps the hash of a new state, and returns the install page with the
-/// state and the end of its validity. An instance with no App gives `APP_MISSING`.
+/// Starts an install: keeps the hash of a new state, and returns the authorize page of the App
+/// with the state and the end of its validity. GitHub comes back from there with a code, and the
+/// user chooses an installation or installs the App. An instance with no App gives
+/// `APP_MISSING`.
 pub(super) async fn start(
     ctx: &IntegrationContext,
     workspace: WorkspaceId,
@@ -58,15 +60,9 @@ pub(super) async fn start(
     .await?;
     tx.commit().await?;
 
-    // Make the install page of the App.
-    let slug = &source.app.settings().slug;
-    let page = format!(
-        "{}/apps/{slug}/installations/new",
-        ctx.settings.github_web_url
-    );
-    let mut url = Url::parse(&page).map_err(|_| Error::Internal(format!("{page} is not a URL")))?;
-    url.query_pairs_mut().append_pair("state", &state);
-    Ok((url.into(), expires_at))
+    // Make the authorize page of the App.
+    let page = redirects::authorize_page(ctx, &source, &state)?;
+    Ok((page, expires_at))
 }
 
 /// Returns the workspace of a state that is open for the caller, with no change. Else
@@ -129,14 +125,7 @@ pub(super) async fn connect(
     // Check that the user sees the installation on GitHub.
     let source = credentials::github_app(ctx).await?;
     let source = source.ok_or_else(credentials::app_missing)?;
-    let user = source
-        .app
-        .exchange_code(code)
-        .await
-        .map_err(|error| match error {
-            ProviderError::Invalid(_) => state_expired(),
-            error => failed(error),
-        })?;
+    let user = user_token(&source, code).await?;
     let sees = github::user_sees(&ctx.clients, &user, installation).await;
     if !sees.map_err(failed)? {
         return Err(not_visible());
@@ -203,10 +192,7 @@ async fn keep(
         app: source.row,
         external_id: &external_id,
         account: &found.account.login,
-        account_kind: match found.account.kind.as_str() {
-            "Organization" => AccountKind::Organization,
-            _ => AccountKind::User,
-        },
+        account_kind: found.account.account_kind(),
         avatar_url: found.account.avatar_url.as_deref(),
         permissions: &permissions,
         all_repositories: found.repository_selection == "all",
@@ -244,6 +230,19 @@ async fn keep(
     Ok(counted)
 }
 
+/// Exchanges the code of a redirect for a token of the user. A code that GitHub refuses gives
+/// `STATE_EXPIRED`.
+pub(super) async fn user_token(source: &AppSource, code: &str) -> Result<Hidden, Error> {
+    source
+        .app
+        .exchange_code(code)
+        .await
+        .map_err(|error| match error {
+            ProviderError::Invalid(_) => state_expired(),
+            error => failed(error),
+        })
+}
+
 /// The refusal of a state that is unknown, used, old or of another user.
 pub(super) fn state_expired() -> Error {
     let message = "the link expired: start the install again";
@@ -257,6 +256,6 @@ fn not_visible() -> Error {
 }
 
 /// The refusal of a failed call to GitHub.
-fn failed(error: ProviderError) -> Error {
+pub(super) fn failed(error: ProviderError) -> Error {
     credentials::provider_failed(VcsProvider::GitHub, error)
 }

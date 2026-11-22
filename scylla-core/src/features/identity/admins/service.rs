@@ -114,7 +114,7 @@ pub(super) async fn delete(
     if caller == user {
         return Err(not_self());
     }
-    accounts::delete_user(ctx, user).await
+    accounts::delete_user(ctx, caller, user).await
 }
 
 /// Returns the open sessions of a user, newest first. An unknown user gives

@@ -3248,6 +3248,7 @@ dependencies = [
  "async-trait",
  "rust-embed",
  "scylla-domain",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.21",
  "time",

@@ -2,6 +2,7 @@
 //! shows, the style sheet of the dark theme, and a hidden preheader. Each value is escaped.
 
 use super::content::{Action, Badge, Fact, Letter, NotYou, Part, Tone, LOGO_DARK_ID, LOGO_ID};
+use super::legal;
 use super::style::{
     BAND, BORDER, CANVAS, CARD, DISPLAY, FOREGROUND, MONO, MUTED, ON_PRIMARY, PRIMARY, SANS, SHEET,
     WARNING,
@@ -15,7 +16,7 @@ const TABLE: &str =
     r#"<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0""#;
 
 /// Writes the HTML body of a mail.
-pub(super) fn body(letter: &Letter<'_>) -> String {
+pub(super) fn body(letter: &Letter) -> String {
     // Write the card: the intro, the facts and the main link, then the band at its bottom.
     let action = letter.action.as_ref();
     let card = [
@@ -32,12 +33,13 @@ pub(super) fn body(letter: &Letter<'_>) -> String {
     // Put the logo, the card and the footer in the middle of the canvas.
     let subject = escape(&letter.subject);
     let preheader = escape(&letter.preheader);
-    let (to, instance) = (escape(letter.to), escape(letter.instance));
+    let (to, instance) = (escape(&letter.to), escape(&letter.instance));
     let footer = format!(
-        "{}Sent to {to} by the Scylla instance at {instance}.</p>{}{}</p>",
+        "{}Sent to {to} by the Scylla instance at {instance}.</p>{}{}</p>{}",
         small("margin:0;"),
         small("margin:4px 0 0;"),
         escape(&letter.reason),
+        legal::html(&letter.legal),
     );
     let (logo, filler) = (logo(), FILLER.repeat(60));
     format!(
@@ -246,7 +248,7 @@ fn paragraph(margin: &str) -> String {
 }
 
 /// Opens a paragraph of small text: 12 pixels, in the color of the texts.
-fn small(margin: &str) -> String {
+pub(super) fn small(margin: &str) -> String {
     format!(
         "<p class=\"muted\" style=\"{margin}font-family:{SANS};font-size:12px;line-height:16px;\
          color:{MUTED};\">"

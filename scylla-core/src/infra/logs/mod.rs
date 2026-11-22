@@ -1,6 +1,7 @@
 //! The logs of the server and of the commands: one line for each call and for each event, pretty
 //! for a person or JSON for a machine, with no secret and no full email.
 
+mod client_ip;
 mod format;
 mod json;
 mod layer;
@@ -11,6 +12,7 @@ mod setup;
 #[cfg(test)]
 mod tests;
 
+pub use client_ip::LogClientIp;
 pub use format::{LogFormat, Style};
 pub use layer::{annotate, LogLayer, CALL};
 pub use mask::{mask_email, mask_identifier};

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM legal_documents WHERE kind = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "196ceec6496ac6ce8ab331cd3a9708a345d11d9ece5f4a64f0f56da0aad4972f"
+}

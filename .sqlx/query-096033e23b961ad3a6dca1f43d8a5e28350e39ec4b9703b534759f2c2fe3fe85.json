@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT external_id FROM vcs_connections\n         WHERE workspace_id = $1 AND provider = 'github' AND auth_kind = 'app_installation'\n           AND app_id IS NOT DISTINCT FROM $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "external_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "096033e23b961ad3a6dca1f43d8a5e28350e39ec4b9703b534759f2c2fe3fe85"
+}
