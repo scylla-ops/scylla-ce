@@ -16,7 +16,7 @@ use super::credentials::verify_password;
 use super::one_time::{self, Purpose};
 use super::{mails, password, store, AccountContext};
 use crate::features::identity::sessions::{self, Client, Opened};
-use crate::features::identity::{actors, admins};
+use crate::features::identity::{actors, admins, terms};
 use crate::features::tenancy::invitations::{self, Pick};
 use crate::features::tenancy::workspaces;
 use crate::infra::logs::{mask_email, mask_identifier};
@@ -35,6 +35,8 @@ pub(super) struct SignUp {
     pub(super) display_name: Name,
     /// The token of an invitation link.
     pub(super) invitation: Option<String>,
+    /// The version of the terms that the person accepted on the form.
+    pub(super) accepted_terms: Option<String>,
 }
 
 /// Creates a user, with its email, its handle, its password and its personal workspace. A known
@@ -114,10 +116,11 @@ pub(crate) async fn insert_user(
 }
 
 /// Creates a user that signs in with a password. With an invitation for the same email, the
-/// email is verified and the invitation is accepted. A known email gets the same answer, and its
-/// owner gets a mail.
+/// email is verified and the invitation is accepted. When the terms need an acceptance, the
+/// request must accept their current version, and the new user keeps the acceptance. A known
+/// email gets the same answer, and its owner gets a mail.
 pub(super) async fn sign_up(ctx: &AccountContext, input: SignUp) -> Result<(), Error> {
-    // Find the invitation, then check the sign-up mode.
+    // Find the invitation, then check the sign-up mode and the acceptance of the terms.
     let invitation = match &input.invitation {
         Some(token) => Some(invitation_for(ctx, token, &input.email).await?),
         None => None,
@@ -132,6 +135,7 @@ pub(super) async fn sign_up(ctx: &AccountContext, input: SignUp) -> Result<(), E
         }
         _ => {}
     }
+    let accepted = terms::check_sign_up(&ctx.pool, input.accepted_terms.as_deref()).await?;
 
     // Create the user, or tell the owner of a known email.
     let hash = password::hash(input.password.as_str().to_owned()).await?;
@@ -154,6 +158,9 @@ pub(super) async fn sign_up(ctx: &AccountContext, input: SignUp) -> Result<(), E
         return Ok(());
     }
     let actor = insert_user(&mut tx, &new, Some(&hash)).await?;
+    if let Some(version) = &accepted {
+        terms::record_sign_up(&mut tx, actor.id, version).await?;
+    }
     let verify = match invitation {
         Some(_) => None,
         None => Some(

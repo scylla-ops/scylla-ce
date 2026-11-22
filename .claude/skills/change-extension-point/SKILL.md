@@ -1,6 +1,6 @@
 ---
 name: change-extension-point
-description: Change the contract between the Scylla core and its editions in scylla-extension, which means a new hook event, a new value in a hook context, a new builder method on EditionBuilder, a new ServiceContext value, or a change to authentication. Use when an edition must act on something that the core does not show yet. Never put edition code in the core instead.
+description: Change the contract between the Scylla core and its editions in scylla-extension, which means a new hook event, a new value in a hook context, a new builder method on EditionBuilder, a new ServiceContext or TaskContext value, or a change to authentication. Use when an edition must act on something that the core does not show yet. Never put edition code in the core instead.
 ---
 
 # Change an extension point
@@ -21,6 +21,10 @@ The contract is `scylla-extension`. Each change there is a change to the API for
 2. A map in `Hooks`, its run method, and its `add_` method. A builder method in `edition.rs`.
 3. Call the run method in each core service of the operation: `before_` before the store write, `after_` after it, both before the commit.
 4. Core unit tests with a recording hook: it gets the call, the order holds, a refusal rolls back.
+
+## A background task
+
+An edition adds a task with `EditionBuilder::task(name, every, Arc<dyn Task>)`. The server runs it at its start, then at each period, until its stop. `Task::run` gets a `TaskContext` (the pool), begins and commits its own transactions, and returns a `TaskError`: the server logs it with the name of the task. A new value for the tasks is a new field of `TaskContext`.
 
 ## A new context value
 

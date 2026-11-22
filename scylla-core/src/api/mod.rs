@@ -8,6 +8,7 @@ pub mod parse;
 mod reflection;
 mod request_log;
 mod serve;
+mod tasks;
 mod web;
 
 pub use serve::{run, sealer, serve, ServeOptions};

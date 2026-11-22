@@ -145,22 +145,23 @@ pub(super) async fn workspace_names(
         .collect())
 }
 
-/// Returns the time of the last sign-in of each user that signed in.
+/// Returns the time of the last sign-in of each user that signed in. The row of the user keeps
+/// it: the retention deletes the old sessions.
 pub(super) async fn last_sign_ins(
     tx: &mut Tx<'_>,
     users: &[ActorId],
 ) -> Result<HashMap<ActorId, OffsetDateTime>, Error> {
     let ids: Vec<_> = users.iter().map(|user| user.to_db()).collect();
     let rows = sqlx::query!(
-        r#"SELECT user_id, max(created_at) AS "at!" FROM sessions
-           WHERE user_id = ANY($1) GROUP BY user_id"#,
+        r#"SELECT id, last_sign_in_at AS "at!" FROM users
+           WHERE id = ANY($1) AND last_sign_in_at IS NOT NULL"#,
         &ids,
     )
     .fetch_all(&mut **tx)
     .await?;
     Ok(rows
         .into_iter()
-        .map(|row| (ActorId::from_db(row.user_id), row.at))
+        .map(|row| (ActorId::from_db(row.id), row.at))
         .collect())
 }
 

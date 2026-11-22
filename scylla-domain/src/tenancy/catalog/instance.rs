@@ -2,6 +2,7 @@
 
 use super::{Area, CatalogPermission, Level, Route};
 use crate::identity::admins::UserAdminHolder;
+use crate::platform::legal::LegalHolder;
 use crate::platform::SettingsHolder;
 use crate::tenancy::roles::RoleAdmin;
 
@@ -111,6 +112,7 @@ pub(super) const AREAS: &[Area] = &[
             routes: &[
                 Route::of(SettingsHolder::GET_INSTANCE_SETTINGS),
                 Route::of(SettingsHolder::UPDATE_INSTANCE_SETTINGS),
+                Route::of(LegalHolder::UPDATE_LEGAL_SETTINGS),
             ],
         }],
     },

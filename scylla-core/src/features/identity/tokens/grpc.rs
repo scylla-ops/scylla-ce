@@ -204,7 +204,7 @@ fn refresh_token(
         .get_all("cookie")
         .iter()
         .filter_map(|value| value.to_str().ok());
-    let refresh = cookie::read(headers, cookie::SESSION)
+    let refresh = cookie::read(headers, cookie::SESSION, ctx.settings.secure_cookies())
         .ok_or_else(|| AccessError::Unauthenticated("no session cookie".to_owned()))?;
     Ok((refresh, true))
 }

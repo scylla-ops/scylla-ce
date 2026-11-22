@@ -114,7 +114,7 @@ async fn get_workspace_denial_logs_one_line_with_its_permission(pool: PgPool) {
         line.contains(&format!("user ..{}", &alice[alice.len() - 8..])),
         "{line}"
     );
-    assert!(line.contains("127.0.0.1"), "{line}");
+    assert!(line.contains("127.0.0.0"), "{line}");
     let object = format!("object=workspace:..{}", &workspace[workspace.len() - 8..]);
     assert!(details.starts_with("    "), "{details}");
     assert!(details.contains("permission=get_workspace"), "{details}");

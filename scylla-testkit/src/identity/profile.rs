@@ -1,5 +1,6 @@
 //! The `TestApp` helpers of `ProfileService`, sent with an access token: the profile, the
-//! email, the password, the identities and the sessions of the caller.
+//! email, the password, the identities, the sessions, the data export and the terms of the
+//! caller.
 
 use scylla_proto::accounts::v1 as pb;
 use scylla_proto::accounts::v1::profile_service_client::ProfileServiceClient;
@@ -14,6 +15,28 @@ impl TestApp {
         let request = with_token(token, pb::GetMeRequest {});
         let response = self.profile().get_me(request).await?;
         Ok(response.into_inner().user.expect("user in response"))
+    }
+
+    /// Calls `GetMe` with an access token, and returns the whole answer.
+    pub async fn me(&self, token: &str) -> Result<pb::GetMeResponse, Status> {
+        let request = with_token(token, pb::GetMeRequest {});
+        Ok(self.profile().get_me(request).await?.into_inner())
+    }
+
+    /// Calls `AcceptTerms` with an access token.
+    pub async fn accept_terms(
+        &self,
+        token: &str,
+        version: &str,
+    ) -> Result<pb::TermsAcceptance, Status> {
+        let request = pb::AcceptTermsRequest {
+            version: version.to_owned(),
+        };
+        let response = self
+            .profile()
+            .accept_terms(with_token(token, request))
+            .await?;
+        Ok(response.into_inner().acceptance.expect("acceptance"))
     }
 
     /// Calls `UpdateProfile` with an access token. `None` leaves a field as it is.
@@ -138,6 +161,19 @@ impl TestApp {
             .unlink_identity(with_token(token, request))
             .await?;
         Ok(())
+    }
+
+    /// Calls `ExportAccountData` with an access token.
+    pub async fn export_account_data(
+        &self,
+        token: &str,
+    ) -> Result<pb::ExportAccountDataResponse, Status> {
+        let request = with_token(token, pb::ExportAccountDataRequest {});
+        Ok(self
+            .profile()
+            .export_account_data(request)
+            .await?
+            .into_inner())
     }
 
     /// Returns a client of `ProfileService`.

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invitations SET accepted_by = invited_by, accepted_at = now() - interval '91 days'\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a93c437e833e81a100624660c944e21521512a8fd4cb2f04d4935fb1dbdfe72d"
+}

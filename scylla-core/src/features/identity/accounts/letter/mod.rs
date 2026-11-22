@@ -3,9 +3,11 @@
 
 mod content;
 mod html;
+mod legal;
 mod style;
 #[cfg(test)]
 mod tests;
 mod text;
 
 pub(crate) use content::{clock, Action, Badge, Fact, Letter, NotYou, Part};
+pub(crate) use legal::Legal;

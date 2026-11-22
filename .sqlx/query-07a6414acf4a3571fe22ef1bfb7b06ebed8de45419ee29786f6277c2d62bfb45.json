@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO one_time_tokens (hash, purpose, user_id, email, expires_at, used_at)\n             VALUES ($1, 'reset_password', $2, $3, now() + make_interval(days => $4),\n                     now() + make_interval(days => $5))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Uuid",
+        "Text",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "07a6414acf4a3571fe22ef1bfb7b06ebed8de45419ee29786f6277c2d62bfb45"
+}
