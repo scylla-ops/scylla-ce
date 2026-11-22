@@ -4,12 +4,13 @@
 
 pub(crate) mod access;
 mod checks;
-mod convert;
+pub(crate) mod convert;
 pub(crate) mod files_convert;
 mod files_grpc;
 mod files_service;
 mod grpc;
 pub(crate) mod json;
+mod links;
 mod plugin;
 pub(crate) mod service;
 mod store;

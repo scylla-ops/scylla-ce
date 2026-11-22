@@ -156,6 +156,7 @@ impl TestApp {
             nodes,
             layout: None,
             checkout: Some(checkout),
+            fragment_links: Vec::new(),
         };
         let request = self.authed(actor, request).await;
         let response = self.pipelines().create_pipeline(request).await?;
@@ -177,6 +178,7 @@ impl TestApp {
             nodes: None,
             layout: None,
             checkout: Some(checkout),
+            fragment_links: None,
         };
         let request = self.authed(actor, request).await;
         let response = self.pipelines().update_pipeline(request).await?;

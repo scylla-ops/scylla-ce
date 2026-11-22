@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT fragment_id FROM fragment_favorites WHERE fragment_id = ANY($1) AND actor_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "fragment_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "fragment_favorites",
+            "name": "fragment_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "693bf66f81a147b593a12529ea8ddc84191edeac547240b0973d13528619eb22"
+}

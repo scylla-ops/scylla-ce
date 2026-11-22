@@ -7,6 +7,7 @@ mod attention_access;
 mod cast;
 mod conditions;
 mod disabled;
+mod fragment_links;
 mod git_contract;
 mod held;
 mod job_lists;

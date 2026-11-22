@@ -44,6 +44,7 @@ impl TestApp {
             nodes,
             layout: None,
             checkout: None,
+            fragment_links: Vec::new(),
         };
         let request = self.authed(actor, request).await;
         let response = self
@@ -80,6 +81,7 @@ impl TestApp {
             nodes: nodes.map(|nodes| NodeList { nodes }),
             layout: None,
             checkout: None,
+            fragment_links: None,
         };
         let request = self.authed(actor, request).await;
         let response = self

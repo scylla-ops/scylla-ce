@@ -1,0 +1,108 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT v.fragment_id, v.number, v.parameters, v.changes, v.created_by, v.published_at,\n                  u.display_name AS \"author_name?\",\n                  CASE WHEN $2 OR v.number = (SELECT max(number) FROM fragment_versions l\n                                              WHERE l.fragment_id = v.fragment_id)\n                       THEN v.nodes ELSE '[]'::jsonb END AS \"nodes!\"\n           FROM fragment_versions v LEFT JOIN users u ON u.id = v.created_by\n           WHERE v.fragment_id = ANY($1)\n           ORDER BY v.fragment_id, v.number",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "fragment_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "fragment_versions",
+            "name": "fragment_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "number",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "fragment_versions",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "parameters",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "fragment_versions",
+            "name": "parameters"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "changes",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "fragment_versions",
+            "name": "changes"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "fragment_versions",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "published_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "fragment_versions",
+            "name": "published_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "author_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "nodes!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "5a620214b51f9cdb3d4e1ee69d96bb2f88193fcd315aadd460463c5f128fe46b"
+}

@@ -19,7 +19,7 @@ fn the_catalog_has_the_counts_of_the_model() {
     let counts = [Level::Platform, Level::Workspace, Level::Project].map(human);
 
     // then
-    assert_eq!(counts, [48, 39, 22]);
+    assert_eq!(counts, [51, 42, 22]);
 }
 
 /// Each dependency names a permission of the catalog, and each id has its area in front.

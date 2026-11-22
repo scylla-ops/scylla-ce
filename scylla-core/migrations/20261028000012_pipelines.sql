@@ -18,6 +18,9 @@ CREATE TABLE pipelines (
     checkout jsonb,
     archived_at timestamptz,
     removed_at timestamptz,
+    -- The blocks that link a version of a fragment of the library. No foreign key: a deleted
+    -- fragment leaves its links, and the pipeline keeps its nodes.
+    fragment_links jsonb NOT NULL DEFAULT '[]',
     UNIQUE (project_id, file_key),
     CHECK ((source = 'file') = (file_key IS NOT NULL)),
     CHECK ((source = 'file') = (file_path IS NOT NULL)),

@@ -4,8 +4,8 @@ use scylla_domain::identity::actors::Actor;
 use scylla_domain::integrations::sources::{GitRef, SourceEvent};
 use scylla_domain::projects::jobs::{Job, JobOrigin, StartJob};
 use scylla_domain::projects::pipelines::{
-    ListPipelines, NewPipeline, Node, Pipeline, PipelineChange, PipelineId, PipelineLayout,
-    PipelinePage, PipelineScope, KIND,
+    FragmentLink, ListPipelines, NewPipeline, Node, Pipeline, PipelineChange, PipelineId,
+    PipelineLayout, PipelinePage, PipelineScope, KIND,
 };
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -34,8 +34,9 @@ pub(crate) async fn create(
     workspace: WorkspaceId,
     new: NewPipeline,
 ) -> Result<Pipeline, Error> {
-    // Check the size of the nodes, refuse a project of files, then run the hooks.
+    // Check the size of the nodes and the links, refuse a project of files, then run the hooks.
     check_size(&new.nodes)?;
+    check_links(&new.fragment_links, new.nodes.as_slice())?;
     let mut tx = pool.begin().await?;
     if store::uses_files(&mut tx, new.project_id).await? {
         let message = "the project takes its pipelines from the files of its repository";
@@ -121,6 +122,13 @@ async fn save_places(
     store::save_layout(tx, id, &layout).await
 }
 
+/// Checks the links of a pipeline against its nodes. A bad link gives `INVALID_ARGUMENT` with its
+/// path.
+fn check_links(links: &[FragmentLink], nodes: &[Node]) -> Result<(), Error> {
+    scylla_domain::projects::pipelines::check_links(links, nodes)
+        .map_err(|error| Error::invalid(error.path, error.error.to_string()))
+}
+
 /// Returns the ids of nodes as text.
 fn ids_of(nodes: &[Node]) -> Vec<String> {
     nodes
@@ -174,6 +182,7 @@ pub(crate) async fn update(
     refuse_read_only(&mut tx, id).await?;
     let changed = store::update(&mut tx, id, &change).await?;
     if let Changed::Done(pipeline) = &changed {
+        check_links(&pipeline.fragment_links, &pipeline.nodes)?;
         let nodes = ids_of(&pipeline.nodes);
         if change.nodes.is_some() {
             store::keep_places(&mut tx, id, &nodes).await?;

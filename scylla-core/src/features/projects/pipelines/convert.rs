@@ -231,6 +231,11 @@ impl ToProto<pb::Pipeline> for Pipeline {
             archived_at: self.archived_at.map(parse::timestamp),
             removed_at: file.removed_at.map(parse::timestamp),
             file_error_count: file.errors,
+            fragment_links: self
+                .fragment_links
+                .into_iter()
+                .map(ToProto::to_proto)
+                .collect(),
         }
     }
 }

@@ -1,6 +1,6 @@
 //! The tests of tenancy: workspaces, their slugs, owners and deletion, invitations, roles, the
 //! list of the access, the permissions of a caller, the permission model, and the saved layouts
-//! of the dashboard.
+//! of the dashboard, and the library.
 
 mod access_lists;
 mod actor_kinds;
@@ -16,6 +16,9 @@ mod grants;
 mod hidden_instance_roles;
 mod invitation_races;
 mod invitations;
+mod library;
+mod library_access;
+mod library_origins;
 mod members;
 mod open_invitations;
 mod owners;

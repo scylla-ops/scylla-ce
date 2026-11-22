@@ -6,6 +6,7 @@ use crate::identity::apps::{App, AppHolder};
 use crate::projects::ProjectHolder;
 use crate::tenancy::dashboards::DashboardHolder;
 use crate::tenancy::grants::WorkspaceMembers;
+use crate::tenancy::library::FragmentHolder;
 use crate::tenancy::roles::RoleHolder;
 use crate::tenancy::workspaces::Workspace;
 
@@ -223,6 +224,45 @@ pub(super) const AREAS: &[Area] = &[
                     Route::of(DashboardHolder::UPDATE_DASHBOARD),
                     Route::of(DashboardHolder::DELETE_DASHBOARD),
                     Route::of(DashboardHolder::SET_TEAM_DEFAULT_DASHBOARD),
+                ],
+            },
+        ],
+    },
+    Area {
+        id: "library",
+        level: Level::Workspace,
+        machine: false,
+        permissions: &[
+            CatalogPermission {
+                id: "library.view",
+                action: "view",
+                depends_on: &["project.view"],
+                implicit: false,
+                routes: &[
+                    Route::of(FragmentHolder::LIST_FRAGMENTS),
+                    Route::of(FragmentHolder::GET_FRAGMENT),
+                    Route::of(FragmentHolder::SET_FRAGMENT_FAVORITE),
+                ],
+            },
+            CatalogPermission {
+                id: "library.create",
+                action: "create",
+                depends_on: &["library.view"],
+                implicit: false,
+                routes: &[Route::of(FragmentHolder::CREATE_FRAGMENT)],
+            },
+            CatalogPermission {
+                id: "library.manage",
+                action: "manage",
+                depends_on: &["library.view"],
+                implicit: false,
+                routes: &[
+                    Route::of(FragmentHolder::PUBLISH_FRAGMENT_VERSION),
+                    Route::of(FragmentHolder::DELETE_FRAGMENT),
+                    Route::of(FragmentHolder::ACCEPT_ORIGIN_VERSION),
+                    Route::of(FragmentHolder::SKIP_ORIGIN_VERSION),
+                    Route::of(FragmentHolder::DISMISS_ORIGIN_VERSION),
+                    Route::of(FragmentHolder::DETACH_ORIGIN),
                 ],
             },
         ],
