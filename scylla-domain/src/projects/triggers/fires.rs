@@ -54,6 +54,8 @@ pub enum FireStatus {
     Error,
     /// The server was down at the cron time, so the time did not fire: "time missed".
     Missed,
+    /// The delivery of a webhook did not match its conditions, so the fire made no job.
+    Skipped,
 }
 
 impl FireStatus {
@@ -63,12 +65,13 @@ impl FireStatus {
             Self::Ok => "ok",
             Self::Error => "error",
             Self::Missed => "missed",
+            Self::Skipped => "skipped",
         }
     }
 
     /// Reads the name of a result.
     pub fn parse(name: &str) -> Option<Self> {
-        [Self::Ok, Self::Error, Self::Missed]
+        [Self::Ok, Self::Error, Self::Missed, Self::Skipped]
             .into_iter()
             .find(|status| status.as_str() == name)
     }
@@ -95,7 +98,7 @@ pub struct TriggerFire {
     pub fired_at: Option<OffsetDateTime>,
     /// The result.
     pub status: FireStatus,
-    /// The reason of a fire that failed.
+    /// The reason of a fire that failed, or of a delivery that the conditions skipped.
     pub error: Option<String>,
     /// The job of the fire, while it exists.
     pub job_id: Option<JobId>,
@@ -148,6 +151,8 @@ pub struct FireFigures {
     pub failed: u32,
     /// The cron times that the server missed.
     pub missed: u32,
+    /// The deliveries of a webhook that did not match its conditions.
+    pub skipped: u32,
     /// The median delay of the fires of a schedule, from the cron time to the start.
     pub p50_delay: Option<Duration>,
     /// The 95th percentile of the same delays.

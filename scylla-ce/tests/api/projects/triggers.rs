@@ -1,6 +1,7 @@
 //! The tests of the triggers: the schedules, the inputs, the roles, a fire now, the public webhook
-//! route with its signature, its deliveries and its limits, and the Git triggers.
+//! route with its signature, its deliveries, its limits and its conditions, and the Git triggers.
 
+mod conditions;
 mod git;
 
 use hmac::{Hmac, KeyInit, Mac};

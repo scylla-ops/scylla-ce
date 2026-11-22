@@ -1,4 +1,4 @@
-//! A row of the `triggers` table and the JSON of the rules of a Git trigger.
+//! A row of the `triggers` table and the JSON of the rules of a Git or webhook trigger.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::projects::pipelines::PipelineId;
@@ -30,7 +30,7 @@ pub(super) struct Row {
     pub(super) kind: String,
     /// The schedule of a cron trigger.
     pub(super) schedule: Option<String>,
-    /// The rule of a Git trigger in JSON.
+    /// The rule of a Git trigger or the conditions of a webhook, in JSON.
     pub(super) rules: Option<Value>,
     /// The inputs in JSON.
     pub(super) inputs: Value,
@@ -58,6 +58,7 @@ impl Row {
         let inputs = inputs::read(self.inputs).ok_or_else(|| bad("inputs"))?;
         let last_result = match self.last_status.as_deref() {
             Some("ok") => Some(FireResult::Ok),
+            Some("skipped") => Some(FireResult::Skipped(self.last_error.unwrap_or_default())),
             Some(_) => Some(FireResult::Error(self.last_error.unwrap_or_default())),
             None => None,
         };
@@ -89,7 +90,7 @@ pub(super) fn kind_of(
 ) -> Option<TriggerKind> {
     match (kind, schedule, rules) {
         ("cron", Some(schedule), None) => Some(TriggerKind::Cron(schedule)),
-        ("webhook", None, None) => Some(TriggerKind::Webhook),
+        ("webhook", None, Some(rules)) => rule(rules).map(TriggerKind::Webhook),
         ("push", None, Some(rules)) => rule(rules).map(TriggerKind::Push),
         ("pull_request", None, Some(rules)) => rule(rules).map(TriggerKind::PullRequest),
         ("tag", None, Some(rules)) => rule(rules).map(TriggerKind::Tag),
@@ -97,18 +98,19 @@ pub(super) fn kind_of(
     }
 }
 
-/// Reads the rule of a Git trigger from its JSON, or `None` for bad data.
+/// Reads the rule of a Git or webhook trigger from its JSON, or `None` for bad data.
 fn rule<T: DeserializeOwned>(rules: Value) -> Option<T> {
     serde_json::from_value(rules).ok()
 }
 
-/// Returns the JSON of the rule of a Git trigger, or `None` for a cron or webhook trigger.
+/// Returns the JSON of the rule of a Git or webhook trigger, or `None` for a cron trigger.
 pub(super) fn rules_json(kind: &TriggerKind) -> Option<Value> {
     let rules = match kind {
+        TriggerKind::Webhook(rule) => serde_json::to_value(rule),
         TriggerKind::Push(rule) => serde_json::to_value(rule),
         TriggerKind::PullRequest(rule) => serde_json::to_value(rule),
         TriggerKind::Tag(rule) => serde_json::to_value(rule),
-        TriggerKind::Cron(_) | TriggerKind::Webhook => return None,
+        TriggerKind::Cron(_) => return None,
     };
     rules.ok()
 }

@@ -34,7 +34,7 @@ pub(crate) async fn create(
             schedule::check(text)?;
             (None, None)
         }
-        TriggerKind::Webhook => {
+        TriggerKind::Webhook(_) => {
             let sealer = sealer.ok_or_else(|| {
                 let message = "the server has no key for the secrets";
                 Error::Rejected(Rejection::new("SECRET_KEY_MISSING", message))
@@ -204,7 +204,7 @@ pub(crate) async fn git_rules(pool: &PgPool, pipeline: PipelineId) -> Result<Git
                 rules.pull_request = rules.pull_request.or(Some(rule));
             }
             TriggerKind::Tag(rule) => rules.tag = rules.tag.or(Some(rule)),
-            TriggerKind::Cron(_) | TriggerKind::Webhook => {}
+            TriggerKind::Cron(_) | TriggerKind::Webhook(_) => {}
         }
     }
     Ok(rules)

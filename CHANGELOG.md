@@ -296,6 +296,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   has the records of its user, and the deletion of the account deletes them.
 - A legal document keeps what changes in its version: a plain text of at most 2000 characters, with
   one change on each line. A longer text or a control character gives `INVALID_ARGUMENT`.
+- A webhook trigger can have conditions on a header or on a value of the body (a JSON pointer), with
+  is, matches (a glob) or is one of. A delivery that does not match all of them gets 200, starts no
+  job, and shows as skipped with the reason. A skipped fire is not a failure. `FireTriggerNow` does
+  not read the conditions.
 
 ### Removed
 

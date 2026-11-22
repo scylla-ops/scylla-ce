@@ -89,6 +89,7 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, fire: NewFire<'_>) -> Result<(), sql
     let (status, error) = match fire.result {
         FireResult::Ok => (FireStatus::Ok, None),
         FireResult::Error(reason) => (FireStatus::Error, Some(reason.as_str())),
+        FireResult::Skipped(reason) => (FireStatus::Skipped, Some(reason.as_str())),
     };
     sqlx::query!(
         "INSERT INTO trigger_fires (id, trigger_id, pipeline_id, project_id, workspace_id, source,

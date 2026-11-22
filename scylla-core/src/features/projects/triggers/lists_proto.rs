@@ -61,6 +61,7 @@ impl ToProto<pb::TriggerFire> for TriggerFire {
             FireStatus::Ok => pb::FireStatus::Ok,
             FireStatus::Error => pb::FireStatus::Error,
             FireStatus::Missed => pb::FireStatus::Missed,
+            FireStatus::Skipped => pb::FireStatus::Skipped,
         };
         pb::TriggerFire {
             id: Some(self.id.to_proto()),
@@ -112,6 +113,7 @@ impl ToProto<pb::TriggerFireFigures> for FireFigures {
             ok: self.ok,
             failed_fires: self.failed,
             missed_times: self.missed,
+            skipped: self.skipped,
             p50_delay: self.p50_delay.map(parse::duration),
             p95_delay: self.p95_delay.map(parse::duration),
         }

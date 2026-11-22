@@ -213,6 +213,7 @@ pub(crate) async fn record(
     let (status, error) = match result {
         FireResult::Ok => ("ok", None),
         FireResult::Error(reason) => ("error", Some(reason.as_str())),
+        FireResult::Skipped(reason) => ("skipped", Some(reason.as_str())),
     };
     sqlx::query!(
         "UPDATE triggers SET last_fired_at = now(), last_status = $2, last_error = $3 WHERE id = $1",

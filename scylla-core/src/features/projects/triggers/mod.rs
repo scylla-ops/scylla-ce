@@ -2,6 +2,7 @@
 //! `trigger_fires` tables, `TriggerService`, the public webhook route, and the loop of the cron
 //! schedules.
 
+mod conditions;
 mod convert;
 pub(crate) mod fire;
 mod grpc;

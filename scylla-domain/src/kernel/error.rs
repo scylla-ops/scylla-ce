@@ -101,6 +101,14 @@ pub enum DomainError {
     /// The text is not a JSON pointer.
     #[error("must be empty or start with /")]
     NotAPointer,
+    /// The text is not a JSON pointer into a body.
+    #[error("must start with /, for example /ref")]
+    NotABodyPointer,
+    /// The text is not the name of an HTTP header.
+    #[error(
+        "must be a header name of 1 to 256 characters with no space, for example X-GitHub-Event"
+    )]
+    NotAHeaderName,
     /// The path is not a relative path inside the work folder.
     #[error("must be a relative path with no .. part")]
     NotRelative,
