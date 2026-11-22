@@ -1,13 +1,16 @@
 //! The web app on the address of the server: the files of a folder, or the files in the binary. A
 //! path that is a file gives the file, and another path gives `index.html`, so the routes of the
-//! web app load in the browser.
+//! web app load in the browser. Each answer has the security headers of `policy`.
 
+mod policy;
+
+use std::fs;
 use std::path::Path;
 
 use axum::extract::Request;
 use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, IF_NONE_MATCH};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
-use axum::middleware::{from_fn, Next};
+use axum::middleware::{from_fn, from_fn_with_state, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get_service;
 use axum::Router;
@@ -15,27 +18,44 @@ use scylla_extension::WebFiles;
 use tower_http::compression::CompressionLayer;
 use tower_http::services::{ServeDir, ServeFile};
 
+use crate::features::integrations::IntegrationContext;
+
 /// The cache of a file in `assets/`: the build puts a hash in its name.
 const HASHED: &str = "public, max-age=31536000, immutable";
 /// The cache of a page: it names the hashed files, so the browser must ask again.
 const ASK_AGAIN: &str = "no-cache";
 
 /// Makes the service of the web app: the folder of the settings first, then the files of the
-/// binary. Returns nothing if there is no web app.
-pub(super) fn app(dir: Option<&Path>, files: Option<WebFiles>) -> Option<Router> {
-    let router = if let Some(dir) = dir {
+/// binary. Its security policy names the API and the Git providers of `vcs`. Returns nothing if
+/// there is no web app.
+pub(super) fn app(
+    dir: Option<&Path>,
+    files: Option<WebFiles>,
+    vcs: &IntegrationContext,
+) -> Option<Router> {
+    // Take the folder or the files of the binary, and read the page of the app.
+    let (router, index) = if let Some(dir) = dir {
         tracing::info!(dir = %dir.display(), "serving the web app of a folder");
         let index = ServeFile::new(dir.join("index.html"));
-        Router::new().fallback_service(get_service(ServeDir::new(dir).fallback(index)))
+        let router =
+            Router::new().fallback_service(get_service(ServeDir::new(dir).fallback(index)));
+        (router, fs::read(dir.join("index.html")).unwrap_or_default())
     } else if let Some(files) = files.filter(|files| files("index.html").is_some()) {
         tracing::info!("serving the web app of the binary");
-        Router::new().fallback(move |request: Request| async move { in_binary(files, &request) })
+        let index = files("index.html").map(|file| file.data.into_owned());
+        let router = Router::new()
+            .fallback(move |request: Request| async move { in_binary(files, &request) });
+        (router, index.unwrap_or_default())
     } else {
         tracing::warn!("this binary has no web app: serving the API only");
         return None;
     };
+
+    // Add the security headers, the cache, the compression and the answer to a gRPC call.
+    let headers = policy::Headers::new(&index, &vcs.urls.api_url, &vcs.settings);
     let router = router
         .layer(from_fn(cache))
+        .layer(from_fn_with_state(headers, policy::add))
         .layer(CompressionLayer::new())
         .layer(from_fn(answer_grpc));
     Some(router)

@@ -90,7 +90,7 @@ async fn callback(
     // Take the sign-in of the state, for this browser.
     let settings = &providers.ctx.settings;
     let clear = cookie::clear(cookie::FLOW, settings.secure_cookies());
-    let browser = cookie::read(cookies(&headers), cookie::FLOW);
+    let browser = cookie::read(cookies(&headers), cookie::FLOW, settings.secure_cookies());
     let flow = match providers
         .take_flow(query.state.as_deref(), browser.as_deref())
         .await
@@ -143,7 +143,8 @@ async fn callback(
 
 /// Returns the user of the session cookie, if it is valid.
 async fn signed_in(providers: &Providers, headers: &HeaderMap) -> Option<ActorId> {
-    let refresh = cookie::read(cookies(headers), cookie::SESSION)?;
+    let secure = providers.ctx.settings.secure_cookies();
+    let refresh = cookie::read(cookies(headers), cookie::SESSION, secure)?;
     sessions::user_of(&providers.ctx.pool, &refresh)
         .await
         .ok()

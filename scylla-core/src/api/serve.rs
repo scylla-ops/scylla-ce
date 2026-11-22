@@ -270,7 +270,7 @@ pub async fn serve(
         .merge(gateway);
 
     // Serve the web app for each other GET: the folder of the settings, or the files of the binary.
-    if let Some(app) = super::web::app(options.web_dir.as_deref(), edition.web_files()) {
+    if let Some(app) = super::web::app(options.web_dir.as_deref(), edition.web_files(), &vcs) {
         router = router.fallback_service(app);
     }
 

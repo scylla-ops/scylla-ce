@@ -23,13 +23,13 @@ fn with_files() -> Edition {
         .build()
 }
 
-/// Makes a folder of a built web app: `index.html` and one script.
+/// Makes a folder of a built web app: `index.html` with an inline script, and one script.
 fn web_dir() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("scylla-web-{}", uuid_like()));
     fs::create_dir_all(dir.join("assets")).unwrap();
     fs::write(
         dir.join("index.html"),
-        "<!doctype html><title>Scylla</title>",
+        "<!doctype html><script>theme()</script><title>Scylla</title>",
     )
     .unwrap();
     fs::write(dir.join("assets/app.js"), "console.log('scylla');").unwrap();
@@ -139,6 +139,42 @@ async fn the_web_app_of_the_binary_tells_its_cache(pool: PgPool) {
     assert_eq!(again.status().as_u16(), 304);
     assert_eq!(cache_of(&home, "cache-control"), "no-cache");
     assert_eq!(cache_of(&missing, "cache-control"), "no-cache");
+}
+
+/// Each answer of the web app has a security policy: the own origin, the inline script of the
+/// page by its hash, and the hosts of the avatars. The referrer is the origin for another site.
+#[sqlx::test(migrations = false)]
+async fn the_web_app_tells_its_security_policy(pool: PgPool) {
+    // given
+    let dir = web_dir();
+    let options = ServeOptions {
+        web_dir: Some(dir.clone()),
+        ..ServeOptions::default()
+    };
+    let app = TestApp::spawn_with(pool, scylla_ce::edition(), options).await;
+    let client = reqwest::Client::new();
+
+    // when
+    let mut answers = Vec::new();
+    for path in ["/", "/legal/cookies", "/assets/app.js"] {
+        let url = format!("http://{}{path}", app.addr);
+        answers.push(client.get(url).send().await.unwrap());
+    }
+
+    // then
+    let theme = "'sha256-Rfr3GgHZFiXm+TmNr+li+0sZ4J9FGllo8jsXcJF5XZ8='";
+    for answer in &answers {
+        let policy = answer.headers()["content-security-policy"]
+            .to_str()
+            .unwrap();
+        assert!(policy.starts_with("default-src 'self'; "), "{policy}");
+        assert!(policy.contains(&format!("script-src 'self' {theme};")));
+        assert!(policy.contains("https://avatars.githubusercontent.com"));
+        assert!(policy.contains("frame-ancestors 'self'"));
+        let referrer = &answer.headers()["referrer-policy"];
+        assert_eq!(referrer, "strict-origin-when-cross-origin");
+    }
+    fs::remove_dir_all(dir).unwrap();
 }
 
 /// A browser gets the files compressed.

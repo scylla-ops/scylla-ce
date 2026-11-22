@@ -372,3 +372,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   back to Scylla.
 - An edition can add a background task with `EditionBuilder::task`: the server runs it at its start,
   then at its period, and logs a failed run with the name of the task.
+- The web app answers have a `Content-Security-Policy` that allows only the own origin, the API and
+  the avatar hosts of GitHub, GitLab and Gravatar, and `Referrer-Policy:
+  strict-origin-when-cross-origin`. With HTTPS, the server cookies have the prefix `__Host-`
+  (`__Host-scylla_session`, `__Host-scylla_flow`, `__Host-scylla_pending`): after the update, a
+  person who is signed in must sign in again.
