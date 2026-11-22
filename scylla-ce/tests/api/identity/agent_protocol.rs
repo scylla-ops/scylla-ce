@@ -26,6 +26,7 @@ async fn open_stream_tells_the_protocol_and_the_compatibility(pool: PgPool) {
     let hello = Hello {
         host: Some(old_host),
         running_jobs: Vec::new(),
+        conditional_nodes: false,
     };
     let hello = OpenStreamRequest {
         message: Some(Up::Hello(hello)),

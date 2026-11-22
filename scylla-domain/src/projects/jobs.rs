@@ -29,7 +29,7 @@ use crate::identity::actors::ActorId;
 use crate::identity::apps::AppId;
 use crate::integrations::sources::JobSource;
 use crate::projects::pipeline_files::{CheckoutSettings, FileError};
-use crate::projects::pipelines::{Node, PipelineId, Runtime};
+use crate::projects::pipelines::{Node, PipelineId, PortName, Runtime, Step};
 use crate::projects::ProjectId;
 use crate::tenancy::workspaces::WorkspaceId;
 use crate::{Id, ResourceKind};
@@ -109,7 +109,7 @@ pub enum NodeStatus {
     Completed,
     /// The node failed after its last attempt.
     Failed,
-    /// The node did not run, because a node failed.
+    /// The node did not run: a node failed, or a need of the node did not open.
     Skipped,
     /// The job ended before the node ended.
     Cancelled,
@@ -260,6 +260,19 @@ pub fn needs_container(nodes: &[Node]) -> bool {
     nodes
         .iter()
         .any(|node| !matches!(node.runtime, Runtime::Process))
+}
+
+/// Returns `true` if one of the nodes is a switch or a merge, or has an `error` need: only an
+/// agent that runs the conditional nodes gets the job.
+pub fn needs_conditions(nodes: &[Node]) -> bool {
+    nodes.iter().any(|node| {
+        matches!(node.step, Step::Switch(_) | Step::Merge)
+            || node.needs.iter().any(|need| {
+                need.port
+                    .as_ref()
+                    .is_some_and(|port| port.as_str() == PortName::ERROR)
+            })
+    })
 }
 
 /// Keeps at most `MAX_ERROR` characters of an error text.

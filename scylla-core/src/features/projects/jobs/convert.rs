@@ -52,10 +52,12 @@ fn waiting_reason(job: &Job, registry: &Registry) -> Option<&'static str> {
     let only_checkout = Features {
         containers: false,
         checkout,
+        conditions: false,
     };
     let both = Features {
         containers,
         checkout,
+        conditions: false,
     };
     if checkout && !registry.can_serve(job.workspace_id, only_checkout) {
         Some(NO_AGENT_WITH_CHECKOUT)
@@ -206,6 +208,11 @@ fn run(run: NodeRun, nodes: &[Node]) -> pb::NodeRun {
         finished_at: run.finished_at.map(parse::timestamp),
         exit_code: run.exit_code,
         error: run.error.unwrap_or_default(),
+        ports: run
+            .ports
+            .iter()
+            .map(|port| port.as_str().to_owned())
+            .collect(),
     }
 }
 

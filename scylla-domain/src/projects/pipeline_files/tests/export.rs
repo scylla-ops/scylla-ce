@@ -4,7 +4,7 @@ use super::{read, TOML};
 use crate::projects::git_rules::{GitRules, PullRequestAction, PullRequestRule, PushRule, TagRule};
 use crate::projects::pipeline_files::{json_schema, CheckoutSettings, FileFormat, FilePipeline};
 use crate::projects::pipelines::{
-    EnvValue, EnvVar, Node, NodeId, Nodes, PipelineName, Runtime, Shell, Step,
+    EnvValue, EnvVar, Need, Node, NodeId, Nodes, PipelineName, Runtime, Shell, Step,
 };
 use crate::projects::secrets::SecretName;
 
@@ -18,7 +18,10 @@ fn node(id: &str, needs: &[&str]) -> Node {
         id: NodeId::parse(id.to_owned()).unwrap(),
         needs: needs
             .iter()
-            .map(|need| NodeId::parse((*need).to_owned()).unwrap())
+            .map(|need| Need {
+                node: NodeId::parse((*need).to_owned()).unwrap(),
+                port: None,
+            })
             .collect(),
         step: Step::Script {
             shell: Shell::Bash,

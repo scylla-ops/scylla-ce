@@ -5,7 +5,7 @@ use super::document::{ContainerFile, EnvEntry, EnvTable, NodeFile, PipelineFile,
 use super::{CheckoutSettings, FileKey, FilePipeline, VERSION};
 use crate::projects::git_rules::GitRules;
 use crate::projects::pipelines::{
-    EnvValue, EnvVar, Node, NodeId, Nodes, PipelineName, Runtime, Shell, Step,
+    EnvValue, EnvVar, Need, Node, NodeId, Nodes, PipelineName, Runtime, Shell, Step,
 };
 use crate::projects::secrets::SecretName;
 use crate::DomainError;
@@ -14,7 +14,8 @@ use crate::DomainError;
 pub(super) type Refusal = (String, String);
 
 impl PipelineFile {
-    /// Makes the document of a pipeline, for an export. A default value is not written.
+    /// Makes the document of a pipeline, for an export. A default value is not written. A file
+    /// has no switch, no merge and no port: the caller refuses a pipeline with them first.
     pub fn of(name: &str, nodes: &[Node], rules: &GitRules, checkout: &CheckoutSettings) -> Self {
         Self {
             version: VERSION,
@@ -56,7 +57,10 @@ pub(super) fn pipeline(file: PipelineFile, key: &FileKey) -> Result<FilePipeline
     }
     let nodes = if refusals.is_empty() {
         Nodes::parse(nodes)
-            .map_err(|error| refusals.push(refusal(&error.path, &error.error)))
+            .map_err(|error| {
+                let need = error.path.strip_suffix(".node").unwrap_or(&error.path);
+                refusals.push(refusal(need, &error.error));
+            })
             .ok()
     } else {
         None
@@ -88,7 +92,9 @@ fn node_of(node: NodeFile, at: &str) -> Result<Node, Refusal> {
         .into_iter()
         .enumerate()
         .map(|(index, need)| {
-            NodeId::parse(need).map_err(|error| refusal(&format!("{at}.needs[{index}]"), &error))
+            NodeId::parse(need)
+                .map(|node| Need { node, port: None })
+                .map_err(|error| refusal(&format!("{at}.needs[{index}]"), &error))
         })
         .collect::<Result<_, _>>()?;
 
@@ -164,6 +170,7 @@ fn node_file(node: &Node) -> NodeFile {
             };
             (None, Some(source.clone()), shell)
         }
+        Step::Switch(_) | Step::Merge => (None, None, None),
     };
     let env = node
         .env
@@ -183,7 +190,7 @@ fn node_file(node: &Node) -> NodeFile {
         needs: node
             .needs
             .iter()
-            .map(|need| need.as_str().to_owned())
+            .map(|need| need.node.as_str().to_owned())
             .collect(),
         exec,
         script,

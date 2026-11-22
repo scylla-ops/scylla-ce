@@ -58,6 +58,7 @@ impl Agent {
             attempt: 0,
             exit_code: Some(0),
             error: String::new(),
+            ports: Vec::new(),
         };
         let message = OpenStreamRequest {
             message: Some(Up::Event(event)),
@@ -81,17 +82,17 @@ pub(super) async fn agent(
         app.grant(&[PipelineHolder::RUNNER.of(workspace, key.actor())])
             .await;
     }
-    connect(app, key, &token, capacity, runtime).await
+    connect(app, key, &token, capacity, runtime, true).await
 }
 
-/// Opens the stream of a registered agent with a capacity and a container runtime, and waits for
-/// the welcome.
+/// Opens the stream of a registered agent with the values of its hello, and waits for the welcome.
 pub(super) async fn connect(
     app: &TestApp,
     key: TestKey,
     token: &str,
     capacity: u32,
     runtime: &str,
+    conditional_nodes: bool,
 ) -> Agent {
     let (up, mut down) = app.open_stream(token).await.unwrap();
     let host = Host {
@@ -112,6 +113,7 @@ pub(super) async fn connect(
         message: Some(Up::Hello(Hello {
             host: Some(host),
             running_jobs: Vec::new(),
+            conditional_nodes,
         })),
     };
     up.send(hello).await.unwrap();

@@ -106,6 +106,7 @@ impl RunAgent {
             attempt: 0,
             exit_code: Some(i32::from(failed)),
             error: if failed { "exit code 1" } else { "" }.to_owned(),
+            ports: Vec::new(),
         };
         self.send(Up::Event(event)).await;
     }
@@ -167,6 +168,7 @@ impl TestApp {
         let hello = Up::Hello(Hello {
             host: Some(host),
             running_jobs: Vec::new(),
+            conditional_nodes: true,
         });
         let message = OpenStreamRequest {
             message: Some(hello),

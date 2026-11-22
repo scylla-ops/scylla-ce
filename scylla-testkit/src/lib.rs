@@ -8,6 +8,7 @@ mod integrations;
 mod job_stats;
 mod logs;
 mod mail;
+mod nodes;
 mod notifications;
 mod pipeline_layouts;
 mod pipeline_summaries;
@@ -28,7 +29,7 @@ pub use integrations::{
 };
 pub use logs::Logs;
 pub use mail::Mailbox;
-pub use pipelines::exec_node;
+pub use nodes::{case, exec_node, literal, merge_node, output, rule, switch_node, var};
 pub use rpc::{id, text, with_token};
 pub use tenancy::{dashboard_widgets, Role, RoleInput};
 pub use triggers::{header_condition, literal_input, pointer_condition, pointer_input};

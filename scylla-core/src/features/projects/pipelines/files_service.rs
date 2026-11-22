@@ -5,6 +5,7 @@ use scylla_domain::identity::actors::ActorId;
 use scylla_domain::integrations::links::PipelineSource;
 use scylla_domain::integrations::reports::pipeline_key;
 use scylla_domain::integrations::sources::GitRef;
+use scylla_domain::projects::jobs::needs_conditions;
 use scylla_domain::projects::pipeline_files::{
     self, FileError, FileFormat, FilePipeline, FileRef, PipelineFile, Rejected, TreeEntry,
     MAX_BYTES,
@@ -120,7 +121,8 @@ pub(crate) async fn validate(
 
 /// Writes a pipeline as a file in a format, with the path of the file in the folder of the
 /// pipeline files. The key of the file comes from the name of the pipeline, and its `on` table
-/// from its enabled Git triggers.
+/// from its enabled Git triggers. A pipeline with conditional nodes gives `CONDITIONAL_NODES`:
+/// a file has no form for them.
 pub(crate) async fn export(
     pool: &PgPool,
     id: PipelineId,
@@ -132,6 +134,13 @@ pub(crate) async fn export(
         .await?
         .ok_or(Error::NotFound("pipeline"))?;
     tx.commit().await?;
+    if needs_conditions(&pipeline.nodes) {
+        let message = "a pipeline file has no switch, no merge and no error need";
+        return Err(Error::Rejected(Rejection::new(
+            "CONDITIONAL_NODES",
+            message,
+        )));
+    }
     let rules = triggers::git_rules(pool, id).await?;
 
     // Write its document in the format, and the path of its file.

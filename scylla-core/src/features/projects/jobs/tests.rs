@@ -15,7 +15,7 @@ use scylla_extension::Hooks;
 use sqlx::PgPool;
 
 use super::{housekeeping, runs, service};
-use crate::features::identity::agents::{Online, Registry};
+use crate::features::identity::agents::{Features, Online, Registry};
 use crate::features::identity::{accounts, apps};
 use crate::features::projects::service as projects;
 
@@ -135,7 +135,8 @@ async fn placed_job(pool: &PgPool, place: &Place) -> JobId {
     let job = service::create(pool, &Hooks::default(), &registry, place.user.clone(), new)
         .await
         .unwrap();
-    let claimed = runs::claim(pool, None, place.workspace, None, place.agent, false, false)
+    let features = Features::default();
+    let claimed = runs::claim(pool, None, place.workspace, None, place.agent, features)
         .await
         .unwrap()
         .unwrap();
@@ -166,6 +167,7 @@ async fn reap_releases_the_jobs_of_a_lost_agent(pool: PgPool) {
         version: "1.0.0".to_owned(),
         checkout_gap: None,
         containers: false,
+        conditions: false,
     };
     let _ticket = connected.open(place.agent, place.workspace, agent);
 

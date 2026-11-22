@@ -7,7 +7,7 @@ use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_proto::pipelines::v1::job_service_client::JobServiceClient;
 use scylla_proto::pipelines::v1::pipeline_service_client::PipelineServiceClient;
 use scylla_proto::pipelines::v1::{
-    node, CancelJobRequest, CreatePipelineRequest, DeleteJobRequest, DeletePipelineRequest, Exec,
+    CancelJobRequest, CreatePipelineRequest, DeleteJobRequest, DeletePipelineRequest,
     GetJobRequest, GetPipelineRequest, Job, ListPipelineJobsRequest, ListPipelineJobsResponse,
     ListProjectPipelinesRequest, ListProjectPipelinesResponse, ListWorkspaceJobsRequest,
     ListWorkspaceJobsResponse, ListWorkspacePipelinesRequest, ListWorkspacePipelinesResponse, Node,
@@ -19,22 +19,6 @@ use tonic::Status;
 
 use crate::rpc::page;
 use crate::{id, TestApp};
-
-/// Makes a node that runs a program, after its needs.
-pub fn exec_node(node_id: &str, needs: &[&str]) -> Node {
-    Node {
-        id: node_id.to_owned(),
-        needs: needs.iter().map(|need| (*need).to_owned()).collect(),
-        step: Some(node::Step::Exec(Exec {
-            argv: vec!["make".to_owned(), node_id.to_owned()],
-        })),
-        env: Vec::new(),
-        timeout_seconds: 0,
-        retries: 0,
-        working_dir: String::new(),
-        container: None,
-    }
-}
 
 impl TestApp {
     /// Returns a client of `PipelineService`.

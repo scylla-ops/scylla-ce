@@ -36,7 +36,7 @@ async fn an_agent_of_one_project_gets_only_its_jobs(pool: PgPool) {
         .unwrap();
 
     // when
-    let mut scoped = connect(&app, key, &token, 4, "").await;
+    let mut scoped = connect(&app, key, &token, 4, "", true).await;
     let given = scoped.dispatch().await;
     let more = scoped.next(Duration::from_millis(500)).await;
     let waiting = app.get_job(owner, &beta_job).await.unwrap();

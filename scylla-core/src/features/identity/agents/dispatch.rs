@@ -23,13 +23,18 @@ pub(super) fn dispatch(assignment: Assignment, checkout: Option<Checkout>) -> Do
             needs: node
                 .needs
                 .iter()
-                .map(|need| need.as_str().to_owned())
+                .map(|need| need.node.as_str().to_owned())
                 .collect(),
+            links: pipelines::needs(node.needs),
             step: Some(match node.step {
                 Step::Exec(argv) => pb::dispatch_node::Step::Exec(pipelines_pb::Exec { argv }),
                 Step::Script { shell, source } => {
                     pb::dispatch_node::Step::Script(pipelines::script(shell, source))
                 }
+                Step::Switch(definition) => {
+                    pb::dispatch_node::Step::Switch(pipelines::switch(definition))
+                }
+                Step::Merge => pb::dispatch_node::Step::Merge(pipelines_pb::Merge {}),
             }),
             env: env
                 .into_iter()

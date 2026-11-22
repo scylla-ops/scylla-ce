@@ -112,6 +112,7 @@ impl AgentsGrpc {
             capacity: 1,
             containers: false,
             checkout: false,
+            conditions: false,
             scope: RunScope::Nothing,
         };
         let inbound = request.into_inner();

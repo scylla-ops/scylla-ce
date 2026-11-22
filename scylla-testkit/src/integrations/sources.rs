@@ -172,6 +172,7 @@ impl TestApp {
         let hello = Up::Hello(Hello {
             host: Some(host),
             running_jobs: Vec::new(),
+            conditional_nodes: true,
         });
         let message = OpenStreamRequest {
             message: Some(hello),

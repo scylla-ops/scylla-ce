@@ -1,11 +1,14 @@
-//! The run of one job: the agent fetches its code, starts each node whose needs completed, at
-//! once, and stops the job at the first failure.
+//! The run of one job: the agent fetches its code, waits until each need of a node ended, then
+//! runs the node if its needs are open, else skips it. A failure that no `error` need takes stops
+//! the job.
+
+mod needs;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 
-use scylla_proto::agents::v1::{Dispatch, DispatchNode, EventKind};
+use scylla_proto::agents::v1::{dispatch_node, Dispatch, DispatchEnv, DispatchNode, EventKind};
 use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
@@ -13,19 +16,23 @@ use tokio::task::JoinSet;
 use super::checkout::{self, Failure, Git};
 use super::events::{self, Event, Outbox};
 use super::step::{self, NodeContext, Outcome};
+use super::switch;
 use crate::agent::Settings;
+use needs::{ended, errors, routed, runs};
 
 /// The state of a node in the run.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum State {
     /// The node waits for its needs.
     Pending,
     /// The node runs.
     Running,
-    /// The node completed.
-    Done,
-    /// The node failed, or stopped.
-    Ended,
+    /// The node completed, with the ports that a switch opened.
+    Completed(Vec<String>),
+    /// The node failed after its last attempt, with its error.
+    Failed(String),
+    /// The node did not run, or stopped.
+    Skipped,
 }
 
 /// Runs a job until its end, then deletes its work folder. A failed checkout fails the job before
@@ -111,24 +118,28 @@ async fn drive(
         .map(|node| (node.id.clone(), State::Pending))
         .collect();
     let mut running = JoinSet::new();
-    let (mut failure, mut cancelled) = (None, false);
+    let (mut failure, mut halting, mut cancelled) = (None, false, false);
     loop {
-        // Start each node whose needs completed, until a failure or a stop.
-        if failure.is_none() && !cancelled {
-            for node in &nodes {
-                let ready = states[&node.id] == State::Pending
-                    && node
-                        .needs
-                        .iter()
-                        .all(|need| states.get(need) == Some(&State::Done));
-                if ready {
-                    states.insert(node.id.clone(), State::Running);
-                    let (node, context, halted) = (node.clone(), context.clone(), halted.clone());
-                    running.spawn(async move {
-                        (node.id.clone(), step::node(&context, &node, halted).await)
-                    });
+        // Start or skip each node whose needs ended, until a halt or a stop.
+        while !halting && !cancelled {
+            let ready = nodes.iter().find(|node| {
+                states[&node.id] == State::Pending
+                    && node.links.iter().all(|need| ended(&states, need))
+            });
+            let Some(node) = ready else { break };
+            let state = match runs(node, &states) {
+                true => begin(context, node, &states, &mut running, &halted).await,
+                false => {
+                    skip(context, &node.id).await;
+                    State::Skipped
                 }
+            };
+            if let State::Failed(error) = &state {
+                failure.get_or_insert(format!("the node {} failed: {error}", node.id));
+                halting = true;
+                let _ = halt.send(true);
             }
+            states.insert(node.id.clone(), state);
         }
         if running.is_empty() {
             break;
@@ -139,17 +150,20 @@ async fn drive(
             ended = running.join_next() => {
                 let Some(Ok((id, outcome))) = ended else { continue };
                 let state = match outcome {
-                    Outcome::Completed => State::Done,
+                    Outcome::Completed => State::Completed(Vec::new()),
                     Outcome::Failed(error) => {
                         failure.get_or_insert(format!("the node {id} failed: {error}"));
-                        let _ = halt.send(true);
-                        State::Ended
+                        if !routed(&nodes, &id) {
+                            halting = true;
+                            let _ = halt.send(true);
+                        }
+                        State::Failed(error)
                     }
                     Outcome::Halted => {
                         if !cancelled {
                             skip(context, &id).await;
                         }
-                        State::Ended
+                        State::Skipped
                     }
                 };
                 states.insert(id, state);
@@ -161,8 +175,8 @@ async fn drive(
         }
     }
 
-    // Skip the nodes that did not start after a failure.
-    if failure.is_some() && !cancelled {
+    // Skip the nodes that did not start after a failure that stops the job.
+    if halting && !cancelled {
         for node in &nodes {
             if states[&node.id] == State::Pending {
                 skip(context, &node.id).await;
@@ -170,6 +184,43 @@ async fn drive(
         }
     }
     (failure, cancelled)
+}
+
+/// Starts a node: a switch and a merge end at once, and a run node starts in a task. A node with
+/// an open `error` need gets `SCYLLA_ERROR`. Returns the new state of the node.
+async fn begin(
+    context: &NodeContext,
+    node: &DispatchNode,
+    states: &HashMap<String, State>,
+    running: &mut JoinSet<(String, Outcome)>,
+    halted: &watch::Receiver<bool>,
+) -> State {
+    let mut node = node.clone();
+    if let Some(errors) = errors(&node, states) {
+        node.env.push(DispatchEnv {
+            name: "SCYLLA_ERROR".to_owned(),
+            value: errors,
+            masked: false,
+        });
+    }
+    match &node.step {
+        Some(dispatch_node::Step::Switch(definition)) => {
+            match switch::run(context, &node, definition).await {
+                Ok(ports) => State::Completed(ports),
+                Err(error) => State::Failed(error),
+            }
+        }
+        Some(dispatch_node::Step::Merge(_)) => {
+            switch::merge(context, &node.id).await;
+            State::Completed(Vec::new())
+        }
+        _ => {
+            let (context, halted) = (context.clone(), halted.clone());
+            running
+                .spawn(async move { (node.id.clone(), step::node(&context, &node, halted).await) });
+            State::Running
+        }
+    }
 }
 
 /// Sends the skip of a node.

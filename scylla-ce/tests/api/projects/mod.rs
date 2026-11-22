@@ -5,6 +5,7 @@
 mod attention;
 mod attention_access;
 mod cast;
+mod conditions;
 mod disabled;
 mod git_contract;
 mod held;
@@ -18,6 +19,7 @@ mod pipeline_layouts;
 mod pipeline_summaries;
 mod pipeline_summary_lists;
 mod pipelines;
+mod placement;
 mod runs;
 mod scopes;
 mod secret_access;

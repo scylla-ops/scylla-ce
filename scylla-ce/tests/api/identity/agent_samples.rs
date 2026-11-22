@@ -50,6 +50,7 @@ async fn the_welcome_gives_the_interval_of_the_samples(pool: PgPool) {
         message: Some(Up::Hello(Hello {
             host: Some(host()),
             running_jobs: Vec::new(),
+            conditional_nodes: true,
         })),
     };
 
@@ -138,6 +139,7 @@ async fn the_hello_records_the_start_of_the_agent(pool: PgPool) {
                 ..host()
             }),
             running_jobs: Vec::new(),
+            conditional_nodes: true,
         };
         let hello = OpenStreamRequest {
             message: Some(Up::Hello(hello)),

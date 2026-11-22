@@ -58,15 +58,19 @@ pub(crate) struct Online {
     pub(crate) checkout_gap: Option<Unfit>,
     /// `true` if the agent has a container runtime.
     pub(crate) containers: bool,
+    /// `true` if the agent runs the conditional nodes.
+    pub(crate) conditions: bool,
 }
 
-/// The features that a job needs from an agent.
+/// The features that a job needs from an agent, or that an agent has.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Features {
     /// `true` if the job needs a container runtime.
     pub(crate) containers: bool,
     /// `true` if the job needs the code before its first node.
     pub(crate) checkout: bool,
+    /// `true` if the job has a switch, a merge or an `error` need.
+    pub(crate) conditions: bool,
 }
 
 /// The ticket of an open stream: its number and its commands.
@@ -151,6 +155,7 @@ impl Registry {
             entry.workspace == workspace
                 && (entry.agent.containers || !needs.containers)
                 && (entry.agent.checkout_gap.is_none() || !needs.checkout)
+                && (entry.agent.conditions || !needs.conditions)
         })
     }
 

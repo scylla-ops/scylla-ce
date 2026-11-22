@@ -78,6 +78,7 @@ fn hello() -> OpenStreamRequest {
     let hello = Hello {
         host: Some(host),
         running_jobs: Vec::new(),
+        conditional_nodes: true,
     };
     OpenStreamRequest {
         message: Some(Up::Hello(hello)),

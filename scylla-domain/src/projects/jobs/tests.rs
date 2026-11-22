@@ -2,6 +2,7 @@
 
 mod approval;
 mod checkout;
+mod ports;
 
 use time::OffsetDateTime;
 
@@ -77,11 +78,13 @@ fn a_job_runs_to_completion() {
         JobEvent::NodeCompleted {
             node: id("build"),
             exit_code: Some(0),
+            ports: Vec::new(),
         },
         JobEvent::NodeStarted(id("test")),
         JobEvent::NodeCompleted {
             node: id("test"),
             exit_code: Some(0),
+            ports: Vec::new(),
         },
     ];
 
@@ -154,6 +157,7 @@ fn an_end_cancels_the_open_nodes() {
         &JobEvent::NodeCompleted {
             node: id("build"),
             exit_code: Some(0),
+            ports: Vec::new(),
         },
         now,
     )

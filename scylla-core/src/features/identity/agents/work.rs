@@ -6,7 +6,7 @@ use scylla_domain::identity::agents::{
     CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL, SAMPLE_INTERVAL,
 };
 use scylla_domain::projects::jobs::{JobEvent, JobId, LogLine, LogStream, RunScope};
-use scylla_domain::projects::pipelines::{NodeId, PipelineAccess, PipelineHolder};
+use scylla_domain::projects::pipelines::{NodeId, PipelineAccess, PipelineHolder, PortName};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::{AccessError, Gate, Principal};
 use scylla_proto::agents::v1 as pb;
@@ -17,6 +17,7 @@ use time::OffsetDateTime;
 use tonic::Status;
 
 use super::dispatch::dispatch;
+use super::registry::Features;
 use super::stream::{Outbox, Stream};
 use crate::api::parse::{self, ToProto};
 use crate::features::integrations::checkout;
@@ -110,14 +111,18 @@ pub(super) async fn fill(stream: &Stream, out: &Outbox) -> Result<bool, Status> 
 
     // Give a job with its secrets and its checkout while the agent has room.
     while runs::held(&stream.pool, stream.app).await? < stream.capacity {
+        let features = Features {
+            containers: stream.containers,
+            checkout: stream.checkout,
+            conditions: stream.conditions,
+        };
         let claimed = runs::claim(
             &stream.pool,
             sealer,
             workspace,
             projects,
             stream.app,
-            stream.containers,
-            stream.checkout,
+            features,
         );
         let Some(assignment) = claimed.await? else {
             break;
@@ -213,6 +218,12 @@ fn event_of(event: pb::JobEvent) -> Result<JobEvent, Status> {
         pb::EventKind::NodeCompleted => JobEvent::NodeCompleted {
             node: node()?,
             exit_code: event.exit_code,
+            ports: event
+                .ports
+                .iter()
+                .map(|port| PortName::parse(port.clone()))
+                .collect::<Result<_, _>>()
+                .map_err(|error| Status::invalid_argument(format!("event.ports {error}")))?,
         },
         pb::EventKind::NodeFailed => JobEvent::NodeFailed {
             node: node()?,

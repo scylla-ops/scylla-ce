@@ -1,8 +1,8 @@
 //! The nodes of a pipeline of the old product, read into the nodes of this base. The old
-//! product had no container: each node is a process.
+//! product had no container and no port: each node is a process, and each need has no port.
 
 use scylla_domain::projects::pipelines::{
-    EnvValue, EnvVar, Node, NodeId, Nodes, Runtime, Shell, Step,
+    EnvValue, EnvVar, Need, Node, NodeId, Nodes, Runtime, Shell, Step,
 };
 use scylla_domain::projects::secrets::SecretName;
 use serde::Deserialize;
@@ -117,7 +117,11 @@ fn node(old: OldNode) -> Result<Node, String> {
         .collect::<Result<_, String>>()?;
     Ok(Node {
         id: id(old.id)?,
-        needs: old.deps.into_iter().map(id).collect::<Result<_, _>>()?,
+        needs: old
+            .deps
+            .into_iter()
+            .map(|dep| id(dep).map(|node| Need { node, port: None }))
+            .collect::<Result<_, _>>()?,
         step,
         env,
         timeout_seconds: old.timeout_seconds.unwrap_or(0),

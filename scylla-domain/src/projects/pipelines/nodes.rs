@@ -1,6 +1,8 @@
-//! The nodes of a pipeline: a step (a command or a script), its environment, its limits and its
-//! runtime, and the checks of each value.
+//! The nodes of a pipeline: their needs, a step (a command, a script, a switch or a merge), its
+//! environment, its limits and its runtime, and the checks of each value.
 
+use super::needs::{Need, NodeId};
+use super::switch::{self, Switch};
 use crate::projects::secrets::SecretName;
 use crate::DomainError;
 
@@ -23,32 +25,6 @@ impl NodeError {
     }
 }
 
-/// The id of a node, unique in its pipeline: 1 to 128 lower case letters, digits, dashes or
-/// underscores.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct NodeId(String);
-
-impl NodeId {
-    /// The maximum number of characters.
-    pub const MAX_LEN: usize = 128;
-
-    /// Checks the form of an id.
-    pub fn parse(raw: String) -> Result<Self, DomainError> {
-        let allowed =
-            |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_');
-        if (1..=Self::MAX_LEN).contains(&raw.len()) && raw.chars().all(allowed) {
-            Ok(Self(raw))
-        } else {
-            Err(DomainError::NotANodeId)
-        }
-    }
-
-    /// Returns the id as text.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 /// The shell of a script.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shell {
@@ -58,7 +34,7 @@ pub enum Shell {
     Bash,
 }
 
-/// What a node runs.
+/// What a node does. A command and a script make a run node.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Step {
     /// A program and its arguments, with no shell.
@@ -70,6 +46,17 @@ pub enum Step {
         /// The text of the script.
         source: String,
     },
+    /// A switch, with no process.
+    Switch(Switch),
+    /// A merge, with no process.
+    Merge,
+}
+
+impl Step {
+    /// Returns `true` for a step with a process: a command or a script.
+    pub fn runs(&self) -> bool {
+        matches!(self, Self::Exec(_) | Self::Script { .. })
+    }
 }
 
 /// The value of an environment variable.
@@ -107,9 +94,9 @@ pub enum Runtime {
 pub struct Node {
     /// The id, unique in the pipeline.
     pub id: NodeId,
-    /// The nodes that must complete before this node starts.
-    pub needs: Vec<NodeId>,
-    /// What the node runs.
+    /// The needs: the node waits until each ended, then runs if they are open.
+    pub needs: Vec<Need>,
+    /// What the node does.
     pub step: Step,
     /// The environment of the step.
     pub env: Vec<EnvVar>,
@@ -161,6 +148,11 @@ impl Node {
                     return Err(NodeError::at(format!("{at}.script"), error));
                 }
             }
+            Step::Switch(switch) => switch.check(&format!("{at}.switch"))?,
+            Step::Merge => {}
+        }
+        if !self.step.runs() {
+            switch::check_flow(&self, at)?;
         }
 
         // Check the environment: the count, the names and the values.
@@ -220,7 +212,7 @@ impl Node {
 }
 
 /// Checks a text of a node: at most `Node::MAX_TEXT` bytes, and no NUL character.
-fn text(value: &str, path: String) -> Result<(), NodeError> {
+pub(super) fn text(value: &str, path: String) -> Result<(), NodeError> {
     if value.len() > Node::MAX_TEXT {
         return Err(NodeError::at(
             path,
@@ -235,8 +227,18 @@ fn text(value: &str, path: String) -> Result<(), NodeError> {
     Ok(())
 }
 
-/// Checks the name of an environment variable.
+/// Checks the name of an environment variable that a node sets: the form, and no `SCYLLA_`.
 pub fn env_name(name: &str) -> Result<(), DomainError> {
+    var_name(name)?;
+    if name.to_ascii_uppercase().starts_with("SCYLLA_") {
+        return Err(DomainError::ReservedName);
+    }
+    Ok(())
+}
+
+/// Checks the form of the name of a variable: a letter or an underscore, then letters, digits or
+/// underscores, at most 256 bytes.
+pub(super) fn var_name(name: &str) -> Result<(), DomainError> {
     let mut chars = name.chars();
     let first = chars.next().ok_or(DomainError::Empty)?;
     let valid = (first.is_ascii_alphabetic() || first == '_')
@@ -244,9 +246,6 @@ pub fn env_name(name: &str) -> Result<(), DomainError> {
         && name.len() <= 256;
     if !valid {
         return Err(DomainError::NotAnEnvName);
-    }
-    if name.to_ascii_uppercase().starts_with("SCYLLA_") {
-        return Err(DomainError::ReservedName);
     }
     Ok(())
 }

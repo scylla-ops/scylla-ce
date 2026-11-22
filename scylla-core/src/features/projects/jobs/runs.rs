@@ -15,6 +15,7 @@ use sqlx::PgPool;
 use super::changed;
 use super::env::{self, ResolvedEnv};
 use super::store::{holds, jobs, logs};
+use crate::features::identity::agents::Features;
 use crate::infra::secret::Sealer;
 use crate::Error;
 
@@ -58,21 +59,20 @@ pub(crate) async fn held_counts(
 }
 
 /// Gives the oldest pending job of a workspace to an agent, with the values of its secrets: of
-/// each project, or of `projects` only. A job with a checkout goes only to an agent with
-/// `checkout`. A job whose secrets do not open fails with the reason, and the next job comes.
+/// each project, or of `projects` only, that needs no feature that the agent does not have. A job
+/// whose secrets do not open fails with the reason, and the next job comes.
 pub(crate) async fn claim(
     pool: &PgPool,
     sealer: Option<&Sealer>,
     workspace: WorkspaceId,
     projects: Option<&[ProjectId]>,
     agent: AppId,
-    containers: bool,
-    checkout: bool,
+    features: Features,
 ) -> Result<Option<Assignment>, Error> {
     loop {
         // Take the oldest free job.
         let mut tx = pool.begin().await?;
-        let job = jobs::claim(&mut tx, workspace, projects, agent, containers, checkout).await?;
+        let job = jobs::claim(&mut tx, workspace, projects, agent, features).await?;
         if let Some(job) = &job {
             changed::job_changed(&mut tx, job).await?;
         }

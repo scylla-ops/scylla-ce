@@ -63,6 +63,8 @@ pub(super) struct Stream {
     pub(super) containers: bool,
     /// `true` if the agent gets the code of a job before its first node.
     pub(super) checkout: bool,
+    /// `true` if the agent runs the conditional nodes, from the hello.
+    pub(super) conditions: bool,
     /// The jobs that the agent may take, from its roles `runner`.
     pub(super) scope: RunScope,
 }
@@ -142,6 +144,7 @@ impl Stream {
         self.capacity = host.capacity as usize;
         self.containers = host.container_runtime.is_some();
         self.checkout = host.can_check_out();
+        self.conditions = hello.conditional_nodes;
         self.scope = self.run_scope().await;
 
         // Welcome the agent, then stop the jobs that it must not run.
@@ -154,6 +157,7 @@ impl Stream {
             version: host.version.clone(),
             checkout_gap: host.checkout_gap(),
             containers: self.containers,
+            conditions: self.conditions,
         };
         Ok((app.workspace_id, agent))
     }

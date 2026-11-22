@@ -1,5 +1,5 @@
 //! The jobs of the agent: the set of the running jobs, the checkout of their code, the order of
-//! their nodes, the attempts of each node, and their output.
+//! their nodes, the attempts of each node, the switches, and their output.
 
 mod checkout;
 mod command;
@@ -9,6 +9,7 @@ mod output;
 mod process;
 mod set;
 mod step;
+mod switch;
 
 pub(crate) use checkout::{features, Git};
 pub(crate) use events::Outbox;
