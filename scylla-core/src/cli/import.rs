@@ -65,8 +65,16 @@ pub(super) async fn import(
             name: "SCYLLA_OLD_SECRET_KEY",
             reason,
         })?;
-    let report =
-        import::import(&old, &pool, &access, sealer.as_deref(), old_sealer.as_ref()).await?;
+    let hooks = edition.hooks();
+    let report = import::import(
+        &old,
+        &pool,
+        &access,
+        &hooks,
+        sealer.as_deref(),
+        old_sealer.as_ref(),
+    )
+    .await?;
     print!("{report}");
     Ok(())
 }

@@ -1,61 +1,30 @@
 //! The tests of the one-off import of the old product, against its real schema.
 
 use argon2::{Argon2, PasswordHasher};
-use scylla_core::features::platform::import;
-use scylla_core::infra::secret::Sealer;
 use scylla_domain::projects::{Project, ProjectId};
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
+use scylla_testkit::Legacy;
 use sqlx::postgres::PgPool;
-use sqlx::{AssertSqlSafe, Executor};
 
 use crate::app;
-
-/// The schema of the old product, with its built-in roles.
-const SCHEMA: &str = include_str!("fixtures/legacy_schema.sql");
-
-/// The key of the secrets of the old product in the test.
-const OLD_KEY: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 
 /// The password of the old users.
 const PASSWORD: &str = "correct horse battery";
 
-/// Makes a database of the old product next to the test database, with some rows.
-async fn legacy(pool: &PgPool) -> (PgPool, String) {
-    // Create the database and its schema.
-    let name = format!(
-        "legacy_{}",
-        scylla_domain::identity::actors::ActorId::generate()
-            .to_db()
-            .simple()
-    );
-    pool.execute(AssertSqlSafe(format!("CREATE DATABASE {name}")))
-        .await
-        .unwrap();
-    let options = (*pool.connect_options()).clone().database(&name);
-    let old = PgPool::connect_with(options).await.unwrap();
-    sqlx::raw_sql(SCHEMA).execute(&old).await.unwrap();
-
-    // Add the rows: three users, two organizations, a project, a secret, two pipelines.
+/// Makes a database of the old product next to the test database, with some rows and a real
+/// hash of `PASSWORD` for each user.
+async fn legacy(pool: &PgPool) -> Legacy {
+    let legacy = Legacy::create(pool).await;
     let hash = Argon2::default()
         .hash_password(PASSWORD.as_bytes())
         .unwrap()
         .to_string();
-    let sealed = Sealer::from_hex(OLD_KEY).unwrap().seal("s3cr3t");
-    sqlx::raw_sql(include_str!("fixtures/legacy_rows.sql"))
-        .execute(&old)
-        .await
-        .unwrap();
     sqlx::query("UPDATE users SET password_hash = $1")
         .bind(hash)
-        .execute(&old)
+        .execute(&legacy.pool)
         .await
         .unwrap();
-    sqlx::query("UPDATE project_secrets SET encrypted_value = $1")
-        .bind(sealed)
-        .execute(&old)
-        .await
-        .unwrap();
-    (old, name)
+    legacy
 }
 
 /// The id in this base of an old ULID of the test.
@@ -74,27 +43,11 @@ fn id_of(ulid: &str) -> uuid::Uuid {
 async fn import_moves_the_old_product(pool: PgPool) {
     // given
     let app = app(pool.clone()).await;
-    let (old, name) = legacy(&pool).await;
-    let old_sealer = Sealer::from_hex(OLD_KEY).unwrap();
+    let legacy = legacy(&pool).await;
 
     // when
-    let report = import::import(
-        &old,
-        &app.pool,
-        app.access.as_ref(),
-        app.sealer.as_deref(),
-        Some(&old_sealer),
-    )
-    .await
-    .unwrap();
-    let again = import::import(
-        &old,
-        &app.pool,
-        app.access.as_ref(),
-        app.sealer.as_deref(),
-        Some(&old_sealer),
-    )
-    .await;
+    let report = legacy.import_into(&app).await.unwrap();
+    let again = legacy.import_into(&app).await;
 
     // then
     assert_eq!(
@@ -173,8 +126,5 @@ async fn import_moves_the_old_product(pool: PgPool) {
     assert_eq!(needs, vec![("build", "")]);
     assert_eq!(pipeline.nodes[1].working_dir, "site");
 
-    old.close().await;
-    pool.execute(AssertSqlSafe(format!("DROP DATABASE {name} WITH (FORCE)")))
-        .await
-        .unwrap();
+    legacy.delete(&pool).await;
 }

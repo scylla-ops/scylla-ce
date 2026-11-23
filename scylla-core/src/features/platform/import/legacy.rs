@@ -103,6 +103,16 @@ pub(super) struct Legacy {
     pub(super) pipelines: Vec<OldPipeline>,
 }
 
+impl Legacy {
+    /// Returns the user name of an old user id, or the id for an unknown user.
+    pub(super) fn username<'l>(&'l self, id: &'l str) -> &'l str {
+        self.users
+            .iter()
+            .find(|user| user.id == id)
+            .map_or(id, |user| user.username.as_str())
+    }
+}
+
 /// Reads the rows of the old database.
 pub(super) async fn read(pool: &PgPool) -> Result<Legacy, Error> {
     let users = sqlx::query_as::<_, (String, String, String, bool, Option<String>, Option<String>)>(

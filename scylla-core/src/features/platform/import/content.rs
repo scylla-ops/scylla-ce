@@ -7,7 +7,7 @@ use scylla_domain::projects::{Project, ProjectDescription, ProjectId};
 use scylla_domain::Name;
 
 use super::legacy::Legacy;
-use super::service::Run;
+use super::service::{Member, Run};
 use super::{ids, nodes};
 use crate::features::projects::pipelines::json;
 use crate::Error;
@@ -50,7 +50,7 @@ async fn projects(run: &mut Run<'_>, legacy: &Legacy) -> Result<(), Error> {
         run.projects.insert(old.id.clone(), (id, workspace, author));
         run.report.projects += 1;
 
-        // Keep the roles of the users on the project.
+        // Give the roles of the users on the project, after the hooks of a new member.
         for grant in legacy.grants.iter().filter(|grant| {
             grant.scope_kind == "project"
                 && grant.scope_id == old.id
@@ -65,7 +65,15 @@ async fn projects(run: &mut Run<'_>, legacy: &Legacy) -> Result<(), Error> {
                 (Some("project-viewer"), _) => Project::VIEWER.of(id, user),
                 _ => continue,
             };
-            run.roles.push(role);
+            let username = legacy.username(&grant.principal_id);
+            let member = Member {
+                workspace,
+                by: author,
+                user,
+                role: Some(role),
+                about: format!("{username} in project {}", old.name),
+            };
+            run.join(member).await?;
         }
     }
     Ok(())

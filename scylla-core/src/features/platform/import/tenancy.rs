@@ -8,7 +8,7 @@ use scylla_domain::tenancy::workspaces::{NewSlug, NewWorkspace, Workspace, Works
 use scylla_domain::Name;
 
 use super::legacy::{Legacy, OldGrant};
-use super::service::Run;
+use super::service::{Member, Run};
 use crate::features::tenancy::workspaces;
 use crate::Error;
 
@@ -45,7 +45,7 @@ fn place(grant: &OldGrant) -> Option<Place> {
 pub(super) async fn import(run: &mut Run<'_>, legacy: &Legacy) -> Result<(), Error> {
     for org in &legacy.organizations {
         // Find the users of the organization and their places, the owners first.
-        let mut members: Vec<(ActorId, Place)> = Vec::new();
+        let mut members: Vec<(ActorId, Place, &str)> = Vec::new();
         for grant in legacy
             .grants
             .iter()
@@ -55,21 +55,21 @@ pub(super) async fn import(run: &mut Run<'_>, legacy: &Legacy) -> Result<(), Err
             else {
                 continue;
             };
-            if !members.iter().any(|(known, _)| known == user) {
-                members.push((*user, place));
+            if !members.iter().any(|(known, _, _)| known == user) {
+                members.push((*user, place, legacy.username(&grant.principal_id)));
             }
         }
-        members.sort_by_key(|(_, place)| *place != Place::Owner);
+        members.sort_by_key(|(_, place, _)| *place != Place::Owner);
 
         // Refuse an organization with no user: a workspace needs an owner.
-        let Some((creator, _)) = members.first().copied() else {
+        let Some((creator, _, _)) = members.first().copied() else {
             run.report
                 .skipped
                 .push(format!("organization {}: no user to own it", org.name));
             continue;
         };
 
-        // Create the workspace with its owners.
+        // Create the workspace with its creator as its first owner.
         let name = Name::parse(org.name.clone())
             .or_else(|_| Name::parse("Workspace".to_owned()))
             .expect("a valid name");
@@ -80,22 +80,22 @@ pub(super) async fn import(run: &mut Run<'_>, legacy: &Legacy) -> Result<(), Err
         };
         let mut tx = run.pool.begin().await?;
         let workspace = workspaces::insert(&mut tx, &new).await?;
-        for (user, place) in &members {
-            if *place == Place::Owner {
-                workspaces::add_owner(&mut tx, workspace.id, *user).await?;
-            }
-        }
         tx.commit().await?;
-
-        // Keep the other places as roles, to write after the rows.
-        for (user, place) in &members {
-            if let Some(role) = role(workspace.id, *user, *place) {
-                run.roles.push(role);
-            }
-        }
         run.workspaces
             .insert(org.id.clone(), (workspace.id, creator));
         run.report.workspaces += 1;
+
+        // Add the other owners and the other places, after the hooks of a new member.
+        for (user, place, username) in members.into_iter().skip(1) {
+            let member = Member {
+                workspace: workspace.id,
+                by: creator,
+                user,
+                role: role(workspace.id, user, place),
+                about: format!("{username} in organization {}", org.name),
+            };
+            run.join(member).await?;
+        }
     }
     Ok(())
 }
