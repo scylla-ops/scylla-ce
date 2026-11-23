@@ -245,7 +245,7 @@ One time, into a base with migrations and no user:
 SCYLLA_IMPORT_FROM=postgres://user:password@old-host/scylla SCYLLA_OLD_SECRET_KEY=<old master_key> scylla-ce import
 ```
 
-The command prints what it imported and each row that it left, with the reason. The users sign in with their old passwords; their sessions do not come over. The Apps, the agents, the jobs, the logs and the triggers do not come over: an agent joins again with a new key pair.
+The command prints what it imported and each row that it left, with the reason. Each owner and each role runs the hooks of a new member, so an edition with a member limit can leave a role out. The users sign in with their old passwords; their sessions do not come over. The Apps, the agents, the jobs, the logs and the triggers do not come over: an agent joins again with a new key pair.
 
 ## Tests
 
@@ -270,7 +270,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | A container step of the agent: the settings of the runtime stay out of the job, and a container empties a work folder that the agent cannot delete | `scylla-agent/tests/containers.rs` |
 | The checkout of the agent against a local bare repository: the commit at depth 1 with a new and an old git, the ref of a pull request, a ref that is not at the commit, no header in `.git/config`, the header masked in the logs, a failed checkout that starts no node, the feature `checkout` in the hello. The version of git, and no header in the arguments of git 2.31 or newer | `scylla-agent/src/jobs/checkout/tests.rs`, `scylla-agent/src/jobs/checkout/git.rs` |
 | The real path of an agent on a real machine for each system: install, connected, a job with its log, update, uninstall, both Docker commands | `.github/workflows/agent-install.yml`, `scripts/agent-install-test.sh` |
-| Import of the old product: its real schema, the users and their passwords, a disabled user, a user with no email, the workspaces and their owners, the roles, the project ids, the secrets sealed again, the pipelines and a pipeline with a cycle, a second import | `scylla-ce/tests/api/platform/import.rs` |
+| Import of the old product: its real schema (`scylla-testkit/src/platform/fixtures/`), the users and their passwords, a disabled user, a user with no email, the workspaces and their owners, the roles, the project ids, the secrets sealed again, the pipelines and a pipeline with a cycle, a second import | `scylla-ce/tests/api/platform/import.rs` |
 | Web app: a file, a route of the web app gives `index.html`, the API on the same address, the files in the binary and a folder that comes first, the cache, the security policy and the referrer policy, the compression, an unknown gRPC call | `scylla-ce/tests/api/platform/web.rs` |
 | The content security policy of the web app: the hash of an inline script, the API, the hosts of the avatars of github.com, of a GitHub Enterprise and of the GitLab of the settings | `scylla-core/src/api/web/policy.rs` |
 | The open items of the dashboard: the jobs and the fires until a later good run, the agents that are not connected, the approvals, the kinds of each role, the new items, the pages, the bad requests | `scylla-ce/tests/api/projects/attention.rs`, `attention_access.rs` |
@@ -323,6 +323,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Schema of the parts, typed values | `scylla-domain/src/authz/tests.rs` |
 | `authz!`: schema text, checks of the names, errors | `scylla-macros/src/tests.rs` |
 | Hook rollback, order and kind filter | `scylla-core/src/features/projects/tests.rs` |
+| The released migrations do not change (`scylla-core/migrations.lock`), and no migration has a CR | `scylla-core/src/infra/db.rs` |
 | The value of a secret opens only with the id of its secret, and the database has no value in clear | `scylla-core/src/features/projects/secrets/tests.rs` |
 | Config and command line, the guard against the public dev keys | `scylla-core/src/config.rs`, `scylla-core/src/cli/commands.rs`, `scylla-core/src/infra/dev_keys.rs` |
 | Git providers: the settings and all or none of the GitHub App, the claims and the expiry of the JWT of the App, the cache and the scope of the installation tokens, the limits in the headers, the link of the next page, no call to another host, the GitHub and GitLab signatures (good, bad, old) | `scylla-core/src/infra/vcs/tests/` |

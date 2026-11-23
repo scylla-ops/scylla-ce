@@ -221,8 +221,9 @@ test_windows() {
   until_true "the service stays" 15 service_gone
 }
 
+# Git Bash changes an argument that starts with / into a path, so the switches of schtasks need MSYS_NO_PATHCONV.
 user_task() {
-  schtasks.exe /query /tn "ScyllaAgent-$USERNAME" >/dev/null 2>&1
+  MSYS_NO_PATHCONV=1 schtasks.exe /query /tn "ScyllaAgent-$USERNAME" >/dev/null 2>&1
 }
 
 # The runner is an administrator, so -CurrentUser gives the install of a user with no admin rights.

@@ -28,6 +28,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - The Rust dependencies are at their latest versions: `croner` 4.0.3, `syn` 3.0.10, `uuid` 1.29.2,
   and the latest patch versions in `Cargo.lock`. A cron schedule with `7L` (the last Sunday of the
   month) now fires.
+- The database schema only grows from v0.7.0: a schema change is a new migration, and a released
+  migration never changes. Thus an upgrade keeps the data, with no reset.
+  `scylla-core/migrations.lock` holds the checksum of each released migration, and a test fails when
+  a released migration changes or goes, or when a migration has a CR. The SpiceDB schema also only
+  grows.
 
 ### Added
 

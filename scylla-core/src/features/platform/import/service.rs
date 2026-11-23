@@ -4,13 +4,16 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use scylla_domain::authz::Relationship;
-use scylla_domain::identity::actors::ActorId;
+use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::identity::users as user_kind;
 use scylla_domain::projects::ProjectId;
+use scylla_domain::tenancy::grants::{MEMBER_KIND, OWNER};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_extension::{Gate, Rejection};
+use scylla_extension::{CreateContext, Gate, HookError, Hooks, Rejection};
 use sqlx::PgPool;
 
 use super::{content, legacy, tenancy, users};
+use crate::features::tenancy::workspaces;
 use crate::infra::secret::Sealer;
 use crate::Error;
 
@@ -56,6 +59,8 @@ impl fmt::Display for Report {
 pub(super) struct Run<'a> {
     /// The database of this base.
     pub(super) pool: &'a PgPool,
+    /// The hooks of the edition.
+    pub(super) hooks: &'a Hooks,
     /// The key of the secrets of this base.
     pub(super) sealer: Option<&'a Sealer>,
     /// The key of the secrets of the old product.
@@ -74,12 +79,70 @@ pub(super) struct Run<'a> {
     pub(super) report: Report,
 }
 
+/// A user that the import adds to a workspace, as an owner or with a role.
+pub(super) struct Member {
+    /// The workspace.
+    pub(super) workspace: WorkspaceId,
+    /// The author of the workspace: the actor of the hooks.
+    pub(super) by: ActorId,
+    /// The user.
+    pub(super) user: ActorId,
+    /// The role in the workspace or on one of its objects, or `None` for an owner.
+    pub(super) role: Option<Relationship>,
+    /// The user and the place in the report, for example `bob in organization Acme`.
+    pub(super) about: String,
+}
+
+impl Run<'_> {
+    /// Adds a user to a workspace after the hooks of a new member, as `Grant` does: an owner in
+    /// the transaction of the hooks, a role in the roles to write after the rows. A member that
+    /// a hook refuses stays out, and the report names it.
+    pub(super) async fn join(&mut self, member: Member) -> Result<(), Error> {
+        // Run the hooks of a new member.
+        let (object, name) = match &member.role {
+            Some(role) => (Some(role.object().to_string()), role.relation()),
+            None => (None, OWNER),
+        };
+        let actor = Actor {
+            id: member.by,
+            kind: user_kind::KIND,
+        };
+        let hook = CreateContext::new(MEMBER_KIND, actor, member.workspace).with_member(
+            member.user,
+            object,
+            name,
+        );
+        let mut tx = self.pool.begin().await?;
+        match self.hooks.before_create(&mut tx, &hook).await {
+            Ok(()) => {}
+            Err(HookError::Rejected(refusal)) => {
+                let line = format!("role {name} of {}: {}", member.about, refusal.message);
+                self.report.skipped.push(line);
+                return Ok(());
+            }
+            Err(error) => return Err(error.into()),
+        }
+
+        // Add an owner, or keep the role to write after the rows.
+        match member.role {
+            Some(role) => self.roles.push(role),
+            None => {
+                workspaces::add_owner(&mut tx, member.workspace, member.user).await?;
+            }
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+}
+
 /// Imports the rows of the old database into this base, which must have no user, then writes
-/// the roles. A row that does not fit is left and named in the report.
+/// the roles. Each owner and each role runs the hooks of a new member first. A row that does not
+/// fit is left and named in the report.
 pub async fn import(
     old: &PgPool,
     pool: &PgPool,
     gate: &dyn Gate,
+    hooks: &Hooks,
     sealer: Option<&Sealer>,
     old_sealer: Option<&Sealer>,
 ) -> Result<Report, Error> {
@@ -99,6 +162,7 @@ pub async fn import(
     let legacy = legacy::read(old).await?;
     let mut run = Run {
         pool,
+        hooks,
         sealer,
         old_sealer,
         users: HashMap::new(),
