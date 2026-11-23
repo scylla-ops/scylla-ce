@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE pipelines\n         SET name = coalesce($3, name), nodes = coalesce($4, nodes),\n             checkout = coalesce($5, checkout), version = version + 1, updated_at = now()\n         WHERE id = $1 AND version = $2\n         RETURNING id",
+  "query": "INSERT INTO pipelines\n             (id, project_id, workspace_id, created_by, name, nodes, checkout, fragment_links)\n         SELECT $1, p.id, p.workspace_id, $3, $4, $5, $6, $7 FROM projects p WHERE p.id = $2\n         RETURNING id",
   "describe": {
     "columns": [
       {
@@ -18,8 +18,10 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Int8",
+        "Uuid",
+        "Uuid",
         "Text",
+        "Jsonb",
         "Jsonb",
         "Jsonb"
       ]
@@ -28,5 +30,5 @@
       false
     ]
   },
-  "hash": "da0f084c71ca5dd7d2a1d00a230fe15293e808bd6980c8a7447fa1cae2d46cc7"
+  "hash": "d1e1c597517e641fcbcf90642921172e0064b1677e569eb9d53ec79fb51c240f"
 }

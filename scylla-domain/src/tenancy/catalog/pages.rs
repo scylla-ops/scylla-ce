@@ -14,6 +14,7 @@ use crate::projects::triggers::TriggerAccess;
 use crate::projects::{Project, ProjectHolder};
 use crate::tenancy::dashboards::DashboardHolder;
 use crate::tenancy::grants::{ProjectMembers, WorkspaceMembers};
+use crate::tenancy::library::FragmentHolder;
 use crate::tenancy::roles::{RoleAdmin, RoleHolder};
 use crate::tenancy::workspaces::Workspace;
 
@@ -91,6 +92,19 @@ const PAGES: &[Page] = &[
         name: "the new project of the projects page",
         opens: Route::of(ProjectHolder::CREATE_PROJECT),
         needs: &[Route::of(ProjectHolder::LIST_PROJECTS)],
+    },
+    Page {
+        name: "the library of the workspace and the page of a fragment",
+        opens: Route::of(FragmentHolder::LIST_FRAGMENTS),
+        needs: &[
+            Route::of(FragmentHolder::GET_FRAGMENT),
+            Route::of(FragmentHolder::SET_FRAGMENT_FAVORITE),
+        ],
+    },
+    Page {
+        name: "the save of nodes of the editor to the library",
+        opens: Route::of(FragmentHolder::CREATE_FRAGMENT),
+        needs: &[Route::of(FragmentHolder::LIST_FRAGMENTS)],
     },
     Page {
         name: "the saved layouts of the dashboard",

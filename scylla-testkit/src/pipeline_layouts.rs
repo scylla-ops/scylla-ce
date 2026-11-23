@@ -24,6 +24,7 @@ impl TestApp {
             nodes,
             layout: Some(layout),
             checkout: None,
+            fragment_links: Vec::new(),
         };
         let request = self.authed(actor, request).await;
         let response = self.pipelines().create_pipeline(request).await?;
@@ -63,6 +64,7 @@ impl TestApp {
             nodes: nodes.map(|nodes| NodeList { nodes }),
             layout: Some(layout),
             checkout: None,
+            fragment_links: None,
         };
         let request = self.authed(actor, request).await;
         let response = self.pipelines().update_pipeline(request).await?;

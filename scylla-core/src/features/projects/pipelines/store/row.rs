@@ -8,7 +8,7 @@ use scylla_domain::tenancy::workspaces::WorkspaceId;
 use serde_json::Value;
 use time::OffsetDateTime;
 
-use super::super::json;
+use super::super::{json, links};
 use crate::Error;
 
 /// A row of the `pipelines` table.
@@ -45,6 +45,8 @@ pub(super) struct Row {
     pub(super) archived_at: Option<OffsetDateTime>,
     /// The time when the file left the default branch.
     pub(super) removed_at: Option<OffsetDateTime>,
+    /// The fragment links in JSON.
+    pub(super) fragment_links: Value,
 }
 
 impl Row {
@@ -81,6 +83,7 @@ impl Row {
             source,
             file,
             archived_at: self.archived_at,
+            fragment_links: links::read_json(self.fragment_links)?,
         })
     }
 }

@@ -47,6 +47,15 @@ pub mod integrations {
     }
 }
 
+/// The library API: the fragments that the pipelines of a workspace share.
+pub mod library {
+    /// Version 1.
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    pub mod v1 {
+        tonic::include_proto!("scylla.library.v1");
+    }
+}
+
 /// The notifications API: the inbox of a user.
 pub mod notifications {
     /// Version 1.

@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT l.link->>'fragment_id' AS \"fragment_id!\", p.id AS pipeline_id,\n                  p.name AS pipeline_name, r.id AS project_id, r.name AS project_name,\n                  (l.link->>'version')::bigint AS \"version!\", l.link->'values' AS \"values!\"\n           FROM pipelines p\n           JOIN projects r ON r.id = p.project_id\n           CROSS JOIN LATERAL jsonb_array_elements(p.fragment_links) AS l(link)\n           WHERE p.workspace_id = $1 AND p.archived_at IS NULL\n             AND l.link->>'fragment_id' = ANY($2)\n           ORDER BY p.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "fragment_id!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "pipeline_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "pipeline_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "project_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "version!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "values!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "42f2def8f74296639c527af32fd5bb867cc4e31e4d757aa27c65ae4ef36464d1"
+}

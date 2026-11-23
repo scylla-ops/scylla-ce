@@ -31,6 +31,18 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ### Added
 
+- The library of a workspace: `FragmentService` keeps fragments, groups of nodes that the
+  pipelines of the workspace share. A fragment has versions that never change, and the favorites of
+  each reader. A pipeline keeps the nodes of a fragment and a link to its version
+  (`Pipeline.fragment_links`, saved by `CreatePipeline` and `UpdatePipeline`): a new version is
+  only proposed. A delete keeps the pipelines that link the fragment. A fragment can come from a
+  package of an outside registry (`FragmentOrigin`): a linked fragment takes the versions of the
+  package with `AcceptOriginVersion`, and a fork changes its own. New catalog cells `library.view`,
+  `library.create` and `library.manage`.
+- **Edition contract:** the hook `BeforeDelete`, and `CreateContext::with_object`. The library
+  calls `BeforeCreate` with the kind `fragment_version`, and `BeforeDelete` with the kind
+  `fragment`. `scylla_core::features::tenancy::library::versions` reads the versions of a
+  fragment in the transaction of an edition.
 **Server**
 
 - `UpdateRole` takes an optional level. A custom role changes its level only while it has no holder,

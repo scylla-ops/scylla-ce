@@ -187,4 +187,10 @@ pub enum DomainError {
     /// The choices of a consent do not fit its action.
     #[error("must accept each purpose for accept all, and refuse each purpose for reject all")]
     NotTheAction,
+    /// A parameter of a fragment names no environment variable of its nodes.
+    #[error("must be an environment variable of a node")]
+    UnknownVariable,
+    /// A block of a pipeline names a node that is not in the pipeline, or in another block.
+    #[error("must name a node of the pipeline that no other block holds")]
+    NotAFreeNode,
 }

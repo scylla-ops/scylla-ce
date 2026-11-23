@@ -23,6 +23,7 @@ use crate::features::projects::triggers::Triggers;
 use crate::features::projects::Projects;
 use crate::features::tenancy::dashboards::Dashboards;
 use crate::features::tenancy::grants::Grants;
+use crate::features::tenancy::library::Library;
 use crate::features::tenancy::roles::Roles;
 use crate::features::tenancy::workspaces::Workspaces;
 use crate::infra::db::MIGRATOR;
@@ -51,6 +52,7 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .plugin(Notifications)
         .plugin(UserState)
         .plugin(Dashboards)
+        .plugin(Library)
         .plugin(Activities)
         .authz::<VcsAppHolder>()
         .authz::<VcsConnectionHolder>()

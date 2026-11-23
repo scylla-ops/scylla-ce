@@ -11,8 +11,8 @@ use tonic::service::RoutesBuilder;
 
 use crate::grants::{AccessRoutes, FindWorkspace, Grants};
 use crate::{
-    AfterDelete, AfterDeleteUser, BeforeCreate, ExportUser, Gate, Hooks, NotificationKind,
-    NotificationKinds, Notifier, ScheduledTask, ServiceContext,
+    AfterDelete, AfterDeleteUser, BeforeCreate, BeforeDelete, ExportUser, Gate, Hooks,
+    NotificationKind, NotificationKinds, Notifier, ScheduledTask, ServiceContext,
 };
 
 /// A function that adds the gRPC services of one plugin.
@@ -227,6 +227,12 @@ impl EditionBuilder {
     /// Adds a `BeforeCreate` hook for one resource kind.
     pub fn before_create(mut self, kind: ResourceKind, hook: Arc<dyn BeforeCreate>) -> Self {
         self.hooks.add_before_create(kind, hook);
+        self
+    }
+
+    /// Adds a `BeforeDelete` hook for one resource kind.
+    pub fn before_delete(mut self, kind: ResourceKind, hook: Arc<dyn BeforeDelete>) -> Self {
+        self.hooks.add_before_delete(kind, hook);
         self
     }
 

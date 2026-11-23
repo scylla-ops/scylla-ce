@@ -18,7 +18,7 @@ use scylla_proto::pipelines::v1::pipeline_service_server::{
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
-use super::{convert, service};
+use super::{convert, links, service};
 use crate::api::parse::{self, ToProto};
 use crate::features::identity::agents::Registry;
 use crate::features::integrations::IntegrationContext;
@@ -69,6 +69,7 @@ impl PipelineService for PipelinesGrpc {
                 .transpose()?
                 .unwrap_or_default(),
             checkout: request.checkout.map(convert::checkout).unwrap_or_default(),
+            fragment_links: links::read(request.fragment_links)?,
         };
 
         // Check the route permission on the project, then create the pipeline.
@@ -147,6 +148,10 @@ impl PipelineService for PipelinesGrpc {
                 .transpose()?
                 .unwrap_or_default(),
             checkout: request.checkout.map(convert::checkout),
+            fragment_links: request
+                .fragment_links
+                .map(|list| links::read(list.links))
+                .transpose()?,
         };
 
         // Check the route permission, then change the pipeline.

@@ -17,7 +17,8 @@ pub struct CreateContext {
     pub workspace_id: WorkspaceId,
     /// The member of a membership: the user that joins the workspace.
     pub subject: Option<ActorId>,
-    /// The object of the role of a membership, as `kind:id`. `None` for the role owner.
+    /// The object that the new resource goes in, or the object of the role of a membership, as
+    /// `kind:id`. `None` for the role owner.
     pub object: Option<String>,
     /// The role of a membership.
     pub role: Option<String>,
@@ -34,6 +35,12 @@ impl CreateContext {
             object: None,
             role: None,
         }
+    }
+
+    /// Names the object that the new resource goes in, as `kind:id`.
+    pub fn with_object(mut self, object: String) -> Self {
+        self.object = Some(object);
+        self
     }
 
     /// Names the member, the object and the role of a membership.

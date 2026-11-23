@@ -13,6 +13,7 @@ use scylla_domain::Page;
 use scylla_extension::{CreateContext, DeleteContext, Hooks, Rejection, Tx};
 use sqlx::PgPool;
 
+use super::links;
 use super::store::{self, Changed};
 use crate::features::identity::agents::Registry;
 use crate::features::integrations::{files, sources, IntegrationContext};
@@ -34,8 +35,9 @@ pub(crate) async fn create(
     workspace: WorkspaceId,
     new: NewPipeline,
 ) -> Result<Pipeline, Error> {
-    // Check the size of the nodes, refuse a project of files, then run the hooks.
+    // Check the size of the nodes and the links, refuse a project of files, then run the hooks.
     check_size(&new.nodes)?;
+    links::check(&new.fragment_links, new.nodes.as_slice())?;
     let mut tx = pool.begin().await?;
     if store::uses_files(&mut tx, new.project_id).await? {
         let message = "the project takes its pipelines from the files of its repository";
@@ -174,6 +176,7 @@ pub(crate) async fn update(
     refuse_read_only(&mut tx, id).await?;
     let changed = store::update(&mut tx, id, &change).await?;
     if let Changed::Done(pipeline) = &changed {
+        links::check(&pipeline.fragment_links, &pipeline.nodes)?;
         let nodes = ids_of(&pipeline.nodes);
         if change.nodes.is_some() {
             store::keep_places(&mut tx, id, &nodes).await?;

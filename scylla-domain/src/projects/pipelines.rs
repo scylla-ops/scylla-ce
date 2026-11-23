@@ -2,6 +2,7 @@
 
 mod graph;
 mod layout;
+mod links;
 mod needs;
 mod nodes;
 mod summaries;
@@ -11,6 +12,7 @@ mod tests;
 
 pub use graph::Nodes;
 pub use layout::{PipelineLayout, Position};
+pub use links::{check_links, FragmentLink};
 pub use needs::{Need, NodeId, PortName};
 pub use nodes::{env_name, EnvValue, EnvVar, Node, NodeError, Runtime, Shell, Step};
 pub use summaries::{
@@ -67,6 +69,8 @@ pub struct Pipeline {
     /// files, a file pipeline when its project moved back to the editor. `None` while it is
     /// active.
     pub archived_at: Option<OffsetDateTime>,
+    /// The blocks that link a version of a fragment of the library.
+    pub fragment_links: Vec<FragmentLink>,
 }
 
 /// The file of a file pipeline on the default branch of the linked repository.
@@ -97,6 +101,8 @@ pub struct NewPipeline {
     pub layout: PipelineLayout,
     /// How the agent gets the code of a job with a source, before the first node.
     pub checkout: CheckoutSettings,
+    /// The blocks that link a version of a fragment, checked against the nodes.
+    pub fragment_links: Vec<FragmentLink>,
 }
 
 /// A change of a pipeline. A field that is `None` does not change. The change passes only if
@@ -113,6 +119,8 @@ pub struct PipelineChange {
     pub layout: PipelineLayout,
     /// The new checkout settings.
     pub checkout: Option<CheckoutSettings>,
+    /// The new fragment links: they replace all the links.
+    pub fragment_links: Option<Vec<FragmentLink>>,
 }
 
 /// Where a pipeline list looks.
