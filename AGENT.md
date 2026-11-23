@@ -51,6 +51,7 @@ Load the skill of the task from `.claude/skills/`:
 - Each route has its own permission: the RPC name in snake case (`CreateProject` gives `create_project`). Declare it on the workspace with `extend Workspace as <Feature>Holder { permission create_project = work; }`, on the caller with `extend Actor as <Feature>Caller { permission list_projects = nil; }`, on the platform with `extend Platform as <Feature>Holder`, and on the object only when one object can be shared (`permission delete_project = delete;`).
 - A route permission uses a group: `manage`, `work`, `read` in a workspace, and `delete`, `edit`, `view` on a project. A group bundles routes, and a role (a relation) gives a group. Never check a group in a route: the gate refuses a check of a permission that is not the route permission, and the server refuses the success of a route that verified a token with no passed check of its route permission.
 - The permission model is Rust code. `scylla_domain::authz!` declares each SpiceDB definition next to its type, in the SpiceDB schema language. It makes the constants: `Project::DELETE_PROJECT` is a `Permission<Project>`, `Project::VIEWER` is a `Relation<Project, Actor>`. Never write the name of a definition, relation or permission as text.
+- The SpiceDB schema only grows (decision 39): `scylla-domain/src/authz/core.zed` and the model of an edition add definitions, relations and permissions. To remove or rename a relation, first add a step that moves or deletes its relationships, in an earlier release: SpiceDB refuses a schema that removes a relation with relationships, and `migrate` fails.
 - `Permission::on(id)` takes an id of its resource. `Relation::of(object, subject)` takes an id of each of its two resources. The compiler stops a wrong id, and a wrong name in a permission expression.
 - A creation names its workspace, and the caller needs the route permission there, for example `ProjectHolder::CREATE_PROJECT`.
 - A delete removes the roles on the object with `gate.delete_object(&Object::of(id))` after the commit. A failure goes to the log only: a role on a deleted object reaches nothing.
@@ -144,7 +145,8 @@ This project overrides the global "no comments" rule.
 
 ## SQL
 
-- No upgrade code: a migration has only `CREATE` statements, one file for each feature. To change a table, change the `CREATE TABLE` of its feature, then run `just db-reset` (the dev data is lost). Never write a data move, a `DROP` or an `ALTER TABLE` for an old schema.
+- The migrations only grow (decision 39). A schema change is a new file (`sqlx migrate add --sequential --simple --source scylla-core/migrations <name>`), with the `ALTER TABLE` and the data steps that it needs, then `just migrate`. Never change or remove a file that `scylla-core/migrations.lock` lists: production applied it, and sqlx refuses a changed file. A new file that is not in the lock can still change: then run `just db-reset`.
+- At each release, add a line to `migrations.lock` for each new file: its version, then `sha384sum` of the file. The test `a_released_migration_never_changes` checks the lock, and `a_migration_has_no_carriage_return` the line ends.
 - An id column is `uuid`. A reference to an actor is `REFERENCES actors (id)`, with an index.
 - After a SQL change, run `just prepare` and keep `.sqlx/` in the change.
 
