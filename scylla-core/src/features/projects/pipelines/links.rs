@@ -1,9 +1,9 @@
-//! The fragment links of a pipeline: their proto form and their JSON form in
-//! `pipelines.fragment_links`.
+//! The fragment links of a pipeline: their proto form, their JSON form in
+//! `pipelines.fragment_links`, and their check against the nodes.
 
 use std::collections::BTreeMap;
 
-use scylla_domain::projects::pipelines::{FragmentLink, NodeId};
+use scylla_domain::projects::pipelines::{FragmentLink, Node, NodeId};
 use scylla_domain::tenancy::library::FragmentId;
 use scylla_proto::pipelines::v1 as pb;
 use serde::{Deserialize, Serialize};
@@ -105,6 +105,13 @@ pub(crate) fn read_json(value: Value) -> Result<Vec<FragmentLink>, Error> {
             })
         })
         .collect()
+}
+
+/// Checks the links of a pipeline against its nodes. A bad link gives `INVALID_ARGUMENT` with its
+/// path.
+pub(crate) fn check(links: &[FragmentLink], nodes: &[Node]) -> Result<(), Error> {
+    scylla_domain::projects::pipelines::check_links(links, nodes)
+        .map_err(|error| Error::invalid(error.path, error.error.to_string()))
 }
 
 impl ToProto<pb::FragmentLink> for FragmentLink {

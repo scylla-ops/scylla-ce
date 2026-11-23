@@ -19,6 +19,7 @@ mod invitations;
 mod library;
 mod library_access;
 mod library_origins;
+mod library_usages;
 mod members;
 mod open_invitations;
 mod owners;
