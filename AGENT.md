@@ -145,8 +145,12 @@ This project overrides the global "no comments" rule.
 
 ## SQL
 
-- The migrations only grow (decision 39). A schema change is a new file (`sqlx migrate add --sequential --simple --source scylla-core/migrations <name>`), with the `ALTER TABLE` and the data steps that it needs, then `just migrate`. Never change or remove a file that `scylla-core/migrations.lock` lists: production applied it, and sqlx refuses a changed file. A new file that is not in the lock can still change: then run `just db-reset`.
-- At each release, add a line to `migrations.lock` for each new file: its version, then `sha384sum` of the file. The test `a_released_migration_never_changes` checks the lock, and `a_migration_has_no_carriage_return` the line ends.
+- The migrations only grow (decision 39). The next version deploys on the production database with its data, and `migrate` runs only the new files. A schema change is a new file after the last one (`sqlx migrate add --sequential --simple --source scylla-core/migrations <name>`), with the `ALTER TABLE` and the data steps that it needs, then `just migrate`.
+- In the same change, add the line of the new file at the end of `scylla-core/migrations.lock`: its version, then `sha384sum` of the file. The test `each_migration_is_in_the_lock` fails with the line to add.
+- A file on the base branch or in a release tag never changes, never goes and keeps its name: sqlx refuses a changed file, and the deploy stops. The test `a_locked_migration_never_changes` checks the lock, `scripts/check-structure.sh` checks the files of the last release tag, and `a_migration_has_no_carriage_return` checks the line ends. Never change a lock line of the base branch.
+- Your new file can change only in its own change, before it is on the base branch: then also change its line in the lock. Two changes that add a migration at the same time conflict in the lock: keep the lines of the base branch, give your file the next free version, and add its line after them.
+- A schema change keeps the data and the server of the last version working, because that server runs while `migrate` runs. First add: a table, a column that is nullable or has a default, an index. Copy the data in the same file. Remove an old column or table only in a later version, when no released server reads it. A rename is an add and a copy, then a remove in a later version.
+- No change needs a reset of a database, and no step asks for one: production, staging and each self-hosted instance keep their data. `just db-reset` is only for your own dev database.
 - An id column is `uuid`. A reference to an actor is `REFERENCES actors (id)`, with an index.
 - After a SQL change, run `just prepare` and keep `.sqlx/` in the change.
 

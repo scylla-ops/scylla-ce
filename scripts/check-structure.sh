@@ -69,6 +69,13 @@ checks() {
       { previous = step }' "$file"
   done | report "a step comment has more than one line"
 
+  # A migration of the last release tag never changes. With no tag (a shallow clone), the lock test stays.
+  tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null)
+  if [[ -n "$tag" ]]; then
+    git diff --name-status --diff-filter=DMR "refs/tags/$tag" -- scylla-core/migrations \
+      | report "a migration of the release $tag changed or is gone (decision 39: put the change in a new migration)"
+  fi
+
   grep -rln $'\xe2\x80\x94' --exclude-dir=target --exclude-dir=.idea --exclude-dir=.sqlx --exclude-dir=web --exclude=Cargo.lock . \
     | report "a file has an em dash"
 }

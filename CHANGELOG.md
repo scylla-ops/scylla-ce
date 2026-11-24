@@ -7,6 +7,14 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ## [Unreleased]
 
+### Changed
+
+- `scylla-core/migrations.lock` holds the checksum of each migration, not only of the released ones:
+  a new migration adds its line in the change that adds it, and a test fails when a migration has no
+  line or a line changed. `scripts/check-structure.sh` also fails when a migration of the last
+  release tag changes or goes. Each upgrade from 0.7.0 keeps the data, with no reset of the
+  database.
+
 ## [0.7.0] - 2026-11-24
 
 A new backend: a new server, a new API, a new agent and a new web app. This is not an upgrade in
