@@ -1,6 +1,6 @@
-# The released migrations: the version and the SHA-384 checksum of the file in hex, as sqlx keeps it.
-# A released file never changes: a schema change is a new migration (decision 39).
-# At each release, add a line for each new file: its version, then `sha384sum` of the file.
+# The migrations: the version and the SHA-384 checksum of the file in hex, as sqlx keeps it.
+# A file on the base branch never changes: a schema change is a new migration (decision 39).
+# Add the line of a new file at the end, in the change that adds it: its version, then `sha384sum` of the file.
 20261028000001 9bb6a88504640736489738dfad63c920ec3920396de548dace1aedde1e018afeaab350fd86eb5db79ddb4a0e921ca9ca
 20261028000002 b69a0f0e842a354bdc05780740847036cf56317f51dbc14ffde5838738bfbcf4a58fed36ce3931373c0f23f69a02e8ce
 20261028000003 e4e3f4bb7ecb6be8071045e0316236ba858bbb337aa3fbfa7fba9c5f4fa3d46f42a337b3760d015cd36564edcb4fb3bb

@@ -323,7 +323,7 @@ The tests use `spicedb serve-testing` on port 55052: each test gets an empty Spi
 | Schema of the parts, typed values | `scylla-domain/src/authz/tests.rs` |
 | `authz!`: schema text, checks of the names, errors | `scylla-macros/src/tests.rs` |
 | Hook rollback, order and kind filter | `scylla-core/src/features/projects/tests.rs` |
-| The released migrations do not change (`scylla-core/migrations.lock`), and no migration has a CR | `scylla-core/src/infra/db.rs` |
+| Each migration has its line in `scylla-core/migrations.lock` and does not change, the lock grows only at its end, and no migration has a CR | `scylla-core/src/infra/db.rs` |
 | The value of a secret opens only with the id of its secret, and the database has no value in clear | `scylla-core/src/features/projects/secrets/tests.rs` |
 | Config and command line, the guard against the public dev keys | `scylla-core/src/config.rs`, `scylla-core/src/cli/commands.rs`, `scylla-core/src/infra/dev_keys.rs` |
 | Git providers: the settings and all or none of the GitHub App, the claims and the expiry of the JWT of the App, the cache and the scope of the installation tokens, the limits in the headers, the link of the next page, no call to another host, the GitHub and GitLab signatures (good, bad, old) | `scylla-core/src/infra/vcs/tests/` |
