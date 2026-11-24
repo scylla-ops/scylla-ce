@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::{CheckoutRun, Job, JobEvent, JobId, JobStatus, LogLine};
 use scylla_domain::projects::ProjectId;
@@ -59,8 +60,8 @@ pub(crate) async fn held_counts(
 }
 
 /// Gives the oldest pending job of a workspace to an agent, with the values of its secrets: of
-/// each project, or of `projects` only, that needs no feature that the agent does not have. A job
-/// whose secrets do not open fails with the reason, and the next job comes.
+/// each project, or of `projects` only, that needs no feature and no label that the agent does
+/// not have. A job whose secrets do not open fails with the reason, and the next job comes.
 pub(crate) async fn claim(
     pool: &PgPool,
     sealer: Option<&Sealer>,
@@ -68,11 +69,12 @@ pub(crate) async fn claim(
     projects: Option<&[ProjectId]>,
     agent: AppId,
     features: Features,
+    automatic: &AgentLabels,
 ) -> Result<Option<Assignment>, Error> {
     loop {
         // Take the oldest free job.
         let mut tx = pool.begin().await?;
-        let job = jobs::claim(&mut tx, workspace, projects, agent, features).await?;
+        let job = jobs::claim(&mut tx, workspace, projects, agent, features, automatic).await?;
         if let Some(job) = &job {
             changed::job_changed(&mut tx, job).await?;
         }

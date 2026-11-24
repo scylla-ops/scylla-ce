@@ -20,6 +20,9 @@ pub(super) fn app(
         compatibility(host.compatibility())
     });
     let missing_features = agent.map(Host::missing_features).unwrap_or_default();
+    let automatic_labels = agent
+        .map(|host| host.automatic_labels().texts())
+        .unwrap_or_default();
     pb::App {
         id: Some(app.id.to_proto()),
         workspace_id: Some(app.workspace_id.to_proto()),
@@ -35,6 +38,8 @@ pub(super) fn app(
         compatibility: compatibility.into(),
         missing_features,
         last_sample: last_sample.map(sample),
+        labels: app.labels.texts(),
+        automatic_labels,
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO pipelines\n             (id, project_id, workspace_id, created_by, name, nodes, checkout, fragment_links)\n         SELECT $1, p.id, p.workspace_id, $3, $4, $5, $6, $7 FROM projects p WHERE p.id = $2\n         RETURNING id",
+  "query": "INSERT INTO pipelines\n             (id, project_id, workspace_id, created_by, name, nodes, checkout, fragment_links,\n              agent_labels)\n         SELECT $1, p.id, p.workspace_id, $3, $4, $5, $6, $7, $8 FROM projects p WHERE p.id = $2\n         RETURNING id",
   "describe": {
     "columns": [
       {
@@ -23,12 +23,13 @@
         "Text",
         "Jsonb",
         "Jsonb",
-        "Jsonb"
+        "Jsonb",
+        "TextArray"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "d1e1c597517e641fcbcf90642921172e0064b1677e569eb9d53ec79fb51c240f"
+  "hash": "3aea6e180b011058651b7df05c034ebdbf9c21a4fa473d975616c733ea5290c3"
 }

@@ -1,11 +1,13 @@
-//! The handlers of `AppService` for the life of an App: its delete, its disable and its enable.
+//! The handlers of `AppService` for the life of an App: its delete, its disable, its enable and
+//! the labels of the admins.
 
+use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::identity::apps::{App, AppId};
 use scylla_proto::apps::v1 as pb;
 use tonic::Request;
 
 use super::grpc::AppsGrpc;
-use super::service;
+use super::{labels_service, service};
 use crate::api::parse;
 use crate::Error;
 
@@ -33,6 +35,28 @@ impl AppsGrpc {
         self.authorize(&caller, App::DISABLE_APP, id).await?;
         let app = service::disable(&self.pool, &self.registry, id).await?;
         Ok(pb::DisableAppResponse {
+            app: self.messages(vec![app]).await?.pop(),
+        })
+    }
+
+    /// Handles `SetAppLabels`: the labels of the admins replace the labels of the App.
+    pub(super) async fn set_labels(
+        &self,
+        request: Request<pb::SetAppLabelsRequest>,
+    ) -> Result<pb::SetAppLabelsResponse, Error> {
+        // Authenticate the caller, then read the request.
+        let caller = self.gate.caller(&request).await?;
+        let request = request.into_inner();
+        let id: AppId = parse::required(request.app_id, "app_id")?;
+        let labels = AgentLabels::parse(request.labels).map_err(|(index, error)| {
+            let field = index.map_or("labels".to_owned(), |index| format!("labels[{index}]"));
+            Error::invalid(field, error.to_string())
+        })?;
+
+        // Check the route permission, then replace the labels.
+        self.authorize(&caller, App::SET_APP_LABELS, id).await?;
+        let app = labels_service::set_labels(&self.pool, &self.registry, id, labels).await?;
+        Ok(pb::SetAppLabelsResponse {
             app: self.messages(vec![app]).await?.pop(),
         })
     }

@@ -1,6 +1,7 @@
 //! Unit tests of the output of the check runs: the map of the states, the title, the table of the
 //! nodes, the errors of an invalid file, and the last log lines in the limit of GitHub.
 
+use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::integrations::reports::ReportedStatus;
 use scylla_domain::projects::jobs::{CheckoutRun, Job, JobId, JobStatus, NodeRun, NodeStatus};
 use scylla_domain::projects::pipeline_files::{CheckoutSettings, FileError, Location};
@@ -70,6 +71,7 @@ fn failed_job() -> Job {
         pipeline_file: None,
         file_errors: Vec::new(),
         checkout: Some(checkout),
+        agent_labels: AgentLabels::default(),
     }
 }
 
@@ -244,4 +246,23 @@ fn an_open_run_has_its_title() {
         title(ReportedStatus::Completed),
         "build passed: 2/4 nodes passed"
     );
+}
+
+/// A queued run of a job with labels tells the labels of the agent that it waits for. A run with
+/// no label tells nothing.
+#[test]
+fn a_queued_run_tells_the_labels_that_it_waits_for() {
+    // given
+    let plain = failed_job();
+    let mut labelled = failed_job();
+    let labels = vec!["deploy".to_owned(), "linux".to_owned()];
+    labelled.agent_labels = AgentLabels::parse(labels).unwrap();
+
+    // when
+    let summary = |job: &Job| output::of("build", ReportedStatus::Pending, job, LINK, None).summary;
+
+    // then
+    let told = "The run waits for an agent with the labels `deploy`, `linux`.";
+    assert!(summary(&labelled).contains(told));
+    assert!(!summary(&plain).contains("waits for an agent"));
 }

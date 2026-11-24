@@ -1,6 +1,7 @@
 //! The tests of the projects: their life, their changes, their secrets, their pipelines and jobs,
-//! the jobs on the agents, their number and their stats, the summaries, the job figures, the busy
-//! slots, the triggers and the open items of the dashboard, and the roles that reach them.
+//! the jobs on the agents, the labels of the agents that they need, their number and their stats,
+//! the summaries, the job figures, the busy slots, the triggers and the open items of the
+//! dashboard, and the roles that reach them.
 
 mod attention;
 mod attention_access;
@@ -14,6 +15,7 @@ mod job_lists;
 mod job_stats;
 mod job_stats_scopes;
 mod jobs;
+mod labels;
 mod lifecycle;
 mod pipeline_layout_changes;
 mod pipeline_layouts;

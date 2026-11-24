@@ -10,6 +10,7 @@ use scylla_domain::projects::pipeline_files::{
 use scylla_proto::integrations::v1 as pb_integrations;
 use scylla_proto::pipelines::v1 as pb;
 
+use super::convert::agent_of;
 use super::files_service::{CheckedFile, FileAt};
 use crate::api::parse::ToProto;
 use crate::Error;
@@ -184,6 +185,7 @@ fn put_pipeline(
                 .map(ToProto::to_proto)
                 .collect();
             proto.checkout = Some(checkout_of(pipeline.checkout));
+            proto.agent = Some(agent_of(&pipeline.agent_labels));
             put_rules(pipeline.rules, proto);
             proto.errors = warnings.into_iter().map(|w| error_of(w, true)).collect();
         }

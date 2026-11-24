@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,\n                  created_at, updated_at, source, file_key, file_path,\n                  jsonb_array_length(coalesce(file_errors, '[]')) AS \"file_errors!\", archived_at,\n                  removed_at, fragment_links\n           FROM pipelines WHERE id = $1",
+  "query": "SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,\n                  created_at, updated_at, source, file_key, file_path,\n                  jsonb_array_length(coalesce(file_errors, '[]')) AS \"file_errors!\", archived_at,\n                  removed_at, fragment_links, agent_labels\n           FROM pipelines\n           WHERE ($1::uuid IS NULL OR project_id = $1)\n             AND ($2::uuid IS NULL OR workspace_id = $2)\n             AND ($3::uuid IS NULL OR id > $3)\n             AND (source = 'editor' OR archived_at IS NULL)\n           ORDER BY id\n           LIMIT $4",
   "describe": {
     "columns": [
       {
@@ -184,11 +184,25 @@
             "name": "fragment_links"
           }
         }
+      },
+      {
+        "ordinal": 17,
+        "name": "agent_labels",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "agent_labels"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -208,8 +222,9 @@
       null,
       true,
       true,
+      false,
       false
     ]
   },
-  "hash": "56a475e71cc9beeb60d0f1a7fd7e4f8475ba7314bf1cfc89810e71b2644ab597"
+  "hash": "f68f8c4cb4d1ca85e5c31b6dd0c745ac275c62948d0fba46c5dd640af24954e0"
 }

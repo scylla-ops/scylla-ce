@@ -1,6 +1,7 @@
-//! The agents: the Apps that run jobs, with their stream, their host and their protocol, the busy
-//! slots of their jobs, and the samples of the use of their machines.
+//! The agents: the Apps that run jobs, with their stream, their host, their protocol and their
+//! labels, the busy slots of their jobs, and the samples of the use of their machines.
 
+mod labels;
 mod samples;
 mod slots;
 
@@ -15,6 +16,7 @@ use crate::projects::jobs::FiguresPeriod;
 use crate::tenancy::workspaces::Workspace;
 use crate::DomainError;
 
+pub use labels::{fits, AgentLabel, AgentLabels, CONTAINER_LABEL};
 pub use samples::{
     AgentMetrics, HostSample, MetricsBucket, MetricsFigures, MetricsQuery, Sample, SampleSums,
     SAMPLE_GAP, SAMPLE_INTERVAL, SAMPLE_RETENTION,

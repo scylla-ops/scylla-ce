@@ -26,6 +26,7 @@ pub use stats::{AgentStats, DayOutcomes, Outcomes, StatsPeriod, MAX_STATS_DAYS, 
 use time::OffsetDateTime;
 
 use crate::identity::actors::ActorId;
+use crate::identity::agents::AgentLabels;
 use crate::identity::apps::AppId;
 use crate::integrations::sources::JobSource;
 use crate::projects::pipeline_files::{CheckoutSettings, FileError};
@@ -195,6 +196,8 @@ pub struct Job {
     pub file_errors: Vec<FileError>,
     /// The checkout of the code before the first node, or `None` for a job with no checkout.
     pub checkout: Option<CheckoutRun>,
+    /// The labels that the agent of the job must have, from its pipeline at the creation.
+    pub agent_labels: AgentLabels,
 }
 
 /// The input of a job creation: a run or a rerun.
@@ -226,6 +229,8 @@ pub struct NewJob {
     pub file_errors: Vec<FileError>,
     /// The checkout of the code before the first node, or `None` for a job with no checkout.
     pub checkout: Option<CheckoutSettings>,
+    /// The labels that the agent of the job must have.
+    pub agent_labels: AgentLabels,
 }
 
 impl NewJob {

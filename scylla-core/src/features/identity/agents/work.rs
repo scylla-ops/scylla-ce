@@ -123,6 +123,7 @@ pub(super) async fn fill(stream: &Stream, out: &Outbox) -> Result<bool, Status> 
             projects,
             stream.app,
             features,
+            &stream.labels,
         );
         let Some(assignment) = claimed.await? else {
             break;

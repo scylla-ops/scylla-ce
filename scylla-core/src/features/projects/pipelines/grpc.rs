@@ -69,6 +69,7 @@ impl PipelineService for PipelinesGrpc {
                 .transpose()?
                 .unwrap_or_default(),
             checkout: request.checkout.map(convert::checkout).unwrap_or_default(),
+            agent_labels: convert::agent_labels(request.agent.unwrap_or_default())?,
             fragment_links: links::read(request.fragment_links)?,
         };
 
@@ -148,6 +149,7 @@ impl PipelineService for PipelinesGrpc {
                 .transpose()?
                 .unwrap_or_default(),
             checkout: request.checkout.map(convert::checkout),
+            agent_labels: request.agent.map(convert::agent_labels).transpose()?,
             fragment_links: request
                 .fragment_links
                 .map(|list| links::read(list.links))

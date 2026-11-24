@@ -110,6 +110,12 @@ pub enum DomainError {
     /// The text is not the key of a pipeline file.
     #[error("must be 1 to 64 lower case letters, digits, dashes or underscores")]
     NotAFileKey,
+    /// The text is not the label of an agent.
+    #[error(
+        "must be 1 to 32 lower case letters, digits, dots, dashes or underscores, and start with \
+         a letter or a digit"
+    )]
+    NotALabel,
     /// The text is not the name of an environment variable.
     #[error("must be a letter or an underscore, then letters, digits or underscores")]
     NotAnEnvName,

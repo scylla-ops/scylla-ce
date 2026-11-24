@@ -2,6 +2,7 @@
 //! of the job, with the nodes and the checkout of the file, or it fails at once with the errors of
 //! the file. A Git event starts each key whose `on` table matches it.
 
+use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::integrations::sources::{GitRef, JobSource, SourceEvent};
 use scylla_domain::projects::git_rules::TriggerEvent;
 use scylla_domain::projects::jobs::{JobOrigin, PipelineFileRef, StartJob};
@@ -199,22 +200,29 @@ fn file_of(linked: &Linked, snapshot: &Snapshot, key: &str) -> Option<KeyFile> {
     })
 }
 
-/// Makes the start of a job of a file pipeline on a commit with an origin: the nodes and the
-/// checkout of its file, or the errors of the file with no node and no checkout.
+/// Makes the start of a job of a file pipeline on a commit with an origin: the nodes, the
+/// checkout and the labels of its file, or the errors of the file with no node, no checkout and
+/// no label.
 fn start(pipeline: Pipeline, file: KeyFile, source: JobSource, origin: JobOrigin) -> StartJob {
-    let (nodes, checkout, file_errors) = match file.pipeline {
-        Ok(found) => (found.nodes.into_vec(), found.checkout, Vec::new()),
+    let (nodes, checkout, agent_labels, file_errors) = match file.pipeline {
+        Ok(found) => (
+            found.nodes.into_vec(),
+            found.checkout,
+            found.agent_labels,
+            Vec::new(),
+        ),
         Err(errors) => {
             let off = CheckoutSettings {
                 enabled: false,
                 ..CheckoutSettings::default()
             };
-            (Vec::new(), off, errors)
+            (Vec::new(), off, AgentLabels::default(), errors)
         }
     };
     StartJob {
         nodes,
         checkout,
+        agent_labels,
         source: Some(source),
         pipeline_file: Some(file.file),
         file_errors,

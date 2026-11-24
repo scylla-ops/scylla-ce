@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO pipelines (id, project_id, workspace_id, created_by, name, nodes, source,\n                                file_key, file_path, file_sha, file_rules, file_errors, checkout,\n                                agent_labels)\n         SELECT $1, p.id, p.workspace_id, $3, $4, $5, 'file', $6, $7, $8, $9, $10, $11, $12\n         FROM projects p WHERE p.id = $2\n         ON CONFLICT (project_id, file_key) DO UPDATE\n         SET name = excluded.name, nodes = excluded.nodes, file_path = excluded.file_path,\n             file_sha = excluded.file_sha, file_rules = excluded.file_rules,\n             file_errors = excluded.file_errors, checkout = excluded.checkout,\n             agent_labels = excluded.agent_labels,\n             archived_at = NULL, removed_at = NULL, version = pipelines.version + 1,\n             updated_at = now()\n         WHERE (pipelines.name, pipelines.file_path, pipelines.file_sha, pipelines.file_errors,\n                pipelines.archived_at, pipelines.removed_at)\n               IS DISTINCT FROM (excluded.name, excluded.file_path, excluded.file_sha,\n                                 excluded.file_errors, NULL::timestamptz, NULL::timestamptz)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Jsonb",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b5efdbfaeaa2c149040d0f0e1979bd367e3055ec6d3c305c21f13251b8454dc9"
+}

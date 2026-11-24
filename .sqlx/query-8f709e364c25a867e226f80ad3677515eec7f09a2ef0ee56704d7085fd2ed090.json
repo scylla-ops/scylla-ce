@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO pipelines (id, project_id, workspace_id, created_by, name, nodes, source,\n                                file_key, file_path, file_sha, file_rules, file_errors, checkout,\n                                agent_labels, removed_at)\n         SELECT $1, p.id, p.workspace_id, $3, $4, $5, 'file', $6, $7, $8, $9, $10, $11, $12,\n                now()\n         FROM projects p WHERE p.id = $2\n         ON CONFLICT (project_id, file_key) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Jsonb",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8f709e364c25a867e226f80ad3677515eec7f09a2ef0ee56704d7085fd2ed090"
+}

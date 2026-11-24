@@ -54,6 +54,7 @@ fn job() -> Job {
         pipeline_file: None,
         file_errors: Vec::new(),
         checkout: None,
+        agent_labels: crate::identity::agents::AgentLabels::default(),
     }
 }
 

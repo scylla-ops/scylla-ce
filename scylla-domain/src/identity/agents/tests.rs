@@ -1,6 +1,8 @@
 //! Unit tests of the agents: the protocol of the host, and the figures of the busy slots and of
 //! the samples of the machines, in their buckets.
 
+mod labels;
+
 use time::{Duration, OffsetDateTime};
 
 use super::*;

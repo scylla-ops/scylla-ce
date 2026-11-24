@@ -23,6 +23,7 @@ pub use switch::{Case, Combinator, Operand, Rule, Switch, Test};
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId};
+use crate::identity::agents::AgentLabels;
 use crate::integrations::links::PipelineSource;
 use crate::projects::pipeline_files::CheckoutSettings;
 use crate::projects::{Project, ProjectId};
@@ -55,6 +56,8 @@ pub struct Pipeline {
     pub nodes: Vec<Node>,
     /// How the agent gets the code of a job with a source, before the first node.
     pub checkout: CheckoutSettings,
+    /// The labels that the agent of a job must have.
+    pub agent_labels: AgentLabels,
     /// The version: 1 at the creation, and one more at each change.
     pub version: i64,
     /// The creation time.
@@ -101,6 +104,8 @@ pub struct NewPipeline {
     pub layout: PipelineLayout,
     /// How the agent gets the code of a job with a source, before the first node.
     pub checkout: CheckoutSettings,
+    /// The labels that the agent of a job must have.
+    pub agent_labels: AgentLabels,
     /// The blocks that link a version of a fragment, checked against the nodes.
     pub fragment_links: Vec<FragmentLink>,
 }
@@ -119,6 +124,8 @@ pub struct PipelineChange {
     pub layout: PipelineLayout,
     /// The new checkout settings.
     pub checkout: Option<CheckoutSettings>,
+    /// The new labels that the agent of a job must have: they replace all the labels.
+    pub agent_labels: Option<AgentLabels>,
     /// The new fragment links: they replace all the links.
     pub fragment_links: Option<Vec<FragmentLink>>,
 }

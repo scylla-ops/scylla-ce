@@ -1,6 +1,7 @@
 //! A row of the `pipelines` table, and the pipeline that it gives.
 
 use scylla_domain::identity::actors::ActorId;
+use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::integrations::links::PipelineSource;
 use scylla_domain::projects::pipelines::{FileOrigin, Pipeline, PipelineId};
 use scylla_domain::projects::ProjectId;
@@ -47,6 +48,8 @@ pub(super) struct Row {
     pub(super) removed_at: Option<OffsetDateTime>,
     /// The fragment links in JSON.
     pub(super) fragment_links: Value,
+    /// The labels that the agent of a job must have.
+    pub(super) agent_labels: Vec<String>,
 }
 
 impl Row {
@@ -77,6 +80,7 @@ impl Row {
                 .transpose()
                 .map_err(|error| Error::Internal(format!("bad checkout of a pipeline: {error}")))?
                 .unwrap_or_default(),
+            agent_labels: AgentLabels::of_checked(self.agent_labels),
             version: self.version,
             created_at: self.created_at,
             updated_at: self.updated_at,

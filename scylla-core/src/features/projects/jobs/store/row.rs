@@ -2,6 +2,7 @@
 //! checkout in the columns.
 
 use scylla_domain::identity::actors::ActorId;
+use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::integrations::sources::{ApprovalState, JobSource};
 use scylla_domain::projects::jobs::{
@@ -71,6 +72,8 @@ pub(super) struct Row {
     pub(super) pipeline_file: Option<Value>,
     /// The errors of the pipeline file in JSON.
     pub(super) file_errors: Option<Value>,
+    /// The labels that the agent of the job must have.
+    pub(super) agent_labels: Vec<String>,
 }
 
 /// The columns of the approval of a job: the state, then the actor and the time of an approval
@@ -132,6 +135,7 @@ impl Row {
             pipeline_file: self.pipeline_file.map(read).transpose()?,
             file_errors: self.file_errors.map(read).transpose()?.unwrap_or_default(),
             checkout: self.checkout.map(read_checkout).transpose()?,
+            agent_labels: AgentLabels::of_checked(self.agent_labels),
         })
     }
 
