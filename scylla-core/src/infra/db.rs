@@ -69,7 +69,7 @@ async fn applied_versions(pool: &PgPool, table: &str) -> Result<HashSet<i64>, Er
 
 #[cfg(test)]
 mod tests {
-    //! Unit tests of the migrations: the lock of the released files, and their line ends.
+    //! Unit tests of the migrations: the lock of the files, and their line ends.
 
     use std::collections::BTreeMap;
     use std::fs;
@@ -77,11 +77,11 @@ mod tests {
 
     use super::MIGRATOR;
 
-    /// The released migrations: one line `<version> <SHA-384 in hex>` for each file.
+    /// The lock: one line `<version> <SHA-384 in hex>` for each migration, in the order of the versions.
     const LOCK: &str = include_str!("../../migrations.lock");
 
-    /// Returns the version and the checksum of each line of the lock.
-    fn locked() -> BTreeMap<i64, &'static str> {
+    /// Returns the version and the checksum of each line of the lock, in the order of the file.
+    fn locked() -> Vec<(i64, &'static str)> {
         LOCK.lines()
             .map(str::trim)
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
@@ -109,12 +109,11 @@ mod tests {
             .collect()
     }
 
-    /// A released migration keeps its file, and a new migration comes after the last released one.
+    /// A locked migration keeps its file and its name: a schema change is a new migration.
     #[test]
-    fn a_released_migration_never_changes() {
+    fn a_locked_migration_never_changes() {
         // given
         let locked = locked();
-        let last = locked.keys().max().copied().unwrap_or_default();
 
         // when
         let current = current();
@@ -124,18 +123,39 @@ mod tests {
             assert_eq!(
                 current.get(version).map(String::as_str),
                 Some(*checksum),
-                "the released migration {version} changed or is gone: restore its file, and put the change in a new migration (decision 39)"
+                "the locked migration {version} changed or is gone: restore its file from the base branch, and put the change in a new migration (decision 39)"
             );
         }
-        for version in current
-            .keys()
-            .filter(|version| !locked.contains_key(version))
-        {
+    }
+
+    /// Each migration has its line in the lock, and a new line goes at the end with a greater version.
+    #[test]
+    fn each_migration_is_in_the_lock() {
+        // given
+        let locked = locked();
+
+        // when
+        let current = current();
+        let missing: Vec<String> = current
+            .iter()
+            .filter(|(version, _)| !locked.iter().any(|(known, _)| known == *version))
+            .map(|(version, checksum)| format!("{version} {checksum}"))
+            .collect();
+
+        // then
+        for pair in locked.windows(2) {
             assert!(
-                *version > last,
-                "the new migration {version} is not after the last released migration {last}: give it a greater version"
+                pair[0].0 < pair[1].0,
+                "the lock line {} comes after {}: give the new migration a version after the last line, and add its line at the end",
+                pair[1].0,
+                pair[0].0
             );
         }
+        assert!(
+            missing.is_empty(),
+            "these migrations are not in the lock: add their lines at the end of `scylla-core/migrations.lock` in the change that adds them:\n{}",
+            missing.join("\n")
+        );
     }
 
     /// No migration has a CR: sqlx keeps the checksum of the bytes, so a CRLF copy stops the server.
