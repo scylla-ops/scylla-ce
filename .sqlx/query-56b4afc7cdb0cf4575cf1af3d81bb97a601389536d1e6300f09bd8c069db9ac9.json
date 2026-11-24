@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE repository_links\n         SET last_event_at = now(),\n             delivery_mode = CASE WHEN state_reason = ANY($2) OR state_reason IS NULL\n                                  THEN 'webhook' ELSE delivery_mode END,\n             next_poll_at = CASE WHEN delivery_mode = 'polling'\n                                  AND (state_reason = ANY($2) OR state_reason IS NULL)\n                                 THEN now() + interval '15 minutes' ELSE next_poll_at END,\n             state_reason = CASE WHEN state_reason = ANY($2) THEN NULL ELSE state_reason END\n         WHERE project_id = $1 AND state = 'active'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "56b4afc7cdb0cf4575cf1af3d81bb97a601389536d1e6300f09bd8c069db9ac9"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM notification_events\n         WHERE subject_kind = $1 AND subject_id = $2 AND dispatched_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "551724ca5ff9cfc0c9f76daf5bd6ab83c91e29f84188130533ff35e171aef87b"
+}

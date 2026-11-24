@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE users\n         SET display_name = coalesce($2, display_name),\n             handle = CASE WHEN $3 THEN $4 ELSE handle END\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "51a26ea513f22141c2e82a8c4fe3fcbf289361bd1382bf6dc0b293b1b4a1734a"
+}

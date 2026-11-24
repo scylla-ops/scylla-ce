@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.slug, i.subject, i.email, i.linked_at\n         FROM external_identities i JOIN identity_providers p ON p.id = i.provider_id\n         WHERE i.user_id = $1 ORDER BY p.slug, i.subject",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "slug",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "identity_providers",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "subject",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "external_identities",
+            "name": "subject"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "external_identities",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "linked_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "external_identities",
+            "name": "linked_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "50e020a39ba495ec20b90709e58cd39f9144812ce7f947bd7550b82be8f2bfaf"
+}

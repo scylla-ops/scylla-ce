@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT item.line->>'text' AS \"text!\"\n           FROM (SELECT id, lines FROM job_logs\n                 WHERE job_id = $1 AND node_id = $2\n                 ORDER BY id DESC LIMIT $3) batch,\n                jsonb_array_elements(batch.lines) WITH ORDINALITY AS item(line, place)\n           ORDER BY batch.id DESC, item.place DESC\n           LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "text!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9a8564bd4d84c348d59f5aa0de93a371ccb4de9421340d58a2f786ea3bcff056"
+}

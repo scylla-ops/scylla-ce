@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO role_grants (actor_id, role_id, scope_kind, scope_id, created_by)\n         VALUES ($1, $2, $3, $4, $5)\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c7a90f75d1e6cea2cb25a1fbaf57304e0a563900c3f750755f5178a4f973455b"
+}

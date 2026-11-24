@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE repository_links l\n         SET next_poll_at = now() + make_interval(secs => CASE\n             WHEN l.delivery_mode = 'polling' THEN l.poll_interval_seconds::float8 ELSE $2 END)\n         FROM (SELECT d.project_id FROM repository_links d\n               JOIN vcs_connections c ON c.id = d.connection_id\n               WHERE COALESCE(d.next_poll_at, d.created_at + make_interval(secs => $2)) <= now()\n                 AND d.state = 'active' AND c.state = 'active'\n               ORDER BY COALESCE(d.next_poll_at, d.created_at)\n               LIMIT $1\n               FOR UPDATE OF d SKIP LOCKED) due\n         WHERE l.project_id = due.project_id\n         RETURNING l.project_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "project_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3cd25723e6fce9bc74008fce4c00bac0b377a1c8bd78d08143d2d94effcd0612"
+}

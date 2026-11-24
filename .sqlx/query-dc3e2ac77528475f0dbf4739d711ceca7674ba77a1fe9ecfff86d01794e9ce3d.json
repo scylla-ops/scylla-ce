@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM one_time_tokens WHERE least(used_at, expires_at) < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dc3e2ac77528475f0dbf4739d711ceca7674ba77a1fe9ecfff86d01794e9ce3d"
+}

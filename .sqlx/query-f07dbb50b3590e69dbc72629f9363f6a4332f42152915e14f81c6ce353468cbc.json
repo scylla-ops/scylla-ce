@@ -1,0 +1,258 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT n.id, n.kind, n.reason, n.workspace_id, n.project_id,\n                  n.params AS \"params: Json<BTreeMap<String, String>>\", n.occurrences,\n                  n.needs_action, n.first_at, n.last_at, n.read_at, n.done_at,\n                  COALESCE(u.display_name, a.name) AS actor_name,\n                  w.slug AS \"workspace_slug?\", w.name AS \"workspace_name?\",\n                  p.name AS \"project_name?\",\n                  i.id AS \"invitation_id?\", i.role AS \"invitation_role?\",\n                  i.accepted_at AS \"invitation_accepted_at?\",\n                  i.expires_at AS \"invitation_expires_at?\"\n           FROM notifications AS n\n           LEFT JOIN users AS u ON u.id = n.actor_id\n           LEFT JOIN apps AS a ON a.id = n.actor_id\n           LEFT JOIN workspaces AS w ON w.id = n.workspace_id\n           LEFT JOIN projects AS p ON p.id = n.project_id\n           LEFT JOIN invitations AS i ON n.subject_kind = 'invitation' AND i.id = n.subject_id\n           WHERE n.recipient_id = $1\n             AND ((n.done_at IS NOT NULL) = $2)\n             AND (NOT $3 OR n.read_at IS NULL)\n             AND (NOT $4 OR (n.needs_action AND n.closed_at IS NULL))\n             AND ($5::uuid IS NULL OR n.workspace_id = $5)\n             AND ($6::text[] IS NULL OR n.kind = ANY($6))\n             AND ($7::uuid IS NULL OR (n.needs_action, n.last_at, n.id) < (\n                 SELECT c.needs_action, c.last_at, c.id FROM notifications AS c\n                 WHERE c.id = $7 AND c.recipient_id = $1))\n           ORDER BY n.needs_action DESC, n.last_at DESC, n.id DESC\n           LIMIT $8",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "reason"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "params: Json<BTreeMap<String, String>>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "params"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "occurrences",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "occurrences"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "needs_action",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "needs_action"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "first_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "first_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "last_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "last_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "read_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "read_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "done_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "done_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "actor_name",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "workspace_slug?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "workspace_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "project_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "invitation_id?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "invitations",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "invitation_role?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invitations",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "invitation_accepted_at?",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "invitations",
+            "name": "accepted_at"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "invitation_expires_at?",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "invitations",
+            "name": "expires_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "Bool",
+        "Bool",
+        "Uuid",
+        "TextArray",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      null,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "f07dbb50b3590e69dbc72629f9363f6a4332f42152915e14f81c6ce353468cbc"
+}

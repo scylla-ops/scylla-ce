@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE instance_settings\n         SET personal_tokens_enabled = coalesce($1, personal_tokens_enabled),\n             workspace_limit = coalesce($2, workspace_limit)\n         RETURNING personal_tokens_enabled, workspace_limit",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "personal_tokens_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "instance_settings",
+            "name": "personal_tokens_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_limit",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "instance_settings",
+            "name": "workspace_limit"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e0c5a98a3aa24542f37c25cae96565dde666a6de716627b9f38586a1236e69a3"
+}

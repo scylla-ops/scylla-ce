@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT failed_attempts FROM passwords WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "failed_attempts",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "passwords",
+            "name": "failed_attempts"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6465b384560f14ff25c9adae7210951bc6cf9cf72e8b81cd80dd197eca73c050"
+}

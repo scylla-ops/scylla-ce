@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT l.connection_id, l.external_id, l.sealed_hook_secret AS \"sealed!\"\n           FROM repository_links l JOIN vcs_connections c ON c.id = l.connection_id\n           WHERE l.project_id = $1 AND c.provider = 'gitlab'\n             AND l.sealed_hook_secret IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "connection_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "connection_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sealed!",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "sealed_hook_secret"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "6812724def225e9b176081d36ed1296980e9e5e105f5c59efb24136462676961"
+}

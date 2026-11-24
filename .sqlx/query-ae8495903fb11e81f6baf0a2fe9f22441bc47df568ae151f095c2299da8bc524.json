@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT hook_id FROM repository_links WHERE project_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hook_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "hook_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "ae8495903fb11e81f6baf0a2fe9f22441bc47df568ae151f095c2299da8bc524"
+}

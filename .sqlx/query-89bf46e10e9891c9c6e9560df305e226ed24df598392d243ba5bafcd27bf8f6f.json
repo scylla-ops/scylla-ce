@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE api_tokens SET last_used_at = now()\n         WHERE secret_hash = $1 AND revoked_at IS NULL AND expires_at > now()\n         RETURNING id, actor_id, preset, actions, project_ids",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "api_tokens",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "actor_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "api_tokens",
+            "name": "actor_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "preset",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "api_tokens",
+            "name": "preset"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "actions",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "api_tokens",
+            "name": "actions"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "project_ids",
+        "type_info": "UuidArray",
+        "origin": {
+          "Table": {
+            "table": "api_tokens",
+            "name": "project_ids"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "89bf46e10e9891c9c6e9560df305e226ed24df598392d243ba5bafcd27bf8f6f"
+}

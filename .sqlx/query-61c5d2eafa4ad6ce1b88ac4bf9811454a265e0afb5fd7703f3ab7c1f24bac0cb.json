@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications SET params = $3, actor_id = $4\n         WHERE recipient_id = $1 AND group_key = $2 AND closed_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "61c5d2eafa4ad6ce1b88ac4bf9811454a265e0afb5fd7703f3ab7c1f24bac0cb"
+}

@@ -1,15 +1,2 @@
-target/
-
-.env
-.data/*.log
-/data/
-db
-
-# llms
-.claude/settings.local.json
-SPEC.md
-
-# ide
-.DS_Store
-.idea/
-.vscode
+/target
+/dist

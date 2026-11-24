@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE activity SET created_at = now() - make_interval(days => $1)\n         WHERE params->>'name' = 'old'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "14d1bb32842aac0aea3afb2d393a7ae2bea36b115be0bf70eeaf696fa6a931a1"
+}

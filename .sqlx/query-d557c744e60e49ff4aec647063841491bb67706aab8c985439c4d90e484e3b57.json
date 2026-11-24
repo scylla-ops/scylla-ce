@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT g.scope_id\n         FROM role_grants g\n         JOIN role_permissions p ON p.role_id = g.role_id\n         WHERE g.actor_id = $1 AND g.scope_kind = $2 AND p.permission = ANY($3)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scope_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "role_grants",
+            "name": "scope_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d557c744e60e49ff4aec647063841491bb67706aab8c985439c4d90e484e3b57"
+}

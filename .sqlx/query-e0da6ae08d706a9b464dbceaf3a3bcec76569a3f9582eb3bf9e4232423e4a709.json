@@ -1,0 +1,172 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH bad AS (\n               SELECT f.id, f.trigger_id, f.pipeline_id, f.project_id, f.source, f.due_at,\n                      f.status, f.error, row_number() OVER w AS rank, count(*) OVER w AS count\n               FROM trigger_fires f\n               JOIN pipelines p ON p.id = f.pipeline_id\n               WHERE f.workspace_id = $1 AND f.status = ANY($2::text[]) AND f.due_at >= $3\n                 AND p.archived_at IS NULL AND p.removed_at IS NULL\n                 AND ($4::bool OR f.project_id = ANY($5::uuid[]))\n                 AND (cardinality($6::uuid[]) = 0 OR f.project_id = ANY($6))\n                 AND NOT EXISTS (\n                     SELECT 1 FROM trigger_fires g\n                     WHERE g.trigger_id = f.trigger_id AND g.due_at > f.due_at\n                       AND g.status = 'ok')\n               WINDOW w AS (PARTITION BY f.trigger_id, f.status ORDER BY f.due_at DESC, f.id DESC\n                             ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)\n           )\n           SELECT b.id AS \"id!\", b.trigger_id AS \"trigger_id!\", t.name AS trigger_name,\n                  t.schedule, b.pipeline_id AS \"pipeline_id!\", p.name AS pipeline_name,\n                  b.project_id AS \"project_id!\", r.name AS project_name, b.source AS \"source!\",\n                  b.due_at AS \"due_at!\", b.status AS \"status!\", b.error AS \"error?\",\n                  b.count AS \"count!\"\n           FROM bad b\n           JOIN triggers t ON t.id = b.trigger_id\n           JOIN pipelines p ON p.id = b.pipeline_id\n           JOIN projects r ON r.id = b.project_id\n           WHERE b.rank = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "trigger_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "trigger_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "trigger_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "schedule",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "schedule"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "pipeline_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "pipeline_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "pipeline_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "project_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "project_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "source!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "source"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "due_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "due_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "status!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "error?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "trigger_fires",
+            "name": "error"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Timestamptz",
+        "Bool",
+        "UuidArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "e0da6ae08d706a9b464dbceaf3a3bcec76569a3f9582eb3bf9e4232423e4a709"
+}

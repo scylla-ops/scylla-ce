@@ -1,0 +1,92 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT g.actor_id, g.role_id, r.name, g.scope_id, g.created_at,\n                  g.created_by\n           FROM role_grants g JOIN roles r ON r.id = g.role_id\n           WHERE g.scope_kind = $1 AND g.scope_id = $2\n             AND ($3::uuid IS NULL OR (g.actor_id, g.role_id) > ($3, $4))\n           ORDER BY g.actor_id, g.role_id\n           LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "actor_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "role_grants",
+            "name": "actor_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "role_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "role_grants",
+            "name": "role_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "roles",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "scope_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "role_grants",
+            "name": "scope_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "role_grants",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "role_grants",
+            "name": "created_by"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "d2b279da561e0390fc85ddf21b64ad1ee587dbddf4bca52a6984359b7212d392"
+}

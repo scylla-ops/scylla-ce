@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM notifications WHERE subject_kind = $1 AND subject_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c6c59a45ca145c88cca95964cb3c81527553ae9fee3be2f136a2db1f1be53bdc"
+}

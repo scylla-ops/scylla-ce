@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE app_keys SET revoked_at = coalesce(revoked_at, now())\n           WHERE id = $1 AND app_id = $2 RETURNING revoked_at AS \"revoked_at!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "revoked_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "app_keys",
+            "name": "revoked_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "e79da403671fe52b71cac8b38170ff5deda7b77f519f29ee66f3b79ef7a2bcf7"
+}

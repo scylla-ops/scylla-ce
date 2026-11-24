@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE apps SET created_at = now() - make_interval(days => $2) WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "71953ac983c00b0133020bc73cd3dc46380963fa9b3b6767fb915e8189a503b1"
+}

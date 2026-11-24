@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications AS n SET closed_at = now(), needs_action = false\n         FROM invitations AS i\n         WHERE n.subject_kind = 'invitation' AND i.id = n.subject_id AND n.needs_action\n           AND n.closed_at IS NULL AND i.expires_at <= now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "4ec97ee42438b3b253c93b52adecc797c2f26d7d10c3b1ced7c36d397592064c"
+}

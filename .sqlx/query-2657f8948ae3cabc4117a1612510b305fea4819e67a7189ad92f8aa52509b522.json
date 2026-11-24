@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pipeline_layouts\n         SET nodes = (SELECT coalesce(jsonb_object_agg(key, value), '{}')\n                      FROM jsonb_each(nodes) WHERE key = ANY($2)),\n             updated_at = now()\n         WHERE pipeline_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2657f8948ae3cabc4117a1612510b305fea4819e67a7189ad92f8aa52509b522"
+}

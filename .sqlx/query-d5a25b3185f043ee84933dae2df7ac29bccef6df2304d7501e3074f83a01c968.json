@@ -1,0 +1,136 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, kind, actor_id, workspace_id, project_id, subject_kind, subject_id,\n                  params AS \"params: Json<Params>\", group_key, attempts\n           FROM notification_events\n           WHERE dispatched_at IS NULL AND next_attempt_at <= now()\n           ORDER BY created_at, id\n           LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notification_events",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notification_events",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "actor_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notification_events",
+            "name": "actor_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notification_events",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notification_events",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "subject_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notification_events",
+            "name": "subject_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "subject_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notification_events",
+            "name": "subject_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "params: Json<Params>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "notification_events",
+            "name": "params"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "group_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notification_events",
+            "name": "group_key"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "attempts",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "notification_events",
+            "name": "attempts"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "d5a25b3185f043ee84933dae2df7ac29bccef6df2304d7501e3074f83a01c968"
+}

@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_connections\n         SET token_warned_at = now()\n         WHERE token_expires_at > now() AND token_expires_at <= now() + make_interval(days => $1)\n           AND token_warned_at IS NULL AND state = 'active'\n         RETURNING id, workspace_id, provider, account, token_expires_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "account",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "account"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "token_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "token_expires_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "a2af8e26c19cf4ad4bd2cd2457c2af28de68704a42b04aee5043c59e6f4b1403"
+}

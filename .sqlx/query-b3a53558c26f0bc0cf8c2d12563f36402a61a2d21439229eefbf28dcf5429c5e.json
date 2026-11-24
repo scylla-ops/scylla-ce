@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT w.id FROM workspaces w\n         JOIN workspace_owners o ON o.workspace_id = w.id\n         WHERE o.user_id = $1\n         ORDER BY w.id\n         FOR UPDATE OF w",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b3a53558c26f0bc0cf8c2d12563f36402a61a2d21439229eefbf28dcf5429c5e"
+}

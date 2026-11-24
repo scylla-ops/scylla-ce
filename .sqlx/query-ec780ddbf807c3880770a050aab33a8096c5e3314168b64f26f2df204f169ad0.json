@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE terms_acceptances SET account_deleted_at = now(), email_hash = $2\n         WHERE user_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ec780ddbf807c3880770a050aab33a8096c5e3314168b64f26f2df204f169ad0"
+}

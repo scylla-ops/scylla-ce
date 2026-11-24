@@ -1,0 +1,116 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT project_id, workspace_id, created_by, file_rules AS \"rules!\", created_at,\n                  updated_at, archived_at IS NULL AND removed_at IS NULL AS \"active!\",\n                  md5(id::text || ':push')::uuid AS \"push!\",\n                  md5(id::text || ':pull_request')::uuid AS \"pull_request!\",\n                  md5(id::text || ':tag')::uuid AS \"tag!\"\n           FROM pipelines\n           WHERE id = $1 AND source = 'file' AND file_rules IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "rules!",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "file_rules"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "active!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "push!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "pull_request!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "tag!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "0b45755bf25105fcd98e2500b009bacff104289265a15d3da2bdc1d27aa90f92"
+}

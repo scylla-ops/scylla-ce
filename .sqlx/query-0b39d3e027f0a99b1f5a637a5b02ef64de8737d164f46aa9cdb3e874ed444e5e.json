@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT ON (agent_id) agent_id, at, cpu_percent, memory_used_bytes\n         FROM agent_samples WHERE agent_id = ANY($1)\n         ORDER BY agent_id, at DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "agent_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "agent_samples",
+            "name": "agent_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "agent_samples",
+            "name": "at"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "cpu_percent",
+        "type_info": "Float4",
+        "origin": {
+          "Table": {
+            "table": "agent_samples",
+            "name": "cpu_percent"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "memory_used_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "agent_samples",
+            "name": "memory_used_bytes"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0b39d3e027f0a99b1f5a637a5b02ef64de8737d164f46aa9cdb3e874ed444e5e"
+}

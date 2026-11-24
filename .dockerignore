@@ -1,13 +1,2 @@
-target
-.git
-**/.git
-.github
-.venv
-scylla-bruno
-tests
-**/node_modules
-*.yaml
-.claude
-
-# The UI reaches the build through the `ui` stage, never the build context.
-web/dist
+*
+!dist/linux-*/scylla-agent

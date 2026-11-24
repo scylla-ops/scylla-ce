@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications SET params = $2, kind = $3, actor_id = $4,\n             occurrences = occurrences + 1, last_at = now(), read_at = NULL, done_at = NULL\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f83450466766cb234af77b7d861df0794717e0522f71fa7b13dca14a7b56f437"
+}

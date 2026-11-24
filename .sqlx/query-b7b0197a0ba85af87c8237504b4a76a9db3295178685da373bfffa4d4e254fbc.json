@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ARRAY(SELECT node ->> 'id' FROM jsonb_array_elements(nodes) AS node)\n               AS \"ids!: Vec<String>\"\n           FROM pipelines WHERE id = $1 FOR SHARE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ids!: Vec<String>",
+        "type_info": "TextArray",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b7b0197a0ba85af87c8237504b4a76a9db3295178685da373bfffa4d4e254fbc"
+}

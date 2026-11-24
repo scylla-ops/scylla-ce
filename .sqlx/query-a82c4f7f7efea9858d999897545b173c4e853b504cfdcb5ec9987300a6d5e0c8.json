@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT width_bucket(at, $2::timestamptz[]) AS \"part!\",\n                  count(*) AS \"samples!\",\n                  sum(cpu_percent)::float8 AS \"cpu_sum!\",\n                  max(cpu_percent) AS \"cpu_max!\",\n                  sum(memory_used_bytes)::float8 AS \"memory_sum!\",\n                  max(memory_used_bytes) AS \"memory_max!\"\n           FROM agent_samples\n           WHERE agent_id = $1 AND at >= ($2::timestamptz[])[1] AND at < $3\n           GROUP BY 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "part!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "samples!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "cpu_sum!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "cpu_max!",
+        "type_info": "Float4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "memory_sum!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "memory_max!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TimestamptzArray",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a82c4f7f7efea9858d999897545b173c4e853b504cfdcb5ec9987300a6d5e0c8"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO secrets (id, project_id, name, sealed_value, created_by)\n         VALUES ($1, $2, 'OLD', '\\x00', $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3b145c348da6bed02f82c08d2f4c73db90daecd9a4792bad7a3a02ce24e4af1b"
+}

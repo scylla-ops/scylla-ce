@@ -1,0 +1,92 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vcs_connections c\n           SET permissions = $3, state = $4, state_reason = $5, updated_at = now()\n           FROM (SELECT id, state FROM vcs_connections\n                 WHERE provider = 'github' AND external_id = $1\n                   AND app_id IS NOT DISTINCT FROM $2\n                   AND state IN ('active', 'needs_attention')\n                 FOR UPDATE) old\n           WHERE c.id = old.id\n           RETURNING c.id, c.workspace_id, c.provider, c.account, c.token_expires_at,\n                     old.state AS \"from_state!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "account",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "account"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "token_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "token_expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "from_state!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_connections",
+            "name": "state"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "b4f1394ffed915402950dcfd0b6013b1b93a92e614b65326c0bd95f194ee2253"
+}

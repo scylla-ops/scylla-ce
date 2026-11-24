@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ref AS name, last_sha AS sha, etag, updated_after FROM vcs_poll_state\n           WHERE project_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_poll_state",
+            "name": "ref"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "sha",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_poll_state",
+            "name": "last_sha"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "etag",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vcs_poll_state",
+            "name": "etag"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "updated_after",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "vcs_poll_state",
+            "name": "updated_after"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "8297f2092f6db93252c403246ad7714c9f9b50f5c2fdbb62875177c7e514479b"
+}

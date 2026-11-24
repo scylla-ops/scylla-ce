@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) + 1 AS \"entries!\",\n                  coalesce(sum(octet_length(key) + octet_length(value::text)), 0)::bigint\n                      + octet_length($2::text) + octet_length($3::jsonb::text) AS \"bytes!\"\n           FROM user_state\n           WHERE user_id = $1 AND key <> $2::text",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entries!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "bytes!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "4d39306891f54c05feec39cc464497023542c4424304c80f966c496cea6a25fd"
+}

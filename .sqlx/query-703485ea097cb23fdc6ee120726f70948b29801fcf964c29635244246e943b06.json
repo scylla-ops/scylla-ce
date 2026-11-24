@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.id, t.pipeline_id, t.kind, t.rules AS \"rules!\", t.inputs\n           FROM triggers t JOIN pipelines p ON p.id = t.pipeline_id\n           WHERE t.project_id = $1 AND t.enabled AND t.kind IN ('push', 'pull_request', 'tag')\n             AND p.source = 'editor' AND p.archived_at IS NULL\n           ORDER BY t.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "pipeline_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "pipeline_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "rules!",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "rules"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "inputs",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "triggers",
+            "name": "inputs"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "703485ea097cb23fdc6ee120726f70948b29801fcf964c29635244246e943b06"
+}

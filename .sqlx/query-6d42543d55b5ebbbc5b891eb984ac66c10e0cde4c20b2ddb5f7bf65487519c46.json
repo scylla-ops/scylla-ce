@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM notification_events WHERE dispatched_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6d42543d55b5ebbbc5b891eb984ac66c10e0cde4c20b2ddb5f7bf65487519c46"
+}

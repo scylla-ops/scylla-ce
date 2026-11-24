@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM roles r WHERE r.id = $1\n         AND NOT EXISTS (SELECT 1 FROM role_grants g WHERE g.role_id = r.id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6dbe65bcc2da6b124bd9fa1393f7fc335123c192e6734bd302648be929ce14cc"
+}

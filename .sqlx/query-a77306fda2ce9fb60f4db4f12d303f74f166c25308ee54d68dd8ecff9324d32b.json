@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT app_id, public_key, revoked_at IS NOT NULL AS \"revoked!\"\n           FROM app_keys WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "app_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "app_keys",
+            "name": "app_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "public_key",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "app_keys",
+            "name": "public_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "revoked!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "a77306fda2ce9fb60f4db4f12d303f74f166c25308ee54d68dd8ecff9324d32b"
+}

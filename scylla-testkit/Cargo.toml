@@ -1,0 +1,30 @@
+[package]
+name = "scylla-testkit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+axum.workspace = true
+base64.workspace = true
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+scylla-core.workspace = true
+scylla-domain.workspace = true
+scylla-extension.workspace = true
+scylla-proto.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
+tonic-health.workspace = true
+tonic-reflection.workspace = true
+tracing.workspace = true
+uuid.workspace = true

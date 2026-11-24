@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM sign_in_flows WHERE state_hash = $1\n         RETURNING provider_id, browser_hash, pkce_verifier, nonce, link_user_id, return_to",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "provider_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sign_in_flows",
+            "name": "provider_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "browser_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "sign_in_flows",
+            "name": "browser_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "pkce_verifier",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sign_in_flows",
+            "name": "pkce_verifier"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "nonce",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sign_in_flows",
+            "name": "nonce"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "link_user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sign_in_flows",
+            "name": "link_user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "return_to",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sign_in_flows",
+            "name": "return_to"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "3147d7ec24502538e8f4e9476ad291b2bc6ef18bba4bf310ab8d91976f83448b"
+}

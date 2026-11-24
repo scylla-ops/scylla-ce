@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM relation_grants\n         WHERE actor_id = $1 AND scope_kind = $2 AND scope_id = $3 AND relation = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "579d4d242f0018e98c6d5fb09d701b574448dd430df8bfe7e0e373cbd736b0dd"
+}

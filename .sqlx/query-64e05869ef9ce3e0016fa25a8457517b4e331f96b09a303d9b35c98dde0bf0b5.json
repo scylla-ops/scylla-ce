@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO pending_links (token_hash, provider_id, subject, user_id, email,\n                                    display_name, return_to, expires_at)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, now() + interval '10 minutes')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64e05869ef9ce3e0016fa25a8457517b4e331f96b09a303d9b35c98dde0bf0b5"
+}

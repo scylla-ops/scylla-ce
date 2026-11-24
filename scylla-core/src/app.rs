@@ -1,0 +1,62 @@
+//! The start of each edition.
+
+use scylla_domain::identity::actors::Actor;
+use scylla_domain::identity::admins::UserAdminHolder;
+use scylla_domain::identity::api_tokens::TokenOwner;
+use scylla_domain::identity::users::AccountCaller;
+use scylla_domain::integrations::apps::VcsAppHolder;
+use scylla_domain::integrations::connections::VcsConnectionHolder;
+use scylla_domain::integrations::links::{RepositoryAccess, RepositoryHolder};
+use scylla_domain::platform::consent::ConsentCaller;
+use scylla_domain::platform::legal::LegalHolder;
+use scylla_domain::platform::{Platform, SettingsHolder};
+use scylla_extension::{Edition, EditionBuilder};
+
+use crate::features::activity::Activities;
+use crate::features::identity::apps::Apps;
+use crate::features::identity::user_state::UserState;
+use crate::features::integrations::Integrations;
+use crate::features::notifications::Notifications;
+use crate::features::platform::capabilities::Capabilities;
+use crate::features::projects::pipelines::Pipelines;
+use crate::features::projects::triggers::Triggers;
+use crate::features::projects::Projects;
+use crate::features::tenancy::dashboards::Dashboards;
+use crate::features::tenancy::grants::Grants;
+use crate::features::tenancy::library::Library;
+use crate::features::tenancy::roles::Roles;
+use crate::features::tenancy::workspaces::Workspaces;
+use crate::infra::db::MIGRATOR;
+
+/// Starts an edition with the core migrations, permission model and plugins, before those of
+/// the edition.
+pub fn edition(name: &'static str) -> EditionBuilder {
+    Edition::builder(name)
+        .migrations(&MIGRATOR)
+        .authz::<Actor>()
+        .authz::<AccountCaller>()
+        .authz::<Platform>()
+        .authz::<UserAdminHolder>()
+        .authz::<SettingsHolder>()
+        .authz::<LegalHolder>()
+        .authz::<ConsentCaller>()
+        .authz::<TokenOwner>()
+        .plugin(Workspaces)
+        .plugin(Apps)
+        .plugin(Projects)
+        .plugin(Pipelines)
+        .plugin(Triggers)
+        .plugin(Capabilities)
+        .plugin(Grants)
+        .plugin(Roles)
+        .plugin(Notifications)
+        .plugin(UserState)
+        .plugin(Dashboards)
+        .plugin(Library)
+        .plugin(Activities)
+        .authz::<VcsAppHolder>()
+        .authz::<VcsConnectionHolder>()
+        .authz::<RepositoryAccess>()
+        .authz::<RepositoryHolder>()
+        .plugin(Integrations)
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM terms_acceptances WHERE account_deleted_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9df2d6db3eb09caa9301ad87a32ec2c317975950ef15a55e765fdc1504755c14"
+}

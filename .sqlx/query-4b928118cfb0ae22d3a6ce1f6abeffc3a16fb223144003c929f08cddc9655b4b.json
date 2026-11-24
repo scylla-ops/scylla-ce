@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM trigger_deliveries WHERE trigger_id = $1 AND key = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4b928118cfb0ae22d3a6ce1f6abeffc3a16fb223144003c929f08cddc9655b4b"
+}

@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.id AS \"id!\", s.job_id IS NOT NULL AS \"source!\", l.project_id IS NOT NULL AS \"linked!\",\n                  COALESCE(l.reports_enabled, false) AS \"reports!\",\n                  COALESCE(l.state = 'active' AND c.state = 'active', false) AS \"active!\"\n           FROM jobs j\n           LEFT JOIN job_sources s ON s.job_id = j.id\n           LEFT JOIN repository_links l ON l.project_id = j.project_id\n           LEFT JOIN vcs_connections c ON c.id = l.connection_id\n           WHERE j.id = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "source!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "linked!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "reports!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "active!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "11111872fe49a363bd5d5739ffc1af6fa0df0438b9a7ad550895d516f5bfc7ec"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE api_tokens SET revoked_at = coalesce(revoked_at, now())\n         WHERE id = $1 AND actor_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bfd3e46cf9adbddcb0fbf01e399037644d2971291b86a48caed06bf084e48d52"
+}

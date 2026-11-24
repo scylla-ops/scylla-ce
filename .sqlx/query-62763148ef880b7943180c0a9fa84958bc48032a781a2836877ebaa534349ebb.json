@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO pipelines (id, project_id, workspace_id, created_by, name, nodes)\n         VALUES ($1, $2, $3, $4, 'build', '[]')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "62763148ef880b7943180c0a9fa84958bc48032a781a2836877ebaa534349ebb"
+}

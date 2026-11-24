@@ -1,0 +1,246 @@
+//! The `TestApp` helpers of `TriggerService`.
+
+use scylla_domain::identity::actors::ActorId;
+use scylla_proto::pipelines::v1::trigger_service_client::TriggerServiceClient;
+use scylla_proto::pipelines::v1::{
+    create_trigger_request, trigger_input, update_trigger_request, webhook_condition,
+    ConditionOperator, CreateTriggerRequest, CreateTriggerResponse, Cron, DeleteTriggerRequest,
+    FireTriggerNowRequest, GetTriggerRequest, Job, ListPipelineTriggersRequest,
+    ListPipelineTriggersResponse, SetTriggerEnabledRequest, Trigger, TriggerInput,
+    TriggerInputList, UpdateTriggerRequest, Webhook, WebhookCondition,
+};
+use tonic::transport::Channel;
+use tonic::Status;
+
+use crate::rpc::page;
+use crate::{id, TestApp};
+
+/// Makes an input with a literal.
+pub fn literal_input(name: &str, text: &str) -> TriggerInput {
+    TriggerInput {
+        name: name.to_owned(),
+        value: Some(trigger_input::Value::Literal(text.to_owned())),
+    }
+}
+
+/// Makes an input with a JSON pointer.
+pub fn pointer_input(name: &str, pointer: &str) -> TriggerInput {
+    TriggerInput {
+        name: name.to_owned(),
+        value: Some(trigger_input::Value::JsonPointer(pointer.to_owned())),
+    }
+}
+
+/// Makes a condition of a webhook on a header.
+pub fn header_condition(
+    name: &str,
+    operator: ConditionOperator,
+    values: &[&str],
+) -> WebhookCondition {
+    WebhookCondition {
+        source: Some(webhook_condition::Source::Header(name.to_owned())),
+        operator: operator.into(),
+        values: values.iter().map(|value| (*value).to_owned()).collect(),
+    }
+}
+
+/// Makes a condition of a webhook on a JSON pointer into the body.
+pub fn pointer_condition(
+    pointer: &str,
+    operator: ConditionOperator,
+    values: &[&str],
+) -> WebhookCondition {
+    WebhookCondition {
+        source: Some(webhook_condition::Source::JsonPointer(pointer.to_owned())),
+        operator: operator.into(),
+        values: values.iter().map(|value| (*value).to_owned()).collect(),
+    }
+}
+
+impl TestApp {
+    /// Returns a client of `TriggerService`.
+    pub(crate) fn triggers(&self) -> TriggerServiceClient<Channel> {
+        TriggerServiceClient::new(self.channel.clone())
+    }
+
+    /// Calls `CreateTrigger` as `actor` for a cron trigger, or a webhook trigger if `schedule`
+    /// is `None`.
+    pub async fn create_trigger(
+        &self,
+        actor: ActorId,
+        pipeline: &str,
+        name: &str,
+        schedule: Option<&str>,
+        inputs: Vec<TriggerInput>,
+    ) -> Result<CreateTriggerResponse, Status> {
+        let kind = match schedule {
+            Some(schedule) => create_trigger_request::Kind::Cron(Cron {
+                schedule: schedule.to_owned(),
+            }),
+            None => create_trigger_request::Kind::Webhook(Webhook {
+                path: String::new(),
+                conditions: Vec::new(),
+            }),
+        };
+        let request = CreateTriggerRequest {
+            pipeline_id: Some(id(pipeline)),
+            name: name.to_owned(),
+            kind: Some(kind),
+            inputs,
+        };
+        let request = self.authed(actor, request).await;
+        Ok(self.triggers().create_trigger(request).await?.into_inner())
+    }
+
+    /// Calls `CreateTrigger` as `actor` for a webhook trigger with conditions and no input.
+    pub async fn create_webhook_trigger(
+        &self,
+        actor: ActorId,
+        pipeline: &str,
+        name: &str,
+        conditions: Vec<WebhookCondition>,
+    ) -> Result<CreateTriggerResponse, Status> {
+        let request = CreateTriggerRequest {
+            pipeline_id: Some(id(pipeline)),
+            name: name.to_owned(),
+            kind: Some(create_trigger_request::Kind::Webhook(Webhook {
+                path: String::new(),
+                conditions,
+            })),
+            inputs: Vec::new(),
+        };
+        let request = self.authed(actor, request).await;
+        Ok(self.triggers().create_trigger(request).await?.into_inner())
+    }
+
+    /// Calls `CreateTrigger` as `actor` for a push, pull request or tag trigger with no input,
+    /// and returns the new trigger.
+    pub async fn create_git_trigger(
+        &self,
+        actor: ActorId,
+        pipeline: &str,
+        name: &str,
+        kind: create_trigger_request::Kind,
+    ) -> Result<Trigger, Status> {
+        let request = CreateTriggerRequest {
+            pipeline_id: Some(id(pipeline)),
+            name: name.to_owned(),
+            kind: Some(kind),
+            inputs: Vec::new(),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.triggers().create_trigger(request).await?.into_inner();
+        Ok(response.trigger.expect("trigger in response"))
+    }
+
+    /// Calls `UpdateTrigger` as `actor` with new rules only.
+    pub async fn update_trigger_rules(
+        &self,
+        actor: ActorId,
+        trigger: &str,
+        rules: update_trigger_request::Rules,
+    ) -> Result<Trigger, Status> {
+        let request = UpdateTriggerRequest {
+            trigger_id: Some(id(trigger)),
+            name: None,
+            schedule: None,
+            inputs: None,
+            rules: Some(rules),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.triggers().update_trigger(request).await?.into_inner();
+        Ok(response.trigger.expect("trigger in response"))
+    }
+
+    /// Calls `GetTrigger` as `actor`.
+    pub async fn get_trigger(&self, actor: ActorId, trigger: &str) -> Result<Trigger, Status> {
+        let request = GetTriggerRequest {
+            trigger_id: Some(id(trigger)),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.triggers().get_trigger(request).await?.into_inner();
+        Ok(response.trigger.expect("trigger in response"))
+    }
+
+    /// Calls `UpdateTrigger` as `actor` with a new schedule and new inputs.
+    pub async fn update_trigger(
+        &self,
+        actor: ActorId,
+        trigger: &str,
+        schedule: Option<&str>,
+        inputs: Option<Vec<TriggerInput>>,
+    ) -> Result<Trigger, Status> {
+        let request = UpdateTriggerRequest {
+            trigger_id: Some(id(trigger)),
+            name: None,
+            schedule: schedule.map(str::to_owned),
+            inputs: inputs.map(|inputs| TriggerInputList { inputs }),
+            rules: None,
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.triggers().update_trigger(request).await?.into_inner();
+        Ok(response.trigger.expect("trigger in response"))
+    }
+
+    /// Calls `DeleteTrigger` as `actor`.
+    pub async fn delete_trigger(&self, actor: ActorId, trigger: &str) -> Result<(), Status> {
+        let request = DeleteTriggerRequest {
+            trigger_id: Some(id(trigger)),
+        };
+        let request = self.authed(actor, request).await;
+        self.triggers().delete_trigger(request).await?;
+        Ok(())
+    }
+
+    /// Calls `ListPipelineTriggers` as `actor` for the first page.
+    pub async fn list_pipeline_triggers(
+        &self,
+        actor: ActorId,
+        pipeline: &str,
+    ) -> Result<ListPipelineTriggersResponse, Status> {
+        let request = ListPipelineTriggersRequest {
+            pipeline_id: Some(id(pipeline)),
+            page: Some(page(0, "")),
+        };
+        let request = self.authed(actor, request).await;
+        Ok(self
+            .triggers()
+            .list_pipeline_triggers(request)
+            .await?
+            .into_inner())
+    }
+
+    /// Calls `SetTriggerEnabled` as `actor`.
+    pub async fn set_trigger_enabled(
+        &self,
+        actor: ActorId,
+        trigger: &str,
+        enabled: bool,
+    ) -> Result<Trigger, Status> {
+        let request = SetTriggerEnabledRequest {
+            trigger_id: Some(id(trigger)),
+            enabled,
+        };
+        let request = self.authed(actor, request).await;
+        let response = self
+            .triggers()
+            .set_trigger_enabled(request)
+            .await?
+            .into_inner();
+        Ok(response.trigger.expect("trigger in response"))
+    }
+
+    /// Calls `FireTriggerNow` as `actor`, and returns the new job.
+    pub async fn fire_trigger_now(&self, actor: ActorId, trigger: &str) -> Result<Job, Status> {
+        let request = FireTriggerNowRequest {
+            trigger_id: Some(id(trigger)),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self
+            .triggers()
+            .fire_trigger_now(request)
+            .await?
+            .into_inner();
+        Ok(response.job.expect("job in response"))
+    }
+}

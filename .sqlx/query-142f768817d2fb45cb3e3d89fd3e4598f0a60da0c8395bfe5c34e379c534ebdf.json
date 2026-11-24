@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT scope_kind AS \"scope_kind!\", scope_id AS \"scope_id!\", role AS \"role!\",\n                  created_at AS \"created_at!\"\n           FROM (\n               SELECT scope_kind, scope_id, relation AS role, created_at\n               FROM relation_grants\n               WHERE actor_id = $1\n               UNION ALL\n               SELECT g.scope_kind, g.scope_id, r.name AS role, g.created_at\n               FROM role_grants g\n               JOIN roles r ON r.id = g.role_id\n               WHERE g.actor_id = $1\n           ) AS held\n           ORDER BY created_at, scope_kind, role",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scope_kind!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "scope_id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "role!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "142f768817d2fb45cb3e3d89fd3e4598f0a60da0c8395bfe5c34e379c534ebdf"
+}

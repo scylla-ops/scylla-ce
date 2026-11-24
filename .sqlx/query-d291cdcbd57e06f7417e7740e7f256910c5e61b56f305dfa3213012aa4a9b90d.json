@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO consent_records\n             (id, consent_id, user_id, banner_version, banner_hash, choices, action, source)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n         RETURNING recorded_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "recorded_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "consent_records",
+            "name": "recorded_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d291cdcbd57e06f7417e7740e7f256910c5e61b56f305dfa3213012aa4a9b90d"
+}

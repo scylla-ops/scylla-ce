@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT params->>'name' AS \"name!\", params->>'count' AS \"count!\" FROM activity\n           WHERE kind = 'trigger.time_missed' AND area = 'triggers'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "0f56242dfc3aee7a81ae5e3cd74d6bd13aacfe6e51158e754045ffc2be1a72ac"
+}

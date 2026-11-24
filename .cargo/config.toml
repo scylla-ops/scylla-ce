@@ -1,0 +1,19 @@
+# Linux: mold. Install: `apt install mold clang` or `dnf install mold clang`.
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[target.aarch64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+# macOS: mold has no Mach-O support; the system linker (ld-prime) is used.
+# To use lld instead: `brew install lld`, then uncomment.
+# [target.aarch64-apple-darwin]
+# rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+# sqlx::test shares 20 database connections between the tests that run at the same time, and
+# the pool of each test keeps one. TestApp gives its server a pool of its own.
+# Sixteen test threads keep the tests under this limit.
+[env]
+RUST_TEST_THREADS = "16"

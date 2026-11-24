@@ -1,0 +1,202 @@
+//! The logic of the jobs that people call: one transaction for each call, with the hooks. A
+//! change of a job that an agent holds also tells its stream. An editor approves or rejects a job
+//! from a fork.
+
+use scylla_domain::identity::actors::Actor;
+use scylla_domain::projects::jobs::{
+    Job, JobId, JobPage, JobStatus, ListJobs, LogBatch, LogBatchId, NewJob, RerunOrigin, StartJob,
+    KIND,
+};
+use scylla_domain::projects::ProjectId;
+use scylla_domain::tenancy::workspaces::WorkspaceId;
+use scylla_domain::Page;
+use scylla_extension::{CreateContext, DeleteContext, Hooks, Rejection};
+use sqlx::PgPool;
+
+use super::changed;
+use super::runs::now;
+use super::store::{approvals, jobs, lists, logs};
+use crate::features::identity::agents::Registry;
+use crate::features::projects::pipelines::service as pipelines;
+use crate::Error;
+
+/// Creates a job with its source if each `BeforeCreate` hook accepts it, then wakes the agents.
+pub(crate) async fn create(
+    pool: &PgPool,
+    hooks: &Hooks,
+    registry: &Registry,
+    actor: Actor,
+    new: NewJob,
+) -> Result<Job, Error> {
+    let mut tx = pool.begin().await?;
+    hooks
+        .before_create(&mut tx, &CreateContext::new(KIND, actor, new.workspace_id))
+        .await?;
+    let job = jobs::insert(&mut tx, &new).await?;
+    changed::job_changed(&mut tx, &job).await?;
+    tx.commit().await?;
+    registry.wake_all();
+    tracing::info!(event = "job.created", job = %job.id, pipeline = %job.pipeline_id);
+    Ok(job)
+}
+
+/// Returns a job, or `None` if no job has this id.
+pub(crate) async fn get(pool: &PgPool, id: JobId) -> Result<Option<Job>, Error> {
+    let mut tx = pool.begin().await?;
+    let job = jobs::find(&mut tx, id, false).await?;
+    tx.commit().await?;
+    Ok(job)
+}
+
+/// Returns the project and the workspace of a job, or `None` if no job has this id.
+pub(crate) async fn place(
+    pool: &PgPool,
+    id: JobId,
+) -> Result<Option<(ProjectId, WorkspaceId)>, Error> {
+    let mut tx = pool.begin().await?;
+    let place = jobs::place(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(place)
+}
+
+/// Returns one page of the jobs that match the filter, newest first.
+pub(crate) async fn list(pool: &PgPool, query: ListJobs) -> Result<JobPage, Error> {
+    let mut tx = pool.begin().await?;
+    let items = lists::list(&mut tx, &query.scope, query.page, &query.filter).await?;
+    tx.commit().await?;
+    Ok(Page::from_overfetch(items, query.page.size, |job| job.id))
+}
+
+/// Cancels a job that did not end, and tells its agent. A job that ended does not change.
+pub(crate) async fn cancel(pool: &PgPool, registry: &Registry, id: JobId) -> Result<Job, Error> {
+    // End the job in one transaction, with the row locked.
+    let mut tx = pool.begin().await?;
+    let mut job = jobs::find(&mut tx, id, true)
+        .await?
+        .ok_or(Error::NotFound("job"))?;
+    let changed = job.end(JobStatus::Cancelled, None, now());
+    if changed {
+        jobs::save(&mut tx, &mut job).await?;
+        changed::job_changed(&mut tx, &job).await?;
+    }
+    tx.commit().await?;
+
+    // Tell the agent, after the commit.
+    if let (true, Some(agent)) = (changed, job.agent_id) {
+        registry.cancel(agent, id);
+        registry.wake_all();
+    }
+    if changed {
+        tracing::info!(event = "job.cancelled", job = %id);
+    }
+    Ok(job)
+}
+
+/// Approves a job from a fork that waits, then wakes the agents. It runs with no secret value.
+/// A job in another state gives `JOB_NOT_AWAITING_APPROVAL`.
+pub(crate) async fn approve(
+    pool: &PgPool,
+    registry: &Registry,
+    actor: Actor,
+    id: JobId,
+) -> Result<Job, Error> {
+    // Make the job pending in one transaction, with the row locked.
+    let mut tx = pool.begin().await?;
+    let mut job = jobs::find(&mut tx, id, true)
+        .await?
+        .ok_or(Error::NotFound("job"))?;
+    job.approve(actor.id, now()).map_err(|_| not_awaiting())?;
+    jobs::save(&mut tx, &mut job).await?;
+    changed::job_changed(&mut tx, &job).await?;
+    tx.commit().await?;
+
+    // Wake the agents, after the commit.
+    registry.wake_all();
+    tracing::info!(event = "job.approved", job = %id, pipeline = %job.pipeline_id);
+    Ok(job)
+}
+
+/// Rejects a job from a fork that waits: it is cancelled with the name of the actor. A job in
+/// another state gives `JOB_NOT_AWAITING_APPROVAL`.
+pub(crate) async fn reject(pool: &PgPool, actor: Actor, id: JobId) -> Result<Job, Error> {
+    // Read the job with its row locked, and the name of the actor.
+    let mut tx = pool.begin().await?;
+    let mut job = jobs::find(&mut tx, id, true)
+        .await?
+        .ok_or(Error::NotFound("job"))?;
+    let name = approvals::name_of(&mut tx, actor.id).await?;
+    let name = name.unwrap_or_else(|| actor.id.to_string());
+
+    // Cancel the job, and record its report.
+    job.reject(actor.id, &name, now())
+        .map_err(|_| not_awaiting())?;
+    jobs::save(&mut tx, &mut job).await?;
+    changed::job_changed(&mut tx, &job).await?;
+    tx.commit().await?;
+    tracing::info!(event = "job.rejected", job = %id, pipeline = %job.pipeline_id);
+    Ok(job)
+}
+
+/// The refusal of a decision on a job that does not wait for an approval.
+fn not_awaiting() -> Error {
+    let message = "only a job that waits for an approval takes a decision";
+    Error::Rejected(Rejection::new("JOB_NOT_AWAITING_APPROVAL", message))
+}
+
+/// Deletes a job with its logs, runs the `AfterDelete` hooks, then tells its agent.
+pub(crate) async fn delete(
+    pool: &PgPool,
+    hooks: &Hooks,
+    registry: &Registry,
+    actor: Actor,
+    id: JobId,
+) -> Result<(), Error> {
+    let mut tx = pool.begin().await?;
+    let (workspace, agent, status) = jobs::delete(&mut tx, id)
+        .await?
+        .ok_or(Error::NotFound("job"))?;
+    hooks
+        .after_delete(&mut tx, &DeleteContext::new(KIND, actor, workspace))
+        .await?;
+    tx.commit().await?;
+    if let (false, Some(agent)) = (status.is_final(), agent) {
+        registry.cancel(agent, id);
+        registry.wake_all();
+    }
+    tracing::info!(event = "job.deleted", job = %id);
+    Ok(())
+}
+
+/// Starts a new job with the nodes, the pipeline and the source of a job that ended. A job from
+/// a fork waits for an approval again.
+pub(crate) async fn rerun(
+    pool: &PgPool,
+    hooks: &Hooks,
+    registry: &Registry,
+    actor: Actor,
+    id: JobId,
+    origin: RerunOrigin,
+) -> Result<Job, Error> {
+    let old = get(pool, id).await?.ok_or(Error::NotFound("job"))?;
+    if !old.status.is_final() {
+        let message = "only a job that ended runs again";
+        return Err(Error::Rejected(Rejection::new("JOB_NOT_ENDED", message)));
+    }
+    let start = StartJob::rerun(old, origin);
+    pipelines::start(pool, hooks, registry, actor, start).await
+}
+
+/// Returns at most `limit` batches of the logs of a job after a cursor, of one node if it is
+/// set.
+pub(crate) async fn logs(
+    pool: &PgPool,
+    id: JobId,
+    node: Option<&str>,
+    cursor: Option<LogBatchId>,
+    limit: i64,
+) -> Result<Vec<LogBatch>, Error> {
+    let mut tx = pool.begin().await?;
+    let batches = logs::after(&mut tx, id, node, cursor, limit).await?;
+    tx.commit().await?;
+    Ok(batches)
+}

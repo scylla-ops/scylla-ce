@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE jobs SET status = 'awaiting_approval', approval = 'waiting',\n                created_at = now() - make_interval(mins => $2::int4)\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6a8c7eb91688e3c5410134ec8bac2b3deb2edb3629d899da18eedc4640f82af8"
+}

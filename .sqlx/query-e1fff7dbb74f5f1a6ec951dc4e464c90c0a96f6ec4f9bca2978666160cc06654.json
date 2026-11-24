@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT schema_version, widgets FROM dashboards WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "schema_version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "dashboards",
+            "name": "schema_version"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "widgets",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "dashboards",
+            "name": "widgets"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e1fff7dbb74f5f1a6ec951dc4e464c90c0a96f6ec4f9bca2978666160cc06654"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO job_sources (job_id, pipeline_id, provider, repository, url, sha, branch,\n                                     event, automatic)\n             SELECT id, pipeline_id, 'github', 'acme/app', 'https://github.com/acme/app', 'abc',\n                    $2, 'manual', false\n             FROM jobs WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dd6dc692776aa68b75b22f6c903c06984f759dbfda72ebbb66c23723da275e8d"
+}

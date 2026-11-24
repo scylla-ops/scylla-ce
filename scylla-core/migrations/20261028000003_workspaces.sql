@@ -1,0 +1,17 @@
+CREATE TABLE workspaces (
+    id uuid PRIMARY KEY,
+    name text NOT NULL,
+    slug text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9-]{0,37}[a-z0-9]$'),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    personal_tokens_enabled boolean NOT NULL DEFAULT true,
+    time_zone text NOT NULL DEFAULT 'UTC'
+);
+
+CREATE TABLE workspace_owners (
+    workspace_id uuid NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
+    user_id uuid NOT NULL REFERENCES users (id),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (workspace_id, user_id)
+);
+
+CREATE INDEX workspace_owners_user_id_idx ON workspace_owners (user_id);

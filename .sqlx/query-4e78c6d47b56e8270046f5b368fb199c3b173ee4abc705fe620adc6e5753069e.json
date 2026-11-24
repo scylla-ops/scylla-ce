@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO job_sources (job_id, pipeline_id, provider, repository, url, sha, ref, branch,\n                                  tag, pull_requests, from_fork, fork_repository, author_login,\n                                  avatar, message_title, event, automatic, changes_pipeline_files)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Bool",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4e78c6d47b56e8270046f5b368fb199c3b173ee4abc705fe620adc6e5753069e"
+}

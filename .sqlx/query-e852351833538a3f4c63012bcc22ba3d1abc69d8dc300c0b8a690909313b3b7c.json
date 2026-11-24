@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO identity_providers\n             (id, slug, kind, display_name, settings, client_secret, allow_sign_up, enabled)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n         ON CONFLICT (slug) DO UPDATE SET kind = $3, display_name = $4, settings = $5,\n             client_secret = $6, allow_sign_up = $7, enabled = $8",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Bytea",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e852351833538a3f4c63012bcc22ba3d1abc69d8dc300c0b8a690909313b3b7c"
+}

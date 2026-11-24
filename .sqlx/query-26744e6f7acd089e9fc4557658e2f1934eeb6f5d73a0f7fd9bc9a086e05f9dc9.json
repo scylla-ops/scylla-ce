@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT agent_id AS \"agent_id!\", date_trunc('day', created_at, 'UTC') AS \"day!\",\n                  count(*) FILTER (WHERE status = 'completed') AS \"completed!\",\n                  count(*) FILTER (WHERE status = 'failed') AS \"failed!\",\n                  count(*) FILTER (WHERE status = 'cancelled') AS \"cancelled!\",\n                  count(*) FILTER (WHERE status = 'orphaned') AS \"orphaned!\"\n           FROM jobs\n           WHERE workspace_id = $1 AND agent_id IS NOT NULL\n             AND ($2::uuid IS NULL OR agent_id = $2)\n             AND created_at >= $3 AND created_at < $4\n           GROUP BY agent_id, 2 ORDER BY agent_id, 2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "agent_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "agent_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "day!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "completed!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "failed!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "cancelled!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "orphaned!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "26744e6f7acd089e9fc4557658e2f1934eeb6f5d73a0f7fd9bc9a086e05f9dc9"
+}

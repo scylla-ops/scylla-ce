@@ -1,274 +1,345 @@
-# Scylla
+# Scylla: core and Community edition
 
-Distributed CI/CD platform.
+The public repository of Scylla. It holds the core and the `scylla-ce` binary. The Enterprise edition is in a separate private repository (`scylla-ops/scylla-ee`) and adds its features through plugins. The protos are in `scylla-ops/scylla-protos`, a git submodule at `proto`: clone with `git clone --recurse-submodules`, or run `git submodule update --init` in a clone.
 
-## Architecture
+Users sign up or sign in with an identity provider, and work in workspaces with their projects and Apps (machine identities, and the agents that run jobs). The API is gRPC and gRPC-Web on one port. Access is zero trust: a short-lived Biscuit token on each request, and a SpiceDB permission check on each operation.
 
-| Service                | Ports          | Description                                                       |
-|------------------------|----------------|-------------------------------------------------------------------|
-| `scylla-ce`            | `8080`         | One binary: web UI, gRPC API, gRPC-Web, webhook ingress, and in-process job dispatch |
-| `scylla-agent`         | —              | Worker installed per machine; registered as an "App" in the UI, run out-of-band |
-| `postgres`             | `5432`         | Primary datastore (PostgreSQL 18)                                 |
+- `AGENT.md`: how to write code here (structure, access, comments, tests, protos, SQL).
+- `DECISIONS.md`: why the code has its shape.
 
-Two binaries ship: `scylla-ce` (the control plane, Community Edition) and `scylla-agent` (remote workers). Agents connect to the control plane over a persistent worker stream, there is no message broker.
-
-Everything the browser and the agents talk to lives on **one port**. The control plane serves the compiled-in web UI, terminates gRPC-Web for the browser, speaks native gRPC to the agents, and accepts inbound webhooks at `/webhooks/{trigger_id}` — all on `8080`. Because the UI is served from the same origin as the API, the bundle uses relative URLs: the published image carries no baked-in hostname and works unchanged in any deployment.
-
-The workspace is a stack of library crates under `crates/` with the two binaries under `binaries/`: `scylla-ce` (the control plane) and `scylla-agent` (the worker). See [Workspace layout](#workspace-layout) below.
-
-## Workspace layout
+## Crates
 
 ```
-crates/
-  scylla-extension/   the edition boundary: the action pipeline every write goes through (depends on scylla-domain only)
-  scylla-domain/      the shared kernel: domain model, JobEvent (no I/O, no crypto)
-  scylla-proto/       the Rust bindings and their conversions; the .proto files are the scylla-protos submodule in proto/
-  scylla-auth/        the access model: RBAC ports and types, the Cedar adapter
-  scylla-core/        use cases and their ports, gRPC + HTTP surfaces, server config, in-memory adapters
-  scylla-db/          the Postgres adapters, the pool, the embedded migrations
-  scylla-server/      the composition root: the Server builder and the shared cli
-binaries/
-  scylla-ce/          the Community Edition binary: a main.rs and config/*.toml
-  scylla-agent/       the worker binary (depends on scylla-domain + scylla-proto only)
-web/                  the scylla-web submodule: the web UI, compiled into scylla-ce through scylla-core
-migrations/           the SQL schema, embedded by scylla-db
+scylla-ce ──▶ scylla-core ──▶ scylla-extension ──▶ scylla-domain ──▶ scylla-macros
+                  │
+                  └──────▶ scylla-proto
+scylla-testkit (tests only) ──▶ scylla-core
 ```
 
-The `.proto` files are in
-[scylla-ops/scylla-protos](https://github.com/scylla-ops/scylla-protos) and the
-web UI is in [scylla-ops/scylla-web](https://github.com/scylla-ops/scylla-web).
-Both are git submodules, so clone with `--recurse-submodules`, or run
-`git submodule update --init --recursive`.
+| Crate | Contents |
+|---|---|
+| `scylla-macros` | `authz!`: the permission model in the SpiceDB schema language |
+| `scylla-domain` | pure types: `Id<T>` and its codec, the permission model, the platform, actors, users and handles, slugs, instance admins, workspaces, Apps and agents, projects and their secrets, pages |
+| `scylla-extension` | the contract: `Edition`, `Plugin`, hooks, `Gate` |
+| `scylla-proto` | generated code of `proto/`, the submodule `scylla-protos`, and the version text of a build (`version`) |
+| `scylla-ce` | the binary. It holds the build of `web/`, the submodule `scylla-web` |
+| `scylla-core` | access (Biscuit, SpiceDB), features (accounts, instance admins, sessions, providers, invitations, workspaces, actors, Apps, agents, tokens, projects, secrets, grants, capabilities, the GitHub and GitLab integration), mails, logs, the clients of the Git providers, the guard against the public dev keys, server, CLI |
+| `scylla-testkit` | starts the real server and gate in a test, one helper per core RPC, a capture of the log lines, a fake Git provider and the rows of the Git integration |
+| `scylla-ce` | the Community edition binary |
+| `scylla-agent` | the agent binary: `join`, `run` and the Windows service, the stream, the checkout of the code, the order of the nodes, the processes and the containers, the logs with the secrets masked |
 
-Dependencies point one way, bottom to top:
+## Access
 
-```
-scylla-domain <- scylla-proto     <- scylla-core <- scylla-db <- scylla-server <- scylla-ce
-scylla-domain <- scylla-auth      <- scylla-core
-scylla-domain <- scylla-extension <- scylla-core
-```
+| Step | How |
+|---|---|
+| A person signs up | `AccountService.SignUp` with an email and a password, then the link of the mail (`VerifyEmail`). The mode `SCYLLA_SIGN_UP_MODE` is `invite_only` by default: the link of an invitation is necessary. The first user is a user of `user create --admin`. |
+| A person signs in | With an email or a handle and a password: `AccountService.SignIn`. In a browser with an identity provider: `/auth/<slug>/start`, then the session cookie, or a code on the page `sign-in-error` of the web app. The verified email of an account with a password goes to the page `sign-in-link`, where the password of the account links the identity (`LinkPendingIdentity`). A native client: `TokenService.ExchangeIdToken`. Each sign-in opens a session, and `TokenService.Refresh` gives new tokens. |
+| An App signs in | An admin creates the App (or an App creator: the role `app_creator` of the workspace, which then manages its own Apps) in a workspace (`AppService.CreateApp`) and gets a one-time join code (15 minutes). The machine makes its Ed25519 key pair and sends the code and its public key: `TokenService.JoinApp`. Then each time it signs an assertion with its private key: `TokenService.ExchangeAppAssertion`. The token stops at once when its key is revoked (`RevokeAppKey`) or its App is deleted. Or an admin creates an API token (`AppService.CreateAppToken`, 7 to 365 days) and the program exchanges its secret `scya_...`: `TokenService.ExchangeApiToken`. Or a CI job of a CI identity of the App (`AppService.AddCiIdentity`) exchanges the ID token of its job: `TokenService.ExchangeCiToken`. |
+| A program calls in JSON | `curl -X POST https://scylla.example.com/api/scylla.projects.v1.ProjectService/ListProjects -H "Authorization: Bearer scya_..." -d '{}'`: the gateway takes the proto3 JSON of a unary method and answers JSON, with the HTTP status of the gRPC code. A token, or the secret of an App or personal token, goes in `Authorization`. |
+| An agent connects | An App created with `runner = true` opens `AgentService.OpenStream`, sends a hello with its host, and sends a new token on the stream before the expiry of the old one. `GetApp` and `ListApps` show if it is connected, its host, its last seen time and the number of jobs that it holds. `GetAgentStats` and `ListAgentStats` give the ends of its jobs for each of the last 30 days, and their run times. `GetAgentStats` also takes a period of at most one year since the creation of the agent. The agent tells its start, and sends the CPU use and the used memory of its machine each minute: `GetApp` and `ListApps` show the last sample, and `GetAgentMetrics` gives the samples of the last 7 days by hour, day or week. |
+| Each request | `authorization: Bearer <biscuit>`. 10 minutes by default. A holder can attenuate it offline before it gives it to a step. The operation of a request is its gRPC method. |
+| Each route | The permission of the route: the RPC name in snake case. An owner of the workspace and an instance admin pass with no SpiceDB call, and a custom role passes with one SQL query (decision 86). Else one SpiceDB call looks for a role on the object or on its workspace. |
+| A share | `AccessService.Grant` and `Revoke`: a role (`admin`, `member`, `viewer` in a workspace, `admin`, `editor`, `viewer` on a project) for one actor. An App gets roles only in its own workspace. The role `owner` of a workspace also needs `manage_owners`, so only an owner or an instance admin changes it. `ListAccess` lists the roles of an object, and `CheckPermissions` tells a caller its permissions on an object. `InvitationService` invites an email into a workspace, and lists, revokes and sends again the open invitations. |
+| A list | `ListWorkspaces` and `ListProjects` show only what the caller can see (SpiceDB reverse lookups for the roles). `workspace_id` filters the projects. |
+| A change of a project | `ProjectService.UpdateProject`: the name and the description, for the editors of the project and the members of its workspace. |
+| A pipeline | `PipelineService`: a graph of 1 to 256 nodes (a command or a script, an environment with literals and secrets of the project, a timeout, retries, a work folder, a process or a container). A switch opens ports from its cases, a merge joins branches, a need can name a port, and the port `error` takes the failure of a run node. `UpdatePipeline` needs the version that the client read, else `ABORTED`. `RunPipeline` makes a pending job with a snapshot of the nodes. `ListPipelineSummaries` gives the dashboard the pipelines of a workspace that the caller can see, with their recent jobs, their health and their triggers. |
+| A dashboard layout | `DashboardService` in a workspace: a name, a visibility (private or workspace) and the widgets: a JSON text of at most 64 KiB with the version of its format, that the server keeps and does not read. `UpdateDashboard` needs the version that the client read, else `ABORTED`. A private layout is visible only to its creator, also for an instance admin. The creator changes and deletes its layout while it reads the dashboards of the workspace. `SetTeamDefaultDashboard` makes one shared layout the default of the workspace. The catalog cells are `dashboards.view`, `dashboards.create` and `dashboards.manage`. `ListAttentionItems` gives the open items that need a person ("Needs you"), of the kinds that the caller reads: a failed or orphaned job until a later job of its pipeline and branch completes, a failed fire or a missed time until the next good fire of its trigger, an agent that is not connected for more than 5 minutes, and a job that waits for an approval, for a person who can approve it. No person can dismiss an item. |
+| An activity feed | `ActivityService.ListActivity` in a workspace: the ends of the jobs and the changes of the triggers, the secrets, the members, the Git connections and the agents, newest first, with pages and the count of the rows since a time (at most 100). A row shows only to a caller with the read permission of its area, on its project or on the workspace, and a caller with no role gets an empty list. A row holds a kind and its parameters, never the value of a secret. The server keeps a row for 30 days. |
+| A job | An agent with the role `runner` in its workspace gets the oldest pending job on its stream, with the values of the secrets, while it holds fewer jobs than its capacity. A job with a container goes only to an agent with a container runtime. The agent sends the events and the logs back on the stream. `JobService` reads, cancels, deletes and runs again a job, lists the jobs, and follows the logs with `TailJobLogs`. `GetJobStats` gives the dashboard the figures of the jobs of a workspace that the caller can see for a period: the counts, the durations, the waits for an agent and the run time, by hour, day or week of the time zone of the workspace, by group, and for the previous period. A job of an agent that went away for 60 seconds ends as orphaned. |
+| A trigger | `TriggerService`: a cron schedule (5 fields, in the time zone of the workspace) or a webhook, with inputs (literals, or JSON pointers into the body of a webhook) that each node gets. A fire starts a job as the runner of the triggers of the workspace. The webhook route `POST /webhooks/{id}` is public: the HMAC-SHA256 of the body with the secret of the trigger is the credential. A webhook can have conditions on a header or on a value of the body: a delivery that does not match them makes no job, and shows as skipped with the reason. The history keeps each fire and each cron time that the server missed for 30 days. `ListWorkspaceTriggers`, `ListTriggerFires` and `GetTriggerFireStats` give the dashboard the triggers of a workspace that the caller can see, with their next fires, their fires and their counts. |
+| A secret | `SecretService` in a project: create, give a new value, delete, list the names in name order. No RPC returns a value. The server encrypts each value with `SCYLLA_SECRET_KEY` and the id of its secret. The admins of a project and of its workspace change the secrets, and its editors and the members of the workspace list them. |
+| An account | `ProfileService`: the profile and the handle, a change of email with a link to the new email, the password, the identities, the sessions (with their IP address), and the deletion of the account. |
+| The roles | `RoleService`: the catalog of the permissions, the built-in roles, and the custom roles of the instance or of a workspace. `AccessService.Grant` on the platform gives the roles of the whole instance. |
+| The users of the instance | `UserAdminService`, for the instance admins and the roles that give its routes: list, read, create, change, disable, delete, reset link, sessions, and the instance admin right. The last active instance admin stays. |
 
-`scylla-core` holds the ports declared in `scylla-core` and `scylla-auth` as trait objects (`Arc<dyn Port>`); `scylla-db` implements them; `scylla-server` is the only crate that names the concrete implementations side by side. The binaries are a `main.rs` each: parse the command line, load the configuration, open the pool with `scylla_db::init_db`, then `Server::new(config, db)`, the edition's contributions as builder methods, `serve()`.
+A workspace contains the projects and the Apps, and has a unique slug for the URLs. Its admins rename it, and its owners delete it when it is empty. One user or more own it: they hold the built-in role Workspace owner, `AccessService.Grant` and `Revoke` change it, and the last owner stays. Each user has a personal workspace. Postgres holds the containers and the holders of this role (`workspace_id`, `workspace_owners`). SpiceDB holds only the roles that a person gives. A creation writes nothing to SpiceDB.
 
-A WebAssembly plugin runtime is planned as `crates/scylla-wasm/`; it does not exist yet.
-
-## Editions and the extension mechanism
-
-This repository is the open source core and ships the Community Edition binary, `scylla-ce`. A separate, private repository builds an Enterprise binary on top of it. The dependency is strictly one way: the private repository depends on this one by a pinned git tag, and nothing here knows it exists.
-
-The seam between the two is `crates/scylla-extension`, the action pipeline. Every write in the core is a command (`CreateProject { organization_id, name, description }`) that `Actions::run` moves through three typed stages: `Authorize` (the access check, run by the core for every action: the action declares `Access::Public`, `Access::Authenticated` or the permissions it requires), `Prepare` (the use case reads and builds a staged value, it does not write) and `Persist` (the store writes inside `Prepared::commit`). Every read is a query (`GetProject { id }`) that the same `Actions::run` moves through `Authorize` and `Fetch`; the trait the action implements (`Command` or `Query`) decides what follows the access check. Around each stage the `Hooks` registry runs six positions, in this order:
-
-```
-Policy -> Gate<S> -> Around [ Wrap<S> [ Run ] ] -> Listener<S> -> Observer
- veto      veto      control   control            side effect     record
- every     one       every     one                one             every
-```
-
-`Policy`, `Around` and `Observer` are erased: registered on a stage kind, they fire for every command, including commands that do not exist yet, and see the caller, the `Access` (its permissions through `access().permissions()`) and the action id. `Gate<S>`, `Wrap<S>` and `Listener<S>` are typed: registered on one stage of one command, they see the exact phase. A veto is a `DomainError` (`quota_exceeded`, `business_rule`) and maps to gRPC like any other. The crate depends on `scylla-domain` and nothing else, so an edition builds against a pinned git tag without the access model, the database or the gRPC stack.
-
-An edition bundles its hooks in a type that implements `Extension` and registers it once:
+The permission model is Rust code. `authz!` declares a SpiceDB definition next to its type, and the compiler checks each name and each id. A route permission uses a group, and a role gives a group:
 
 ```rust
-impl Extension for MeteredQuota {
-    fn register(self: &Arc<Self>, hooks: &mut Hooks) {
-        hooks
-            .policy(StageKind::Prepare, self.clone())   // veto a create over the plan's limit
-            .observe(StageKind::Persist, self.clone()); // count what was stored
+authz! {
+    /// The roles on one project.
+    definition project for Project {
+        /// An actor that can do everything on this project.
+        relation admin: Actor;
+        /// The group of the routes that delete the project.
+        permission delete = admin;
+        /// The route `DeleteProject`, on one project.
+        permission delete_project = delete;
+    }
+
+    /// The routes of the projects on their workspace.
+    extend Workspace as ProjectHolder {
+        /// The route `DeleteProject`, on each project of this workspace.
+        permission delete_project = manage;
     }
 }
 
-Server::new(config, db).extension(&Arc::new(MeteredQuota::new(plans))).serve()
+gate.authorize(&caller, Project::DELETE_PROJECT.on(project_id).within(workspace)).await?;
+app.grant(&[Project::ADMIN.of(project_id, carol)]).await;
 ```
 
-The Community Edition registers nothing: the pipeline runs the access check, the stages and no hook. A use case is a struct that holds its ports and implements `Run<Prepare<C>>` and `Run<Persist<C>>` per command (`commands.rs`) and `Run<Fetch<Q>>` per query (`queries.rs`), one block per action; it has no method of its own. The gRPC handler is the adapter: each RPC is one `grpc::adapter::run` call (`run_public`, as `Anonymous`, for the services without the bearer interceptor and for HTTP routes), which parses the request into its command or query (`grpc::convert::Parse`, implemented in the aggregate's mapper), runs the engine and maps the error. The project use case and its handler are the reference; see `crates/scylla-extension/ARCHITECTURE.md` for the positions, the decision table and the failure semantics.
+A route that checks a group, or no permission, gets `PERMISSION_DENIED`. An edition adds a definition the same way, or adds to a core definition with `authz! { extend Project as ProjectAudit { ... } }`.
 
-The same builder takes what else an edition contributes, usually bundled as a `scylla_server::Feature` (its hooks, its migrations on the shared pool, its services): `authenticated_grpc_service` / `grpc_service` (its own gRPC services on the same listener, behind the core's bearer-token interceptor or not), `file_descriptor_set` (so reflection lists them) and `http_routes`. A feature's `install` step receives a `Context` with the pool, the core's `Actions` and its authorization ports, so its use cases run through the same pipeline and policies as the core's. A private edition therefore adds whole features without touching this repository.
+## Tools
 
-## Prerequisites
-
-You only need Docker. Everything else (Rust, Node.js, pnpm) runs inside containers.
-
-- **Docker** (>= 24) with **Docker Compose** v2
-- **[just](https://github.com/casey/just)** (optional, shortcuts for `docker compose`)
-
-Check versions:
+Use the latest version of each tool:
 
 ```sh
-docker --version
-docker compose version
+cargo install sqlx-cli --locked --features sqlx-toml
 ```
 
-## Quick start
+Also Docker, Rust 1.94 or later, `just` and `protoc`. `grpcurl` is optional.
 
-Prebuilt images are published for both `linux/amd64` and `linux/arm64` — Docker pulls the right one for your host automatically.
+## One port
 
-One command pulls the prebuilt images and starts the stack (control plane, PostgreSQL). Agents are added afterward from the UI — see below:
+The server has one port for everything: the web app, gRPC, gRPC-Web, the JSON API, the browser routes and the webhooks. `just web` builds the web app in `web/dist`, and the next build of the binary holds it. Set `SCYLLA_WEB_DIR` to serve another build from a folder. A build with no `web/dist` serves the API only and tells it in a warning. Each answer of the web app has a `Content-Security-Policy` and `Referrer-Policy: strict-origin-when-cross-origin`. The policy lets the page load only from its own origin, with the inline scripts of `index.html` by their hash (the server reads the page at its start), inline styles, calls to `SCYLLA_API_URL`, and the images of the avatars: `avatars.githubusercontent.com` (or the server of `SCYLLA_GITHUB_WEB_URL` and its subdomain `avatars`), the server of `SCYLLA_GITLAB_URL` and `secure.gravatar.com`. A form goes only to the server and to `SCYLLA_GITHUB_WEB_URL` (the creation of the GitHub App).
 
-> [!WARNING]
-> Coming from an earlier beta? Wipe the previous stack first with `just clean` — it removes the old containers, volumes, and locally-built images, which are not compatible across betas. This release also drops the separate `scylla-frontend` service, and `docker compose down` alone would leave it behind as an orphan.
+To change the web app with hot reload, run the server with `just run` and Vite in `web/`, with `VITE_API_URL=http://127.0.0.1:3000` and `SCYLLA_CORS_ORIGINS`. This is for development only.
+
+## Run
+
+`.env` holds dev values only: the database URL, the SpiceDB key, a dev signing key, the SMTP of Mailpit and a dev key for the secrets. These keys are public: `serve` stops at start if one of them, or the public key of the dev signing key, is in use on a server that is not local (an address that is not a loopback address, a trusted proxy, or a URL that is not on a loopback address), and logs a warning on a local server.
 
 ```sh
-git clone https://github.com/scylla-ops/scylla.git
-cd scylla
-just up
-# or, without just:
-docker compose pull
-docker compose up -d
+just run                                   # Postgres, SpiceDB, Mailpit, migrations, schema, server on 127.0.0.1:3000
+echo "$PASSWORD" | just user alice@example.com Alice   # an active user with its personal workspace
+grpcurl -plaintext 127.0.0.1:3000 list    # the services, from the gRPC reflection
+grpcurl -plaintext -d "{\"identifier\":\"alice@example.com\",\"password\":\"$PASSWORD\"}" \
+  127.0.0.1:3000 scylla.accounts.v1.AccountService/SignIn
 ```
 
-The first start creates the `admin` user. The `[bootstrap]` section of the
-config sets its username, password and email. At each start, the server finds
-this account by its email and makes sure that it is a system administrator.
+The answer has an access token and a refresh token. Mailpit shows the mails of the server at http://127.0.0.1:51080.
 
-Open **http://localhost:8080/** and sign in:
+The dev setup has no identity provider: the tests use a fake one. To try a real one, add it with `provider add-oidc` or `provider add-github`, then open `http://127.0.0.1:3000/auth/<slug>/start` in a browser.
 
-- username: `admin` (or the email `admin@example.com`)
-- password: `admin123`
+`scylla-ce --help` lists the commands and each setting with its environment variable and default.
 
-## Developing
+| Command | What it does |
+|---|---|
+| `serve` | serves gRPC, gRPC-Web and the browser routes of the sign-in (the default) |
+| `migrate` | applies the migrations and writes the SpiceDB schema, then stops |
+| `user create --email <email> --name <name> [--handle <handle>] [--password-stdin] [--admin]` | creates an active user with its personal workspace, and prints its id; `--admin` makes it an instance admin |
+| `user admin grant <id>`, `user admin revoke <id>` | gives or takes back the instance admin right; the last active admin stays |
+| `provider add-oidc --slug <slug> --name <name> --issuer <url> --client-id <id> [--client-secret-stdin] [--allow-sign-up]` | adds or changes an OIDC provider |
+| `provider add-github --slug <slug> --name <name> --client-id <id> [--allow-sign-up]` | adds or changes a GitHub provider; the client secret comes from stdin |
+| `provider list`, `provider disable --slug <slug>` | lists the providers, turns one off |
+| `secret keygen` | prints a new key for `SCYLLA_SECRET_KEY` |
+| `token keygen` | prints a new signing key pair |
+| `token create --actor <id>` | signs a token, for a first admin or an emergency |
+| `token revoke <token>` | revokes a token and each token made from it |
 
-The stack above is enough to run Scylla. To work on it:
+## Run an agent
+
+An admin creates an App with `runner = true` (`AppService.CreateApp`) and gives it the role `runner` of the workspace, or of some projects (`AccessService.Grant`). The server gives an install script. It downloads the agent, checks its SHA-256, joins the App with a temporary file, and only then changes the machine and starts the agent. A bad code leaves the machine as it was. `--url` is the address of the server for this machine, and `SCYLLA_API_URL` is the default.
 
 ```sh
-just db-up                                        # Postgres alone
-cargo run -p scylla-ce -- \
-    --config binaries/scylla-ce/config/local.toml --no-ui
+# Linux: systemd, user scylla-agent, /var/lib/scylla-agent. It asks for the sudo password.
+# macOS: a LaunchAgent of your user, ~/.scylla-agent, no sudo. It runs while you are signed in.
+curl -fsSL https://scylla.example.com/install.sh | sh -s -- <join code> --url https://scylla.example.com --capacity 2
 ```
 
-`--no-ui` drops the UI routes, so the binary serves only the API.
-(`config/local.toml` already sets `[ui].enabled = false`.) To work on the UI,
-run the dev server of [scylla-web](https://github.com/scylla-ops/scylla-web)
-against `:8080`; `local.toml` allows its origin through CORS.
-
-To run the real thing natively, build the UI first — a release `cargo build`
-embeds whatever is in `web/dist`. The UI and the protos are git submodules, so
-get them first (or clone with `--recurse-submodules`):
+```powershell
+# Windows, no admin rights: for your user only, in %LOCALAPPDATA%\scylla-agent, with the logs in agent.log. A task of your user starts it at each sign-in, with no window.
+# Windows, PowerShell as administrator: the service ScyllaAgent, with the account NT SERVICE\ScyllaAgent. It starts with the machine.
+& ([scriptblock]::Create((irm https://scylla.example.com/install.ps1))) -JoinCode <join code> -Url https://scylla.example.com -Capacity 2
+```
 
 ```sh
-git submodule update --init --recursive
-just ui-build
-cargo build --release -p scylla-ce
+# Docker, shell steps only: the first start joins, the volume keeps the file of the agent
+docker run -d --name scylla-agent --restart unless-stopped -e SCYLLA_URL=https://scylla.example.com -e SCYLLA_JOIN_CODE=<join code> -v scylla-agent:/var/lib/scylla-agent ghcr.io/scylla-ops/scylla-agent:<version>
 ```
 
-## TLS
+| Script option | What it does |
+|---|---|
+| `--url`, `-Url` | The address of the server for this machine. |
+| `--capacity`, `-Capacity` | The largest number of jobs at the same time. The default is 1. |
+| `--container-runtime`, `-ContainerRuntime` | `auto` (the default), `docker`, `podman`, or `none`. `auto` looks in the `PATH` at each start. |
+| `-CurrentUser` | Windows only. Installs the agent for your user with its task, also in PowerShell as administrator. |
+| `--no-service`, `-NoService` | No sudo, no service and no task. All files are in `~/.scylla-agent` (`%LOCALAPPDATA%\scylla-agent` on Windows), and the script prints the command that runs the agent. |
+| `--binary`, `-Binary` | Uses this binary and downloads nothing, for a build from source. It stops when the agent protocol of the binary (`scylla-agent --protocol`) is under the minimum of the server, and warns when it is under the current protocol. |
+| `--update`, `-Update` | Needs no code. Replaces the binary, starts the agent again, and keeps the key. |
+| `--uninstall`, `-Uninstall` | Removes the service, the binary, the folder and the user. On Windows, it removes the agent of your user with its task, and also the service in PowerShell as administrator. The key stays on the server until you revoke it or delete the agent. |
+| `--force`, `-Force` | Makes a new key on a machine that joined before. With no `--force`, the script stops before any change. |
 
-The control plane speaks plain HTTP by default, on the assumption that a reverse
-proxy or ingress terminates TLS in front of it. To terminate it in the binary
-instead, point `[server.tls]` at a PEM chain and key:
+The agent does not update itself. It tells its agent protocol and the commit of its build in its hello. The server refuses an agent under its minimum protocol (`AGENT_TOO_OLD`), and an agent under the current protocol gets only the jobs that it can run. The agent then logs the command that updates it. The page of the agent shows its compatibility, its features, the missing features and the command. Decision 111 has the protocols that each server takes.
 
-```toml
-[server]
-address = "0.0.0.0:8443"
-
-[server.tls]
-cert = "/etc/scylla/tls/fullchain.pem"
-key  = "/etc/scylla/tls/privkey.pem"
-```
-
-Both HTTP/2 and HTTP/1.1 are advertised over ALPN, so browsers, gRPC clients and
-plain HTTP/1.1 webhook senders all connect to the same socket.
-
-## Behind a reverse proxy
-
-Each session records the IP address of the client that signed in. The user
-sees it in the list of its sessions. By default, the server uses the peer
-address of the connection. Behind a reverse proxy, that is the address of the
-proxy. To record the address of the client, set
-`[server].trust_forwarded_headers`:
-
-```toml
-[server]
-address = "0.0.0.0:8080"
-trust_forwarded_headers = true
-```
-
-The server then uses the first entry of `x-forwarded-for`, else `x-real-ip`. A
-call without these headers keeps the peer address. The default is `false`.
-
-Set it to `true` only behind a reverse proxy that sets these headers and
-replaces the values that the client sends. A client can write these headers,
-so without such a proxy a client can record any address.
-
-## Password reset
-
-A reset link sets a new password. It opens `/reset-password` in the web UI. It
-is good for one use and expires after one hour. A user asks for a link with
-`AuthService.RequestPasswordReset`. An administrator makes a link for a user
-with `UserService.SendPasswordReset`.
-
-The Community Edition sends no mail. It writes each reset link in the server
-log, at INFO, with the user id and the username. Look for the message
-`password reset link`, for example with `just logs scylla-ce`, and give the
-link to the user. The log line does not show the email.
-
-Set `[server].public_url` to the origin that people open, without a trailing
-slash:
-
-```toml
-[server]
-address = "0.0.0.0:8080"
-public_url = "https://scylla.example.com"
-```
-
-The link is then `https://scylla.example.com/reset-password#token=...`. If you
-do not set `public_url`, the link is the relative path
-`/reset-password#token=...` and the server writes a warning when it starts.
-The shipped configs set it: `http://127.0.0.1:8080` in `local.toml` and
-`http://localhost:8080` in `docker.toml`.
-
-## Common commands
-
-| `just`        | `docker compose`                  | What it does                                  |
-|---------------|-----------------------------------|-----------------------------------------------|
-| `just up`     | `docker compose pull && up -d`    | Pull and start (or refresh) the beta stack    |
-| `just down`   | `docker compose down`             | Stop the stack                                |
-| `just clean`  | `docker compose down -v --rmi local --remove-orphans` | Stop and wipe volumes + local images |
-| `just logs [svc]` | `docker compose logs -f [svc]` | Follow logs (all services or one)            |
-| `just status` | `docker compose ps`               | Show running containers                       |
-
-Run `just --list` to see every recipe.
-
-## Troubleshooting
-
-**Port already in use.** Another process holds `8080` or `5432`. Stop it or change the host port in `docker-compose.yaml`.
-
-**`scylla-ce` fails to connect to PostgreSQL.** Ensure `postgres` is `healthy` via `just status` (or `docker compose ps`). If it's stuck, run `just clean` to reset the volume and try again.
-
-**The web UI shows gRPC errors.** The UI and the API share an origin, so there is no CORS step to get wrong; check that `scylla-ce` is `healthy` (`just status`) and read its logs. `curl http://localhost:8080/healthz` should answer `ok`.
-
-**Agent not picking up jobs.** Agents run out-of-band (not in this compose stack). Check the agent's own logs and confirm it can reach the control plane at its `--control-plane-url` with a valid `--app-id` / `--app-secret`. In the UI the app shows as connected once its worker stream is open.
-
-> Still stuck? Open a post in the `help` Discord channel with:
->  - steps to reproduce
->  - `docker compose logs` output for the affected service
->  - `docker compose ps` snapshot
-
-## Optional: local development
-
-The Docker workflow above is self-contained: **Node.js and Rust are not required** to run Scylla. The section below is only for contributors who want to build the crates outside Docker.
-
-### Building crates locally
-
-Requires the Rust toolchain. Standard Cargo workflow:
+With Docker on Linux, the agent can also run container steps with the Docker of the host. The socket gives root rights on the host to each job, so use this only for pipelines that you trust. The folder has the same path on both sides, because the agent gives this path to the daemon:
 
 ```sh
-git submodule update --init
-just hooks
-cargo build
-cargo test
+sudo install -d -o 10001 -g 10001 -m 700 /var/lib/scylla-agent
+docker run -d --name scylla-agent --restart unless-stopped --group-add "$(stat -c %g /var/run/docker.sock)" -e SCYLLA_URL=https://scylla.example.com -e SCYLLA_JOIN_CODE=<join code> -e SCYLLA_AGENT_CONTAINER_RUNTIME=docker -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/scylla-agent:/var/lib/scylla-agent ghcr.io/scylla-ops/scylla-agent:<version>
 ```
 
-To build the Docker images from source instead of pulling them:
+For a server on the same machine as Docker Desktop, the address is `http://host.docker.internal:3000`. On Linux, use `--network host` with `http://127.0.0.1:3000`.
+
+An agent uses HTTP/2 and keeps one stream open. A reverse proxy in front of the server must send HTTP/2 to the server, and it needs a long read timeout. A certificate from a public authority or from an authority of the system works with no setting.
+
+To build the agent from source, with Rust and `protoc`:
 
 ```sh
-just local
+cargo install --git https://github.com/scylla-ops/scylla-ce --tag v<version> --locked scylla-agent
+curl -fsSL https://scylla.example.com/install.sh | sh -s -- <join code> --url https://scylla.example.com --binary "$HOME/.cargo/bin/scylla-agent"
 ```
 
-## Further reading
+The scripts download from the release of the version of the server, or from `SCYLLA_AGENT_DOWNLOADS_URL` (on the server, or on the machine for one install). The image is `SCYLLA_AGENT_IMAGE` on the server, and the default is `ghcr.io/scylla-ops/scylla-agent:<version>`. The release workflow (`.github/workflows/release.yml`, at each tag `v*`) builds the archives, `SHA256SUMS` and the image. By hand, on the machine of the agent. The default folder is `~/.scylla-agent`, and `/var/lib/scylla-agent` for root:
 
-- [Glossary](GLOSSARY.md), every Scylla-specific term, grouped by topic.
-- Releasing images: see [RELEASING.md](RELEASING.md). `just release <version>` builds and pushes the multi-arch images; `just --list` shows the individual recipes.
+```sh
+scylla-agent join https://scylla.example.com <join code>
+scylla-agent run --capacity 2
+```
 
-## License
+On Windows, in PowerShell, the default folder is `%LOCALAPPDATA%\scylla-agent`, and a script step needs `sh` or `bash` in the `PATH` (for example the ones of Git for Windows):
 
-Apache License 2.0, see [LICENSE](./LICENSE).
+```powershell
+scylla-agent join https://scylla.example.com <join code>
+scylla-agent run --capacity 2
+```
+
+`join` makes the key pair and writes the file (mode 600 on Unix) with the private key; the key never leaves the machine. It checks that it can write the file before it uses the code, and it does not replace a file without `--force`; the old key stays on the App until you revoke it. `run` keeps the stream open, renews its token one minute before its expiry, and connects again after an end (1 to 60 seconds of wait). It exits with the code 78 when the server refuses the agent (a revoked key, a deleted App, an App that runs no job), and each other error exits with the code 1. `--container-runtime` is `auto` by default: at each start the agent looks for `docker`, then `podman`, in the `PATH`. `none` runs no container step, and another value is the name of a program. The settings are also environment values: `SCYLLA_AGENT_CONFIG`, `SCYLLA_AGENT_WORKSPACE_ROOT`, `SCYLLA_AGENT_CAPACITY`, `SCYLLA_AGENT_CONTAINER_RUNTIME`, `SCYLLA_AGENT_KEEP_WORKSPACE`. With `SCYLLA_URL` and `SCYLLA_JOIN_CODE`, `run` joins first when the file does not exist, and it does not use them when the file exists. `run --service` is the Windows service; its logs are `agent.<date>.log` next to the file.
+
+The agent tells the feature `checkout` in its hello only when `git --version` runs on the machine. Then it can fetch the code of a job from a linked repository into the work folder before the first node. The files of Git LFS also need `git-lfs`. Use git 2.31 or newer: an older git gets the token of the checkout in its arguments, which other users of the machine can see in the process list, and the agent logs a warning.
+
+## Logs
+
+The server and the commands write their logs to stderr.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `SCYLLA_LOG_FORMAT` (`--log-format`) | `auto` | `pretty` for a person, `json` for a machine. `auto` is pretty when stderr is a terminal, else JSON. |
+| `SCYLLA_LOG_CLIENT_IP` (`--log-client-ip`) | `truncated` | What the line of a call keeps of the client IP address: `full`, `truncated` (the first 24 bits of an IPv4 address, the first 48 bits of an IPv6 address, the other bits are zero) or `off`. The sessions keep the full address. |
+| `RUST_LOG` | `info`, and `warn` for `sqlx`, `hyper`, `h2`, `tonic`, `tower`, `tower_http` | Replaces the default filter. |
+| `NO_COLOR` | not set | Removes the colors of the pretty format. A pretty line has colors only in a terminal. |
+
+Each call has one line: its result, its route, its duration, its actor and its IP address. A refusal or an error adds a second line with the cause. A business event has its own line with a tag. A CORS preflight has no line.
+
+```text
+19:04:22.113  AUTH      account.created                       user=..3c9e41ec  email=l***@example.com
+19:04:22.114  MAIL      verify-email -> l***@example.com      sent
+19:04:22.114  OK        AccountService.SignUp                 302ms  anonymous         127.0.0.0
+19:04:22.741  UNAUTH    AccountService.SignIn                 285ms  anonymous         127.0.0.0
+                        invalid identifier or password
+19:04:24.217  DENIED    WorkspaceService.GetWorkspace          22ms  user ..7d02fba7   127.0.0.0
+                        permission=get_workspace  object=workspace:..b51e2ae9
+```
+
+A JSON line has `ts`, `level`, `event` (`rpc` or the name of a business event), `rpc`, `code`, `ms`, `actor`, `ip`, `request_id`, and the fields of the event. Each answer gives its request id in the header `x-request-id`. `DECISIONS.md` (59) lists the business events. A log line never has a password, a token, a cookie, the value of a secret, the body or the link of a mail, or a full email.
+
+## Deploy
+
+1. Store `SCYLLA_TOKEN_PRIVATE_KEY`, `SCYLLA_SPICEDB_KEY` and `SCYLLA_SECRET_KEY` in a secret store. Make the keys with `token keygen` and `secret keygen`. A key of a `.env` file stops the start. With no `SCYLLA_SECRET_KEY`, the server starts but refuses the secrets of the projects (`SECRET_KEY_MISSING`).
+2. Run SpiceDB with a Postgres datastore, and set `SCYLLA_SPICEDB_ENDPOINT`.
+3. Set `SCYLLA_API_URL` and `SCYLLA_APP_URL` to the public URL of the server, `SCYLLA_SMTP_URL` and `SCYLLA_MAIL_FROM`, and choose `SCYLLA_SIGN_UP_MODE`.
+4. Run `scylla-ce migrate` one time, as a job. Add the first instance admin with `user create --admin`, and the identity providers with `provider add-oidc` or `provider add-github`.
+5. Start one server with `scylla-ce serve`: the open streams of the agents are in its memory. A server stops at start if a migration is missing. `SCYLLA_LOG_RETENTION_DAYS` (30) sets the life of the logs of the jobs, and `SCYLLA_NOTIFICATION_RETENTION_DAYS` (90) sets the life of the notifications. Each hour, the server deletes the sessions that ended or that a person closed more than `SCYLLA_SESSION_HISTORY_DAYS` (90) days ago, the links of the mails that were used or that ended more than `SCYLLA_ONE_TIME_TOKEN_RETENTION_DAYS` (30) days ago, the invitations that were accepted or that ended more than `SCYLLA_INVITATION_RETENTION_DAYS` (90) days ago, and the proof of the acceptances of the terms of the accounts deleted more than `SCYLLA_TERMS_PROOF_RETENTION_DAYS` (1827, 5 years) days ago. With `SCYLLA_WEB_DIR`, the server also serves the built web app on its address (one domain: set `SCYLLA_APP_URL` to the URL of the server); a path that is not a file gives `index.html`.
+6. For TLS, set `SCYLLA_TLS_CERT` and `SCYLLA_TLS_KEY`. The web app on the address of the server needs no CORS. For a web app on another origin, set `SCYLLA_CORS_ORIGINS`: a cookie refresh needs one of these origins. With an HTTPS `SCYLLA_API_URL`, the cookies of the server are `Secure` and their names have the prefix `__Host-`: `__Host-scylla_session`, `__Host-scylla_flow` and `__Host-scylla_pending`. With HTTP, they have no prefix: `scylla_session`. Behind one proxy that adds the client address to `X-Forwarded-For`, set `SCYLLA_TRUST_FORWARDED_HEADERS=true`: a session then keeps the last address of this header, not the address of the proxy.
+7. Probe `grpc.health.v1.Health/Check`. Stop with SIGTERM: the server ends the running requests. With no terminal, the logs are JSON lines on stderr.
+8. The Git providers: `SCYLLA_GITHUB_API_URL` (`https://api.github.com`), `SCYLLA_GITHUB_WEB_URL` (`https://github.com`) and `SCYLLA_GITLAB_URL` (`https://gitlab.com`, the API is at `/api/v4`). The GitHub App of the server needs all of `SCYLLA_GITHUB_APP_ID`, `SCYLLA_GITHUB_APP_SLUG`, `SCYLLA_GITHUB_APP_CLIENT_ID`, `SCYLLA_GITHUB_APP_CLIENT_SECRET`, `SCYLLA_GITHUB_APP_PRIVATE_KEY` (the PEM key, a `\n` is a new line) or `SCYLLA_GITHUB_APP_PRIVATE_KEY_FILE`, and `SCYLLA_GITHUB_APP_WEBHOOK_SECRET`, or none of them. A part of them, or a key that is not an RSA key, stops the start. Keep the secrets in a secret store.
+9. To rotate the signing key: set a new key and a new `SCYLLA_TOKEN_KEY_ID`, and keep the old public key in `SCYLLA_TOKEN_PUBLIC_KEYS` for one token lifetime. Never keep the public key of the dev signing key: the server does not start with it.
+
+## Import the old product
+
+One time, into a base with migrations and no user:
+
+```sh
+SCYLLA_IMPORT_FROM=postgres://user:password@old-host/scylla SCYLLA_OLD_SECRET_KEY=<old master_key> scylla-ce import
+```
+
+The command prints what it imported and each row that it left, with the reason. Each owner and each role runs the hooks of a new member, so an edition with a member limit can leave a role out. The users sign in with their old passwords; their sessions do not come over. The Apps, the agents, the jobs, the logs and the triggers do not come over: an agent joins again with a new key pair.
+
+## Tests
+
+```sh
+just test                      # Postgres, the two SpiceDBs and Mailpit must run: just db-up
+```
+
+The tests use `spicedb serve-testing` on port 55052: each test gets an empty SpiceDB store.
+
+| Tests | Where |
+|---|---|
+| Workspaces, projects and their permissions, tokens, Apps and agents, gRPC-Web, CORS, TLS, health, reflection | `scylla-ce/tests/api/` |
+| Pipelines: the nodes and their graph, the path of a bad value, the version of a change, each role, the snapshot of a run, the secrets of a run, the delete | `scylla-ce/tests/api/projects/pipelines.rs` |
+| Conditional nodes: a switch, a merge and an `error` need, each check at the save with its path, the round trip through the reads, the places of a switch and a merge, the refusal of the export | `scylla-ce/tests/api/projects/conditions.rs` |
+| Dashboard layouts: the widgets, the bad values, the version of a change, the list and its pages, the team default, each role, the creator, a private layout | `scylla-ce/tests/api/tenancy/dashboards.rs`, `dashboard_access.rs`, `dashboard_defaults.rs` |
+| The activity feed: the row of each change, a failed fire, a missed time, the members, the pages and the count since a time, the bad values, the readers of each area; the rows of the agents, of the GitLab connections and of the changes of an installation; the delete after 30 days | `scylla-ce/tests/api/activity/`, `identity/agents.rs`, `integrations/connections/gitlab.rs`, `integrations/events/installations.rs`, `scylla-core/src/features/activity/tests.rs`, `scylla-core/src/features/projects/triggers/tests.rs` |
+| Jobs: the cancel, the rerun, the delete, the lists newest first, who can call them | `scylla-ce/tests/api/projects/jobs.rs` |
+| Agent: the join, the order of the nodes, a script with a secret masked in the logs, a retry, the skip after a failure, a cancel that stops the process and its children and deletes the work folder, on Unix and Windows, the name of the machine on the key, the join at a first start | `scylla-agent/tests/agent.rs` |
+| Conditional nodes on the agent: a switch on a variable and on an output, `all_matches`, a merge on each branch, an `error` need with `SCYLLA_ERROR`, a failure with no `error` need, a switch on a text that is not a number | `scylla-agent/tests/conditions.rs` |
+| Command line of the agent: a used code, a file that cannot be written, a file that exists and `--force`, a closed port, a start with the URL alone, a revoked key and its exit code, the search for the container runtime | `scylla-agent/tests/cli.rs` |
+| The machine of the agent: its start and its memory in the hello, a sample at once after the welcome | `scylla-agent/tests/machine.rs` |
+| A container step of the agent: the settings of the runtime stay out of the job, and a container empties a work folder that the agent cannot delete | `scylla-agent/tests/containers.rs` |
+| The checkout of the agent against a local bare repository: the commit at depth 1 with a new and an old git, the ref of a pull request, a ref that is not at the commit, no header in `.git/config`, the header masked in the logs, a failed checkout that starts no node, the feature `checkout` in the hello. The version of git, and no header in the arguments of git 2.31 or newer | `scylla-agent/src/jobs/checkout/tests.rs`, `scylla-agent/src/jobs/checkout/git.rs` |
+| The real path of an agent on a real machine for each system: install, connected, a job with its log, update, uninstall, both Docker commands | `.github/workflows/agent-install.yml`, `scripts/agent-install-test.sh` |
+| Import of the old product: its real schema (`scylla-testkit/src/platform/fixtures/`), the users and their passwords, a disabled user, a user with no email, the workspaces and their owners, the roles, the project ids, the secrets sealed again, the pipelines and a pipeline with a cycle, a second import | `scylla-ce/tests/api/platform/import.rs` |
+| Web app: a file, a route of the web app gives `index.html`, the API on the same address, the files in the binary and a folder that comes first, the cache, the security policy and the referrer policy, the compression, an unknown gRPC call | `scylla-ce/tests/api/platform/web.rs` |
+| The content security policy of the web app: the hash of an inline script, the API, the hosts of the avatars of github.com, of a GitHub Enterprise and of the GitLab of the settings | `scylla-core/src/api/web/policy.rs` |
+| The open items of the dashboard: the jobs and the fires until a later good run, the agents that are not connected, the approvals, the kinds of each role, the new items, the pages, the bad requests | `scylla-ce/tests/api/projects/attention.rs`, `attention_access.rs` |
+| Triggers: the schedules, the inputs, a fire now as the runner, the signature of a webhook, a second delivery, a body with no value, a ping, a stopped trigger, the rate limit, the roles, the key of the secrets, the time zone of the workspace, the list of a workspace, the history of the fires and their counts | `scylla-ce/tests/api/projects/triggers.rs`, `trigger_lists.rs`, `trigger_fires.rs` |
+| Jobs on the agents: the dispatch with the secrets, the events, the logs and their tail, the role and the capacity, the containers, the cancel, an agent of some projects, the jobs of a disabled agent, the number of jobs of each agent, the stats of the jobs of each agent and who reads them, the figures of the jobs for the dashboard, the busy slots of the agents and their capacity, the conditional jobs and the agents of v0.7.0-rc.1 | `scylla-ce/tests/api/projects/runs.rs`, `scopes.rs`, `disabled.rs`, `held.rs`, `stats.rs`, `job_stats.rs`, `job_stats_scopes.rs`, `slots.rs`, `placement.rs` |
+| Apps: the join code and its one use, the exchange of an assertion, each refused assertion, the keys, their names, their last use and their revocation, the delete, the disable and the enable, who can create, read and change them | `scylla-ce/tests/api/identity/apps.rs`, `disable.rs`, `keys.rs` |
+| The install scripts of the agent: the URL, the version, the agent protocols and the downloads of the server in `/install.sh` and `/install.ps1` | `scylla-ce/tests/api/identity/install.rs` |
+| API tokens of the Apps: the secret one time and its hint, the exchange, the revocation and the expiry that stop the short tokens at once, a disabled or deleted App, the routes and their checks | `scylla-ce/tests/api/identity/app_tokens.rs` |
+| The limits of the API tokens: the read-only, deploy and full presets, a custom list of methods, a list of projects, the check of new limits | `scylla-ce/tests/api/identity/token_limits.rs` |
+| App creators: the role `app_creator` creates Apps and manages its own only, and `CheckPermissions` tells `create_app` | `scylla-ce/tests/api/identity/app_creators.rs` |
+| Personal tokens: the user as actor, no token from a token, the switch of the instance at once, the switch of a workspace on that workspace only | `scylla-ce/tests/api/identity/personal_tokens.rs` |
+| CI identities: a GitHub job of the rule gets a token of its App, another repository, ref, audience or App gets none, a removed rule and a disabled App, the claims of GitLab, the routes and their checks | `scylla-ce/tests/api/identity/ci_identities.rs` |
+| HTTP/JSON gateway: a method in proto3 JSON, the errors with their HTTP status and their fields, an unknown or streaming method, the secret of an App or personal token sent directly and its revocation at once | `scylla-ce/tests/api/platform/json.rs` |
+| Streams of the agents: the hello and the host, the agent protocols and the compatibility, the presence, only an agent, the renewal of the token, the end at the expiry, a second stream, a revoked key, a deleted App | `scylla-ce/tests/api/identity/agents.rs`, `agent_protocol.rs` |
+| Samples of the machines of the agents: the interval in the welcome, a sample, a sample too soon, a CPU use that is not a number, an agent with no sample, the start of the agent, the buckets of `GetAgentMetrics`, who reads them, the bad requests, the delete after 7 days | `scylla-ce/tests/api/identity/agent_samples.rs`, `agent_metrics.rs`, `scylla-core/src/features/identity/agents/tests.rs` |
+| Projects: creation, reads, the list and its pages, deletion | `scylla-ce/tests/api/projects/lifecycle.rs` |
+| Change of a project: the name and the description, their limits (100 and 101, 1024 and 1025), one line for a name, an empty description, each role | `scylla-ce/tests/api/projects/updates.rs` |
+| Secrets: the metadata, no value in an answer, the form of a name and one secret for each name, the size of a value (65536 and 65537 bytes), a new value, a delete, the pages in name order, the delete of a project | `scylla-ce/tests/api/projects/secrets.rs` |
+| Access to the secrets: each role on each route, an unknown project or secret, `CheckPermissions`, a server with no key | `scylla-ce/tests/api/projects/secret_access.rs` |
+| Permission model: roles in a workspace and on one project, an extension, a new definition | `scylla-ce/tests/api/tenancy/authz.rs` |
+| Ownership: a role in a workspace goes down, an App with a role, no SpiceDB for an owner | `scylla-ce/tests/api/tenancy/ownership.rs` |
+| The role Workspace owner: its rights, only an owner or an instance admin changes it, the last owner stays, for a user on a workspace only, the Roles page, no move to it, two removals at the same time | `scylla-ce/tests/api/tenancy/owners.rs` |
+| Shares: grant and revoke, each role, only the admins give roles, the visible list, an App only in its workspace | `scylla-ce/tests/api/tenancy/grants.rs` |
+| Slugs: the form, the reserved names, one workspace for each slug, the slug of a name and its suffix, the slug of a handle, `GetWorkspace` with a slug, `UpdateWorkspace` | `scylla-ce/tests/api/tenancy/slugs.rs` |
+| Deletion of a workspace: owners only, an empty workspace only, its invitations and roles go, a project creation, a new owner or an invitation at the same time | `scylla-ce/tests/api/tenancy/deletion.rs` |
+| Permissions of a caller: owner, admin, member, viewer, another user, instance admin, a project, the platform, unknown names | `scylla-ce/tests/api/tenancy/checks.rs` |
+| Roles: the catalog, the built-in roles, a custom role of the instance or of a workspace, escalation, a used name, a role in use, a change that is live at once | `scylla-ce/tests/api/tenancy/roles.rs`, `role_changes.rs` |
+| The limit of the workspaces: the default, the personal workspace, an instance admin, the instance settings, a delete, two creations at the same time | `scylla-ce/tests/api/tenancy/workspace_limit.rs` |
+| Roles of the instance: `Grant` and `Revoke` on the platform, the last admin, what these roles reach, `ListUsers` with the roles, the workspaces and the last sign-in | `scylla-ce/tests/api/tenancy/platform_roles.rs` |
+| List of the access: owners and roles of a workspace, roles of a project, the pages, who can read it | `scylla-ce/tests/api/tenancy/access_lists.rs` |
+| Accounts: sign-up and its link, the modes, the length of a password (8 and 128), the same answer for each refusal, the lock and 50 failures, the reset, the change of a password | `scylla-ce/tests/api/identity/accounts.rs` |
+| Handles: the limits and the characters, one user for each handle, the sign-in with a handle | `scylla-ce/tests/api/identity/handles.rs` |
+| Profile: the display name, the sign-out of the other sessions, the change of email with the current password and its link, the notice to the old email, the old links stop | `scylla-ce/tests/api/identity/profile.rs` |
+| Mails: text and HTML bodies, the escape, the token in the fragment of each link, one reset link and one email change link each minute, one email change link each minute to one email | `scylla-ce/tests/api/identity/mails.rs` |
+| Deletion of an account: the empty personal workspace, the last owner of a workspace with content, a shared workspace, a workspace that the user left during the deletion, the roles, the last admin | `scylla-ce/tests/api/identity/deletion.rs` |
+| Instance admins: only they pass each route of the console, grant and revoke, the last active admin, two admins that disable each other at the same time | `scylla-ce/tests/api/identity/admins.rs` |
+| Console of the users: list and filter, create, change, a new email stops the old links, disable, delete, reset link, sessions of a user | `scylla-ce/tests/api/identity/console.rs` |
+| Sessions: rotation and reuse, sign-out, list and revoke, a disabled user, the cookie and its origin, the IP address with and without a trusted proxy | `scylla-ce/tests/api/identity/sessions.rs` |
+| Identity providers: browser sign-in with OIDC and GitHub, return address, no automatic link, same browser, invitations; `ExchangeIdToken` | `scylla-ce/tests/api/identity/sign_in.rs`, `sign_in_errors.rs`, `sign_in_link.rs`, `sign_in_link_refusals.rs`, `sign_in_mails.rs`, `oidc.rs` |
+| Invitations: the role of the link, admins only, the email of the invitation, sign-up with a link | `scylla-ce/tests/api/tenancy/invitations.rs` |
+| Open invitations: the list, the revoke, the resend and its cooldown, one open invitation for each email | `scylla-ce/tests/api/tenancy/open_invitations.rs` |
+| An acceptance at the same time as a revoke or a resend | `scylla-ce/tests/api/tenancy/invitation_races.rs` |
+| Cookie choices: a record with no token, a withdrawal as a new record, the user of a token in the export and the deletion, the token of an App, each field, the limit of an address | `scylla-ce/tests/api/platform/consent.rs` |
+| Route rule: no check, a group check, the own check, an error | `scylla-ce/tests/api/platform/routes.rs` |
+| Tasks of an edition: a run at the start with the pool, the log of a failed run | `scylla-ce/tests/api/platform/tasks.rs` |
+| Retention: a pass deletes the sessions, the links of the mails and the invitations that ended before their time, and keeps the others; the last sign-in of a user stays | `scylla-ce/tests/api/platform/retention.rs` |
+| The client IP address in the line of a call: the network of the address by default, the full address, no address; the sessions keep the full address | `scylla-ce/tests/api/platform/client_ip.rs`, `scylla-core/src/infra/logs/client_ip.rs` |
+| Logs: the request id of each answer, one line with its permission and object for a refusal, the reason of a refusal of a rule, no line for a preflight, no secret and no full email in the lines of a sign-up, a sign-in, a reset and the secrets | `scylla-ce/tests/api/platform/logs.rs` |
+| Route permission names, records of the gate | `scylla-extension/src/operation.rs` |
+| Schema of the parts, typed values | `scylla-domain/src/authz/tests.rs` |
+| `authz!`: schema text, checks of the names, errors | `scylla-macros/src/tests.rs` |
+| Hook rollback, order and kind filter | `scylla-core/src/features/projects/tests.rs` |
+| The released migrations do not change (`scylla-core/migrations.lock`), and no migration has a CR | `scylla-core/src/infra/db.rs` |
+| The value of a secret opens only with the id of its secret, and the database has no value in clear | `scylla-core/src/features/projects/secrets/tests.rs` |
+| Config and command line, the guard against the public dev keys | `scylla-core/src/config.rs`, `scylla-core/src/cli/commands.rs`, `scylla-core/src/infra/dev_keys.rs` |
+| Git providers: the settings and all or none of the GitHub App, the claims and the expiry of the JWT of the App, the cache and the scope of the installation tokens, the limits in the headers, the link of the next page, no call to another host, the GitHub and GitLab signatures (good, bad, old) | `scylla-core/src/infra/vcs/tests/` |
+| Git providers against a fake provider: the start with and without the GitHub App, the installation tokens and the JWT, the code of a user, the pages, the ETag and 304, the errors | `scylla-ce/tests/api/integrations/runtime.rs` |
+| The `access.refused` event of a refusal | `scylla-extension/src/tests.rs` |
+| The pretty and JSON lines: alignment, second line, colors, fields, masks | `scylla-core/src/infra/logs/tests.rs` |
+| Slugs and the tokens of the list of the access | `scylla-domain/src/tenancy/slugs.rs`, `grants.rs` |
+| The names and the values of the secrets, a value hidden in `Debug` | `scylla-domain/src/projects/secrets.rs` |
+| Random tokens, PKCE, the encryption of the secrets with and without associated data, cookies and their prefix `__Host-` with HTTPS, the client of a session, the layout of the mails | `scylla-core/src/infra/secret.rs`, `scylla-core/src/features/identity/sessions/cookie.rs` and `client.rs`, `scylla-core/src/features/identity/accounts/letter.rs` |
+
+## Releases for the Enterprise edition
+
+The Enterprise repository takes `scylla-core`, `scylla-domain`, `scylla-extension`, `scylla-proto` and `scylla-testkit` from one Git tag (`scylla-macros` comes with `scylla-domain`). A change to these items can stop its build at the next tag: `Edition`, `Plugin`, `Gate`, the role registry `Grants`, `Mailer`, `Operation`, the hook traits and contexts, `scylla_core::Error`, `parse`, `cli`, `Config`, `ServeOptions`, the domain types, `scylla_domain::authz` and `authz!`, the names of the definitions `actor`, `platform`, `workspace` and `project`, `TestApp`, and the tables `actors`, `users`, `workspaces` and `projects`. `scylla_core::Error` has `Conflict` (`ABORTED`), `NewJob` and `Job` have `trigger_id`, `Config` and `ServeOptions` have `web_dir`, `tokio` has the features `process`, `io-util` and `fs`, `tonic` has `tls-webpki-roots`, the workspace has the dependency `nix`, `CreateContext` and `DeleteContext` have `subject`, `object` and `role` (with `with_member` and `with_object`), `AccountContext` has `hooks`, the core runs the hooks of the kinds `member` and `invitation`, the `tower-http` dependency has the feature `fs`, the core has the dependencies `croner` and `hmac`, `Config` has `log_retention`, `ServeOptions` has `log_retention`, `DomainError` is `Clone` and has new variants, and the core adds the definitions `app` and the kinds `pipeline` and `job` for the hooks. `Gate::issue` takes a `Binding` (none, a session, or the key of an App), and `Principal::new` takes the binding and the expiry of the token. The `Gate` trait has `delete_subject`, `subjects`, `roles` and `permissions`, `EditionBuilder::grants` takes `AccessRoutes` and a required search for the workspace, `AccessError::denied` takes the principal and logs the event `access.refused`, `Config` has `log_format`, `scylla_core::infra::logs` gives the log layer and the masks, the testkit has `Logs`, a `Mail` has an HTML body, and the details of a `Rejection` are texts. The table `workspaces` has a required `slug`. The field `TestApp.sealer` is an `Option`, `NewProject` has a `description`, the table `projects` has a column `description`, a `Name` refuses a control character, and `DomainError` has new variants. `Edition::add_services` takes a `Notifier`, `Config` and `ServeOptions` have `notification_retention`, `admins::grant` and `admins::revoke` take the actor that did it, `AcceptInvitationRequest` has a `oneof target`, `TestApp` has `notification_kinds`, the core adds the definition parts of the inbox to `actor`, and the kinds in `scylla_extension` are `NotificationKind`, `Event`, `Audience` and `Notifier`. `Config` and `ServeOptions` have `vcs` (the settings of the Git providers), and `scylla-testkit` depends on `axum`. `Config` and `ServeOptions` have `retention` (the time of the sessions, the links of the mails and the invitations) and `log_client_ip`. `EditionBuilder::task` adds a background task (`Task`, `TaskContext`, `TaskError`, `ScheduledTask`), and `Edition::tasks` gives them.
+
+## Known limits
+
+- On Windows, the agent stops a step at once, with no grace: a job object has no stop signal.
+- The server is one instance: the open streams of the agents are in memory.
+- No route reads the value of a secret yet: the dispatch of a job will use `secrets::service::reveal`.

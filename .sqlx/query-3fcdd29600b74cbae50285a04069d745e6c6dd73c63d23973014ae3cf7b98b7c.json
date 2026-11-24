@@ -1,0 +1,160 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH bad AS (\n               SELECT j.id, j.pipeline_id, j.project_id, j.status, j.error, j.agent_id,\n                      j.finished_at, s.branch, row_number() OVER w AS rank,\n                      count(*) OVER w AS count\n               FROM jobs j\n               JOIN pipelines p ON p.id = j.pipeline_id\n               LEFT JOIN job_sources s ON s.job_id = j.id\n               WHERE j.workspace_id = $1 AND j.status = ANY($2::text[]) AND j.finished_at >= $3\n                 AND p.archived_at IS NULL AND p.removed_at IS NULL\n                 AND ($4::bool OR j.project_id = ANY($5::uuid[]))\n                 AND (cardinality($6::uuid[]) = 0 OR j.project_id = ANY($6))\n                 AND NOT EXISTS (\n                     SELECT 1 FROM jobs c LEFT JOIN job_sources cs ON cs.job_id = c.id\n                     WHERE c.pipeline_id = j.pipeline_id AND c.id > j.id\n                       AND c.status = 'completed' AND cs.branch IS NOT DISTINCT FROM s.branch)\n               WINDOW w AS (PARTITION BY j.pipeline_id, s.branch, j.status ORDER BY j.id DESC\n                             ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)\n           )\n           SELECT b.id AS \"id!\", b.pipeline_id AS \"pipeline_id!\", p.name AS pipeline_name,\n                  b.project_id AS \"project_id!\", r.name AS project_name, b.status AS \"status!\",\n                  b.error AS \"error?\", b.branch AS \"branch?\", b.agent_id AS \"agent_id?\",\n                  a.name AS \"agent_name?\", b.finished_at AS \"at!\", b.count AS \"count!\"\n           FROM bad b\n           JOIN pipelines p ON p.id = b.pipeline_id\n           JOIN projects r ON r.id = b.project_id\n           LEFT JOIN apps a ON a.id = b.agent_id\n           WHERE b.rank = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "pipeline_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "pipeline_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "pipeline_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "project_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "project_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "status!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "error?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "error"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "branch?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_sources",
+            "name": "branch"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "agent_id?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "agent_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "agent_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Timestamptz",
+        "Bool",
+        "UuidArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "3fcdd29600b74cbae50285a04069d745e6c6dd73c63d23973014ae3cf7b98b7c"
+}

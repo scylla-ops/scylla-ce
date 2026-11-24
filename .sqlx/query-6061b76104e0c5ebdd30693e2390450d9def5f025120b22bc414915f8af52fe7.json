@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE legal_settings SET privacy_contact = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6061b76104e0c5ebdd30693e2390450d9def5f025120b22bc414915f8af52fe7"
+}
