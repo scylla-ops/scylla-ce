@@ -3108,7 +3108,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "scylla-agent"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "clap",
  "ed25519-dalek 3.0.0",
@@ -3141,7 +3141,7 @@ dependencies = [
 
 [[package]]
 name = "scylla-ce"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "argon2",
  "axum",
@@ -3174,7 +3174,7 @@ dependencies = [
 
 [[package]]
 name = "scylla-core"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "argon2",
  "axum",
@@ -3224,7 +3224,7 @@ dependencies = [
 
 [[package]]
 name = "scylla-domain"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -3243,7 +3243,7 @@ dependencies = [
 
 [[package]]
 name = "scylla-extension"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "async-trait",
  "rust-embed",
@@ -3260,7 +3260,7 @@ dependencies = [
 
 [[package]]
 name = "scylla-macros"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3269,7 +3269,7 @@ dependencies = [
 
 [[package]]
 name = "scylla-proto"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "prost 0.14.4",
  "prost-types 0.14.4",
@@ -3280,7 +3280,7 @@ dependencies = [
 
 [[package]]
 name = "scylla-testkit"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "axum",
  "base64 0.23.1",

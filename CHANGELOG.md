@@ -7,6 +7,18 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-24
+
+### Added
+
+- Agent labels. An agent gets automatic labels from its host (`linux`, `macos` or `windows`,
+  `x64` or `arm64`, and `container` when it has a container runtime), and the admins of a
+  workspace give it more with `SetAppLabels` (permission `set_app_labels`). A pipeline file
+  asks labels with `agent.labels` (16 at most). A job keeps the labels of its pipeline, a
+  rerun keeps them, and an agent claims only the jobs whose labels it has. A job that waits
+  for such an agent shows it on its page and in the queued GitHub check run. The new migration
+  only adds.
+
 ### Changed
 
 - `scylla-core/migrations.lock` holds the checksum of each migration, not only of the released ones:
@@ -14,6 +26,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   line or a line changed. `scripts/check-structure.sh` also fails when a migration of the last
   release tag changes or goes. Each upgrade from 0.7.0 keeps the data, with no reset of the
   database.
+- The checks of a pull request run in Scylla, on a Scylla agent (`.scylla/pipelines/ci.yaml`), not
+  in GitHub Actions. The jobs of the agent for macOS and Windows and the release stay in GitHub
+  Actions for now.
 
 ## [0.7.0] - 2026-11-24
 
