@@ -130,6 +130,18 @@ fn summary(status: ReportedStatus, job: &Job, link: &str, rows: &[Row<'_>]) -> S
             summary.push_str("The run comes from a fork. It waits for an approval in Scylla.\n\n");
         }
         ReportedStatus::Orphaned => summary.push_str("The agent of the run went away.\n\n"),
+        ReportedStatus::Pending if !job.agent_labels.is_empty() => {
+            let labels: Vec<String> = job
+                .agent_labels
+                .as_slice()
+                .iter()
+                .map(|label| format!("`{}`", label.as_str()))
+                .collect();
+            let labels = labels.join(", ");
+            summary.push_str(&format!(
+                "The run waits for an agent with the labels {labels}.\n\n"
+            ));
+        }
         _ => {}
     }
 

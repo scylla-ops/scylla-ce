@@ -5,7 +5,7 @@ use serde::Serialize;
 use toml::ser::ValueSerializer;
 
 use super::document::{NodeFile, PipelineFile};
-use super::{CheckoutSettings, FileFormat};
+use super::{AgentSettings, CheckoutSettings, FileFormat};
 use crate::projects::git_rules::GitRules;
 
 /// The keys of a pipeline document before the nodes, for the TOML text.
@@ -22,6 +22,9 @@ struct Head {
     /// The checkout settings.
     #[serde(skip_serializing_if = "CheckoutSettings::is_default")]
     checkout: CheckoutSettings,
+    /// The agent settings.
+    #[serde(skip_serializing_if = "AgentSettings::is_default")]
+    agent: AgentSettings,
 }
 
 impl PipelineFile {
@@ -44,6 +47,7 @@ fn toml_text(file: &PipelineFile) -> Result<String, toml::ser::Error> {
         name: file.name.clone(),
         on: file.on.clone(),
         checkout: file.checkout.clone(),
+        agent: file.agent.clone(),
     };
     let mut text = toml::to_string_pretty(&head)?;
     for node in &file.nodes {

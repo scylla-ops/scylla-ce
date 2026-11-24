@@ -10,7 +10,7 @@ use serde::de::{self, MapAccess, Visitor};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::CheckoutSettings;
+use super::{AgentSettings, CheckoutSettings};
 use crate::projects::git_rules::GitRules;
 
 /// A Scylla pipeline file, version 1.
@@ -29,6 +29,9 @@ pub struct PipelineFile {
     /// How the agent fetches the commit before the first node.
     #[serde(default, skip_serializing_if = "CheckoutSettings::is_default")]
     pub checkout: CheckoutSettings,
+    /// What the agent of a job must have. Default: any agent of the project.
+    #[serde(default, skip_serializing_if = "AgentSettings::is_default")]
+    pub agent: AgentSettings,
     /// The nodes: 1 to 256, with unique ids.
     pub nodes: Vec<NodeFile>,
 }

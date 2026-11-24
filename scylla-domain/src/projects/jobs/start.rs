@@ -2,6 +2,7 @@
 
 use super::{Job, JobId, JobOrigin, NewJob, PipelineFileRef};
 use crate::identity::actors::ActorId;
+use crate::identity::agents::AgentLabels;
 use crate::integrations::sources::{JobSource, SourceEvent};
 use crate::projects::pipeline_files::{CheckoutSettings, FileError};
 use crate::projects::pipelines::{EnvValue, EnvVar, Node, Pipeline, PipelineId};
@@ -48,11 +49,13 @@ pub struct StartJob {
     pub file_errors: Vec<FileError>,
     /// The checkout settings of the pipeline. Only a job with a source has a checkout.
     pub checkout: CheckoutSettings,
+    /// The labels that the agent of the job must have.
+    pub agent_labels: AgentLabels,
 }
 
 impl StartJob {
-    /// Makes a run of the nodes of a pipeline with its checkout settings and an origin, with no
-    /// variable, no trigger and no source.
+    /// Makes a run of the nodes of a pipeline with its checkout settings, its labels and an
+    /// origin, with no variable, no trigger and no source.
     pub fn of(pipeline: Pipeline, origin: JobOrigin) -> Self {
         Self {
             pipeline_id: pipeline.id,
@@ -67,12 +70,13 @@ impl StartJob {
             pipeline_file: None,
             file_errors: Vec::new(),
             checkout: pipeline.checkout,
+            agent_labels: pipeline.agent_labels,
         }
     }
 
     /// Makes a new run of a job: its pipeline, its nodes, its trigger, its pipeline file, its
-    /// source and its checkout. The new source is not automatic, and a rerun from the provider
-    /// has its event and its origin.
+    /// source, its checkout and its labels. The new source is not automatic, and a rerun from the
+    /// provider has its event and its origin.
     pub fn rerun(job: Job, origin: RerunOrigin) -> Self {
         let source = job.source.map(|mut source| {
             source.automatic = false;
@@ -97,6 +101,7 @@ impl StartJob {
             pipeline_file: job.pipeline_file,
             file_errors: job.file_errors,
             checkout: job.checkout.map_or_else(no_checkout, |run| run.settings),
+            agent_labels: job.agent_labels,
         }
     }
 
@@ -140,6 +145,7 @@ impl StartJob {
             pipeline_file: self.pipeline_file,
             file_errors: self.file_errors,
             checkout,
+            agent_labels: self.agent_labels,
         }
     }
 }

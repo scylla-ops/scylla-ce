@@ -1,6 +1,7 @@
 //! Tests of the export of a pipeline to a file, and of the JSON Schema of the files.
 
 use super::{read, TOML};
+use crate::identity::agents::AgentLabels;
 use crate::projects::git_rules::{GitRules, PullRequestAction, PullRequestRule, PushRule, TagRule};
 use crate::projects::pipeline_files::{json_schema, CheckoutSettings, FileFormat, FilePipeline};
 use crate::projects::pipelines::{
@@ -76,6 +77,7 @@ fn pipeline() -> FilePipeline {
             submodules: true,
             lfs: true,
         },
+        agent_labels: AgentLabels::parse(vec!["deploy".to_owned(), "linux".to_owned()]).unwrap(),
         nodes: Nodes::parse(vec![node("build", &[]), lint]).unwrap(),
     }
 }
@@ -148,6 +150,9 @@ fn the_schema_has_the_keys_of_the_file() {
         .keys()
         .cloned()
         .collect();
-    assert_eq!(keys, ["checkout", "name", "nodes", "on", "version"]);
+    assert_eq!(
+        keys,
+        ["agent", "checkout", "name", "nodes", "on", "version"]
+    );
     assert_eq!(schema["required"], serde_json::json!(["version", "nodes"]));
 }

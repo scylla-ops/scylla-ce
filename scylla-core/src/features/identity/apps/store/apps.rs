@@ -1,6 +1,7 @@
 //! The SQL of the `apps` table.
 
 use scylla_domain::identity::actors::ActorId;
+use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::identity::apps::{App, AppId, Host, NewApp};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::PageRequest;
@@ -20,7 +21,7 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, id: AppId, new: &NewApp) -> Result<A
         "INSERT INTO apps (id, workspace_id, name, runner, created_by) VALUES ($1, $2, $3, $4, $5)
          RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
                    os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,
-                   features, protocol, build, started_at, disabled_at",
+                   features, protocol, build, started_at, disabled_at, labels",
         id.to_db(),
         new.workspace_id.to_db(),
         new.name.as_str(),
@@ -44,7 +45,7 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: AppId) -> Result<Option<App>, sqlx
         Row,
         "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,
                 arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,
-                protocol, build, started_at, disabled_at
+                protocol, build, started_at, disabled_at, labels
          FROM apps WHERE id = $1",
         id.to_db(),
     )
@@ -64,7 +65,7 @@ pub(crate) async fn list(
         Row,
         "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,
                 arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,
-                protocol, build, started_at, disabled_at
+                protocol, build, started_at, disabled_at, labels
          FROM apps
          WHERE workspace_id = $1
            AND ($2::boolean IS NULL OR runner = $2)
@@ -114,9 +115,30 @@ pub(crate) async fn set_disabled(
          WHERE id = $1
          RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
                    os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,
-                   features, protocol, build, started_at, disabled_at",
+                   features, protocol, build, started_at, disabled_at, labels",
         id.to_db(),
         disabled,
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(row.map(Row::into_app))
+}
+
+/// Replaces the labels that the admins give to an App, and returns it. Returns `None` if no App
+/// has this id.
+pub(crate) async fn set_labels(
+    tx: &mut Tx<'_>,
+    id: AppId,
+    labels: &AgentLabels,
+) -> Result<Option<App>, sqlx::Error> {
+    let row = sqlx::query_as!(
+        Row,
+        "UPDATE apps SET labels = $2 WHERE id = $1
+         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
+                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,
+                   features, protocol, build, started_at, disabled_at, labels",
+        id.to_db(),
+        &labels.texts(),
     )
     .fetch_optional(&mut **tx)
     .await?;
@@ -221,6 +243,8 @@ struct Row {
     started_at: Option<OffsetDateTime>,
     /// The time of the disable.
     disabled_at: Option<OffsetDateTime>,
+    /// The labels that the admins gave.
+    labels: Vec<String>,
 }
 
 impl Row {
@@ -250,6 +274,7 @@ impl Row {
             last_seen_at: self.last_seen_at,
             host,
             disabled_at: self.disabled_at,
+            labels: AgentLabels::of_checked(self.labels),
         }
     }
 }

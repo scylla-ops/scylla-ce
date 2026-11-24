@@ -144,7 +144,13 @@ pub(crate) async fn export(
     let rules = triggers::git_rules(pool, id).await?;
 
     // Write its document in the format, and the path of its file.
-    let document = PipelineFile::of(&pipeline.name, &pipeline.nodes, &rules, &pipeline.checkout);
+    let document = PipelineFile::of(
+        &pipeline.name,
+        &pipeline.nodes,
+        &rules,
+        &pipeline.checkout,
+        &pipeline.agent_labels,
+    );
     Ok(ExportedFile {
         content: document.write(format),
         path: format!(

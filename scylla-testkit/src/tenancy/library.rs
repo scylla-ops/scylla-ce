@@ -83,6 +83,7 @@ impl TestApp {
             layout: None,
             checkout: None,
             fragment_links,
+            agent: None,
         };
         let request = self.authed(actor, request).await;
         let response = self.pipelines().create_pipeline(request).await?;
@@ -109,6 +110,7 @@ impl TestApp {
             layout: None,
             checkout: None,
             fragment_links: links.map(|links| FragmentLinkList { links }),
+            agent: None,
         };
         let request = self.authed(actor, request).await;
         let response = self.pipelines().update_pipeline(request).await?;

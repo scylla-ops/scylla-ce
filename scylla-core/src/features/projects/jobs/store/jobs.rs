@@ -1,5 +1,6 @@
 //! The SQL of the `jobs` table. A job comes back with its source from `job_sources`.
 
+use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::{
     needs_conditions, needs_container, CheckoutRun, Job, JobId, JobStatus, NewJob, NodeRun,
@@ -32,9 +33,9 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewJob) -> Result<Job, Error> 
         "INSERT INTO jobs (id, pipeline_id, project_id, workspace_id, created_by, rerun_of,
                            trigger_id, status, nodes, runs, need_container, approval, error,
                            pipeline_file, file_errors, need_checkout, checkout, origin,
-                           need_conditions, finished_at)
+                           need_conditions, agent_labels, finished_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                 $19, CASE WHEN $8 = 'failed' THEN now() END)",
+                 $19, $20, CASE WHEN $8 = 'failed' THEN now() END)",
         id.to_db(),
         new.pipeline_id.to_db(),
         new.project_id.to_db(),
@@ -54,6 +55,7 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewJob) -> Result<Job, Error> 
         row::checkout(checkout.as_ref()),
         new.origin.as_str(),
         need_conditions,
+        &new.agent_labels.texts(),
     )
     .execute(&mut **tx)
     .await?;
@@ -87,7 +89,7 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: JobId, lock: bool) -> Result<Optio
         "SELECT id, pipeline_id, project_id, workspace_id, created_by, rerun_of, trigger_id, origin,
                 status, nodes, runs, agent_id, error, version, created_at, started_at, finished_at,
                 approval, approved_by, approved_at, rejected_by, rejected_at, checkout,
-                pipeline_file, file_errors
+                pipeline_file, file_errors, agent_labels
          FROM jobs WHERE id = $1",
         id.to_db(),
     )
@@ -173,14 +175,16 @@ pub(crate) async fn delete(
 
 /// Gives the oldest pending job of a workspace with no agent to an agent, and returns it: of
 /// each project, or of `projects` only. A job with a container goes only to an agent with a
-/// container runtime, a job with a checkout only to an agent with `checkout`, and a job with a
-/// switch, a merge or an `error` need only to an agent with `conditions`.
+/// container runtime, a job with a checkout only to an agent with `checkout`, a job with a
+/// switch, a merge or an `error` need only to an agent with `conditions`, and a job with labels
+/// only to an agent with each of them: in `automatic`, or in the labels of its App now.
 pub(crate) async fn claim(
     tx: &mut Tx<'_>,
     workspace: WorkspaceId,
     projects: Option<&[ProjectId]>,
     agent: AppId,
     features: Features,
+    automatic: &AgentLabels,
 ) -> Result<Option<Job>, Error> {
     let projects: Option<Vec<_>> = projects.map(|ids| ids.iter().map(|id| id.to_db()).collect());
     let claimed = sqlx::query_scalar!(
@@ -191,6 +195,8 @@ pub(crate) async fn claim(
                        AND ($5 OR NOT need_checkout)
                        AND ($6 OR NOT need_conditions)
                        AND ($4::uuid[] IS NULL OR project_id = ANY($4))
+                       AND agent_labels <@ ($7::text[]
+                           || (SELECT labels FROM apps WHERE id = $2))
                      ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
          RETURNING id",
         workspace.to_db(),
@@ -199,6 +205,7 @@ pub(crate) async fn claim(
         projects.as_deref(),
         features.checkout,
         features.conditions,
+        &automatic.texts(),
     )
     .fetch_optional(&mut **tx)
     .await?;

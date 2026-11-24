@@ -15,6 +15,7 @@ use scylla_proto::apps::v1::{
     AddAppKeyRequest, App, AppAssertion, AppKey, CreateAppRequest, CreateAppResponse,
     CreateJoinCodeRequest, DeleteAppRequest, DisableAppRequest, EnableAppRequest, GetAppRequest,
     GetAppResponse, ListAppsRequest, ListAppsResponse, RenameAppKeyRequest, RevokeAppKeyRequest,
+    SetAppLabelsRequest,
 };
 use scylla_proto::auth::v1::{ExchangeAppAssertionRequest, JoinAppRequest};
 use tokio::sync::mpsc;
@@ -144,6 +145,22 @@ impl TestApp {
         };
         let request = self.authed(actor, request).await;
         let response = self.apps().disable_app(request).await?.into_inner();
+        Ok(response.app.expect("the app"))
+    }
+
+    /// Calls `SetAppLabels` as `actor`, and returns the App.
+    pub async fn set_app_labels(
+        &self,
+        actor: ActorId,
+        app: &str,
+        labels: &[&str],
+    ) -> Result<App, Status> {
+        let request = SetAppLabelsRequest {
+            app_id: Some(id(app)),
+            labels: labels.iter().map(|label| (*label).to_owned()).collect(),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.apps().set_app_labels(request).await?.into_inner();
         Ok(response.app.expect("the app"))
     }
 

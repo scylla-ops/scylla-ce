@@ -94,8 +94,8 @@ pub(super) async fn apply(
     Ok(())
 }
 
-/// Returns the row of the pipeline of a file that the lookup takes: its nodes, its rules and its
-/// checkout, or its errors and no node.
+/// Returns the row of the pipeline of a file that the lookup takes: its nodes, its rules, its
+/// checkout and its labels, or its errors and no node.
 pub(super) fn row_of(read: &ReadFile) -> Result<FileRow<'_>, Error> {
     let key = read.file.key.as_str();
     let (name, nodes, rules, checkout, errors) = match &read.pipeline {
@@ -108,6 +108,11 @@ pub(super) fn row_of(read: &ReadFile) -> Result<FileRow<'_>, Error> {
         ),
         Err(errors) => (key, json::nodes(&[]), None, None, Some(to_json(errors)?)),
     };
+    let agent_labels = read
+        .pipeline
+        .as_ref()
+        .map(|pipeline| pipeline.agent_labels.texts())
+        .unwrap_or_default();
     Ok(FileRow {
         key,
         path: &read.file.path,
@@ -116,6 +121,7 @@ pub(super) fn row_of(read: &ReadFile) -> Result<FileRow<'_>, Error> {
         nodes,
         rules,
         checkout,
+        agent_labels,
         errors,
     })
 }
@@ -133,6 +139,7 @@ pub(super) fn refused_row<'a>(
         nodes: json::nodes(&[]),
         rules: None,
         checkout: None,
+        agent_labels: Vec::new(),
         errors: Some(to_json(&[&rejected.error])?),
     })
 }
