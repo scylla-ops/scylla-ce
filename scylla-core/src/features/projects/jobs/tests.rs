@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use scylla_domain::identity::actors::{Actor, ActorId};
+use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::identity::apps::{AppId, NewApp};
 use scylla_domain::identity::users::{Email, NewUser};
 use scylla_domain::projects::jobs::{JobEvent, JobId, JobOrigin, JobStatus, NewJob};
@@ -130,16 +131,26 @@ async fn placed_job(pool: &PgPool, place: &Place) -> JobId {
         pipeline_file: None,
         file_errors: Vec::new(),
         checkout: None,
+        agent_labels: AgentLabels::default(),
     };
     let registry = Registry::default();
     let job = service::create(pool, &Hooks::default(), &registry, place.user.clone(), new)
         .await
         .unwrap();
     let features = Features::default();
-    let claimed = runs::claim(pool, None, place.workspace, None, place.agent, features)
-        .await
-        .unwrap()
-        .unwrap();
+    let labels = AgentLabels::default();
+    let claimed = runs::claim(
+        pool,
+        None,
+        place.workspace,
+        None,
+        place.agent,
+        features,
+        &labels,
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(claimed.job.id, job.id);
     job.id
 }
@@ -168,6 +179,8 @@ async fn reap_releases_the_jobs_of_a_lost_agent(pool: PgPool) {
         checkout_gap: None,
         containers: false,
         conditions: false,
+        automatic_labels: AgentLabels::default(),
+        labels: AgentLabels::default(),
     };
     let _ticket = connected.open(place.agent, place.workspace, agent);
 

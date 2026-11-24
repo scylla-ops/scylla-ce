@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use scylla_domain::identity::agents::Unfit;
+use scylla_domain::identity::agents::{fits, AgentLabels, Unfit};
 use scylla_domain::identity::apps::AppId;
 use scylla_domain::projects::jobs::JobId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -60,6 +60,10 @@ pub(crate) struct Online {
     pub(crate) containers: bool,
     /// `true` if the agent runs the conditional nodes.
     pub(crate) conditions: bool,
+    /// The labels of the host of the agent.
+    pub(crate) automatic_labels: AgentLabels,
+    /// The labels that the admins gave to the App.
+    pub(crate) labels: AgentLabels,
 }
 
 /// The features that a job needs from an agent, or that an agent has.
@@ -134,6 +138,15 @@ impl Registry {
         }
     }
 
+    /// Keeps the new labels that the admins gave to an agent with an open stream, and tells each
+    /// stream to look for pending jobs: a job can fit the agent now.
+    pub(crate) fn relabel(&self, app: AppId, labels: AgentLabels) {
+        if let Some(entry) = self.streams().get_mut(&app) {
+            entry.agent.labels = labels;
+        }
+        self.wake_all();
+    }
+
     /// Returns `true` if the agent has an open stream.
     pub(crate) fn is_connected(&self, app: AppId) -> bool {
         self.streams().contains_key(&app)
@@ -148,14 +161,20 @@ impl Registry {
             .collect()
     }
 
-    /// Returns `true` if an agent of the workspace with each feature that a job needs has an
-    /// open stream.
-    pub(crate) fn can_serve(&self, workspace: WorkspaceId, needs: Features) -> bool {
+    /// Returns `true` if an agent of the workspace with each feature and each label that a job
+    /// needs has an open stream.
+    pub(crate) fn can_serve(
+        &self,
+        workspace: WorkspaceId,
+        needs: Features,
+        labels: &AgentLabels,
+    ) -> bool {
         self.streams().values().any(|entry| {
             entry.workspace == workspace
                 && (entry.agent.containers || !needs.containers)
                 && (entry.agent.checkout_gap.is_none() || !needs.checkout)
                 && (entry.agent.conditions || !needs.conditions)
+                && fits(labels, &entry.agent.automatic_labels, &entry.agent.labels)
         })
     }
 

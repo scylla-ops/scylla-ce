@@ -3,6 +3,7 @@
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId, ActorKind};
+use crate::identity::agents::AgentLabels;
 pub use crate::identity::agents::Host;
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
 use crate::{Id, Name, Page, PageRequest};
@@ -46,6 +47,8 @@ pub struct App {
     pub host: Option<Host>,
     /// The time when an admin disabled the App, or `None` while it is enabled.
     pub disabled_at: Option<OffsetDateTime>,
+    /// The labels that the admins gave to the App.
+    pub labels: AgentLabels,
 }
 
 impl App {
@@ -149,6 +152,9 @@ crate::authz! {
         permission list_ci_identities = creator;
         /// The route `RemoveCiIdentity`.
         permission remove_ci_identity = creator;
+        /// The route `SetAppLabels`: the admins of the workspace only, not the creator, so the
+        /// machine of an agent cannot choose its jobs.
+        permission set_app_labels = nil;
     }
 
     /// The routes of the Apps on their workspace.
@@ -191,5 +197,7 @@ crate::authz! {
         permission list_ci_identities = read;
         /// The route `RemoveCiIdentity`, on each App of this workspace.
         permission remove_ci_identity = manage;
+        /// The route `SetAppLabels`, on each App of this workspace.
+        permission set_app_labels = manage;
     }
 }

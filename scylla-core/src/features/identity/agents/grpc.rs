@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use scylla_domain::identity::agents::AgentCaller;
+use scylla_domain::identity::agents::{AgentCaller, AgentLabels};
 use scylla_domain::projects::jobs::RunScope;
 use scylla_extension::Gate;
 use scylla_proto::agents::v1 as pb;
@@ -113,6 +113,7 @@ impl AgentsGrpc {
             containers: false,
             checkout: false,
             conditions: false,
+            labels: AgentLabels::default(),
             scope: RunScope::Nothing,
         };
         let inbound = request.into_inner();

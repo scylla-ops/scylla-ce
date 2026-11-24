@@ -27,6 +27,8 @@ pub(super) struct FileRow<'a> {
     pub(super) rules: Option<Value>,
     /// The checkout settings in JSON, or `None` for a file with errors.
     pub(super) checkout: Option<Value>,
+    /// The labels that the agent of a job must have: none for a file with errors.
+    pub(super) agent_labels: Vec<String>,
     /// The errors in JSON, or `None` for a valid file.
     pub(super) errors: Option<Value>,
 }
@@ -108,13 +110,15 @@ pub(super) async fn upsert(
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         "INSERT INTO pipelines (id, project_id, workspace_id, created_by, name, nodes, source,
-                                file_key, file_path, file_sha, file_rules, file_errors, checkout)
-         SELECT $1, p.id, p.workspace_id, $3, $4, $5, 'file', $6, $7, $8, $9, $10, $11
+                                file_key, file_path, file_sha, file_rules, file_errors, checkout,
+                                agent_labels)
+         SELECT $1, p.id, p.workspace_id, $3, $4, $5, 'file', $6, $7, $8, $9, $10, $11, $12
          FROM projects p WHERE p.id = $2
          ON CONFLICT (project_id, file_key) DO UPDATE
          SET name = excluded.name, nodes = excluded.nodes, file_path = excluded.file_path,
              file_sha = excluded.file_sha, file_rules = excluded.file_rules,
              file_errors = excluded.file_errors, checkout = excluded.checkout,
+             agent_labels = excluded.agent_labels,
              archived_at = NULL, removed_at = NULL, version = pipelines.version + 1,
              updated_at = now()
          WHERE (pipelines.name, pipelines.file_path, pipelines.file_sha, pipelines.file_errors,
@@ -132,6 +136,7 @@ pub(super) async fn upsert(
         row.rules,
         row.errors,
         row.checkout,
+        &row.agent_labels,
     )
     .execute(&mut **tx)
     .await?;
@@ -150,8 +155,9 @@ pub(super) async fn key_pipeline(
     sqlx::query!(
         "INSERT INTO pipelines (id, project_id, workspace_id, created_by, name, nodes, source,
                                 file_key, file_path, file_sha, file_rules, file_errors, checkout,
-                                removed_at)
-         SELECT $1, p.id, p.workspace_id, $3, $4, $5, 'file', $6, $7, $8, $9, $10, $11, now()
+                                agent_labels, removed_at)
+         SELECT $1, p.id, p.workspace_id, $3, $4, $5, 'file', $6, $7, $8, $9, $10, $11, $12,
+                now()
          FROM projects p WHERE p.id = $2
          ON CONFLICT (project_id, file_key) DO NOTHING",
         PipelineId::generate().to_db(),
@@ -165,6 +171,7 @@ pub(super) async fn key_pipeline(
         row.rules,
         row.errors,
         row.checkout,
+        &row.agent_labels,
     )
     .execute(&mut **tx)
     .await?;

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use scylla_domain::activity::Kind;
 use scylla_domain::identity::agents::{
-    AgentCaller, Compatibility, Sample, CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL,
+    AgentCaller, AgentLabels, Compatibility, Sample, CURRENT_AGENT_PROTOCOL, MIN_AGENT_PROTOCOL,
 };
 use scylla_domain::identity::apps::{App, AppId};
 use scylla_domain::projects::jobs::RunScope;
@@ -65,6 +65,8 @@ pub(super) struct Stream {
     pub(super) checkout: bool,
     /// `true` if the agent runs the conditional nodes, from the hello.
     pub(super) conditions: bool,
+    /// The automatic labels of the agent, from the host of its hello.
+    pub(super) labels: AgentLabels,
     /// The jobs that the agent may take, from its roles `runner`.
     pub(super) scope: RunScope,
 }
@@ -104,7 +106,7 @@ impl Stream {
 
     /// Reads the first message: it must be a hello. Stores the host, refuses an agent older than
     /// the minimum protocol, checks the jobs that the agent still runs, and learns the place, the
-    /// features and the role of the agent. Returns the workspace of the agent and what the
+    /// features, the labels and the role of the agent. Returns the workspace of the agent and what the
     /// registry keeps of it.
     async fn hello(
         &mut self,
@@ -145,6 +147,7 @@ impl Stream {
         self.containers = host.container_runtime.is_some();
         self.checkout = host.can_check_out();
         self.conditions = hello.conditional_nodes;
+        self.labels = host.automatic_labels();
         self.scope = self.run_scope().await;
 
         // Welcome the agent, then stop the jobs that it must not run.
@@ -158,6 +161,8 @@ impl Stream {
             checkout_gap: host.checkout_gap(),
             containers: self.containers,
             conditions: self.conditions,
+            automatic_labels: self.labels.clone(),
+            labels: app.labels,
         };
         Ok((app.workspace_id, agent))
     }

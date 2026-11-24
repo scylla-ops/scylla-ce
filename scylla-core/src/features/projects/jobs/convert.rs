@@ -16,12 +16,16 @@ use super::filter;
 use crate::api::parse::{self, ToProto};
 use crate::features::identity::agents::{Features, Online, Registry};
 
-/// Why a pending job with a checkout waits: no agent of its workspace that gets the code is
+/// Why a pending job with labels waits: no agent of its workspace with each label of the job is
 /// online.
+const NO_AGENT_WITH_LABELS: &str = "NO_AGENT_WITH_LABELS";
+
+/// Why a pending job with a checkout waits: no agent of its workspace with the labels of the job
+/// that gets the code is online.
 const NO_AGENT_WITH_CHECKOUT: &str = "NO_AGENT_WITH_CHECKOUT";
 
-/// Why a pending job with a container waits: no agent of its workspace with a container runtime,
-/// and with the checkout when the job needs it, is online.
+/// Why a pending job with a container waits: no agent of its workspace with the labels of the job
+/// and a container runtime, and with the checkout when the job needs it, is online.
 const NO_AGENT_WITH_CONTAINER: &str = "NO_AGENT_WITH_CONTAINER";
 
 /// Returns the proto of a job, with the reason why it waits for an agent and the online agents
@@ -41,12 +45,13 @@ pub(super) fn job_of(job: Job, registry: &Registry) -> pb::Job {
     proto
 }
 
-/// Returns why a pending job with no agent waits, when no online agent of its workspace has a
-/// feature that it needs.
+/// Returns why a pending job with no agent waits, when no online agent of its workspace has the
+/// labels or a feature that it needs.
 fn waiting_reason(job: &Job, registry: &Registry) -> Option<&'static str> {
     if job.status != JobStatus::Pending || job.agent_id.is_some() {
         return None;
     }
+    let labels = &job.agent_labels;
     let checkout = job.checkout.is_some();
     let containers = needs_container(&job.nodes);
     let only_checkout = Features {
@@ -59,9 +64,11 @@ fn waiting_reason(job: &Job, registry: &Registry) -> Option<&'static str> {
         checkout,
         conditions: false,
     };
-    if checkout && !registry.can_serve(job.workspace_id, only_checkout) {
+    if !labels.is_empty() && !registry.can_serve(job.workspace_id, Features::default(), labels) {
+        Some(NO_AGENT_WITH_LABELS)
+    } else if checkout && !registry.can_serve(job.workspace_id, only_checkout, labels) {
         Some(NO_AGENT_WITH_CHECKOUT)
-    } else if containers && !registry.can_serve(job.workspace_id, both) {
+    } else if containers && !registry.can_serve(job.workspace_id, both, labels) {
         Some(NO_AGENT_WITH_CONTAINER)
     } else {
         None
@@ -119,6 +126,7 @@ impl ToProto<pb::Job> for Job {
             waiting_reason: String::new(),
             unfit_agents: Vec::new(),
             origin: filter::origin(self.origin).into(),
+            agent_labels: self.agent_labels.texts(),
         }
     }
 }

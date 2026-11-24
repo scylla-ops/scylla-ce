@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::integrations::links::PipelineSource as DomainSource;
 use scylla_domain::projects::pipeline_files::CheckoutSettings;
 use scylla_domain::projects::pipelines::{
@@ -17,6 +18,25 @@ use super::files_convert::checkout_of;
 use super::switch;
 use crate::api::parse::{self, ToProto};
 use crate::Error;
+
+/// Reads the agent settings of a request. A bad label gives `INVALID_ARGUMENT` with its path,
+/// for example `agent.labels[1]`.
+pub(crate) fn agent_labels(agent: pb::AgentSettings) -> Result<AgentLabels, Error> {
+    AgentLabels::parse(agent.labels).map_err(|(index, error)| {
+        let field = match index {
+            Some(index) => format!("agent.labels[{index}]"),
+            None => "agent.labels".to_owned(),
+        };
+        Error::invalid(field, error.to_string())
+    })
+}
+
+/// Returns the proto of the agent settings of a pipeline.
+pub(crate) fn agent_of(labels: &AgentLabels) -> pb::AgentSettings {
+    pb::AgentSettings {
+        labels: labels.texts(),
+    }
+}
 
 /// Reads the checkout settings of a request.
 pub(crate) fn checkout(checkout: pb::CheckoutSettings) -> CheckoutSettings {
@@ -228,6 +248,7 @@ impl ToProto<pb::Pipeline> for Pipeline {
             file_key: file.key,
             file_path: file.path,
             checkout: Some(checkout_of(self.checkout)),
+            agent: Some(agent_of(&self.agent_labels)),
             archived_at: self.archived_at.map(parse::timestamp),
             removed_at: file.removed_at.map(parse::timestamp),
             file_error_count: file.errors,

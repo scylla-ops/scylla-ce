@@ -85,7 +85,7 @@ pub(crate) async fn list(
                 j.trigger_id, j.origin, j.status, j.nodes, j.runs, j.agent_id, j.error, j.version,
                 j.created_at, j.started_at, j.finished_at, j.approval, j.approved_by,
                 j.approved_at, j.rejected_by, j.rejected_at, j.checkout, j.pipeline_file,
-                j.file_errors
+                j.file_errors, j.agent_labels
          FROM jobs j LEFT JOIN job_sources s ON s.job_id = j.id
          WHERE ($1::uuid IS NULL OR j.pipeline_id = $1)
            AND ($2::uuid IS NULL OR j.workspace_id = $2)

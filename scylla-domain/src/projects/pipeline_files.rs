@@ -2,6 +2,7 @@
 //! in TOML, YAML or JSON. A file gives the same nodes as the editor, through the checks of the
 //! nodes.
 
+mod agent;
 mod checkout;
 mod convert;
 mod document;
@@ -17,6 +18,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+pub use agent::AgentSettings;
 pub use checkout::CheckoutSettings;
 pub use document::{
     json_schema, ContainerFile, EnvEntry, EnvTable, NodeFile, PipelineFile, ShellName,
@@ -25,6 +27,7 @@ pub use lookup::{lookup, FileRef, Lookup, Rejected, TreeEntry, MAX_FILES};
 pub use read::parse;
 pub use warnings::missing_secrets;
 
+use crate::identity::agents::AgentLabels;
 use crate::projects::git_rules::GitRules;
 use crate::projects::pipelines::{Nodes, PipelineName};
 use crate::DomainError;
@@ -154,6 +157,8 @@ pub struct FilePipeline {
     pub rules: GitRules,
     /// The checkout of the commit before the first node.
     pub checkout: CheckoutSettings,
+    /// The labels that the agent of a job must have.
+    pub agent_labels: AgentLabels,
     /// The checked nodes.
     pub nodes: Nodes,
 }
@@ -167,6 +172,7 @@ impl FilePipeline {
             self.nodes.as_slice(),
             &self.rules,
             &self.checkout,
+            &self.agent_labels,
         )
         .write(format)
     }

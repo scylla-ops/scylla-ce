@@ -82,6 +82,7 @@ Load the skill of the task from `.claude/skills/`:
 - An App is an actor of kind `app` with a row in `apps`. Make one with `create` of `features/identity/apps/service.rs`, which inserts the actor in the same transaction. `AppId` and `ActorId` have the same bits: convert with `App::actor(id)` and `App::of_actor(id)`, never with `from_db`.
 - The server never sees a private key. A key of an App comes from `JoinApp` (with a join code) or from `AddAppKey`. A join code is a `secret::token()`, and the database keeps its hash.
 - A delete of an App or a revocation of a key stops the stream of the agent with `Registry::stop`. The registry is in memory: the server is one instance.
+- The labels of an agent: `scylla_domain::identity::agents::AgentLabels`. The automatic labels come from the host of the hello (`Host::automatic_labels`), and only the admins give the others (`SetAppLabels`, never the agent). The claim of a job reads the labels of the admins from `apps` and checks `jobs.agent_labels` against both lists. After a change of the labels, `Registry::relabel` wakes the streams. Read decision 114.
 - The stream of an agent checks each new token as its start did: `gate.authenticate` with the operation of the stream, the same actor, then `gate.authorize` of the route permission.
 
 ## Pipelines and jobs

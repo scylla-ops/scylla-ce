@@ -154,6 +154,13 @@ impl AppService for AppsGrpc {
     ) -> Result<Response<pb::RemoveCiIdentityResponse>, Status> {
         Ok(Response::new(self.remove_ci(request).await?))
     }
+
+    async fn set_app_labels(
+        &self,
+        request: Request<pb::SetAppLabelsRequest>,
+    ) -> Result<Response<pb::SetAppLabelsResponse>, Status> {
+        Ok(Response::new(self.set_labels(request).await?))
+    }
 }
 
 impl AppsGrpc {

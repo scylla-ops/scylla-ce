@@ -2,7 +2,8 @@
 //! checks of the nodes (decision 62), and each refusal keeps the path of its value.
 
 use super::document::{ContainerFile, EnvEntry, EnvTable, NodeFile, PipelineFile, ShellName};
-use super::{CheckoutSettings, FileKey, FilePipeline, VERSION};
+use super::{AgentSettings, CheckoutSettings, FileKey, FilePipeline, VERSION};
+use crate::identity::agents::AgentLabels;
 use crate::projects::git_rules::GitRules;
 use crate::projects::pipelines::{
     EnvValue, EnvVar, Need, Node, NodeId, Nodes, PipelineName, Runtime, Shell, Step,
@@ -16,12 +17,19 @@ pub(super) type Refusal = (String, String);
 impl PipelineFile {
     /// Makes the document of a pipeline, for an export. A default value is not written. A file
     /// has no switch, no merge and no port: the caller refuses a pipeline with them first.
-    pub fn of(name: &str, nodes: &[Node], rules: &GitRules, checkout: &CheckoutSettings) -> Self {
+    pub fn of(
+        name: &str,
+        nodes: &[Node],
+        rules: &GitRules,
+        checkout: &CheckoutSettings,
+        agent_labels: &AgentLabels,
+    ) -> Self {
         Self {
             version: VERSION,
             name: Some(name.to_owned()),
             on: rules.clone(),
             checkout: checkout.clone(),
+            agent: AgentSettings::of(agent_labels),
             nodes: nodes.iter().map(node_file).collect(),
         }
     }
@@ -32,7 +40,7 @@ impl PipelineFile {
 pub(super) fn pipeline(file: PipelineFile, key: &FileKey) -> Result<FilePipeline, Vec<Refusal>> {
     let mut refusals = Vec::new();
 
-    // Check the name and the rules.
+    // Check the name, the rules and the labels.
     let name = file.name.unwrap_or_else(|| key.as_str().to_owned());
     let name = PipelineName::parse(name)
         .map_err(|error| refusals.push(refusal("name", &error)))
@@ -43,6 +51,15 @@ pub(super) fn pipeline(file: PipelineFile, key: &FileKey) -> Result<FilePipeline
             .into_iter()
             .map(|(path, error)| (path, error.to_string())),
     );
+    let agent_labels = AgentLabels::parse(file.agent.labels)
+        .map_err(|(index, error)| {
+            let path = match index {
+                Some(index) => format!("agent.labels[{index}]"),
+                None => "agent.labels".to_owned(),
+            };
+            refusals.push(refusal(&path, &error));
+        })
+        .ok();
 
     // Check each node, then the graph when each node passes.
     let mut nodes = Vec::new();
@@ -67,11 +84,12 @@ pub(super) fn pipeline(file: PipelineFile, key: &FileKey) -> Result<FilePipeline
     };
 
     // Make the pipeline when no check refused a value.
-    match (name, nodes) {
-        (Some(name), Some(nodes)) if refusals.is_empty() => Ok(FilePipeline {
+    match (name, nodes, agent_labels) {
+        (Some(name), Some(nodes), Some(agent_labels)) if refusals.is_empty() => Ok(FilePipeline {
             name,
             rules: file.on,
             checkout: file.checkout,
+            agent_labels,
             nodes,
         }),
         _ => Err(refusals),

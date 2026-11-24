@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO jobs (id, pipeline_id, project_id, workspace_id, created_by, rerun_of,\n                           trigger_id, status, nodes, runs, need_container, approval, error,\n                           pipeline_file, file_errors, need_checkout, checkout, origin,\n                           need_conditions, agent_labels, finished_at)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,\n                 $19, $20, CASE WHEN $8 = 'failed' THEN now() END)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Bool",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Bool",
+        "Jsonb",
+        "Text",
+        "Bool",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d854fde97328b8e58317c93074d0a7b5b1208e88f39da38f0f2292cf787bb45a"
+}

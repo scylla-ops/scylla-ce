@@ -1,6 +1,7 @@
 //! Unit tests of the pipeline files: the read, the errors and their places, the warnings, the
 //! export and the lookup.
 
+mod agent;
 mod errors;
 mod export;
 mod lookup;

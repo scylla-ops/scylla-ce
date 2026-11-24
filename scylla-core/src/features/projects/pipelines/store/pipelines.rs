@@ -1,5 +1,6 @@
 //! The SQL of the `pipelines` table.
 
+use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::projects::pipelines::{
     NewPipeline, Pipeline, PipelineChange, PipelineId, PipelineName, PipelineScope,
 };
@@ -27,8 +28,9 @@ pub(crate) enum Changed {
 pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewPipeline) -> Result<Option<Pipeline>, Error> {
     let id = sqlx::query_scalar!(
         "INSERT INTO pipelines
-             (id, project_id, workspace_id, created_by, name, nodes, checkout, fragment_links)
-         SELECT $1, p.id, p.workspace_id, $3, $4, $5, $6, $7 FROM projects p WHERE p.id = $2
+             (id, project_id, workspace_id, created_by, name, nodes, checkout, fragment_links,
+              agent_labels)
+         SELECT $1, p.id, p.workspace_id, $3, $4, $5, $6, $7, $8 FROM projects p WHERE p.id = $2
          RETURNING id",
         PipelineId::generate().to_db(),
         new.project_id.to_db(),
@@ -37,6 +39,7 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewPipeline) -> Result<Option<
         json::nodes(new.nodes.as_slice()),
         serde_json::to_value(&new.checkout).ok(),
         links::json(&new.fragment_links),
+        &new.agent_labels.texts(),
     )
     .fetch_optional(&mut **tx)
     .await?;
@@ -53,7 +56,7 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: PipelineId) -> Result<Option<Pipel
         r#"SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,
                   created_at, updated_at, source, file_key, file_path,
                   jsonb_array_length(coalesce(file_errors, '[]')) AS "file_errors!", archived_at,
-                  removed_at, fragment_links
+                  removed_at, fragment_links, agent_labels
            FROM pipelines WHERE id = $1"#,
         id.to_db(),
     )
@@ -125,7 +128,7 @@ pub(crate) async fn list(
         r#"SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,
                   created_at, updated_at, source, file_key, file_path,
                   jsonb_array_length(coalesce(file_errors, '[]')) AS "file_errors!", archived_at,
-                  removed_at, fragment_links
+                  removed_at, fragment_links, agent_labels
            FROM pipelines
            WHERE ($1::uuid IS NULL OR project_id = $1)
              AND ($2::uuid IS NULL OR workspace_id = $2)
@@ -165,11 +168,13 @@ pub(crate) async fn update(
     change: &PipelineChange,
 ) -> Result<Changed, Error> {
     // Change the row of this version.
+    let labels = change.agent_labels.as_ref().map(AgentLabels::texts);
     let changed = sqlx::query_scalar!(
         "UPDATE pipelines
          SET name = coalesce($3, name), nodes = coalesce($4, nodes),
              checkout = coalesce($5, checkout), fragment_links = coalesce($6, fragment_links),
-             version = version + 1, updated_at = now()
+             agent_labels = coalesce($7, agent_labels), version = version + 1,
+             updated_at = now()
          WHERE id = $1 AND version = $2
          RETURNING id",
         id.to_db(),
@@ -184,6 +189,7 @@ pub(crate) async fn update(
             .as_ref()
             .and_then(|new| serde_json::to_value(new).ok()),
         change.fragment_links.as_deref().map(links::json),
+        labels.as_deref(),
     )
     .fetch_optional(&mut **tx)
     .await?;
