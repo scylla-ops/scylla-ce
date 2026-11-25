@@ -145,7 +145,7 @@ async fn update_user_stops_the_links_of_the_old_email(pool: PgPool) {
     let user = app.user_with(old, Some(PASSWORD)).await;
     app.request_reset(old).await.unwrap();
     app.mails.wait(old, 1).await;
-    let reset = app.mails.token(old, "reset-password");
+    let reset = app.mails.token(old, "reset-password").await;
     let request = UpdateUserRequest {
         user_id: Some(id(user.to_string())),
         email: Some("joy.new@example.com".to_owned()),
@@ -236,8 +236,8 @@ async fn send_password_reset_sends_one_link(pool: PgPool) {
     let unknown = app.send_password_reset(admin, UNKNOWN_ID).await;
 
     // then
-    assert_eq!(app.mails.to(email).len(), 1);
-    let link = app.mails.token(email, "reset-password");
+    assert_eq!(app.mails.to(email).await.len(), 1);
+    let link = app.mails.token(email, "reset-password").await;
     assert!(app.reset_password(&link, "a brand new one").await.is_ok());
     assert_code(unknown, Code::NotFound);
 }

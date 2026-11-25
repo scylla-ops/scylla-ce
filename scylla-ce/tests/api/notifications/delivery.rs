@@ -69,7 +69,7 @@ async fn an_invitation_reaches_a_user_who_verifies_later(pool: PgPool) {
 
     // when
     let before = app.inbox(late).await.len();
-    let link = app.mails.token(email, "verify-email");
+    let link = app.mails.token(email, "verify-email").await;
     app.verify_email(&link).await.unwrap();
     let after = kinds_of(&app, late).await;
 

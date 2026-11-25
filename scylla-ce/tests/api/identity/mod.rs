@@ -1,9 +1,10 @@
-//! The tests of identity: accounts, handles, the profile, the mails, the deletion of an account,
-//! the instance admins and their console, sessions, sign-in with an identity provider, tokens, the
-//! Apps, their labels, their creators, their keys, their API tokens with their limits and their CI
-//! identities, the personal tokens and their switches, the streams of the agents, the samples of
-//! their machines and their install scripts, the state of a user, the export of its data, its
-//! acceptances of the terms with their proof after a deletion, and the hooks of a user.
+//! The tests of identity: accounts, handles, the profile, the mails and their outbox, the
+//! deletion of an account, the instance admins and their console, sessions, sign-in with an
+//! identity provider, tokens, the Apps, their labels, their creators, their keys, their API tokens
+//! with their limits and their CI identities, the personal tokens and their switches, the streams
+//! of the agents, the samples of their machines and their install scripts, the state of a user,
+//! the export of its data, its acceptances of the terms with their proof after a deletion, and the
+//! hooks of a user.
 
 pub(crate) mod accounts;
 mod admins;
@@ -25,6 +26,7 @@ mod handles;
 mod idp;
 mod install;
 mod keys;
+mod mail_outbox;
 mod mails;
 mod oidc;
 mod personal_tokens;

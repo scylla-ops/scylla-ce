@@ -161,11 +161,11 @@ pub(crate) async fn link_with_password(
     let methods = ["password".to_owned(), provider.slug.clone()];
     let ttl = ctx.settings.session_ttl;
     let opened = sessions::open(&mut tx, user, &methods, client, ttl).await?;
+    let mail = mails::identity_linked(ctx, &row.email, &provider.display_name);
+    mails::queue(&mut tx, ctx, "identity-linked", mail).await?;
     tx.commit().await?;
     accounts::signed_in(user, &provider.slug, opened.session);
     tracing::info!(event = "account.identity_linked", %user, provider = provider.slug);
-    let mail = mails::identity_linked(ctx, &row.email, &provider.display_name);
-    mails::send(ctx, "identity-linked", mail).await;
     Ok(Finished {
         opened,
         return_to: row.return_to,

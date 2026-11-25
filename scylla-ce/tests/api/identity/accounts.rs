@@ -42,7 +42,7 @@ async fn sign_up_needs_the_link_of_the_mail(pool: PgPool) {
 
     // when
     let before = app.sign_in(email, PASSWORD).await;
-    let token = app.mails.token(email, "verify-email");
+    let token = app.mails.token(email, "verify-email").await;
     let verified = app.verify_email(&token).await;
     let again = app.verify_email(&token).await;
     let after = app.sign_in(email, PASSWORD).await.unwrap();
@@ -68,7 +68,7 @@ async fn sign_up_with_a_known_email_sends_a_mail(pool: PgPool) {
 
     // then
     assert!(result.is_ok(), "{result:?}");
-    let mails = app.mails.to(email);
+    let mails = app.mails.to(email).await;
     assert_eq!(
         mails.last().unwrap().subject,
         "You already have a Scylla account"
@@ -211,11 +211,11 @@ async fn reset_password_closes_the_sessions(pool: PgPool) {
     app.request_reset(email).await.unwrap();
     let unknown = app.request_reset("nobody@example.com").await;
     app.mails.wait(email, 1).await;
-    let token = app.mails.token(email, "reset-password");
+    let token = app.mails.token(email, "reset-password").await;
     app.reset_password(&token, NEW_PASSWORD).await.unwrap();
 
     // then
-    assert!(unknown.is_ok() && app.mails.to("nobody@example.com").is_empty());
+    assert!(unknown.is_ok() && app.mails.to("nobody@example.com").await.is_empty());
     assert_code(
         app.refresh(&session.refresh_token).await,
         Code::Unauthenticated,

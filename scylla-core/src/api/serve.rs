@@ -32,7 +32,7 @@ use crate::features::projects::triggers::webhook::{self, Webhooks};
 use crate::features::projects::triggers::{self, schedule};
 use crate::features::projects::{pipelines, secrets};
 use crate::features::tenancy::{dashboards, invitations};
-use crate::infra::mail::{LogMailer, SmtpMailer};
+use crate::infra::mail::{self, LogMailer};
 use crate::infra::secret::Sealer;
 use crate::infra::{db, dev_keys, logs::LogClientIp, vcs::VcsOptions};
 use crate::{Config, Error, SignUpMode};
@@ -110,16 +110,7 @@ pub async fn run(config: &Config, edition: Edition) -> Result<(), Error> {
         (Some(cert), Some(key)) => Some(Identity::from_pem(fs::read(cert)?, fs::read(key)?)),
         _ => None,
     };
-    let mailer: Arc<dyn Mailer> =
-        match &config.smtp_url {
-            Some(url) => Arc::new(SmtpMailer::new(url, &config.mail_from).map_err(|reason| {
-                Error::Config {
-                    name: "SCYLLA_SMTP_URL",
-                    reason,
-                }
-            })?),
-            None => Arc::new(LogMailer),
-        };
+    let mailer = mail::from_config(config)?;
     let sealer = sealer(config)?;
     let vcs = config.vcs.resolve()?;
 
@@ -239,6 +230,7 @@ pub async fn serve(
 
     // Start the background tasks of the core, then the tasks of the edition.
     let mut tasks = vec![
+        accounts::mails::spawn(pool.clone(), Arc::clone(&ctx.mailer)),
         housekeeping::spawn(pool.clone(), share(), options.log_retention),
         retention::spawn(pool.clone(), options.retention),
         schedule::spawn(vcs.clone()),

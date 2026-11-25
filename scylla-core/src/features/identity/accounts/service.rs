@@ -161,26 +161,18 @@ pub(super) async fn sign_up(ctx: &AccountContext, input: SignUp) -> Result<(), E
     if let Some(version) = &accepted {
         terms::record_sign_up(&mut tx, actor.id, version).await?;
     }
-    let verify = match invitation {
-        Some(_) => None,
-        None => Some(
-            one_time::create(&mut tx, Purpose::VerifyEmail, actor.id, new.email.as_str()).await?,
-        ),
-    };
+    if invitation.is_none() {
+        let email = new.email.as_str();
+        let token = one_time::create(&mut tx, Purpose::VerifyEmail, actor.id, email).await?;
+        let mail = mails::verify_email(ctx, email, &token);
+        mails::queue(&mut tx, ctx, "verify-email", mail).await?;
+    }
     tx.commit().await?;
     created(actor.id, &new.email, false);
 
-    // Accept the invitation of the link, or send the link that verifies the email.
+    // Accept the invitation of the link.
     if let (Some(_), Some(token)) = (&invitation, &input.invitation) {
         invitations::accept(ctx, Pick::Token(token), actor.id).await?;
-    }
-    if let Some(token) = verify {
-        mails::send(
-            ctx,
-            "verify-email",
-            mails::verify_email(ctx, new.email.as_str(), &token),
-        )
-        .await;
     }
     Ok(())
 }

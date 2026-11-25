@@ -65,14 +65,14 @@ pub(crate) async fn create(
         store::insert(&mut tx, workspace, email.as_str(), role, invited_by, &hash).await?;
     let fact = kinds::invitation_received(&invitation, None);
     notifications::emit(&mut tx, fact).await?;
+
+    // Send the link to the email only.
     let inviter = mail::inviter(&mut tx, &invitation).await?;
+    mail::send(&mut tx, ctx, &invitation, &name, inviter, &token).await?;
     tx.commit().await?;
     let email = mask_email(&invitation.email);
     let (id, role) = (invitation.id, &invitation.role);
     tracing::info!(event = "invitation.created", invitation = %id, %workspace, email, role);
-
-    // Send the link to the email only.
-    mail::send(ctx, &invitation, &name, inviter, &token).await;
     Ok(invitation)
 }
 
@@ -141,9 +141,9 @@ pub(super) async fn resend(
         .await?
         .ok_or(Error::NotFound("workspace"))?;
     let inviter = mail::inviter(&mut tx, &invitation).await?;
+    mail::send(&mut tx, ctx, &invitation, &name, inviter, &token).await?;
     tx.commit().await?;
     tracing::info!(event = "invitation.resent", invitation = %id, %workspace);
-    mail::send(ctx, &invitation, &name, inviter, &token).await;
     Ok(invitation)
 }
 

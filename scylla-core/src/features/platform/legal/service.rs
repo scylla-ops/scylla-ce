@@ -58,7 +58,7 @@ pub(super) async fn update(pool: &PgPool, change: LegalChange) -> Result<LegalSe
 }
 
 /// Reads the legal settings in a transaction.
-async fn read(tx: &mut Tx<'_>) -> Result<LegalSettings, sqlx::Error> {
+pub(crate) async fn read(tx: &mut Tx<'_>) -> Result<LegalSettings, sqlx::Error> {
     let (operator, privacy_contact) = store::settings(tx).await?;
     let documents = store::documents(tx).await?;
     Ok(LegalSettings {

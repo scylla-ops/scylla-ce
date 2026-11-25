@@ -99,7 +99,7 @@ impl TestApp {
             .expect("migrations apply");
 
         // Give the server a mailbox and a key of the secrets.
-        let mails = Arc::new(Mailbox::default());
+        let mails = Arc::new(Mailbox::new(pool.clone()));
         options.mailer = mails.clone();
         let sealer = with_key.then(|| {
             options

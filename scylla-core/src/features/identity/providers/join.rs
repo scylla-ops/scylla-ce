@@ -177,13 +177,13 @@ pub(super) async fn link(
     let to = accounts::find_user(&mut tx, user)
         .await?
         .and_then(|user| user.email);
+    if let Some(to) = to.filter(|_| added) {
+        let mail = mails::identity_linked(ctx, &to, &provider.display_name);
+        mails::queue(&mut tx, ctx, "identity-linked", mail).await?;
+    }
     tx.commit().await?;
     if added {
         tracing::info!(event = "account.identity_linked", %user, provider = provider.slug);
-        if let Some(to) = to {
-            let mail = mails::identity_linked(ctx, &to, &provider.display_name);
-            mails::send(ctx, "identity-linked", mail).await;
-        }
     }
     Ok(())
 }

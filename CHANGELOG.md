@@ -7,6 +7,14 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking** for an edition with its own mailer: `MailError` has the fields `reason` and
+  `permanent`, made with `MailError::transient` or `MailError::permanent`, and `Mailer::delivers`
+  tells if a mailer sends the mails. In the testkit, `Mailbox::to` and `Mailbox::token` are async:
+  they first wait for the first send of each mail of the outbox. `fail_next` and `refuse_sends` give
+  transient and permanent errors.
+
 ## [0.7.1] - 2026-11-24
 
 ### Added

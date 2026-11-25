@@ -50,8 +50,8 @@ async fn each_link_has_its_token_in_the_fragment(pool: PgPool) {
         (reset, "reset-password"),
         (invited, "accept-invitation"),
     ] {
-        let mail = app.mails.to(to).pop().unwrap();
-        let token = app.mails.token(to, page);
+        let mail = app.mails.to(to).await.pop().unwrap();
+        let token = app.mails.token(to, page).await;
         let link = format!("http://127.0.0.1:3000/{page}#token={token}");
         assert!(mail.body.contains(&link), "{}", mail.body);
         assert!(
@@ -81,7 +81,7 @@ async fn a_mail_has_a_text_and_an_escaped_html_body(pool: PgPool) {
         .unwrap();
 
     // then
-    let mail = app.mails.to(email).pop().unwrap();
+    let mail = app.mails.to(email).await.pop().unwrap();
     assert!(mail.body.starts_with("Join <b>Tom & Jerry</b>\n"));
     assert!(mail.html.starts_with("<!DOCTYPE html>"));
     assert!(mail.html.contains("&lt;b&gt;Tom &amp; Jerry&lt;/b&gt;"));
@@ -105,7 +105,7 @@ async fn an_invitation_names_the_person_and_the_role(pool: PgPool) {
         .unwrap();
 
     // then
-    let mail = app.mails.to(email).pop().unwrap();
+    let mail = app.mails.to(email).await.pop().unwrap();
     assert_eq!(
         mail.subject,
         "Test User invited you to Acme Platform on Scylla"
@@ -133,7 +133,7 @@ async fn a_reset_names_the_client_of_each_request(pool: PgPool) {
     // when
     app.request_reset(email).await.unwrap();
     app.mails.wait(email, 1).await;
-    let token = app.mails.token(email, "reset-password");
+    let token = app.mails.token(email, "reset-password").await;
     app.reset_password(&token, "a new password").await.unwrap();
     let mails = app.mails.wait(email, 2).await;
 
@@ -209,16 +209,16 @@ async fn request_reset_sends_one_link_each_minute(pool: PgPool) {
     let user = app.user_with(email, Some(PASSWORD)).await;
     app.request_reset(email).await.unwrap();
     let first = app.mails.wait(email, 1).await;
-    let old = app.mails.token(email, "reset-password");
+    let old = app.mails.token(email, "reset-password").await;
 
     // when
     app.request_reset(email).await.unwrap();
     tokio::time::sleep(SETTLE).await;
-    let skipped = app.mails.to(email).len();
+    let skipped = app.mails.to(email).await.len();
     end_cooldown(&app, user).await;
     app.request_reset(email).await.unwrap();
     app.mails.wait(email, 2).await;
-    let new = app.mails.token(email, "reset-password");
+    let new = app.mails.token(email, "reset-password").await;
 
     // then
     assert_eq!((first.len(), skipped), (1, 1));
@@ -250,7 +250,7 @@ async fn request_email_change_sends_one_link_each_minute(pool: PgPool) {
         .await
         .unwrap();
     tokio::time::sleep(SETTLE).await;
-    let skipped = app.mails.to(target).len();
+    let skipped = app.mails.to(target).await.len();
     end_cooldown(&app, user).await;
     app.request_email_change(&token, target, PASSWORD)
         .await
@@ -291,5 +291,5 @@ async fn request_email_change_sends_one_link_each_minute_to_one_email(pool: PgPo
     tokio::time::sleep(SETTLE).await;
 
     // then
-    assert_eq!(app.mails.to(target).len(), 1);
+    assert_eq!(app.mails.to(target).await.len(), 1);
 }

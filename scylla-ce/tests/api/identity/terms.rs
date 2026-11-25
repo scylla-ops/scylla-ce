@@ -104,7 +104,7 @@ async fn sign_up_keeps_the_accepted_version(pool: PgPool) {
     app.sign_up_accepting(email, PASSWORD, Some("2.0"))
         .await
         .unwrap();
-    app.verify_email(&app.mails.token(email, "verify-email"))
+    app.verify_email(&app.mails.token(email, "verify-email").await)
         .await
         .unwrap();
     let signed_in = app.sign_in(email, PASSWORD).await.unwrap();
