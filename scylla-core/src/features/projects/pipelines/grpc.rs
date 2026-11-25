@@ -5,11 +5,7 @@
 use std::sync::Arc;
 
 use scylla_domain::projects::jobs::JobOrigin;
-use scylla_domain::projects::pipelines::{
-    ListPipelines, NewPipeline, PipelineAccess, PipelineChange, PipelineHolder, PipelineScope,
-};
-use scylla_domain::projects::ProjectId;
-use scylla_domain::tenancy::workspaces::WorkspaceId;
+use scylla_domain::projects::pipelines::{NewPipeline, PipelineAccess, PipelineChange};
 use scylla_extension::{Gate, Hooks};
 use scylla_proto::pipelines::v1 as pb;
 use scylla_proto::pipelines::v1::pipeline_service_server::{
@@ -185,53 +181,14 @@ impl PipelineService for PipelinesGrpc {
         &self,
         request: Request<pb::ListProjectPipelinesRequest>,
     ) -> Result<Response<pb::ListProjectPipelinesResponse>, Status> {
-        // Authenticate the caller, read the request, and check the permission on the project.
-        let caller = self.gate.caller(&request).await.map_err(Error::from)?;
-        let request = request.into_inner();
-        let project: ProjectId = parse::required(request.project_id, "project_id")?;
-        let page = parse::optional(request.page, "page")?;
-        self.authorize_in(&caller, PipelineAccess::LIST_PROJECT_PIPELINES, project)
-            .await?;
-
-        // Read one page.
-        let query = ListPipelines {
-            scope: PipelineScope::Project(project),
-            page,
-        };
-        let page = service::list(&self.vcs, query).await?;
-        Ok(Response::new(pb::ListProjectPipelinesResponse {
-            pipelines: page.items.into_iter().map(ToProto::to_proto).collect(),
-            page: Some(page.next_after.to_proto()),
-        }))
+        self.list_in_project(request).await
     }
 
     async fn list_workspace_pipelines(
         &self,
         request: Request<pb::ListWorkspacePipelinesRequest>,
     ) -> Result<Response<pb::ListWorkspacePipelinesResponse>, Status> {
-        // Authenticate the caller, read the request, and check the permission on the workspace.
-        let caller = self.gate.caller(&request).await.map_err(Error::from)?;
-        let request = request.into_inner();
-        let workspace: WorkspaceId = parse::required(request.workspace_id, "workspace_id")?;
-        let page = parse::optional(request.page, "page")?;
-        self.gate
-            .authorize(
-                &caller,
-                PipelineHolder::LIST_WORKSPACE_PIPELINES.on(workspace),
-            )
-            .await
-            .map_err(Error::from)?;
-
-        // Read one page.
-        let query = ListPipelines {
-            scope: PipelineScope::Workspace(workspace),
-            page,
-        };
-        let page = service::list(&self.vcs, query).await?;
-        Ok(Response::new(pb::ListWorkspacePipelinesResponse {
-            pipelines: page.items.into_iter().map(ToProto::to_proto).collect(),
-            page: Some(page.next_after.to_proto()),
-        }))
+        self.list_in_workspace(request).await
     }
 
     async fn list_pipeline_summaries(
@@ -293,5 +250,12 @@ impl PipelineService for PipelinesGrpc {
         request: Request<pb::SetPipelineSourceRequest>,
     ) -> Result<Response<pb::SetPipelineSourceResponse>, Status> {
         self.set_source(request).await
+    }
+
+    async fn set_pipeline_git_events(
+        &self,
+        request: Request<pb::SetPipelineGitEventsRequest>,
+    ) -> Result<Response<pb::SetPipelineGitEventsResponse>, Status> {
+        self.set_git_events(request).await
     }
 }

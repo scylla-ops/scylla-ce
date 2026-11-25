@@ -10,6 +10,7 @@ mod logs;
 mod mail;
 mod nodes;
 mod notifications;
+mod pipeline_labels;
 mod pipeline_layouts;
 mod pipeline_summaries;
 mod pipelines;

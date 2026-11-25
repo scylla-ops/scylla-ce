@@ -5,6 +5,7 @@ use scylla_proto::integrations::v1 as pb;
 
 use super::view::Block;
 use crate::api::parse::{self, ToProto};
+use crate::features::projects::pipelines::files_convert;
 
 impl ToProto<pb::MergeBlock> for Block {
     fn to_proto(self) -> pb::MergeBlock {
@@ -18,6 +19,10 @@ impl ToProto<pb::MergeBlock> for Block {
             branch: self.branch,
             action_url: self.action_url,
             updated_at: self.updated_at.map(parse::timestamp),
+            pipeline_source: self
+                .source
+                .map_or(pb::PipelineSource::Unspecified, files_convert::source_of)
+                .into(),
         }
     }
 }

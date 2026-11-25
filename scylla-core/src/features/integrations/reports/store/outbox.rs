@@ -26,6 +26,8 @@ pub(crate) struct Target {
     pub(crate) name: String,
     /// The key of a file pipeline, or `None` for a pipeline of the editor.
     pub(crate) file_key: Option<String>,
+    /// `true` when a file took the key of the editor pipeline: the file reports.
+    pub(crate) key_taken: bool,
 }
 
 /// The state that the report of a pipeline of a job must send.
@@ -55,7 +57,7 @@ pub(crate) async fn target(
 ) -> Result<Option<Target>, Error> {
     let row = sqlx::query!(
         r#"SELECT c.id AS connection_id, c.provider, p.name, p.file_key,
-                  l.reports_enabled AS reports,
+                  p.key_taken_at IS NOT NULL AS "key_taken!", l.reports_enabled AS reports,
                   (l.state = 'active' AND c.state = 'active') AS "active!"
            FROM repository_links l
            JOIN vcs_connections c ON c.id = l.connection_id
@@ -77,6 +79,7 @@ pub(crate) async fn target(
         active: row.active,
         name: row.name,
         file_key: row.file_key,
+        key_taken: row.key_taken,
     }))
 }
 

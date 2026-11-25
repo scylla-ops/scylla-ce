@@ -70,21 +70,6 @@ pub(super) async fn set_source(
     Ok(())
 }
 
-/// Archives the active editor pipelines of a project. Returns their number.
-pub(super) async fn archive_editor(
-    tx: &mut Tx<'_>,
-    project: ProjectId,
-) -> Result<u64, sqlx::Error> {
-    let done = sqlx::query!(
-        "UPDATE pipelines SET archived_at = now(), updated_at = now()
-         WHERE project_id = $1 AND source = 'editor' AND archived_at IS NULL",
-        project.to_db(),
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(done.rows_affected())
-}
-
 /// Restores the archived editor pipelines of a project, and hides its file pipelines.
 pub(super) async fn restore_editor(tx: &mut Tx<'_>, project: ProjectId) -> Result<(), sqlx::Error> {
     sqlx::query!(

@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use scylla_domain::integrations::links::PipelineSource;
 use scylla_domain::projects::jobs::{JobId, JobStatus};
 use scylla_domain::projects::pipelines::{
     ListSummaries, NextFire, PipelineId, PipelineSummary, RecentJob, TriggerType,
@@ -16,7 +17,8 @@ use crate::Error;
 
 /// Returns the summary of each pipeline of a workspace that the caller can see and that the
 /// filters keep, with no recent job: the figures of the recent jobs, the last ended job of the
-/// default branch, the jobs that run or wait, and the triggers that can start a job.
+/// default branch, the jobs that run or wait, and the triggers that can start a job. In a project
+/// of files, a Git trigger of an editor pipeline can start a job only with the opt-in.
 pub(crate) async fn summaries(
     tx: &mut Tx<'_>,
     query: &ListSummaries,
@@ -38,7 +40,7 @@ pub(crate) async fn summaries(
                   recent.completed AS "completed!", recent.failed AS "failed!", recent.median,
                   coalesce(kinds.names, '{}') AS "kinds!: Vec<String>",
                   fire.id AS "fire_id?", fire.schedule AS "fire_schedule?",
-                  fire.next_fire_at AS "fire_at?"
+                  fire.next_fire_at AS "fire_at?", p.source, p.key_taken_at IS NOT NULL AS "taken!"
            FROM pipelines p
            JOIN projects r ON r.id = p.project_id
            LEFT JOIN repository_links l ON l.project_id = p.project_id
@@ -62,6 +64,9 @@ pub(crate) async fn summaries(
            LEFT JOIN LATERAL (
                SELECT array_agg(DISTINCT k.kind) AS names FROM (
                    SELECT t.kind FROM triggers t WHERE t.pipeline_id = p.id AND t.enabled
+                     AND (t.kind NOT IN ('push', 'pull_request', 'tag')
+                          OR l.pipeline_source IS DISTINCT FROM 'file'
+                          OR p.git_events_allowed_at IS NOT NULL)
                    UNION ALL
                    SELECT f.kind FROM unnest(ARRAY['push', 'pull_request', 'tag']) AS f (kind)
                    WHERE p.file_rules ? f.kind
@@ -125,6 +130,9 @@ pub(crate) async fn summaries(
                 active: row.active,
                 trigger_kinds,
                 next_fire,
+                source: PipelineSource::parse(&row.source)
+                    .ok_or_else(|| Error::Internal(format!("unknown source {}", row.source)))?,
+                key_taken: row.taken,
             })
         })
         .collect()

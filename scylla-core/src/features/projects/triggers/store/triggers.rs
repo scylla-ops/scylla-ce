@@ -108,22 +108,37 @@ pub(crate) async fn place(
     }))
 }
 
-/// Returns two flags of a pipeline: it comes from a file, and its project has a linked
-/// repository. `None` if no pipeline has this id.
+/// What a Git trigger needs from its pipeline.
+pub(crate) struct GitPlace {
+    /// `true` when the pipeline comes from a file.
+    pub(crate) file: bool,
+    /// `true` when the project has a linked repository.
+    pub(crate) linked: bool,
+    /// `true` when the Git events can start the pipeline: a project of the editor, or the opt-in
+    /// of an admin in a project of files.
+    pub(crate) allowed: bool,
+}
+
+/// Returns what a Git trigger needs from a pipeline, or `None` if no pipeline has this id.
 pub(crate) async fn git_place(
     tx: &mut Tx<'_>,
     pipeline: PipelineId,
-) -> Result<Option<(bool, bool)>, sqlx::Error> {
+) -> Result<Option<GitPlace>, sqlx::Error> {
     let row = sqlx::query!(
-        r#"SELECT p.source = 'file' AS "file!",
-                  EXISTS (SELECT 1 FROM repository_links l WHERE l.project_id = p.project_id)
-                      AS "linked!"
-           FROM pipelines p WHERE p.id = $1"#,
+        r#"SELECT p.source = 'file' AS "file!", l.project_id IS NOT NULL AS "linked!",
+                  (l.pipeline_source IS DISTINCT FROM 'file'
+                   OR p.git_events_allowed_at IS NOT NULL) AS "allowed!"
+           FROM pipelines p LEFT JOIN repository_links l ON l.project_id = p.project_id
+           WHERE p.id = $1"#,
         pipeline.to_db(),
     )
     .fetch_optional(&mut **tx)
     .await?;
-    Ok(row.map(|row| (row.file, row.linked)))
+    Ok(row.map(|row| GitPlace {
+        file: row.file,
+        linked: row.linked,
+        allowed: row.allowed,
+    }))
 }
 
 /// Returns the kinds of the enabled Git triggers of a pipeline, oldest first.

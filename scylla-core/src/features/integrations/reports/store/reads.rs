@@ -33,6 +33,8 @@ pub(crate) struct Why {
     pub(crate) reports: bool,
     /// `true` when the link and its connection are active.
     pub(crate) active: bool,
+    /// `true` when a file took the key of the editor pipeline of the job.
+    pub(crate) key_taken: bool,
 }
 
 /// One row of `vcs_reports`, with the provider of its connection.
@@ -119,8 +121,10 @@ pub(crate) async fn why(tx: &mut Tx<'_>, jobs: &[JobId]) -> Result<Vec<Why>, Err
     let rows = sqlx::query!(
         r#"SELECT j.id AS "id!", s.job_id IS NOT NULL AS "source!", l.project_id IS NOT NULL AS "linked!",
                   COALESCE(l.reports_enabled, false) AS "reports!",
-                  COALESCE(l.state = 'active' AND c.state = 'active', false) AS "active!"
+                  COALESCE(l.state = 'active' AND c.state = 'active', false) AS "active!",
+                  COALESCE(p.key_taken_at IS NOT NULL, false) AS "key_taken!"
            FROM jobs j
+           LEFT JOIN pipelines p ON p.id = j.pipeline_id
            LEFT JOIN job_sources s ON s.job_id = j.id
            LEFT JOIN repository_links l ON l.project_id = j.project_id
            LEFT JOIN vcs_connections c ON c.id = l.connection_id
@@ -137,6 +141,7 @@ pub(crate) async fn why(tx: &mut Tx<'_>, jobs: &[JobId]) -> Result<Vec<Why>, Err
             linked: row.linked,
             reports: row.reports,
             active: row.active,
+            key_taken: row.key_taken,
         })
         .collect())
 }

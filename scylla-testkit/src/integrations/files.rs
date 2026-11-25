@@ -1,6 +1,7 @@
 //! The `TestApp` helpers of the pipelines from the files of a repository: the source of the
-//! pipelines of a project, the read of a file pipeline and of the files at a commit, and the
-//! answers of a fake GitHub or GitLab with pipeline files.
+//! pipelines of a project, the opt-in of the Git events of an editor pipeline, the read of a file
+//! pipeline and of the files at a commit, and the answers of a fake GitHub or GitLab with pipeline
+//! files.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -10,7 +11,7 @@ use scylla_domain::identity::actors::ActorId;
 use scylla_proto::integrations::v1::PipelineSource;
 use scylla_proto::pipelines::v1::{
     git_ref, GetFilePipelineRequest, GitRef, ListPipelineFilesRequest, ListPipelineFilesResponse,
-    PipelineFile, SetPipelineSourceRequest,
+    Pipeline, PipelineFile, SetPipelineGitEventsRequest, SetPipelineSourceRequest,
 };
 use serde_json::{json, Value};
 use tonic::Status;
@@ -39,6 +40,25 @@ impl TestApp {
         let request = self.authed(actor, request).await;
         self.pipelines().set_pipeline_source(request).await?;
         Ok(())
+    }
+
+    /// Calls `SetPipelineGitEvents` as `actor` for a pipeline, and returns the pipeline.
+    pub async fn set_pipeline_git_events(
+        &self,
+        actor: ActorId,
+        pipeline: &str,
+        allowed: bool,
+    ) -> Result<Pipeline, Status> {
+        let request = SetPipelineGitEventsRequest {
+            pipeline_id: Some(id(pipeline)),
+            allowed,
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.pipelines().set_pipeline_git_events(request).await?;
+        Ok(response
+            .into_inner()
+            .pipeline
+            .expect("pipeline in response"))
     }
 
     /// Calls `GetFilePipeline` as `actor` at a branch, a tag or a SHA, or at the head of the

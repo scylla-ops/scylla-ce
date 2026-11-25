@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pipelines\n         SET git_events_allowed_at = CASE WHEN $2::uuid IS NULL THEN NULL\n                                          ELSE coalesce(git_events_allowed_at, now()) END,\n             git_events_allowed_by = CASE WHEN $2::uuid IS NULL THEN NULL\n                                          ELSE coalesce(git_events_allowed_by, $2) END\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d4bcf605dddc991fab885a4f56a9288f2574398166e4fe7d5ae8d9375c2c3e85"
+}

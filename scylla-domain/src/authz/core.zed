@@ -105,6 +105,7 @@ definition workspace {
     permission list_pipeline_files = read
     permission list_pipeline_summaries = read
     permission get_job_stats = read
+    permission set_pipeline_git_events = manage
     permission create_trigger = work
     permission get_trigger = read
     permission update_trigger = work
@@ -207,6 +208,7 @@ definition project {
     permission list_pipeline_files = view
     permission list_pipeline_summaries = view
     permission get_job_stats = view
+    permission set_pipeline_git_events = nil
     permission create_trigger = edit
     permission get_trigger = view
     permission update_trigger = edit

@@ -9,6 +9,7 @@ use std::cmp::Ordering;
 use time::{Duration, OffsetDateTime};
 
 use super::PipelineId;
+use crate::integrations::links::PipelineSource;
 use crate::projects::jobs::{JobId, JobStatus};
 use crate::projects::triggers::TriggerId;
 use crate::projects::ProjectId;
@@ -150,6 +151,10 @@ pub struct PipelineSummary {
     pub trigger_kinds: Vec<TriggerType>,
     /// The next fire of the enabled cron triggers.
     pub next_fire: Option<NextFire>,
+    /// Where the pipeline comes from.
+    pub source: PipelineSource,
+    /// `true` when a file of the default branch took the key of this editor pipeline.
+    pub key_taken: bool,
 }
 
 impl PipelineSummary {

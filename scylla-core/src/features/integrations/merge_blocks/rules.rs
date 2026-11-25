@@ -1,14 +1,20 @@
 //! The pure rules of the merge blocks: the name of the report of a pipeline, the body of the
-//! GitHub ruleset, the state of a refusal, and the state that a list finds on the provider.
+//! GitHub ruleset, the state of a refusal, the state that a list finds on the provider, and the
+//! refusal of a rule of an editor pipeline in a project of files.
 
 use std::collections::BTreeSet;
 
+use scylla_domain::integrations::links::PipelineSource;
 use scylla_domain::integrations::merge_blocks::MergeBlockState;
 use scylla_domain::integrations::reports::{pipeline_key, report_context};
 use scylla_domain::integrations::VcsProvider;
+use scylla_extension::Rejection;
 use serde_json::{json, Value};
 
+use super::store::Pipeline;
+use crate::features::integrations::links::store::Linked;
 use crate::infra::vcs::ProviderError;
+use crate::Error;
 
 /// The name of the one ruleset of Scylla in a GitHub repository.
 pub(super) const RULESET_NAME: &str = "Scylla required checks";
@@ -21,6 +27,9 @@ pub(super) const ADMINISTRATION_PERMISSION_MISSING: &str = "ADMINISTRATION_PERMI
 
 /// The reason of a GitLab service account below Maintainer.
 pub(super) const ROLE_TOO_LOW: &str = "ROLE_TOO_LOW";
+
+/// The code of a rule to turn on for an editor pipeline of a project of files.
+const FILE_ONLY: &str = "MERGE_BLOCK_FILE_ONLY";
 
 /// The reason of a private repository where GitHub allows no rule (GitHub Free).
 pub(super) const PRIVATE_REPOSITORY_NOT_ALLOWED: &str = "PRIVATE_REPOSITORY_NOT_ALLOWED";
@@ -84,6 +93,21 @@ pub(super) fn needs_call(previous: Option<MergeBlockState>, enabled: bool) -> bo
                     | MergeBlockState::Failed
             )
         )
+}
+
+/// Refuses a rule to turn on for an editor pipeline of a project of files with
+/// `MERGE_BLOCK_FILE_ONLY`: only a file pipeline goes through the review of a pull request.
+pub(super) fn check_file_only(
+    enabled: bool,
+    linked: &Linked,
+    pipeline: Option<&Pipeline>,
+) -> Result<(), Error> {
+    let editor = pipeline.is_some_and(|pipeline| pipeline.file_key.is_none());
+    if enabled && editor && linked.link.pipeline_source == PipelineSource::File {
+        let message = "only a file pipeline can block a merge: its file goes through a review";
+        return Err(Error::Rejected(Rejection::new(FILE_ONLY, message)));
+    }
+    Ok(())
 }
 
 /// Returns the refusal of a connection with no permission or no role for the rule.

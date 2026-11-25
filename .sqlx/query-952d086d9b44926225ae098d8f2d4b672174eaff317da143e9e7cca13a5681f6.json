@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT file_key AS \"key!\" FROM pipelines\n           WHERE project_id = $1 AND source = 'file' AND file_key IS NOT NULL\n             AND archived_at IS NULL AND removed_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "file_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "952d086d9b44926225ae098d8f2d4b672174eaff317da143e9e7cca13a5681f6"
+}
