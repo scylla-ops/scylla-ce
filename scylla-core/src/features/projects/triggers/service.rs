@@ -14,6 +14,7 @@ use scylla_extension::{Rejection, Tx};
 use sqlx::PgPool;
 
 use super::schedule;
+use super::store::triggers::GitPlace;
 use super::store::{deliveries, files, triggers};
 use crate::features::activity;
 use crate::infra::secret::{self, Sealer};
@@ -21,7 +22,7 @@ use crate::Error;
 
 /// Creates a trigger. A webhook trigger gets a new secret, encrypted with the id of the
 /// trigger, and the secret in clear comes back one time. A Git trigger needs a linked repository
-/// and an editor pipeline.
+/// and an editor pipeline, and in a project of files the opt-in of an admin.
 pub(crate) async fn create(
     pool: &PgPool,
     sealer: Option<&Sealer>,
@@ -210,27 +211,28 @@ pub(crate) async fn git_rules(pool: &PgPool, pipeline: PipelineId) -> Result<Git
     Ok(rules)
 }
 
-/// Refuses a Git trigger of a project with no linked repository with `NO_REPOSITORY_LINK`, and
-/// one of a file pipeline with `PIPELINE_READ_ONLY`: its `on` table gives its Git triggers.
+/// Refuses a Git trigger of a project with no linked repository with `NO_REPOSITORY_LINK`, one
+/// of a file pipeline with `PIPELINE_READ_ONLY` (its `on` table gives its Git triggers), and one of
+/// an editor pipeline of a project of files with no opt-in with `GIT_EVENTS_NOT_ALLOWED`.
 async fn check_git_place(tx: &mut Tx<'_>, pipeline: PipelineId) -> Result<(), Error> {
-    match triggers::git_place(tx, pipeline).await? {
-        None => Err(Error::NotFound("pipeline")),
-        Some((true, _)) => {
-            let message = "the Git triggers of a file pipeline come from the on table of its file";
-            Err(Error::Rejected(Rejection::new(
-                "PIPELINE_READ_ONLY",
-                message,
-            )))
+    let place = triggers::git_place(tx, pipeline)
+        .await?
+        .ok_or(Error::NotFound("pipeline"))?;
+    let (code, message) = match place {
+        GitPlace { file: true, .. } => (
+            "PIPELINE_READ_ONLY",
+            "the Git triggers of a file pipeline come from the on table of its file",
+        ),
+        GitPlace { linked: false, .. } => {
+            ("NO_REPOSITORY_LINK", "the project has no linked repository")
         }
-        Some((false, false)) => {
-            let message = "the project has no linked repository";
-            Err(Error::Rejected(Rejection::new(
-                "NO_REPOSITORY_LINK",
-                message,
-            )))
-        }
-        Some((false, true)) => Ok(()),
-    }
+        GitPlace { allowed: false, .. } => (
+            "GIT_EVENTS_NOT_ALLOWED",
+            "a workspace admin must let the Git events start this pipeline",
+        ),
+        GitPlace { .. } => return Ok(()),
+    };
+    Err(Error::Rejected(Rejection::new(code, message)))
 }
 
 /// Returns the project and the workspace of a pipeline, or `None` if no pipeline has this id.

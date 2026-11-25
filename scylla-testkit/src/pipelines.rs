@@ -7,12 +7,12 @@ use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_proto::pipelines::v1::job_service_client::JobServiceClient;
 use scylla_proto::pipelines::v1::pipeline_service_client::PipelineServiceClient;
 use scylla_proto::pipelines::v1::{
-    AgentSettings, CancelJobRequest, CreatePipelineRequest, DeleteJobRequest,
-    DeletePipelineRequest, GetJobRequest, GetPipelineRequest, Job, ListPipelineJobsRequest,
-    ListPipelineJobsResponse, ListProjectPipelinesRequest, ListProjectPipelinesResponse,
-    ListWorkspaceJobsRequest, ListWorkspaceJobsResponse, ListWorkspacePipelinesRequest,
-    ListWorkspacePipelinesResponse, Node, NodeList, Pipeline, RerunJobRequest, RunPipelineRequest,
-    TailJobLogsRequest, TailJobLogsResponse, UpdatePipelineRequest,
+    CancelJobRequest, CreatePipelineRequest, DeleteJobRequest, DeletePipelineRequest,
+    GetJobRequest, GetPipelineRequest, Job, ListPipelineJobsRequest, ListPipelineJobsResponse,
+    ListProjectPipelinesRequest, ListProjectPipelinesResponse, ListWorkspaceJobsRequest,
+    ListWorkspaceJobsResponse, ListWorkspacePipelinesRequest, ListWorkspacePipelinesResponse, Node,
+    NodeList, Pipeline, RerunJobRequest, RunPipelineRequest, TailJobLogsRequest,
+    TailJobLogsResponse, UpdatePipelineRequest,
 };
 use tonic::transport::Channel;
 use tonic::Status;
@@ -140,30 +140,6 @@ impl TestApp {
             .list_workspace_pipelines(request)
             .await?
             .into_inner())
-    }
-
-    /// Calls `UpdatePipeline` as `actor` with the labels that the agent of a job must have.
-    pub async fn set_pipeline_labels(
-        &self,
-        actor: ActorId,
-        pipeline: &str,
-        version: i64,
-        labels: &[&str],
-    ) -> Result<Pipeline, Status> {
-        let request = UpdatePipelineRequest {
-            pipeline_id: Some(id(pipeline)),
-            version,
-            agent: Some(AgentSettings {
-                labels: labels.iter().map(|label| (*label).to_owned()).collect(),
-            }),
-            ..UpdatePipelineRequest::default()
-        };
-        let request = self.authed(actor, request).await;
-        let response = self.pipelines().update_pipeline(request).await?;
-        Ok(response
-            .into_inner()
-            .pipeline
-            .expect("pipeline in response"))
     }
 
     /// Calls `RunPipeline` as `actor`, and returns the new job.

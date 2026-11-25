@@ -1,10 +1,13 @@
 //! The tests of the pipelines from the files of a repository: the source of the pipelines of a
 //! project, the sync with the default branch, the read of the files at a commit, the read only
-//! pipelines, the triggers of a file, and the runs of the files at a commit.
+//! pipelines, the triggers of a file, the runs of the files at a commit, and the editor pipelines
+//! next to the file pipelines.
 
 mod events;
+mod git_events;
 mod gitlab;
 mod live;
+mod mixed;
 mod reads;
 mod rules;
 mod runs;

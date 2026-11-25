@@ -56,7 +56,8 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: PipelineId) -> Result<Option<Pipel
         r#"SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,
                   created_at, updated_at, source, file_key, file_path,
                   jsonb_array_length(coalesce(file_errors, '[]')) AS "file_errors!", archived_at,
-                  removed_at, fragment_links, agent_labels
+                  removed_at, fragment_links, agent_labels, key_taken_at, git_events_allowed_at,
+                  git_events_allowed_by
            FROM pipelines WHERE id = $1"#,
         id.to_db(),
     )
@@ -100,18 +101,6 @@ pub(crate) async fn find_by_file_key(
     Ok(id.map(PipelineId::from_db))
 }
 
-/// Returns `true` when a project takes its pipelines from the files of its repository. The link
-/// stays locked, so a change of the source waits.
-pub(crate) async fn uses_files(tx: &mut Tx<'_>, project: ProjectId) -> Result<bool, sqlx::Error> {
-    let source = sqlx::query_scalar!(
-        "SELECT pipeline_source FROM repository_links WHERE project_id = $1 FOR SHARE",
-        project.to_db(),
-    )
-    .fetch_optional(&mut **tx)
-    .await?;
-    Ok(source.as_deref() == Some("file"))
-}
-
 /// Returns the pipelines of a project or of a workspace after the page id, in id order, with
 /// one extra row. A file pipeline of a project that moved back to the editor is hidden.
 pub(crate) async fn list(
@@ -128,7 +117,8 @@ pub(crate) async fn list(
         r#"SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,
                   created_at, updated_at, source, file_key, file_path,
                   jsonb_array_length(coalesce(file_errors, '[]')) AS "file_errors!", archived_at,
-                  removed_at, fragment_links, agent_labels
+                  removed_at, fragment_links, agent_labels, key_taken_at, git_events_allowed_at,
+                  git_events_allowed_by
            FROM pipelines
            WHERE ($1::uuid IS NULL OR project_id = $1)
              AND ($2::uuid IS NULL OR workspace_id = $2)
@@ -161,11 +151,13 @@ pub(crate) async fn lock_read_only(
     .await
 }
 
-/// Changes a pipeline if it still has the version of the change.
+/// Changes a pipeline if it still has the version of the change. `free_key` removes the mark of
+/// a key that a file took: the new name has a free key.
 pub(crate) async fn update(
     tx: &mut Tx<'_>,
     id: PipelineId,
     change: &PipelineChange,
+    free_key: bool,
 ) -> Result<Changed, Error> {
     // Change the row of this version.
     let labels = change.agent_labels.as_ref().map(AgentLabels::texts);
@@ -174,7 +166,7 @@ pub(crate) async fn update(
          SET name = coalesce($3, name), nodes = coalesce($4, nodes),
              checkout = coalesce($5, checkout), fragment_links = coalesce($6, fragment_links),
              agent_labels = coalesce($7, agent_labels), version = version + 1,
-             updated_at = now()
+             key_taken_at = CASE WHEN $8 THEN NULL ELSE key_taken_at END, updated_at = now()
          WHERE id = $1 AND version = $2
          RETURNING id",
         id.to_db(),
@@ -190,6 +182,7 @@ pub(crate) async fn update(
             .and_then(|new| serde_json::to_value(new).ok()),
         change.fragment_links.as_deref().map(links::json),
         labels.as_deref(),
+        free_key,
     )
     .fetch_optional(&mut **tx)
     .await?;

@@ -28,7 +28,7 @@ const CHECK_RUNS: &str = "/repos/octo/app/check-runs";
 
 /// Posts a signed GitHub delivery of the App of the settings, checks that it gets 202, and waits
 /// for its work.
-async fn deliver(app: &TestApp, event: &str, key: &str, body: &Value) -> DeliveryRow {
+pub(super) async fn deliver(app: &TestApp, event: &str, key: &str, body: &Value) -> DeliveryRow {
     let body = body.to_string();
     let signature = sign_github(TEST_APP_WEBHOOK_SECRET.as_bytes(), body.as_bytes());
     let response = reqwest::Client::new()
@@ -46,7 +46,7 @@ async fn deliver(app: &TestApp, event: &str, key: &str, body: &Value) -> Deliver
 }
 
 /// Returns a GitHub push of a commit to a ref of `octo/app` (id 7), from the installation 42.
-fn push(git_ref: &str, sha: &str) -> Value {
+pub(super) fn push(git_ref: &str, sha: &str) -> Value {
     json!({
         "ref": git_ref,
         "after": sha,

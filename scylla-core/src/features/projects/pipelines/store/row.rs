@@ -3,7 +3,7 @@
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::integrations::links::PipelineSource;
-use scylla_domain::projects::pipelines::{FileOrigin, Pipeline, PipelineId};
+use scylla_domain::projects::pipelines::{FileOrigin, GitEventsOptIn, Pipeline, PipelineId};
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use serde_json::Value;
@@ -50,6 +50,12 @@ pub(super) struct Row {
     pub(super) fragment_links: Value,
     /// The labels that the agent of a job must have.
     pub(super) agent_labels: Vec<String>,
+    /// The time when a file took the key of an editor pipeline.
+    pub(super) key_taken_at: Option<OffsetDateTime>,
+    /// The time of the opt-in of the Git events.
+    pub(super) git_events_allowed_at: Option<OffsetDateTime>,
+    /// The actor of the opt-in of the Git events.
+    pub(super) git_events_allowed_by: Option<uuid::Uuid>,
 }
 
 impl Row {
@@ -88,6 +94,14 @@ impl Row {
             file,
             archived_at: self.archived_at,
             fragment_links: links::read_json(self.fragment_links)?,
+            key_taken_at: self.key_taken_at,
+            git_events: match (self.git_events_allowed_at, self.git_events_allowed_by) {
+                (Some(at), Some(by)) => Some(GitEventsOptIn {
+                    at,
+                    by: ActorId::from_db(by),
+                }),
+                _ => None,
+            },
         })
     }
 }

@@ -1,9 +1,10 @@
-//! The tests of the labels of the jobs: a pipeline asks labels, a job keeps them, and only an
-//! agent with each of them gets the job.
+//! The tests of the labels of the jobs: a pipeline asks labels from its creation, its file keeps
+//! them, a job keeps them, and only an agent with each of them gets the job.
 
 use std::time::Duration;
 
 use scylla_proto::agents::v1::open_stream_response::Message as Down;
+use scylla_proto::pipelines::v1::PipelineFileFormat;
 use scylla_testkit::{exec_node, text};
 use sqlx::PgPool;
 
@@ -43,6 +44,63 @@ async fn a_job_with_labels_goes_only_to_an_agent_with_the_labels(pool: PgPool) {
     assert_eq!(text(&dispatch.job_id), job);
     let placed = app.get_job(owner, &job).await.unwrap();
     assert_eq!(text(&placed.agent_id), prod_app);
+}
+
+/// A pipeline gets its labels with its creation, so its first job already asks them.
+#[sqlx::test(migrations = false)]
+async fn create_pipeline_keeps_the_labels(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let project = app.create_project(owner, "alpha").await.unwrap();
+    let project = text(&project.id).to_owned();
+    let labels = ["deploy", "linux"];
+
+    // when
+    let nodes = vec![exec_node("deploy", &[])];
+    let created = app.create_pipeline_with_labels(owner, &project, nodes, &labels);
+    let created = created.await.unwrap();
+    let pipeline = text(&created.id).to_owned();
+    let read = app.get_pipeline(owner, &pipeline).await.unwrap();
+    let job = app.run_pipeline(owner, &pipeline).await.unwrap();
+
+    // then
+    assert_eq!(created.agent.unwrap().labels, labels);
+    assert_eq!(read.agent.unwrap().labels, labels);
+    assert_eq!(job.agent_labels, labels);
+}
+
+/// The file of a pipeline keeps its labels in the key `agent`, in each format, and reads back to
+/// the same labels.
+#[sqlx::test(migrations = false)]
+async fn export_pipeline_keeps_the_labels(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let project = app.create_project(owner, "alpha").await.unwrap();
+    let project = text(&project.id).to_owned();
+    let labels = ["deploy", "linux"];
+    let nodes = vec![exec_node("deploy", &[])];
+    let created = app.create_pipeline_with_labels(owner, &project, nodes, &labels);
+    let pipeline = text(&created.await.unwrap().id).to_owned();
+    let formats = [
+        PipelineFileFormat::Toml,
+        PipelineFileFormat::Yaml,
+        PipelineFileFormat::Json,
+    ];
+
+    for format in formats {
+        // when
+        let exported = app.export_pipeline(owner, &pipeline, format).await.unwrap();
+        let file = app
+            .validate_pipeline_file(owner, &project, &exported.path, &exported.content)
+            .await
+            .unwrap();
+
+        // then
+        assert!(file.errors.is_empty(), "{format:?}: {:?}", file.errors);
+        assert_eq!(file.agent.unwrap().labels, labels, "{format:?}");
+    }
 }
 
 /// A job with no label goes to any agent, also to an agent with labels.

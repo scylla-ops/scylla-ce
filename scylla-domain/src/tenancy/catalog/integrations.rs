@@ -42,37 +42,54 @@ pub(super) const INSTANCE: &[Area] = &[Area {
     )],
 }];
 
-/// The areas in a workspace.
-pub(super) const WORKSPACE: &[Area] = &[Area {
-    id: "integrations",
-    level: Level::Workspace,
-    machine: false,
-    permissions: &[
-        cell(
-            "integrations.view",
-            "view",
-            &["workspace.view"],
-            &[
-                Route::of(VcsConnectionHolder::GET_VCS_PROVIDERS),
-                Route::of(VcsConnectionHolder::LIST_VCS_CONNECTIONS),
-                Route::of(VcsConnectionHolder::GET_VCS_CONNECTION),
-                Route::of(VcsConnectionHolder::GET_DELIVERY_STATS),
-            ],
-        ),
-        cell(
-            "integrations.manage",
+/// The areas in a workspace. The Git events of the editor pipelines in a project of files are
+/// for the admins of the workspace only, so no role of a project holds them.
+pub(super) const WORKSPACE: &[Area] = &[
+    Area {
+        id: "integrations",
+        level: Level::Workspace,
+        machine: false,
+        permissions: &[
+            cell(
+                "integrations.view",
+                "view",
+                &["workspace.view"],
+                &[
+                    Route::of(VcsConnectionHolder::GET_VCS_PROVIDERS),
+                    Route::of(VcsConnectionHolder::LIST_VCS_CONNECTIONS),
+                    Route::of(VcsConnectionHolder::GET_VCS_CONNECTION),
+                    Route::of(VcsConnectionHolder::GET_DELIVERY_STATS),
+                ],
+            ),
+            cell(
+                "integrations.manage",
+                "manage",
+                &["integrations.view"],
+                &[
+                    Route::of(VcsConnectionHolder::START_GIT_HUB_INSTALL),
+                    Route::of(VcsConnectionHolder::COMPLETE_GIT_HUB_INSTALL),
+                    Route::of(VcsConnectionHolder::CONNECT_GIT_LAB),
+                    Route::of(VcsConnectionHolder::REPLACE_GIT_LAB_TOKEN),
+                    Route::of(VcsConnectionHolder::DELETE_VCS_CONNECTION),
+                ],
+            ),
+        ],
+    },
+    Area {
+        id: "git_events",
+        level: Level::Workspace,
+        machine: false,
+        permissions: &[cell(
+            "git_events.manage",
             "manage",
-            &["integrations.view"],
+            &["pipelines.view"],
             &[
-                Route::of(VcsConnectionHolder::START_GIT_HUB_INSTALL),
-                Route::of(VcsConnectionHolder::COMPLETE_GIT_HUB_INSTALL),
-                Route::of(VcsConnectionHolder::CONNECT_GIT_LAB),
-                Route::of(VcsConnectionHolder::REPLACE_GIT_LAB_TOKEN),
-                Route::of(VcsConnectionHolder::DELETE_VCS_CONNECTION),
+                Route::of(PipelineHolder::SET_PIPELINE_GIT_EVENTS),
+                Route::of(PipelineAccess::SET_PIPELINE_GIT_EVENTS),
             ],
-        ),
-    ],
-}];
+        )],
+    },
+];
 
 /// The areas in a project. The edit of the repository also gives the list of the connections of
 /// the workspace, for the link picker.

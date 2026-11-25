@@ -6,6 +6,7 @@ use scylla_domain::projects::pipelines::{
 use scylla_domain::Id;
 use scylla_proto::pipelines::v1 as pb;
 
+use super::files_convert;
 use crate::api::parse::{self, ToProto};
 use crate::features::projects::jobs::convert as jobs_convert;
 use crate::Error;
@@ -74,6 +75,8 @@ impl ToProto<pb::PipelineSummary> for PipelineSummary {
                 .map(|kind| trigger_kind(kind).into())
                 .collect(),
             next_fire: self.next_fire.map(ToProto::to_proto),
+            source: files_convert::source_of(self.source).into(),
+            key_taken: self.key_taken,
         }
     }
 }

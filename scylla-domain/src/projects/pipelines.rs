@@ -3,6 +3,7 @@
 mod graph;
 mod layout;
 mod links;
+mod mixed;
 mod needs;
 mod nodes;
 mod summaries;
@@ -13,6 +14,7 @@ mod tests;
 pub use graph::Nodes;
 pub use layout::{PipelineLayout, Position};
 pub use links::{check_links, FragmentLink};
+pub use mixed::GitEventsOptIn;
 pub use needs::{Need, NodeId, PortName};
 pub use nodes::{env_name, EnvValue, EnvVar, Node, NodeError, Runtime, Shell, Step};
 pub use summaries::{
@@ -74,6 +76,10 @@ pub struct Pipeline {
     pub archived_at: Option<OffsetDateTime>,
     /// The blocks that link a version of a fragment of the library.
     pub fragment_links: Vec<FragmentLink>,
+    /// The time when a file of the default branch took the key of this editor pipeline.
+    pub key_taken_at: Option<OffsetDateTime>,
+    /// The opt-in of an admin for the Git events of this editor pipeline in a project of files.
+    pub git_events: Option<GitEventsOptIn>,
 }
 
 /// The file of a file pipeline on the default branch of the linked repository.
@@ -209,6 +215,8 @@ crate::authz! {
         permission list_pipeline_summaries = view;
         /// The route `GetJobStats`: the jobs of this project are in the figures.
         permission get_job_stats = view;
+        /// The route `SetPipelineGitEvents`: no role of the project gives it.
+        permission set_pipeline_git_events = nil;
     }
 
     /// The routes of the pipelines and of their jobs on a workspace, and the role of the agents.
@@ -271,6 +279,8 @@ crate::authz! {
         /// The route `GetJobStats`: the jobs of each project of this workspace are in the
         /// figures.
         permission get_job_stats = read;
+        /// The route `SetPipelineGitEvents`, on each pipeline of this workspace.
+        permission set_pipeline_git_events = manage;
     }
 
     /// The routes of the pipelines and of their jobs on the caller itself: a list shows only what

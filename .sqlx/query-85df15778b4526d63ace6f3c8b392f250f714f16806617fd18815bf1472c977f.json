@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n               SELECT 1 FROM pipelines\n               WHERE project_id = $1 AND source = 'file' AND file_key = $2\n                 AND archived_at IS NULL AND removed_at IS NULL\n           ) AS \"taken!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "taken!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "85df15778b4526d63ace6f3c8b392f250f714f16806617fd18815bf1472c977f"
+}

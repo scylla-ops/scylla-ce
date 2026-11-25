@@ -62,7 +62,7 @@ async fn list_pipeline_triggers_gives_the_triggers_of_the_file(pool: PgPool) {
 }
 
 /// The webhook of an archived pipeline stops: the route answers 404 before it reads the
-/// signature. It works again when the pipeline comes back.
+/// signature. A move of the project to the files keeps the editor pipeline and its webhook.
 #[sqlx::test(migrations = false)]
 async fn the_webhook_of_an_archived_pipeline_stops(pool: PgPool) {
     // given
@@ -80,12 +80,14 @@ async fn the_webhook_of_an_archived_pipeline_stops(pool: PgPool) {
     app.set_pipeline_source(owner, project, PipelineSource::File)
         .await
         .unwrap();
-    let archived = post(&app, &hook).await;
-    app.set_pipeline_source(owner, project, PipelineSource::Editor)
+    let of_files = post(&app, &hook).await;
+    sqlx::query("UPDATE pipelines SET archived_at = now() WHERE id = $1::uuid")
+        .bind(&linked.editor)
+        .execute(&app.pool)
         .await
         .unwrap();
-    let restored = post(&app, &hook).await;
+    let archived = post(&app, &hook).await;
 
     // then
-    assert_eq!((active, archived, restored), (401, 404, 401));
+    assert_eq!((active, of_files, archived), (401, 401, 404));
 }

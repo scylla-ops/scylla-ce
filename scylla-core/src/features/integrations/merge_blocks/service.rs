@@ -103,8 +103,9 @@ pub(super) async fn list(
 }
 
 /// Turns a rule on or off, then changes the rule on the provider. A project with no link gives
-/// `NO_REPOSITORY_LINK`, and a link that is not active gives `REPOSITORY_NOT_ACTIVE`. A refusal
-/// of the provider changes nothing there, and the rule keeps the state and the reason.
+/// `NO_REPOSITORY_LINK`, and a link that is not active gives `REPOSITORY_NOT_ACTIVE`. In a project
+/// of files, a rule to turn on for an editor pipeline gives `MERGE_BLOCK_FILE_ONLY`. A refusal of
+/// the provider changes nothing there, and the rule keeps the state and the reason.
 pub(super) async fn set(
     ctx: &IntegrationContext,
     project: ProjectId,
@@ -112,8 +113,11 @@ pub(super) async fn set(
     enabled: bool,
     actor: ActorId,
 ) -> Result<Block, Error> {
-    // Read the link, the pipeline and the rule, and open the credentials of a call.
+    // Read the link, the pipeline and the rule, and refuse a new rule of an editor pipeline.
     let found = find(ctx, project, pipeline).await?;
+    rules::check_file_only(enabled, &found.linked, found.pipeline.as_ref())?;
+
+    // Open the credentials of a call.
     let credentials = match rules::needs_call(found.previous, enabled) {
         true => Some(apply::credentials(ctx, &found.linked, &found.connection).await?),
         false => None,

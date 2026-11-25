@@ -24,18 +24,22 @@ pub(super) struct GitTrigger {
 }
 
 /// Returns the enabled push, pull request and tag triggers of the editor pipelines of a project
-/// that are not archived, oldest first.
+/// that are not archived, oldest first. With `opt_in`, only the pipelines whose Git events an
+/// admin allowed.
 pub(super) async fn git_triggers(
     tx: &mut Tx<'_>,
     project: ProjectId,
+    opt_in: bool,
 ) -> Result<Vec<GitTrigger>, Error> {
     let rows = sqlx::query!(
         r#"SELECT t.id, t.pipeline_id, t.kind, t.rules AS "rules!", t.inputs
            FROM triggers t JOIN pipelines p ON p.id = t.pipeline_id
            WHERE t.project_id = $1 AND t.enabled AND t.kind IN ('push', 'pull_request', 'tag')
              AND p.source = 'editor' AND p.archived_at IS NULL
+             AND (NOT $2 OR p.git_events_allowed_at IS NOT NULL)
            ORDER BY t.id"#,
         project.to_db(),
+        opt_in,
     )
     .fetch_all(&mut **tx)
     .await?;

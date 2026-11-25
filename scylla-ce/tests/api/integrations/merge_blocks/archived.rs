@@ -26,7 +26,7 @@ async fn contexts(app: &TestApp, linked: &Linked) -> Vec<String> {
 }
 
 /// A list hides an archived pipeline, except a pipeline whose rule must be on. A move to the
-/// files archives the editor pipelines, and a move back archives the file pipelines.
+/// files keeps the editor pipelines, and a move back archives the file pipelines.
 #[sqlx::test(migrations = false)]
 async fn list_merge_blocks_hides_an_archived_pipeline(pool: PgPool) {
     // given
@@ -59,6 +59,6 @@ async fn list_merge_blocks_hides_an_archived_pipeline(pool: PgPool) {
     let of_editor = contexts(&app, &linked).await;
 
     // then
-    assert_eq!(of_files, ["scylla/build", "scylla/deploy"]);
+    assert_eq!(of_files, ["scylla/build", "scylla/deploy", "scylla/lint"]);
     assert_eq!(of_editor, ["scylla/build", "scylla/lint"]);
 }
