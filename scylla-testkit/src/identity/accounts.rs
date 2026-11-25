@@ -1,5 +1,5 @@
-//! The `TestApp` helpers of `AccountService` and of the sessions of `TokenService`: sign-up,
-//! sign-in, reset, refresh and sign-out.
+//! The `TestApp` helpers of `AccountService` and of the sessions of `TokenService`: sign-up, the
+//! check of an email, sign-in, reset, refresh and sign-out.
 
 use scylla_proto::accounts::v1 as pb;
 use scylla_proto::accounts::v1::account_service_client::AccountServiceClient;
@@ -54,6 +54,25 @@ impl TestApp {
         };
         self.accounts().verify_email(request).await?;
         Ok(())
+    }
+
+    /// Calls `ResendVerificationEmail`. The server sends the mail after its answer.
+    pub async fn resend_verification(&self, email: &str) -> Result<(), Status> {
+        let request = pb::ResendVerificationEmailRequest {
+            email: email.to_owned(),
+        };
+        self.accounts().resend_verification_email(request).await?;
+        Ok(())
+    }
+
+    /// Calls `ListSignInMethods`.
+    pub async fn sign_in_methods(&self) -> Result<pb::ListSignInMethodsResponse, Status> {
+        let request = pb::ListSignInMethodsRequest {};
+        Ok(self
+            .accounts()
+            .list_sign_in_methods(request)
+            .await?
+            .into_inner())
     }
 
     /// Calls `SignIn` with an email or a handle, for a client that keeps the refresh token.

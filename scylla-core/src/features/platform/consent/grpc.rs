@@ -1,7 +1,9 @@
 //! The gRPC handler of `ConsentService`: anyone records a choice of a browser, under the rate
 //! limit of its IP address, and a token of a user names the user in the record.
 
+use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::users::KIND;
@@ -12,14 +14,21 @@ use scylla_proto::platform::v1::consent_service_server::{ConsentService, Consent
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
-use super::rates::Rates;
 use super::{convert, service};
 use crate::api::parse::{self, ToProto};
 use crate::features::identity::sessions::Client;
+use crate::infra::rates::Rates;
 use crate::Error;
 
 /// The header of the token.
 const TOKEN: &str = "authorization";
+
+/// The most records from one IP address in one window. A request with no known address counts
+/// in one shared window.
+const RATE: u32 = 30;
+
+/// The window of the rate limit.
+const WINDOW: Duration = Duration::from_secs(60);
 
 /// Makes the service. `trust_forwarded` reads the IP address of the client from
 /// `X-Forwarded-For`, as the sessions do.
@@ -32,7 +41,7 @@ pub(crate) fn server(
         pool: pool.clone(),
         gate: Arc::clone(gate),
         trust_forwarded,
-        rates: Rates::default(),
+        rates: Rates::new(RATE, WINDOW),
     })
 }
 
@@ -45,7 +54,7 @@ pub(crate) struct ConsentGrpc {
     /// `true` when the IP address of the client comes from `X-Forwarded-For`.
     trust_forwarded: bool,
     /// The records of each IP address in the current window.
-    rates: Rates,
+    rates: Rates<Option<IpAddr>>,
 }
 
 #[tonic::async_trait]

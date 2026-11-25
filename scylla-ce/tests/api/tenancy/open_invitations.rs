@@ -41,7 +41,7 @@ async fn list_invitations_shows_the_open_ones(pool: PgPool) {
         created.push(invitation.unwrap());
     }
     let joiner = app.user_with("c@example.com", None).await;
-    let link = app.mails.token("c@example.com", "accept-invitation");
+    let link = app.mails.token("c@example.com", "accept-invitation").await;
     app.accept_invitation(&app.token(joiner).await, &link)
         .await
         .unwrap();
@@ -75,7 +75,7 @@ async fn revoke_invitation_stops_the_link(pool: PgPool) {
         .create_invitation(owner, workspace, email, "member")
         .await;
     let invitation = invitation.unwrap();
-    let link = app.mails.token(email, "accept-invitation");
+    let link = app.mails.token(email, "accept-invitation").await;
     let dan = app.user_with(email, None).await;
     let (id, invitation_id) = (workspace.to_string(), text(&invitation.id).to_owned());
     let elsewhere = app.workspace_of(other).await.to_string();
@@ -119,7 +119,7 @@ async fn resend_invitation_sends_a_new_link(pool: PgPool) {
         workspace.to_string(),
         text(&invitation.unwrap().id).to_owned(),
     );
-    let old_link = app.mails.token(email, "accept-invitation");
+    let old_link = app.mails.token(email, "accept-invitation").await;
     let fay = app.user_with(email, None).await;
 
     // when
@@ -127,7 +127,7 @@ async fn resend_invitation_sends_a_new_link(pool: PgPool) {
     age(&app, &invitation_id, false).await;
     let by_member = app.resend_invitation(member, &id, &invitation_id).await;
     let resent = app.resend_invitation(owner, &id, &invitation_id).await;
-    let new_link = app.mails.token(email, "accept-invitation");
+    let new_link = app.mails.token(email, "accept-invitation").await;
     let again = app.resend_invitation(owner, &id, &invitation_id).await;
     let token = app.token(fay).await;
     let with_old = app.accept_invitation(&token, &old_link).await;
@@ -151,7 +151,7 @@ async fn resend_invitation_sends_a_new_link(pool: PgPool) {
         (7 * 86_400 - 60..=7 * 86_400).contains(&expires),
         "{expires}"
     );
-    assert_eq!(app.mails.to(email).len(), 2);
+    assert_eq!(app.mails.to(email).await.len(), 2);
     assert_ne!(old_link, new_link);
     assert_refused(again, "RESEND_TOO_SOON");
     assert_invalid_field(&with_old.unwrap_err(), "token");

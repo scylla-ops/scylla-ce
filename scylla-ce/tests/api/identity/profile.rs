@@ -76,14 +76,14 @@ async fn an_email_change_needs_the_link_of_the_new_email(pool: PgPool) {
         .await
         .unwrap();
     app.mails.wait(new, 1).await;
-    let link = app.mails.token(new, "change-email");
+    let link = app.mails.token(new, "change-email").await;
     let changed = app.confirm_email_change(&token, &link).await.unwrap();
     let again = app.confirm_email_change(&token, &link).await;
 
     // then
     assert_eq!(changed.email, new);
     assert_invalid_field(&again.unwrap_err(), "token");
-    let notice = app.mails.to(old);
+    let notice = app.mails.to(old).await;
     assert_eq!(
         notice.last().unwrap().subject,
         "The email of your Scylla account changed"
@@ -105,7 +105,7 @@ async fn an_email_change_keeps_the_emails_of_other_accounts(pool: PgPool) {
         .await
         .unwrap();
     app.mails.wait("sam.new@example.com", 1).await;
-    let link = app.mails.token("sam.new@example.com", "change-email");
+    let link = app.mails.token("sam.new@example.com", "change-email").await;
 
     // when
     let other_user = app.confirm_email_change(&tia, &link).await;
@@ -118,7 +118,7 @@ async fn an_email_change_keeps_the_emails_of_other_accounts(pool: PgPool) {
     // then
     assert_invalid_field(&other_user.unwrap_err(), "token");
     assert!(used.is_ok(), "{used:?}");
-    assert_eq!(app.mails.to("sam@example.com").len(), 0);
+    assert_eq!(app.mails.to("sam@example.com").await.len(), 0);
     assert_invalid_field(&not_an_email.unwrap_err(), "new_email");
     assert!(app.confirm_email_change(&sam, &link).await.is_ok());
 }
@@ -136,7 +136,7 @@ async fn confirm_email_change_refuses_an_email_in_use(pool: PgPool) {
         .await
         .unwrap();
     app.mails.wait(target, 1).await;
-    let link = app.mails.token(target, "change-email");
+    let link = app.mails.token(target, "change-email").await;
     app.user_with(target, None).await;
 
     // when
@@ -162,7 +162,7 @@ async fn request_email_change_needs_the_current_password(pool: PgPool) {
         .request_email_change(&token, target, "not the password")
         .await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let skipped = app.mails.to(target).len();
+    let skipped = app.mails.to(target).await.len();
     app.request_email_change(&token, target, PASSWORD)
         .await
         .unwrap();
@@ -183,12 +183,12 @@ async fn an_email_change_stops_the_links_of_the_old_email(pool: PgPool) {
     let token = signed_in(&app, old).await;
     app.request_reset(old).await.unwrap();
     app.mails.wait(old, 1).await;
-    let reset = app.mails.token(old, "reset-password");
+    let reset = app.mails.token(old, "reset-password").await;
     app.request_email_change(&token, new, PASSWORD)
         .await
         .unwrap();
     app.mails.wait(new, 1).await;
-    let link = app.mails.token(new, "change-email");
+    let link = app.mails.token(new, "change-email").await;
 
     // when
     app.confirm_email_change(&token, &link).await.unwrap();

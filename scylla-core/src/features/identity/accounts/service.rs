@@ -14,7 +14,7 @@ use sqlx::PgPool;
 
 use super::credentials::verify_password;
 use super::one_time::{self, Purpose};
-use super::{mails, password, store, AccountContext};
+use super::{mails, password, store, verification, AccountContext};
 use crate::features::identity::sessions::{self, Client, Opened};
 use crate::features::identity::{actors, admins, terms};
 use crate::features::tenancy::invitations::{self, Pick};
@@ -118,7 +118,8 @@ pub(crate) async fn insert_user(
 /// Creates a user that signs in with a password. With an invitation for the same email, the
 /// email is verified and the invitation is accepted. When the terms need an acceptance, the
 /// request must accept their current version, and the new user keeps the acceptance. A known
-/// email gets the same answer, and its owner gets a mail.
+/// email gets the same answer, and its owner gets a mail: a new link when its account waits for
+/// the check of its email. The known account does not change.
 pub(super) async fn sign_up(ctx: &AccountContext, input: SignUp) -> Result<(), Error> {
     // Find the invitation, then check the sign-up mode and the acceptance of the terms.
     let invitation = match &input.invitation {
@@ -147,8 +148,11 @@ pub(super) async fn sign_up(ctx: &AccountContext, input: SignUp) -> Result<(), E
         password: None,
     };
     let mut tx = ctx.pool.begin().await?;
-    if store::user_of_email(&mut tx, &new.email).await?.is_some() {
+    if let Some(known) = store::account_of_email(&mut tx, &new.email).await? {
         tx.commit().await?;
+        if known.status == UserStatus::Pending {
+            return verification::send_link(ctx, known.user, new.email.as_str()).await;
+        }
         mails::send(
             ctx,
             "account-exists",
@@ -161,26 +165,18 @@ pub(super) async fn sign_up(ctx: &AccountContext, input: SignUp) -> Result<(), E
     if let Some(version) = &accepted {
         terms::record_sign_up(&mut tx, actor.id, version).await?;
     }
-    let verify = match invitation {
-        Some(_) => None,
-        None => Some(
-            one_time::create(&mut tx, Purpose::VerifyEmail, actor.id, new.email.as_str()).await?,
-        ),
-    };
+    if invitation.is_none() {
+        let email = new.email.as_str();
+        let token = one_time::create(&mut tx, Purpose::VerifyEmail, actor.id, email).await?;
+        let mail = mails::verify_email(ctx, email, &token);
+        mails::queue(&mut tx, ctx, "verify-email", mail).await?;
+    }
     tx.commit().await?;
     created(actor.id, &new.email, false);
 
-    // Accept the invitation of the link, or send the link that verifies the email.
+    // Accept the invitation of the link.
     if let (Some(_), Some(token)) = (&invitation, &input.invitation) {
         invitations::accept(ctx, Pick::Token(token), actor.id).await?;
-    }
-    if let Some(token) = verify {
-        mails::send(
-            ctx,
-            "verify-email",
-            mails::verify_email(ctx, new.email.as_str(), &token),
-        )
-        .await;
     }
     Ok(())
 }

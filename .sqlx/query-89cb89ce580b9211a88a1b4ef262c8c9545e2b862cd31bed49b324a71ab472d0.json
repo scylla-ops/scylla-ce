@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM mail_outbox WHERE state <> 'pending' AND updated_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "89cb89ce580b9211a88a1b4ef262c8c9545e2b862cd31bed49b324a71ab472d0"
+}

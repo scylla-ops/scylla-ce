@@ -8,9 +8,9 @@ use scylla_proto::auth::v1::IssuedToken as PbToken;
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Request, Response, Status};
 
-use super::reset;
 use super::service::{self, SignUp};
-use super::AccountContext;
+use super::verification::{self, Resends};
+use super::{reset, AccountContext};
 use crate::api::parse;
 use crate::features::identity::providers::{self, pending};
 use crate::features::identity::sessions::{cookie, Client, Opened};
@@ -18,13 +18,18 @@ use crate::Error;
 
 /// Makes the service.
 pub(crate) fn server(ctx: AccountContext) -> AccountServiceServer<AccountsGrpc> {
-    AccountServiceServer::new(AccountsGrpc { ctx })
+    AccountServiceServer::new(AccountsGrpc {
+        ctx,
+        resends: Resends::default(),
+    })
 }
 
 /// The handler.
 pub(crate) struct AccountsGrpc {
     /// What the account routes share.
     ctx: AccountContext,
+    /// The requests of a new link to verify an email, for each IP address and each email.
+    resends: Resends,
 }
 
 #[tonic::async_trait]
@@ -51,6 +56,23 @@ impl AccountService for AccountsGrpc {
     ) -> Result<Response<pb::VerifyEmailResponse>, Status> {
         service::verify_email(&self.ctx, &request.into_inner().token).await?;
         Ok(Response::new(pb::VerifyEmailResponse {}))
+    }
+
+    async fn resend_verification_email(
+        &self,
+        request: Request<pb::ResendVerificationEmailRequest>,
+    ) -> Result<Response<pb::ResendVerificationEmailResponse>, Status> {
+        // Refuse a request over the limit of its address or of its email.
+        let client = Client::of_grpc(&request, self.ctx.settings.trust_forwarded);
+        let email = parse::field(request.into_inner().email, "email")?;
+        if !self.resends.allow(client.ip, &email) {
+            let message = "too many requests of a new link, try again later";
+            return Err(Status::resource_exhausted(message));
+        }
+
+        // Answer at once, and send the link in a task.
+        verification::request_link(&self.ctx, email);
+        Ok(Response::new(pb::ResendVerificationEmailResponse {}))
     }
 
     async fn sign_in(
@@ -116,6 +138,7 @@ impl AccountService for AccountsGrpc {
                 })
                 .collect(),
             sign_up_mode: self.ctx.settings.sign_up_mode.as_str().to_owned(),
+            mail_sender: self.ctx.settings.mail_sender.clone(),
         }))
     }
 

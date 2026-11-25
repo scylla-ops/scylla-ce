@@ -3,7 +3,6 @@
 
 mod convert;
 mod grpc;
-mod rates;
 mod service;
 mod store;
 

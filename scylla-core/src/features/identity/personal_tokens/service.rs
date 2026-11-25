@@ -32,15 +32,15 @@ pub(super) async fn create(
     let (token, secret) = created.await?;
     let fact = kinds::about(kinds::TOKEN_CREATED, user).param("name", name.as_str());
     notifications::emit(&mut tx, fact).await?;
-    let owner = accounts::find_user(&mut tx, user).await?;
-    tx.commit().await?;
-    tracing::info!(event = "user.token_created", %user, token = %token.id);
 
     // Tell the owner. A mail that fails does not stop the creation.
+    let owner = accounts::find_user(&mut tx, user).await?;
     if let Some(to) = owner.and_then(|owner| owner.email) {
         let mail = mails::token_created(ctx, &to, &token);
-        mails::send(ctx, "token-created", mail).await;
+        mails::queue(&mut tx, ctx, "token-created", mail).await?;
     }
+    tx.commit().await?;
+    tracing::info!(event = "user.token_created", %user, token = %token.id);
     Ok((token, secret))
 }
 

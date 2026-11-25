@@ -42,7 +42,7 @@ async fn a_reset_makes_a_row_and_a_mail(pool: PgPool) {
     let user = app.user_with(EMAIL, Some(PASSWORD)).await;
     app.request_reset(EMAIL).await.unwrap();
     app.mails.wait(EMAIL, 1).await;
-    let link = app.mails.token(EMAIL, "reset-password");
+    let link = app.mails.token(EMAIL, "reset-password").await;
 
     // when
     app.reset_password(&link, NEW_PASSWORD).await.unwrap();
@@ -101,7 +101,7 @@ async fn a_lockout_makes_one_row_and_one_mail(pool: PgPool) {
     // then
     assert_eq!(kinds_of(&app, user).await, ["security.account_locked"]);
     assert!(mails[0].subject.contains("locked"));
-    assert_eq!(app.mails.to(EMAIL).len(), 1);
+    assert_eq!(app.mails.to(EMAIL).await.len(), 1);
 }
 
 /// A new personal token makes a row with its name and a mail, and never holds its secret.
@@ -135,7 +135,7 @@ async fn an_email_change_makes_a_row(pool: PgPool) {
         .await
         .unwrap();
     app.mails.wait(new, 1).await;
-    let link = app.mails.token(new, "change-email");
+    let link = app.mails.token(new, "change-email").await;
 
     // when
     app.confirm_email_change(&token, &link).await.unwrap();

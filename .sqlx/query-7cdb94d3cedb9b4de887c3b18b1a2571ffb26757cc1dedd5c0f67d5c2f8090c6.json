@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE mail_outbox\n         SET state = 'sent', content = NULL, next_attempt_at = NULL, attempts = attempts + 1,\n             updated_at = now()\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7cdb94d3cedb9b4de887c3b18b1a2571ffb26757cc1dedd5c0f67d5c2f8090c6"
+}
