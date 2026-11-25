@@ -112,11 +112,20 @@ impl Mailer for LogMailer {
     }
 }
 
+/// Returns the email address of a sender of the settings: the address of `Name <address>`, or the
+/// text with no change when it is not an address.
+pub fn address_of(from: &str) -> String {
+    from.parse::<Mailbox>().map_or_else(
+        |_| from.trim().to_owned(),
+        |sender| sender.email.to_string(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use scylla_extension::Mail;
 
-    use super::SmtpMailer;
+    use super::{address_of, SmtpMailer};
 
     /// Makes a mail to one address, with no image.
     fn mail() -> Mail {
@@ -164,5 +173,29 @@ mod tests {
 
         // then
         assert!(error.permanent, "{error}");
+    }
+
+    /// The address of a sender has no name, and a text that is not an address stays as it is.
+    #[test]
+    fn the_address_of_a_sender_has_no_name() {
+        // given
+        let senders = [
+            "Scylla <no-reply@scylla.example>",
+            "no-reply@scylla.example",
+            " not an address ",
+        ];
+
+        // when
+        let addresses = senders.map(address_of);
+
+        // then
+        assert_eq!(
+            addresses,
+            [
+                "no-reply@scylla.example",
+                "no-reply@scylla.example",
+                "not an address"
+            ]
+        );
     }
 }

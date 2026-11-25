@@ -15,6 +15,7 @@ mod profile;
 mod reset;
 mod service;
 mod store;
+mod verification;
 
 pub use context::{AccountContext, AccountSettings};
 pub(crate) use convert::{profile_change, session};

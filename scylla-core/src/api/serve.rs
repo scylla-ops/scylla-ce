@@ -35,7 +35,7 @@ use crate::features::tenancy::{dashboards, invitations};
 use crate::infra::mail::{self, LogMailer};
 use crate::infra::secret::Sealer;
 use crate::infra::{db, dev_keys, logs::LogClientIp, vcs::VcsOptions};
-use crate::{Config, Error, SignUpMode};
+use crate::{Config, Error};
 
 /// The options of `serve`.
 #[derive(Clone)]
@@ -73,19 +73,11 @@ pub struct ServeOptions {
 
 impl Default for ServeOptions {
     fn default() -> Self {
-        let local = "http://127.0.0.1:3000".to_owned();
         Self {
             request_timeout: Duration::from_secs(15),
             tls: None,
             cors_origins: Vec::new(),
-            accounts: AccountSettings {
-                api_url: local.clone(),
-                app_url: local,
-                sign_up_mode: SignUpMode::InviteOnly,
-                session_ttl: Duration::from_secs(30 * 24 * 60 * 60),
-                web_origins: Vec::new(),
-                trust_forwarded: false,
-            },
+            accounts: AccountSettings::default(),
             mailer: Arc::new(LogMailer),
             sealer: None,
             log_retention: Duration::from_secs(30 * 24 * 60 * 60),

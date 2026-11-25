@@ -13,10 +13,10 @@ use crate::app;
 use crate::identity::accounts::{app_in, PASSWORD};
 
 /// The time after which a mail that the server skips would have come.
-const SETTLE: Duration = Duration::from_millis(300);
+pub(crate) const SETTLE: Duration = Duration::from_millis(300);
 
 /// Moves the links of a user one minute and more into the past, so its cooldown ends.
-async fn end_cooldown(app: &TestApp, user: ActorId) {
+pub(crate) async fn end_cooldown(app: &TestApp, user: ActorId) {
     sqlx::query!(
         "UPDATE one_time_tokens SET created_at = now() - interval '61 seconds' WHERE user_id = $1",
         user.to_db()
