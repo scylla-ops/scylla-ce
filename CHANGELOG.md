@@ -7,6 +7,27 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-11-25
+
+### Added
+
+- Scylla pipelines next to file pipelines. In a project that takes its pipelines from the repository
+  files, the Scylla pipelines stay, and `CreatePipeline` makes new ones. A file of the default
+  branch that takes the key of a Scylla pipeline wins: the Scylla pipeline sends no report, and a
+  new name with the key of a file gives `PIPELINE_KEY_TAKEN`. The pipeline summaries return both
+  kinds with their source. The new migration only adds nullable columns.
+- Git events for a Scylla pipeline in such a project. `SetPipelineGitEvents` lets a workspace admin
+  allow or revoke its push, pull request and tag triggers (permission `set_pipeline_git_events`, in
+  the new area `git_events`). Only the admins of a workspace hold it: no role of a project has it.
+- `ResendVerificationEmail`. A person with an email that is not verified asks for a new verify
+  link. The server allows 5 new links an hour for one email and 20 for one IP address, and gives
+  the same answer for each email. `ListSignInMethods` gives the sender of the mails
+  (`SCYLLA_MAIL_FROM`).
+- The mail outbox. A change puts its mail in the outbox in its transaction, and one task of the
+  server sends it. After a transient error, the server tries again for 24 hours. A sent mail keeps
+  no content, and each mail has a `Message-ID` on the domain of the sender. The log shows
+  `mail.sent` with the number of attempts. The new migration only adds a table.
+
 ### Changed
 
 - **Breaking** for an edition with its own mailer: `MailError` has the fields `reason` and
@@ -14,6 +35,14 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   tells if a mailer sends the mails. In the testkit, `Mailbox::to` and `Mailbox::token` are async:
   they first wait for the first send of each mail of the outbox. `fail_next` and `refuse_sends` give
   transient and permanent errors.
+- A sign-up with an email that is not verified sends a new verify link to the pending account, at
+  most one each 60 seconds, and the account does not change.
+
+### Fixed
+
+- The creation of a pipeline from the create page saves the agent labels with the pipeline, so its
+  first job goes only to an agent with each label. A test of the API covers `CreatePipeline` with
+  labels.
 
 ## [0.7.1] - 2026-11-24
 
@@ -227,5 +256,7 @@ place: read the **Breaking** entries of Changed before you move from 0.6.
   each released migration, and a test fails when a released migration changes or goes, or when a
   migration has a CR. The SpiceDB schema also only grows.
 
-[Unreleased]: https://github.com/scylla-ops/scylla-ce/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/scylla-ops/scylla-ce/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/scylla-ops/scylla-ce/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/scylla-ops/scylla-ce/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/scylla-ops/scylla-ce/compare/v0.6.0...v0.7.0
