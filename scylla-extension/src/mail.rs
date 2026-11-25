@@ -71,12 +71,28 @@ impl MailError {
     }
 }
 
+/// What a mailer knows of a mail that the mail server accepted, for the log. It has no body and
+/// no link of the mail.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MailReceipt {
+    /// The `Message-ID` of the mail: `<uuid@domain>`.
+    pub message_id: Option<String>,
+    /// The answer of the mail server, with its code: `250 2.0.0 Ok: queued as 12AE6699493`.
+    pub reply: Option<String>,
+}
+
 /// Sends the mails of the server. The core has an SMTP mailer; an edition or a test can give
 /// another one.
 #[async_trait]
 pub trait Mailer: Send + Sync + 'static {
     /// Sends one mail, with its text body and its HTML body as two alternatives.
     async fn send(&self, mail: Mail) -> Result<(), MailError>;
+
+    /// Sends one mail as `send` does, and returns what the mail server answered, for the log. The
+    /// default calls `send` and returns an empty receipt.
+    async fn send_traced(&self, mail: Mail) -> Result<MailReceipt, MailError> {
+        self.send(mail).await.map(|()| MailReceipt::default())
+    }
 
     /// Returns `false` if the mailer sends nothing, as the log of a server with no SMTP server.
     /// The server then gives it each mail at once, with no outbox.

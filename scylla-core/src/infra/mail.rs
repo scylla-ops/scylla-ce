@@ -5,8 +5,11 @@ use std::sync::Arc;
 
 use lettre::message::header::ContentType;
 use lettre::message::{Attachment, Mailbox, MultiPart, SinglePart};
+use lettre::transport::smtp::extension::ClientId;
+use lettre::transport::smtp::response::Response;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
-use scylla_extension::{async_trait, Mail, MailError, MailImage, Mailer};
+use scylla_extension::{async_trait, Mail, MailError, MailImage, MailReceipt, Mailer};
+use url::{Host, Url};
 use uuid::Uuid;
 
 use super::logs::mask_email;
@@ -17,10 +20,13 @@ pub fn from_config(config: &Config) -> Result<Arc<dyn Mailer>, Error> {
     let Some(url) = &config.smtp_url else {
         return Ok(Arc::new(LogMailer));
     };
-    let mailer = SmtpMailer::new(url, &config.mail_from).map_err(|reason| Error::Config {
-        name: "SCYLLA_SMTP_URL",
-        reason,
-    })?;
+    let mailer =
+        SmtpMailer::new_for_app(url, &config.mail_from, &config.app_url).map_err(|reason| {
+            Error::Config {
+                name: "SCYLLA_SMTP_URL",
+                reason,
+            }
+        })?;
     Ok(Arc::new(mailer))
 }
 
@@ -35,9 +41,24 @@ pub struct SmtpMailer {
 impl SmtpMailer {
     /// Makes a mailer for `smtp://host:port`, or `smtps://user:password@host` for TLS.
     pub fn new(url: &str, from: &str) -> Result<Self, String> {
-        let transport = AsyncSmtpTransport::<Tokio1Executor>::from_url(url)
-            .map_err(|error| format!("is not an SMTP URL: {error}"))?
-            .build();
+        Self::with_hello(url, from, None)
+    }
+
+    /// Makes a mailer as `new` does, which gives the host of `app_url` in `EHLO`, unless the SMTP
+    /// URL has a name in its path.
+    pub fn new_for_app(url: &str, from: &str, app_url: &str) -> Result<Self, String> {
+        let named = Url::parse(url).is_ok_and(|url| url.path().len() > 1);
+        Self::with_hello(url, from, hello_name(app_url).filter(|_| !named))
+    }
+
+    /// Makes a mailer that gives this name in `EHLO`, else the name of the SMTP URL or of lettre.
+    fn with_hello(url: &str, from: &str, hello: Option<ClientId>) -> Result<Self, String> {
+        let mut builder = AsyncSmtpTransport::<Tokio1Executor>::from_url(url)
+            .map_err(|error| format!("is not an SMTP URL: {error}"))?;
+        if let Some(name) = hello {
+            builder = builder.hello_name(name);
+        }
+        let transport = builder.build();
         let from = from
             .parse()
             .map_err(|error| format!("the sender is not an address: {error}"))?;
@@ -69,19 +90,40 @@ impl SmtpMailer {
 #[async_trait]
 impl Mailer for SmtpMailer {
     async fn send(&self, mail: Mail) -> Result<(), MailError> {
-        let message = self.message(mail)?;
-        self.transport
-            .send(message)
-            .await
-            .map(|_| ())
-            .map_err(|error| {
-                let reason = format!("the SMTP server refused the mail: {error}");
-                match error.is_permanent() {
-                    true => MailError::permanent(reason),
-                    false => MailError::transient(reason),
-                }
-            })
+        self.send_traced(mail).await.map(|_| ())
     }
+
+    async fn send_traced(&self, mail: Mail) -> Result<MailReceipt, MailError> {
+        let message = self.message(mail)?;
+        let message_id = message.headers().get_raw("Message-ID").map(str::to_owned);
+        let response = self.transport.send(message).await.map_err(|error| {
+            let reason = format!("the SMTP server refused the mail: {error}");
+            match error.is_permanent() {
+                true => MailError::permanent(reason),
+                false => MailError::transient(reason),
+            }
+        })?;
+        Ok(MailReceipt {
+            message_id,
+            reply: Some(reply(&response)),
+        })
+    }
+}
+
+/// Returns the name that the mailer gives in `EHLO`: the host of the web app. With no host, it
+/// returns `None`, and lettre gives `[127.0.0.1]`.
+fn hello_name(app_url: &str) -> Option<ClientId> {
+    match Url::parse(app_url).ok()?.host()? {
+        Host::Domain(domain) => Some(ClientId::Domain(domain.to_owned())),
+        Host::Ipv4(address) => Some(ClientId::Ipv4(address)),
+        Host::Ipv6(address) => Some(ClientId::Ipv6(address)),
+    }
+}
+
+/// Returns the answer of the SMTP server on one line: its code, then its text.
+fn reply(response: &Response) -> String {
+    let text: Vec<&str> = response.message().collect();
+    format!("{} {}", response.code(), text.join(" "))
 }
 
 /// Makes the HTML part with its images: `multipart/related`, so a client shows each image of a
@@ -122,80 +164,4 @@ pub fn address_of(from: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use scylla_extension::Mail;
-
-    use super::{address_of, SmtpMailer};
-
-    /// Makes a mail to one address, with no image.
-    fn mail() -> Mail {
-        Mail {
-            to: "ada@example.com".to_owned(),
-            subject: "Verify your email".to_owned(),
-            body: "Open the link.".to_owned(),
-            html: "<p>Open the link.</p>".to_owned(),
-            images: Vec::new(),
-        }
-    }
-
-    /// Each mail has its own `Message-ID` on the domain of the sender, so a spam filter does
-    /// not count a missing one.
-    #[test]
-    fn each_mail_has_a_message_id_on_the_domain_of_the_sender() {
-        // given
-        let from = "Scylla <no-reply@mail.scylla.example>";
-        let mailer = SmtpMailer::new("smtp://127.0.0.1:51025", from).unwrap();
-
-        // when
-        let first = mailer.message(mail()).unwrap();
-        let second = mailer.message(mail()).unwrap();
-
-        // then
-        let first = first.headers().get_raw("Message-ID").unwrap().to_owned();
-        let second = second.headers().get_raw("Message-ID").unwrap();
-        assert!(first.starts_with('<'), "{first}");
-        assert!(first.ends_with("@mail.scylla.example>"), "{first}");
-        assert_ne!(first, second);
-    }
-
-    /// A recipient that is not an address is a permanent error: a later send cannot work.
-    #[test]
-    fn a_bad_recipient_is_a_permanent_error() {
-        // given
-        let mailer = SmtpMailer::new("smtp://127.0.0.1:51025", "no-reply@scylla.example").unwrap();
-        let bad = Mail {
-            to: "not an address".to_owned(),
-            ..mail()
-        };
-
-        // when
-        let error = mailer.message(bad).unwrap_err();
-
-        // then
-        assert!(error.permanent, "{error}");
-    }
-
-    /// The address of a sender has no name, and a text that is not an address stays as it is.
-    #[test]
-    fn the_address_of_a_sender_has_no_name() {
-        // given
-        let senders = [
-            "Scylla <no-reply@scylla.example>",
-            "no-reply@scylla.example",
-            " not an address ",
-        ];
-
-        // when
-        let addresses = senders.map(address_of);
-
-        // then
-        assert_eq!(
-            addresses,
-            [
-                "no-reply@scylla.example",
-                "no-reply@scylla.example",
-                "not an address"
-            ]
-        );
-    }
-}
+mod tests;

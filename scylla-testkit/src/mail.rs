@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use scylla_extension::{async_trait, Mail, MailError, Mailer};
+use scylla_extension::{async_trait, Mail, MailError, MailReceipt, Mailer};
 use sqlx::PgPool;
 
 /// The longest time that `wait` waits for a mail.
@@ -155,5 +155,17 @@ impl Mailer for Mailbox {
         }
         self.mails.lock().expect("mailbox").push(mail);
         Ok(())
+    }
+
+    /// Answers as an SMTP server: with the `Message-ID` and a queue id of the number of the mail,
+    /// and with its recipient, so a test sees that the log masks it.
+    async fn send_traced(&self, mail: Mail) -> Result<MailReceipt, MailError> {
+        let to = mail.to.clone();
+        self.send(mail).await?;
+        let count = self.mails.lock().expect("mailbox").len();
+        Ok(MailReceipt {
+            message_id: Some(format!("<{count}@mailbox.test>")),
+            reply: Some(format!("250 2.0.0 Ok: queued as {count} for <{to}>")),
+        })
     }
 }

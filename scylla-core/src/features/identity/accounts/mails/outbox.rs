@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use scylla_extension::{MailError, Mailer};
+use scylla_extension::{MailError, MailReceipt, Mailer};
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use tokio::task::JoinHandle;
@@ -75,16 +75,23 @@ async fn pass(pool: &PgPool, mailer: &dyn Mailer) -> Result<(), Error> {
 }
 
 /// Sends one mail, keeps the result, and logs it with the kind, the masked recipient and the
-/// number of attempts.
+/// number of attempts. A sent mail also logs its `Message-ID` and the answer of the mail server.
 async fn deliver(pool: &PgPool, mailer: &dyn Mailer, claimed: &Claimed) -> Result<(), Error> {
     // Send the mail. A content that the outbox cannot read is a permanent error.
     let result = match claimed.mail() {
         Ok(mail) => {
             let address = mail.to.clone();
-            mailer.send(mail).await.map_err(|error| MailError {
-                reason: error.reason.replace(&address, &claimed.recipient),
-                ..error
-            })
+            let mask = |text: String| text.replace(&address, &claimed.recipient);
+            match mailer.send_traced(mail).await {
+                Ok(receipt) => Ok(MailReceipt {
+                    reply: receipt.reply.map(mask),
+                    ..receipt
+                }),
+                Err(error) => Err(MailError {
+                    reason: mask(error.reason),
+                    ..error
+                }),
+            }
         }
         Err(reason) => Err(MailError::permanent(reason)),
     };
@@ -92,12 +99,16 @@ async fn deliver(pool: &PgPool, mailer: &dyn Mailer, claimed: &Claimed) -> Resul
     // Keep a sent mail, with no content.
     let (kind, to) = (claimed.kind.as_str(), claimed.recipient.as_str());
     let attempts = claimed.attempts + 1;
-    let Err(error) = result else {
-        let mut tx = pool.begin().await?;
-        store::sent(&mut tx, claimed.id).await?;
-        tx.commit().await?;
-        tracing::info!(event = "mail.sent", kind, to, attempts);
-        return Ok(());
+    let error = match result {
+        Ok(MailReceipt { message_id, reply }) => {
+            let mut tx = pool.begin().await?;
+            store::sent(&mut tx, claimed.id).await?;
+            tx.commit().await?;
+            let (message_id, reply) = (message_id.as_deref(), reply.as_deref());
+            tracing::info!(event = "mail.sent", kind, to, attempts, message_id, reply);
+            return Ok(());
+        }
+        Err(error) => error,
     };
 
     // Drop the mail after a permanent error or after 24 hours, else make it due again later.

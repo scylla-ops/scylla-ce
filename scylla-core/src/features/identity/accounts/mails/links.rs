@@ -12,9 +12,6 @@ pub(crate) fn verify_email(ctx: &AccountContext, to: &str, token: &str) -> Lette
     let link = ctx.settings.link("verify-email", token);
     Letter {
         subject: "Verify your email".to_owned(),
-        preheader: format!(
-            "Confirm {to} to activate your Scylla account. The link works for 24 hours."
-        ),
         badge: Badge::ACCOUNT,
         title: "Welcome to Scylla".to_owned(),
         lead: vec![
@@ -41,7 +38,6 @@ pub(crate) fn verify_email(ctx: &AccountContext, to: &str, token: &str) -> Lette
 pub(crate) fn account_exists(ctx: &AccountContext, to: &str) -> Letter {
     Letter {
         subject: "You already have a Scylla account".to_owned(),
-        preheader: format!("Someone tried to sign up with {to}. Sign in, or reset your password."),
         badge: Badge::ACCOUNT,
         title: "You already have an account".to_owned(),
         lead: vec![
@@ -76,8 +72,6 @@ pub(crate) fn reset_password(
     let link = ctx.settings.link("reset-password", token);
     Letter {
         subject: "Reset your Scylla password".to_owned(),
-        preheader: "Choose a new password with the link in this mail. It works for 1 hour."
-            .to_owned(),
         badge: Badge::SECURITY,
         title: "Reset your password".to_owned(),
         lead: vec![
@@ -116,7 +110,6 @@ pub(crate) fn change_email(
     let link = ctx.settings.link("change-email", token);
     Letter {
         subject: "Confirm your new email".to_owned(),
-        preheader: format!("Confirm {to} as the new email of your Scylla account."),
         badge: Badge::ACCOUNT,
         title: "Confirm your new email".to_owned(),
         lead: vec![Part::plain(
@@ -150,11 +143,6 @@ pub(crate) fn invitation(
     token: &str,
 ) -> Letter {
     let role = role_name(role);
-    let article = if role.starts_with(['A', 'E', 'I', 'O', 'U']) {
-        "an"
-    } else {
-        "a"
-    };
     let (subject, lead) = match inviter {
         Some(name) => (
             format!("{name} invited you to {workspace} on Scylla"),
@@ -170,9 +158,6 @@ pub(crate) fn invitation(
     };
     Letter {
         subject,
-        preheader: format!(
-            "Join the workspace {workspace} as {article} {role}. The invitation works for 7 days."
-        ),
         badge: Badge::INVITATION,
         title: format!("Join {workspace}"),
         lead,

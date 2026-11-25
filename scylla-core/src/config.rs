@@ -75,7 +75,8 @@ pub struct Config {
     #[arg(long, env = "SCYLLA_API_URL", default_value = "http://127.0.0.1:3000")]
     pub api_url: String,
 
-    /// The public URL of the web app, for the links in the mails and after a sign-in.
+    /// The public URL of the web app, for the links in the mails and after a sign-in. The SMTP
+    /// mailer gives its host in `EHLO`.
     #[arg(long, env = "SCYLLA_APP_URL", default_value = "http://127.0.0.1:3000")]
     pub app_url: String,
 
