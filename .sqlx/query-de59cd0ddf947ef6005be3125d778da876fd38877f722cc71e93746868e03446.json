@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE mail_outbox SET next_attempt_at = now() WHERE state = 'pending'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "de59cd0ddf947ef6005be3125d778da876fd38877f722cc71e93746868e03446"
+}

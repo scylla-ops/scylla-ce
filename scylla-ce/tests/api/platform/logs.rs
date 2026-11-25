@@ -250,7 +250,7 @@ async fn account_and_secret_calls(app: &TestApp) -> Vec<String> {
     let email = format!("logs-{}@example.com", ActorId::generate());
     let (old, new, wrong) = ("first password", "second password", "wrong password");
     app.sign_up(&email, old, "").await.unwrap();
-    let verify = app.mails.token(&email, "verify-email");
+    let verify = app.mails.token(&email, "verify-email").await;
     app.verify_email(&verify).await.unwrap();
     let first = app.sign_in(&email, old).await.unwrap();
     assert!(app.sign_in(&email, wrong).await.is_err());
@@ -258,7 +258,7 @@ async fn account_and_secret_calls(app: &TestApp) -> Vec<String> {
     // Reset the password with the link of the mail, and sign in again.
     app.request_reset(&email).await.unwrap();
     app.mails.wait(&email, 2).await;
-    let reset = app.mails.token(&email, "reset-password");
+    let reset = app.mails.token(&email, "reset-password").await;
     app.reset_password(&reset, new).await.unwrap();
     let second = app.sign_in(&email, new).await.unwrap();
 

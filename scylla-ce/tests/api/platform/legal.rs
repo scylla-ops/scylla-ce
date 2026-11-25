@@ -228,7 +228,7 @@ async fn a_mail_links_the_legal_documents(pool: PgPool) {
         .unwrap();
 
     // then
-    let mail = app.mails.to(email).pop().unwrap();
+    let mail = app.mails.to(email).await.pop().unwrap();
     let notice = "http://127.0.0.1:3000/legal/legal-notice";
     assert!(mail
         .body
@@ -256,6 +256,6 @@ async fn a_mail_has_no_legal_link_by_default(pool: PgPool) {
         .unwrap();
 
     // then
-    let mail = app.mails.to(email).pop().unwrap();
+    let mail = app.mails.to(email).await.pop().unwrap();
     assert!(!mail.body.contains("Privacy policy") && !mail.html.contains("Legal notice"));
 }

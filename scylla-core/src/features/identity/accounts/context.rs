@@ -7,6 +7,7 @@ use scylla_domain::authz::Schema;
 use scylla_extension::{Gate, Grants, Hooks, Mailer};
 use sqlx::PgPool;
 
+use crate::infra::mail;
 use crate::infra::secret::Sealer;
 use crate::{Config, SignUpMode};
 
@@ -25,6 +26,25 @@ pub struct AccountSettings {
     pub web_origins: Vec<String>,
     /// `true` if the IP address of a sign-in comes from the last `X-Forwarded-For` address.
     pub trust_forwarded: bool,
+    /// The email address that the mails come from, which the sign-in page shows.
+    pub mail_sender: String,
+}
+
+impl Default for AccountSettings {
+    /// The settings of a local server: the web app on `http://127.0.0.1:3000`, the sign-up of an
+    /// invitation only, and sessions of 30 days.
+    fn default() -> Self {
+        let local = "http://127.0.0.1:3000".to_owned();
+        Self {
+            api_url: local.clone(),
+            app_url: local,
+            sign_up_mode: SignUpMode::InviteOnly,
+            session_ttl: Duration::from_secs(30 * 24 * 60 * 60),
+            web_origins: Vec::new(),
+            trust_forwarded: false,
+            mail_sender: "no-reply@localhost".to_owned(),
+        }
+    }
 }
 
 impl AccountSettings {
@@ -37,6 +57,7 @@ impl AccountSettings {
             session_ttl: config.session_ttl,
             web_origins: config.cors_origins.clone(),
             trust_forwarded: config.trust_forwarded_headers,
+            mail_sender: mail::address_of(&config.mail_from),
         }
     }
 

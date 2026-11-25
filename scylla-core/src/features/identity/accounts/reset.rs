@@ -83,13 +83,9 @@ async fn send_link(
     // Replace the older links, then send the new one.
     one_time::cancel(&mut tx, Purpose::ResetPassword, user).await?;
     let token = one_time::create(&mut tx, Purpose::ResetPassword, user, email).await?;
+    let mail = mails::reset_password(ctx, email, &token, from);
+    mails::queue(&mut tx, ctx, "reset-password", mail).await?;
     tx.commit().await?;
-    mails::send(
-        ctx,
-        "reset-password",
-        mails::reset_password(ctx, email, &token, from),
-    )
-    .await;
     Ok(())
 }
 
@@ -112,9 +108,9 @@ pub(super) async fn reset_password(
     let fact = kinds::about(kinds::PASSWORD_CHANGED, redeemed.user);
     notifications::emit(&mut tx, fact).await?;
     invitations::announce_open(&mut tx, redeemed.user, &redeemed.email).await?;
+    let mail = mails::password_changed(ctx, &redeemed.email, Some(client));
+    mails::queue(&mut tx, ctx, "password-changed", mail).await?;
     tx.commit().await?;
     tracing::info!(event = "password.changed", user = %redeemed.user, via = "reset");
-    let mail = mails::password_changed(ctx, &redeemed.email, Some(client));
-    mails::send(ctx, "password-changed", mail).await;
     Ok(())
 }

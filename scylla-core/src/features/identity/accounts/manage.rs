@@ -86,17 +86,17 @@ pub(crate) async fn change_password(
     store::set_password(&mut tx, user, &hash).await?;
     sessions::revoke_all(&mut tx, user, keep).await?;
     notifications::emit(&mut tx, kinds::about(kinds::PASSWORD_CHANGED, user)).await?;
+
+    // Tell the owner. A mail that fails does not stop the change.
     let to = store::find_user(&mut tx, user)
         .await?
         .and_then(|user| user.email);
-    tx.commit().await?;
-    tracing::info!(event = "password.changed", %user, via = "profile");
-
-    // Tell the owner. A mail that fails does not stop the change.
     if let Some(to) = to {
         let mail = mails::password_changed(ctx, &to, Some(client));
-        mails::send(ctx, "password-changed", mail).await;
+        mails::queue(&mut tx, ctx, "password-changed", mail).await?;
     }
+    tx.commit().await?;
+    tracing::info!(event = "password.changed", %user, via = "profile");
     Ok(())
 }
 
@@ -140,14 +140,14 @@ pub(crate) async fn unlink_identity(
         .and_then(|user| user.email);
     let fact = kinds::about(kinds::IDENTITY_UNLINKED, user).param("provider", name.clone());
     notifications::emit(&mut tx, fact).await?;
-    tx.commit().await?;
-    tracing::info!(event = "account.identity_unlinked", %user, provider);
 
     // Tell the owner. A mail that fails does not stop the unlink.
     if let Some(to) = to {
         let mail = mails::identity_unlinked(ctx, &to, &name);
-        mails::send(ctx, "identity-unlinked", mail).await;
+        mails::queue(&mut tx, ctx, "identity-unlinked", mail).await?;
     }
+    tx.commit().await?;
+    tracing::info!(event = "account.identity_unlinked", %user, provider);
     Ok(())
 }
 
@@ -205,9 +205,9 @@ pub(crate) async fn request_email_change(
             one_time::cancel(&mut tx, Purpose::ChangeEmail, user).await?;
             let token = one_time::create(&mut tx, Purpose::ChangeEmail, user, email.as_str());
             let token = token.await?;
-            tx.commit().await?;
             let mail = mails::change_email(&ctx, current.as_deref(), email.as_str(), &token);
-            mails::send(&ctx, "change-email", mail).await;
+            mails::queue(&mut tx, &ctx, "change-email", mail).await?;
+            tx.commit().await?;
             Ok(())
         };
         if let Err(error) = sent.await {
@@ -243,12 +243,12 @@ pub(crate) async fn confirm_email_change(
     notifications::emit(&mut tx, kinds::about(kinds::EMAIL_CHANGED, user)).await?;
     invitations::announce_open(&mut tx, user, new.as_str()).await?;
     let changed = store::find_user(&mut tx, user).await?;
-    tx.commit().await?;
-    tracing::info!(event = "email.changed", %user, email = mask_email(new.as_str()));
     if let Some(old) = old.filter(|old| old != new.as_str()) {
         let mail = mails::email_changed(ctx, &old, new.as_str());
-        mails::send(ctx, "email-changed", mail).await;
+        mails::queue(&mut tx, ctx, "email-changed", mail).await?;
     }
+    tx.commit().await?;
+    tracing::info!(event = "email.changed", %user, email = mask_email(new.as_str()));
     changed.ok_or(Error::NotFound("user"))
 }
 

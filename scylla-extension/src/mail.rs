@@ -44,8 +44,32 @@ impl fmt::Debug for Mail {
 
 /// Why a mail is not sent.
 #[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-pub struct MailError(pub String);
+#[error("{reason}")]
+pub struct MailError {
+    /// What failed, with no body and no link of the mail.
+    pub reason: String,
+    /// `true` if a later send cannot work: the server refused the mail or its address.
+    pub permanent: bool,
+}
+
+impl MailError {
+    /// Makes the error of a send that can work later: no connection, or a server that is busy.
+    pub fn transient(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            permanent: false,
+        }
+    }
+
+    /// Makes the error of a send that cannot work later: a bad address, or a mail that the
+    /// server refused.
+    pub fn permanent(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            permanent: true,
+        }
+    }
+}
 
 /// Sends the mails of the server. The core has an SMTP mailer; an edition or a test can give
 /// another one.
@@ -53,4 +77,10 @@ pub struct MailError(pub String);
 pub trait Mailer: Send + Sync + 'static {
     /// Sends one mail, with its text body and its HTML body as two alternatives.
     async fn send(&self, mail: Mail) -> Result<(), MailError>;
+
+    /// Returns `false` if the mailer sends nothing, as the log of a server with no SMTP server.
+    /// The server then gives it each mail at once, with no outbox.
+    fn delivers(&self) -> bool {
+        true
+    }
 }

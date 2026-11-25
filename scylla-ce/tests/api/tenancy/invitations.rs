@@ -24,7 +24,7 @@ async fn an_invitation_gives_its_role(pool: PgPool) {
     let frank = app.user_with(email, Some(PASSWORD)).await;
     let session = app.sign_in(email, PASSWORD).await.unwrap();
     let token = session.token.unwrap().value;
-    let link = app.mails.token(email, "accept-invitation");
+    let link = app.mails.token(email, "accept-invitation").await;
 
     // when
     let joined = app.accept_invitation(&token, &link).await.unwrap();
@@ -77,7 +77,10 @@ async fn accept_invitation_needs_the_email_of_the_invitation(pool: PgPool) {
     app.create_invitation(owner, workspace, "grace@example.com", "viewer")
         .await
         .unwrap();
-    let link = app.mails.token("grace@example.com", "accept-invitation");
+    let link = app
+        .mails
+        .token("grace@example.com", "accept-invitation")
+        .await;
     app.user_with("mallory@example.com", Some(PASSWORD)).await;
     let session = app.sign_in("mallory@example.com", PASSWORD).await.unwrap();
 
@@ -102,7 +105,7 @@ async fn sign_up_with_an_invitation(pool: PgPool) {
     app.create_invitation(owner, workspace, email, "member")
         .await
         .unwrap();
-    let link = app.mails.token(email, "accept-invitation");
+    let link = app.mails.token(email, "accept-invitation").await;
 
     // when
     let other_email = app.sign_up("ivy@example.com", PASSWORD, &link).await;

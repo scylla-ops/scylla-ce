@@ -70,8 +70,6 @@ pub(crate) async fn refresh(
         let user = row.user;
         notifications::emit(&mut tx, kinds::about(kinds::SESSION_REUSE, user)).await?;
         let to = accounts::find_user(&mut tx, user).await?;
-        tx.commit().await?;
-        tracing::warn!(event = "session.revoked", %user, %session, scope = "reuse");
         if let Some(to) = to.and_then(|found| found.email) {
             let user_agent = row.user_agent;
             let session = Client {
@@ -79,8 +77,10 @@ pub(crate) async fn refresh(
                 ..client.clone()
             };
             let mail = mails::session_reuse(ctx, &to, &session);
-            mails::send(ctx, "session-reuse", mail).await;
+            mails::queue(&mut tx, ctx, "session-reuse", mail).await?;
         }
+        tx.commit().await?;
+        tracing::warn!(event = "session.revoked", %user, %session, scope = "reuse");
         return Err(closed());
     }
 

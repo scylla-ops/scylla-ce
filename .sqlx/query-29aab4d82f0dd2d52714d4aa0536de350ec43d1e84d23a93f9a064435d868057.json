@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE mail_outbox SET created_at = now() - interval '25 hours'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "29aab4d82f0dd2d52714d4aa0536de350ec43d1e84d23a93f9a064435d868057"
+}

@@ -16,15 +16,17 @@ pub(super) async fn inviter(
     Ok(user.map(|user| user.display_name))
 }
 
-/// Sends the link of an invitation to its email only.
+/// Puts the link of an invitation in the outbox, to its email only, in the transaction of the
+/// invitation.
 pub(super) async fn send(
+    tx: &mut Tx<'_>,
     ctx: &AccountContext,
     invitation: &Invitation,
     workspace: &str,
     inviter: Option<String>,
     token: &str,
-) {
+) -> Result<(), Error> {
     let (to, role) = (invitation.email.as_str(), invitation.role.as_str());
     let mail = mails::invitation(ctx, to, workspace, inviter.as_deref(), role, token);
-    mails::send(ctx, "invitation", mail).await;
+    mails::queue(tx, ctx, "invitation", mail).await
 }

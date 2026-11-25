@@ -45,7 +45,7 @@ async fn a_link_from_the_account_sends_a_mail(pool: PgPool) {
     assert!(mails[0]
         .body
         .contains("sign in to your Scylla account with idp"));
-    assert_eq!(app.mails.to(EMAIL).len(), 1);
+    assert_eq!(app.mails.to(EMAIL).await.len(), 1);
     assert_eq!(identities(&pool).await, 1);
 }
 
@@ -63,7 +63,7 @@ async fn an_unlink_sends_a_mail(pool: PgPool) {
     // when
     let nothing = app.unlink_identity(&token, "idp", "nobody").await;
     tokio::time::sleep(SETTLE).await;
-    let count_after_nothing = app.mails.to(EMAIL).len();
+    let count_after_nothing = app.mails.to(EMAIL).await.len();
     app.unlink_identity(&token, "idp", "alice").await.unwrap();
     let mails = app.mails.wait(EMAIL, 2).await;
 
@@ -112,7 +112,7 @@ async fn a_refused_unlink_sends_no_mail(pool: PgPool) {
 
     // then
     assert!(refused.is_err());
-    assert!(app.mails.to(EMAIL).is_empty());
+    assert!(app.mails.to(EMAIL).await.is_empty());
     assert_eq!(identities(&pool).await, 1);
 }
 
@@ -141,5 +141,5 @@ async fn a_mail_that_fails_stops_nothing(pool: PgPool) {
     assert_eq!(after_unlink, 0);
     assert!(with_password.is_ok(), "{with_password:?}");
     assert_eq!(identities(&pool).await, 1);
-    assert!(app.mails.to(EMAIL).is_empty());
+    assert!(app.mails.to(EMAIL).await.is_empty());
 }

@@ -25,7 +25,7 @@ async fn rounds(app: &TestApp, owner: ActorId) -> Vec<Round> {
             .await;
         let id = text(&invitation.unwrap().id).to_owned();
         age(app, &id, false).await;
-        let link = app.mails.token(&email, "accept-invitation");
+        let link = app.mails.token(&email, "accept-invitation").await;
         let user = app.user_with(&email, None).await;
         rounds.push((user, app.token(user).await, link, id));
     }
