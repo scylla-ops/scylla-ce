@@ -13,7 +13,7 @@ use super::cache;
 use super::read::{self, ReadFile, Snapshot};
 use super::store::{self, FileRow};
 use crate::features::integrations::IntegrationContext;
-use crate::features::projects::pipelines::json;
+use crate::features::projects::pipelines::{self, json};
 use crate::Error;
 
 /// The shortest time between two checks of the head of the default branch of a project.
@@ -66,7 +66,8 @@ pub(crate) async fn sync_default_branch(
 }
 
 /// Writes the file pipelines of a project from the files of a commit, in the transaction of the
-/// caller. A new pipeline has `author` as its author.
+/// caller. A new pipeline has `author` as its author. An editor pipeline whose key a file takes
+/// gets its mark, and an editor pipeline whose key no file has any more is free.
 pub(super) async fn apply(
     tx: &mut scylla_extension::Tx<'_>,
     project: ProjectId,
@@ -89,8 +90,9 @@ pub(super) async fn apply(
         keys.push(key.as_str().to_owned());
     }
 
-    // Mark the pipelines of the other keys as removed.
+    // Mark the pipelines of the other keys as removed, and the editor pipelines of taken keys.
     store::mark_removed(tx, project, &keys).await?;
+    pipelines::keys::mark_taken(tx, project).await?;
     Ok(())
 }
 

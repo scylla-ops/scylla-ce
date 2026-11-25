@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT t.id, t.pipeline_id, t.kind, t.rules AS \"rules!\", t.inputs\n           FROM triggers t JOIN pipelines p ON p.id = t.pipeline_id\n           WHERE t.project_id = $1 AND t.enabled AND t.kind IN ('push', 'pull_request', 'tag')\n             AND p.source = 'editor' AND p.archived_at IS NULL\n           ORDER BY t.id",
+  "query": "SELECT t.id, t.pipeline_id, t.kind, t.rules AS \"rules!\", t.inputs\n           FROM triggers t JOIN pipelines p ON p.id = t.pipeline_id\n           WHERE t.project_id = $1 AND t.enabled AND t.kind IN ('push', 'pull_request', 'tag')\n             AND p.source = 'editor' AND p.archived_at IS NULL\n             AND (NOT $2 OR p.git_events_allowed_at IS NOT NULL)\n           ORDER BY t.id",
   "describe": {
     "columns": [
       {
@@ -61,7 +61,8 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Bool"
       ]
     },
     "nullable": [
@@ -72,5 +73,5 @@
       false
     ]
   },
-  "hash": "703485ea097cb23fdc6ee120726f70948b29801fcf964c29635244246e943b06"
+  "hash": "904b80b88d507457c21c0d21d44b5f8d98a762e15aeb6e5cde029de19037e298"
 }

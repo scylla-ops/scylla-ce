@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pipelines SET key_taken_at = CASE WHEN $2 THEN now() END WHERE id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b35c27458ff59d50451b6b7714db4b69dfebe4267c18c160d7517b1df3017239"
+}

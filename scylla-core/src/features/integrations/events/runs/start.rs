@@ -1,7 +1,8 @@
 //! The runs of a Git event for one linked project: each editor pipeline whose enabled Git trigger
 //! matches the event gets one run for the commit, as the runner of the triggers of the workspace.
-//! An event on a commit that has a run of the pipeline adds its branch or its pull request to the
-//! source of that run.
+//! In a project of files, only an editor pipeline with the opt-in of an admin runs. An event on a
+//! commit that has a run of the pipeline adds its branch or its pull request to the source of
+//! that run.
 
 use std::collections::HashSet;
 
@@ -23,7 +24,7 @@ use crate::features::projects::pipelines::service as pipelines;
 use crate::features::projects::triggers::fire;
 use crate::Error;
 
-/// Starts the runs of a Git event for one active link: of the editor pipelines, or of the file
+/// Starts the runs of a Git event for one active link: of the editor pipelines, and of the file
 /// pipelines in a project of files. A pull request from a fork first cancels the runs of its older
 /// commits that wait for an approval. A closed pull request starts nothing.
 pub(crate) async fn handle(
@@ -43,17 +44,19 @@ pub(crate) async fn handle(
     }
 
     // Start the file pipelines of a project of files.
-    if linked.link.pipeline_source == PipelineSource::File {
-        return file_pipelines::handle(ctx, linked, &checked, source).await;
-    }
+    let files = linked.link.pipeline_source == PipelineSource::File;
+    let from_files = match files {
+        true => file_pipelines::handle(ctx, linked, &checked, source.clone()).await,
+        false => Ok(()),
+    };
 
-    // Find the first trigger of each pipeline that the event starts.
+    // Find the first trigger of each editor pipeline that the event starts.
     let mut tx = ctx.pool.begin().await?;
-    let triggers = store::git_triggers(&mut tx, project).await?;
+    let triggers = store::git_triggers(&mut tx, project, files).await?;
     tx.commit().await?;
     let matched = first_of_each_pipeline(triggers, &checked);
     if matched.is_empty() {
-        return Ok(());
+        return from_files;
     }
 
     // Read the files of a pull request from a fork.
@@ -68,7 +71,7 @@ pub(crate) async fn handle(
         kind: RUNNER_KIND,
     };
     let origin = JobOrigin::of_git(&checked);
-    let mut first = Ok(());
+    let mut first = from_files;
     for trigger in &matched {
         let done = run(ctx, &runner, trigger, &source, origin).await;
         first = first.and(done);

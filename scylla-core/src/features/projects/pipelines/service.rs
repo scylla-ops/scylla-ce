@@ -13,8 +13,8 @@ use scylla_domain::Page;
 use scylla_extension::{CreateContext, DeleteContext, Hooks, Rejection, Tx};
 use sqlx::PgPool;
 
-use super::links;
 use super::store::{self, Changed};
+use super::{keys, links};
 use crate::features::identity::agents::Registry;
 use crate::features::integrations::{files, sources, IntegrationContext};
 use crate::features::projects::jobs::{self, runs};
@@ -27,7 +27,8 @@ const MAX_NODES_JSON: usize = 8 << 20;
 /// The code of a change of a pipeline that is read only.
 const READ_ONLY: &str = "PIPELINE_READ_ONLY";
 
-/// Creates a pipeline in a project if each `BeforeCreate` hook accepts it.
+/// Creates an editor pipeline in a project if each `BeforeCreate` hook accepts it. A name whose
+/// key an active file pipeline has gives `PIPELINE_KEY_TAKEN`.
 pub(crate) async fn create(
     pool: &PgPool,
     hooks: &Hooks,
@@ -35,14 +36,11 @@ pub(crate) async fn create(
     workspace: WorkspaceId,
     new: NewPipeline,
 ) -> Result<Pipeline, Error> {
-    // Check the size of the nodes and the links, refuse a project of files, then run the hooks.
+    // Check the size of the nodes and the links, refuse the key of a file, then run the hooks.
     check_size(&new.nodes)?;
     links::check(&new.fragment_links, new.nodes.as_slice())?;
     let mut tx = pool.begin().await?;
-    if store::uses_files(&mut tx, new.project_id).await? {
-        let message = "the project takes its pipelines from the files of its repository";
-        return Err(Error::Rejected(Rejection::new(READ_ONLY, message)));
-    }
+    keys::refuse_taken(&mut tx, new.project_id, &new.name).await?;
     hooks
         .before_create(&mut tx, &CreateContext::new(KIND, actor, workspace))
         .await?;
@@ -160,7 +158,8 @@ pub(crate) async fn list(
 }
 
 /// Changes a pipeline that still has the version of the change. Another version gives
-/// `ABORTED`. The places of the nodes that the change removes go away.
+/// `ABORTED`. The places of the nodes that the change removes go away. A new key that a file
+/// pipeline has gives `PIPELINE_KEY_TAKEN`, and a new free key frees the pipeline.
 pub(crate) async fn update(
     pool: &PgPool,
     id: PipelineId,
@@ -171,10 +170,11 @@ pub(crate) async fn update(
         check_size(nodes)?;
     }
 
-    // Refuse a read only pipeline, then change the pipeline and its places.
+    // Refuse a read only pipeline and a new key of a file, then change it and its places.
     let mut tx = pool.begin().await?;
     refuse_read_only(&mut tx, id).await?;
-    let changed = store::update(&mut tx, id, &change).await?;
+    let moved = keys::check_rename(&mut tx, id, change.name.as_ref()).await?;
+    let changed = store::update(&mut tx, id, &change, moved).await?;
     if let Changed::Done(pipeline) = &changed {
         links::check(&pipeline.fragment_links, &pipeline.nodes)?;
         let nodes = ids_of(&pipeline.nodes);
@@ -275,7 +275,7 @@ pub(crate) async fn start(
 
 /// Locks a pipeline, and refuses a file pipeline or an archived pipeline with
 /// `PIPELINE_READ_ONLY`.
-async fn refuse_read_only(tx: &mut Tx<'_>, id: PipelineId) -> Result<(), Error> {
+pub(super) async fn refuse_read_only(tx: &mut Tx<'_>, id: PipelineId) -> Result<(), Error> {
     match store::lock_read_only(tx, id).await? {
         Some(true) => {
             let message = "the pipeline comes from a file or is archived: it is read only";

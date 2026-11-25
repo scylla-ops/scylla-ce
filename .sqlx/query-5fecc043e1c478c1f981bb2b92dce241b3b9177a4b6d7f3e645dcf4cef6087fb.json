@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,\n                  created_at, updated_at, source, file_key, file_path,\n                  jsonb_array_length(coalesce(file_errors, '[]')) AS \"file_errors!\", archived_at,\n                  removed_at, fragment_links, agent_labels\n           FROM pipelines\n           WHERE ($1::uuid IS NULL OR project_id = $1)\n             AND ($2::uuid IS NULL OR workspace_id = $2)\n             AND ($3::uuid IS NULL OR id > $3)\n             AND (source = 'editor' OR archived_at IS NULL)\n           ORDER BY id\n           LIMIT $4",
+  "query": "SELECT id, project_id, workspace_id, created_by, name, nodes, checkout, version,\n                  created_at, updated_at, source, file_key, file_path,\n                  jsonb_array_length(coalesce(file_errors, '[]')) AS \"file_errors!\", archived_at,\n                  removed_at, fragment_links, agent_labels, key_taken_at, git_events_allowed_at,\n                  git_events_allowed_by\n           FROM pipelines WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -195,14 +195,44 @@
             "name": "agent_labels"
           }
         }
+      },
+      {
+        "ordinal": 18,
+        "name": "key_taken_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "key_taken_at"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "git_events_allowed_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "git_events_allowed_at"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "git_events_allowed_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "pipelines",
+            "name": "git_events_allowed_by"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Uuid",
-        "Uuid",
-        "Int8"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -223,8 +253,11 @@
       true,
       true,
       false,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "f68f8c4cb4d1ca85e5c31b6dd0c745ac275c62948d0fba46c5dd640af24954e0"
+  "hash": "5fecc043e1c478c1f981bb2b92dce241b3b9177a4b6d7f3e645dcf4cef6087fb"
 }

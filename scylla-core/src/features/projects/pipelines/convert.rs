@@ -4,17 +4,15 @@
 use std::collections::BTreeMap;
 
 use scylla_domain::identity::agents::AgentLabels;
-use scylla_domain::integrations::links::PipelineSource as DomainSource;
 use scylla_domain::projects::pipeline_files::CheckoutSettings;
 use scylla_domain::projects::pipelines::{
     EnvValue, EnvVar, Node, NodeId, Nodes, Pipeline, PipelineLayout, Position, Runtime, Shell, Step,
 };
 use scylla_domain::projects::secrets::SecretName;
 use scylla_domain::DomainError;
-use scylla_proto::integrations::v1::PipelineSource;
 use scylla_proto::pipelines::v1 as pb;
 
-use super::files_convert::checkout_of;
+use super::files_convert::{checkout_of, source_of};
 use super::switch;
 use crate::api::parse::{self, ToProto};
 use crate::Error;
@@ -229,10 +227,8 @@ impl ToProto<pb::PipelineLayout> for PipelineLayout {
 
 impl ToProto<pb::Pipeline> for Pipeline {
     fn to_proto(self) -> pb::Pipeline {
-        let source = match self.source {
-            DomainSource::Editor => PipelineSource::Editor,
-            DomainSource::File => PipelineSource::File,
-        };
+        let key = self.key();
+        let git_events = self.git_events;
         let file = self.file.unwrap_or_default();
         pb::Pipeline {
             id: Some(self.id.to_proto()),
@@ -244,11 +240,15 @@ impl ToProto<pb::Pipeline> for Pipeline {
             version: self.version,
             created_at: Some(parse::timestamp(self.created_at)),
             updated_at: Some(parse::timestamp(self.updated_at)),
-            source: source.into(),
+            source: source_of(self.source).into(),
             file_key: file.key,
             file_path: file.path,
             checkout: Some(checkout_of(self.checkout)),
             agent: Some(agent_of(&self.agent_labels)),
+            key,
+            key_taken_at: self.key_taken_at.map(parse::timestamp),
+            git_events_allowed_at: git_events.map(|opt_in| parse::timestamp(opt_in.at)),
+            git_events_allowed_by: git_events.map(|opt_in| opt_in.by.to_proto()),
             archived_at: self.archived_at.map(parse::timestamp),
             removed_at: file.removed_at.map(parse::timestamp),
             file_error_count: file.errors,

@@ -38,6 +38,14 @@ pub(super) fn source(raw: i32) -> Result<PipelineSource, Error> {
     }
 }
 
+/// Returns the proto of a source.
+pub(crate) fn source_of(source: PipelineSource) -> pb_integrations::PipelineSource {
+    match source {
+        PipelineSource::Editor => pb_integrations::PipelineSource::Editor,
+        PipelineSource::File => pb_integrations::PipelineSource::File,
+    }
+}
+
 /// Returns the proto of a format.
 fn format_of(format: FileFormat) -> pb::PipelineFileFormat {
     match format {

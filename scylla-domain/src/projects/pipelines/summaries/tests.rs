@@ -3,6 +3,7 @@
 use time::Duration;
 
 use super::{PipelineSummary, SummaryOrder, SummaryPage};
+use crate::integrations::links::PipelineSource;
 use crate::projects::jobs::JobStatus;
 use crate::projects::pipelines::PipelineId;
 use crate::projects::ProjectId;
@@ -28,6 +29,8 @@ fn summary(
         active: false,
         trigger_kinds: Vec::new(),
         next_fire: None,
+        source: PipelineSource::Editor,
+        key_taken: false,
     }
 }
 

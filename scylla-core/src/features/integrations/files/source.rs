@@ -1,5 +1,6 @@
 //! The source of the pipelines of a project: the editor of Scylla, or the files of the linked
-//! repository. One source at a time: the pipelines of the other source stop, and their jobs stay.
+//! repository. A project of files keeps its editor pipelines next to its file pipelines. Back to
+//! the editor, the file pipelines stop, and their jobs stay.
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::integrations::links::PipelineSource;
@@ -8,11 +9,12 @@ use scylla_extension::Rejection;
 
 use super::{cache, read, store, sync};
 use crate::features::integrations::IntegrationContext;
+use crate::features::projects::pipelines::keys;
 use crate::Error;
 
 /// Sets the source of the pipelines of a project. To the files: the project needs a linked
 /// repository, else `NO_REPOSITORY_LINK`; the server reads the files of the default branch, then
-/// archives the editor pipelines and makes the file pipelines in one transaction. To the editor:
+/// makes the file pipelines in one transaction, and the editor pipelines stay. To the editor:
 /// the archived pipelines come back, and the file pipelines are hidden.
 pub(crate) async fn set_source(
     ctx: &IntegrationContext,
@@ -37,7 +39,7 @@ async fn to_files(
     let head = read::head(ctx, &linked).await?;
     let snapshot = read::read_commit(ctx, linked, &head).await?;
 
-    // Archive the editor pipelines and write the file pipelines in one transaction.
+    // Write the file pipelines in one transaction.
     let mut tx = ctx.pool.begin().await?;
     if store::lock_source(&mut tx, project).await?.is_none() {
         let message = "the project has no linked repository";
@@ -47,7 +49,6 @@ async fn to_files(
         )));
     }
     store::set_source(&mut tx, project, PipelineSource::File).await?;
-    let archived = store::archive_editor(&mut tx, project).await?;
     sync::apply(&mut tx, project, actor, &snapshot).await?;
     tx.commit().await?;
     cache::saw(project, &head);
@@ -57,7 +58,6 @@ async fn to_files(
         source = PipelineSource::File.as_str(),
         commit = %head,
         files = snapshot.files.len(),
-        archived,
     );
     Ok(())
 }
@@ -69,6 +69,7 @@ async fn to_editor(ctx: &IntegrationContext, project: ProjectId) -> Result<(), E
         store::set_source(&mut tx, project, PipelineSource::Editor).await?;
     }
     store::restore_editor(&mut tx, project).await?;
+    keys::mark_taken(&mut tx, project).await?;
     tx.commit().await?;
     tracing::info!(
         event = "pipeline_source.changed",

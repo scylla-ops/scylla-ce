@@ -5,7 +5,7 @@ use scylla_domain::projects::{Project, ProjectId};
 use scylla_proto::integrations::v1::PipelineSource;
 use scylla_proto::pipelines::v1::git_ref::Kind;
 use scylla_proto::pipelines::v1::{PipelineLayout, Position};
-use scylla_testkit::{exec_node, text, FakeProvider};
+use scylla_testkit::{text, FakeProvider};
 use sqlx::PgPool;
 use tonic::Code;
 
@@ -16,7 +16,8 @@ use super::{
 use crate::assert_code;
 
 /// A move to the files reads the default branch: each file gives a file pipeline with its key,
-/// its path, its nodes and its errors, and the editor pipelines become archived.
+/// its path, its nodes and its errors. The editor pipelines stay active, and the editor pipeline
+/// whose key a file takes gets the mark of a taken key.
 #[sqlx::test(migrations = false)]
 async fn set_pipeline_source_moves_a_project_to_its_files(pool: PgPool) {
     // given
@@ -42,10 +43,13 @@ async fn set_pipeline_source_moves_a_project_to_its_files(pool: PgPool) {
         .iter()
         .find(|pipeline| text(&pipeline.id) == linked.editor);
     let editor = editor.expect("the editor pipeline stays in the list");
-    assert!(editor.archived_at.is_some());
+    assert!(editor.archived_at.is_none());
     assert_eq!(editor.source(), PipelineSource::Editor);
+    assert_eq!(editor.key, "build");
+    assert!(editor.key_taken_at.is_some());
     let build = by_key(&all, "build");
     assert_eq!(build.source(), PipelineSource::File);
+    assert!((build.key == "build") && build.key_taken_at.is_none());
     assert_eq!(
         (build.name.as_str(), build.file_path.as_str()),
         ("Build", BUILD_PATH)
@@ -88,7 +92,7 @@ async fn set_pipeline_source_needs_a_link_and_an_editor(pool: PgPool) {
 }
 
 /// A file pipeline and an archived pipeline are read only: a change and a delete give
-/// `PIPELINE_READ_ONLY`, and a new pipeline in the project too. A save of the places works.
+/// `PIPELINE_READ_ONLY`. A save of the places works.
 #[sqlx::test(migrations = false)]
 async fn a_file_pipeline_and_an_archived_pipeline_are_read_only(pool: PgPool) {
     // given
@@ -102,6 +106,11 @@ async fn a_file_pipeline_and_an_archived_pipeline_are_read_only(pool: PgPool) {
         .unwrap();
     let build = by_key(&pipelines(&app, owner, project).await, "build").clone();
     let build_id = text(&build.id).to_owned();
+    sqlx::query("UPDATE pipelines SET archived_at = now() WHERE id = $1::uuid")
+        .bind(&linked.editor)
+        .execute(&app.pool)
+        .await
+        .unwrap();
     let editor = app.get_pipeline(owner, &linked.editor).await.unwrap();
 
     // when
@@ -111,8 +120,6 @@ async fn a_file_pipeline_and_an_archived_pipeline_are_read_only(pool: PgPool) {
     let archived = archived.await;
     let deleted = app.delete_pipeline(owner, &build_id).await;
     let deleted_archived = app.delete_pipeline(owner, &linked.editor).await;
-    let created = app.create_pipeline(owner, project, vec![exec_node("x", &[])]);
-    let created = created.await;
     let layout = PipelineLayout {
         start: None,
         nodes: [("fetch".to_owned(), Position { x: 10, y: 20 })].into(),
@@ -124,7 +131,6 @@ async fn a_file_pipeline_and_an_archived_pipeline_are_read_only(pool: PgPool) {
     assert_reason(archived, "PIPELINE_READ_ONLY");
     assert_reason(deleted, "PIPELINE_READ_ONLY");
     assert_reason(deleted_archived, "PIPELINE_READ_ONLY");
-    assert_reason(created, "PIPELINE_READ_ONLY");
     saved.await.unwrap();
     let layout = app.pipeline_layout(owner, &build_id).await.unwrap();
     assert_eq!(

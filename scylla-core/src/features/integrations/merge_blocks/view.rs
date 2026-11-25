@@ -2,6 +2,7 @@
 //! that the provider shows, the branch, and the page of the provider for a person.
 
 use scylla_domain::integrations::connections::{AccountKind, VcsConnection};
+use scylla_domain::integrations::links::PipelineSource;
 use scylla_domain::integrations::merge_blocks::{MergeBlock, MergeBlockState};
 use scylla_domain::integrations::VcsProvider;
 use scylla_domain::projects::pipelines::PipelineId;
@@ -19,6 +20,8 @@ pub(super) struct Block {
     pub(super) project: ProjectId,
     /// The pipeline, or `None` for the rule of the project on GitLab.
     pub(super) pipeline: Option<PipelineId>,
+    /// The source of the pipeline, or `None` for the rule of the project on GitLab.
+    pub(super) source: Option<PipelineSource>,
     /// The name of the report of the pipeline, or `None` for the rule of the project.
     pub(super) context: Option<String>,
     /// `true` when the rule must be on.
@@ -117,6 +120,10 @@ pub(super) fn view(
     };
     Block {
         project: linked.link.project_id,
+        source: pipeline.as_ref().map(|pipeline| match pipeline.file_key {
+            Some(_) => PipelineSource::File,
+            None => PipelineSource::Editor,
+        }),
         pipeline: pipeline.map(|pipeline| pipeline.id),
         context: current,
         enabled,

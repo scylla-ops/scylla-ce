@@ -80,12 +80,13 @@ pub(super) async fn retry(
     Ok(listed)
 }
 
-/// Returns why a job has no report: no commit, no link, the reports off, or a link or a
-/// connection that is not active.
+/// Returns why a job has no report: no commit, no link, the reports off, a key that a file took,
+/// or a link or a connection that is not active.
 fn reason(why: Option<&Why>) -> &'static str {
     match why {
         Some(why) if !why.source => "NO_SOURCE",
         Some(why) if !why.linked => "NO_REPOSITORY_LINK",
+        Some(why) if why.reports && why.key_taken => "KEY_TAKEN",
         Some(why) if why.reports && !why.active => "REPOSITORY_NOT_ACTIVE",
         _ => "REPORTS_OFF",
     }

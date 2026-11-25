@@ -153,8 +153,8 @@ async fn list_pipeline_files_needs_a_link_and_a_reader(pool: PgPool) {
     assert_code(refused, Code::PermissionDenied);
 }
 
-/// A commit with no folder `.scylla` has no file, and a move to the files of this commit
-/// archives the editor pipelines with no new pipeline.
+/// A commit with no folder `.scylla` has no file, and a move to the files of this commit keeps
+/// the editor pipelines with no new pipeline.
 #[sqlx::test(migrations = false)]
 async fn a_commit_with_no_folder_has_no_file(pool: PgPool) {
     // given
@@ -173,5 +173,5 @@ async fn a_commit_with_no_folder_has_no_file(pool: PgPool) {
     moved.await.unwrap();
     let all = pipelines(&app, owner, project).await;
     assert_eq!(all.len(), 1);
-    assert!(all[0].archived_at.is_some());
+    assert!(all[0].archived_at.is_none());
 }
