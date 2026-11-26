@@ -9,6 +9,7 @@ use crate::identity::user_state::UserStateCaller;
 use crate::integrations::connections::VcsConnectionHolder;
 use crate::integrations::links::{RepositoryAccess, RepositoryCaller, RepositoryHolder};
 use crate::notifications::NotificationCaller;
+use crate::projects::groups::{ProjectGroupAccess, ProjectGroupHolder};
 use crate::projects::pipelines::{PipelineAccess, PipelineCaller, PipelineHolder};
 use crate::projects::triggers::{TriggerAccess, TriggerCaller, TriggerHolder};
 use crate::projects::{Project, ProjectCaller, ProjectHolder, ProjectId};
@@ -45,6 +46,8 @@ fn core() -> Schema {
         Project::part(),
         ProjectHolder::part(),
         ProjectCaller::part(),
+        ProjectGroupHolder::part(),
+        ProjectGroupAccess::part(),
         PipelineAccess::part(),
         PipelineHolder::part(),
         PipelineCaller::part(),

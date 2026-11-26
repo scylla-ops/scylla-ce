@@ -1,4 +1,5 @@
-//! The tests of the search, the health filter, the order and the counts of `ListProjects`.
+//! The tests of the search, the health filter, the order, the ids and the counts of
+//! `ListProjects`.
 
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_proto::common::v1::PageRequest;
@@ -10,7 +11,7 @@ use sqlx::PgPool;
 use tonic::Code;
 
 use super::pipeline_summaries::{job, named_pipeline};
-use crate::{app, assert_code};
+use crate::{app, assert_code, assert_invalid_field, UNKNOWN_ID};
 
 /// Makes a request for the projects of a workspace, with a search text, an order and a health.
 fn request(
@@ -148,8 +149,29 @@ async fn list_projects_sorts_and_pages(pool: PgPool) {
     assert_eq!(first.counts.unwrap().total, 4);
 }
 
-/// A search text of more than 100 characters, an unknown order and an unknown health give
-/// `INVALID_ARGUMENT`.
+/// The ids keep their projects, and the counts read only them.
+#[sqlx::test(migrations = false)]
+async fn list_projects_keeps_the_projects_of_the_ids(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let workspace = app.workspace_of(owner).await;
+    let alpha = app.create_project(owner, "alpha").await.unwrap();
+    app.create_project(owner, "bravo").await.unwrap();
+    let charlie = app.create_project(owner, "charlie").await.unwrap();
+    let mut pinned = request(workspace, "", ProjectOrder::Name, ProjectHealth::All);
+    pinned.project_ids = vec![charlie.id.clone().unwrap(), alpha.id.clone().unwrap()];
+
+    // when
+    let list = app.search_projects(owner, pinned).await.unwrap();
+
+    // then
+    assert_eq!(names(&list), ["alpha", "charlie"]);
+    assert_eq!(list.counts.unwrap().total, 2);
+}
+
+/// A search text of more than 100 characters, an unknown order, an unknown health and more than
+/// 100 project ids give `INVALID_ARGUMENT`.
 #[sqlx::test(migrations = false)]
 async fn list_projects_refuses_bad_values(pool: PgPool) {
     // given
@@ -162,14 +184,18 @@ async fn list_projects_refuses_bad_values(pool: PgPool) {
     order.order = 99;
     let mut health = request(workspace, "", ProjectOrder::Name, all);
     health.health = 99;
+    let mut many = request(workspace, "", ProjectOrder::Name, all);
+    many.project_ids = (0..101).map(|_| id(UNKNOWN_ID)).collect();
 
     // when
     let long = app.search_projects(owner, long).await;
     let order = app.search_projects(owner, order).await;
     let health = app.search_projects(owner, health).await;
+    let many = app.search_projects(owner, many).await;
 
     // then
     assert_code(long, Code::InvalidArgument);
     assert_code(order, Code::InvalidArgument);
     assert_code(health, Code::InvalidArgument);
+    assert_invalid_field(&many.unwrap_err(), "project_ids");
 }

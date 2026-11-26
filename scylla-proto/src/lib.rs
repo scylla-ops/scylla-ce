@@ -65,7 +65,7 @@ pub mod notifications {
     }
 }
 
-/// The projects API: the projects and their secrets.
+/// The projects API: the projects, their groups and their secrets.
 pub mod projects {
     /// Version 1.
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]

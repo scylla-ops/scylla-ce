@@ -80,6 +80,11 @@ definition workspace {
     permission update_secret = manage
     permission delete_secret = manage
     permission list_secrets = work
+    permission list_project_groups = read
+    permission create_project_group = work
+    permission update_project_group = work
+    permission delete_project_group = work
+    permission move_project = work
     permission run_jobs = runner
     permission create_pipeline = work
     permission get_pipeline = read
@@ -186,6 +191,7 @@ definition project {
     permission grant = admin
     permission revoke = admin
     permission list_access = view
+    permission move_project = edit
     permission run_jobs = runner
     permission create_pipeline = edit
     permission get_pipeline = view

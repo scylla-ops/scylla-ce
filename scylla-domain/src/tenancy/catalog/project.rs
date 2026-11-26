@@ -2,6 +2,7 @@
 
 use super::integrations::JOBS_APPROVE;
 use super::{Area, CatalogPermission, Level, Route};
+use crate::projects::groups::{ProjectGroupAccess, ProjectGroupHolder};
 use crate::projects::pipelines::{PipelineAccess, PipelineHolder};
 use crate::projects::triggers::{TriggerAccess, TriggerHolder};
 use crate::projects::{Project, ProjectHolder};
@@ -45,6 +46,7 @@ pub(super) const AREAS: &[Area] = &[
                 &[
                     Route::of(ProjectHolder::GET_PROJECT),
                     Route::of(ProjectHolder::LIST_PROJECTS),
+                    Route::of(ProjectGroupHolder::LIST_PROJECT_GROUPS),
                     Route::of(Project::GET_PROJECT),
                     Route::of(Project::LIST_PROJECTS),
                 ],
@@ -55,7 +57,12 @@ pub(super) const AREAS: &[Area] = &[
                 &["project.view"],
                 &[
                     Route::of(ProjectHolder::UPDATE_PROJECT),
+                    Route::of(ProjectGroupHolder::CREATE_PROJECT_GROUP),
+                    Route::of(ProjectGroupHolder::UPDATE_PROJECT_GROUP),
+                    Route::of(ProjectGroupHolder::DELETE_PROJECT_GROUP),
+                    Route::of(ProjectGroupHolder::MOVE_PROJECT),
                     Route::of(Project::UPDATE_PROJECT),
+                    Route::of(ProjectGroupAccess::MOVE_PROJECT),
                 ],
             ),
             cell(

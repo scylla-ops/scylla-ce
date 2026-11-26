@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE projects SET name = coalesce($2, name), description = coalesce($3, description)\n         WHERE id = $1\n         RETURNING id, workspace_id, created_by, name, description, created_at, icon_name,\n                   icon_color, icon_image_id",
+  "query": "UPDATE projects SET name = coalesce($2, name), description = coalesce($3, description)\n         WHERE id = $1\n         RETURNING id, workspace_id, created_by, name, description, created_at, icon_name,\n                   icon_color, icon_image_id, group_id",
   "describe": {
     "columns": [
       {
@@ -101,6 +101,17 @@
             "name": "icon_image_id"
           }
         }
+      },
+      {
+        "ordinal": 9,
+        "name": "group_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "group_id"
+          }
+        }
       }
     ],
     "parameters": {
@@ -119,8 +130,9 @@
       false,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "0de54e5f28dfb1a769cdd7081c508c596e266cdcf545c938de81d25721c79a97"
+  "hash": "0038c912c711b138a010dc171718a862bdc9610f375d656ff71baa23f7db0644"
 }

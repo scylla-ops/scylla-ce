@@ -2,6 +2,7 @@
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::platform::images::{Icon, ImageId};
+use scylla_domain::projects::groups::ProjectGroupId;
 use scylla_domain::projects::lists::ListedProject;
 use scylla_domain::projects::{
     NewProject, Project, ProjectChange, ProjectDescription, ProjectId, ProjectName, Visible,
@@ -47,14 +48,15 @@ pub(super) async fn insert(tx: &mut Tx<'_>, new: &NewProject) -> Result<Project,
         description: new.description.as_str().to_owned(),
         created_at,
         icon: None,
+        group_id: None,
     })
 }
 
 /// Returns each project that a caller can see, of one workspace or of all, with the facts of
 /// the list: its repository, the names of its pipelines, the number of its failing pipelines,
-/// its jobs that run or wait, and its newest job. A failing pipeline has a last ended job, of the
-/// default branch of the linked repository, that did not complete. An archived pipeline from a
-/// file does not count, as in the summaries of the pipelines.
+/// its jobs that run or wait, its newest job, and its places. A failing pipeline has a last ended
+/// job, of the default branch of the linked repository, that did not complete. An archived
+/// pipeline from a file does not count, as in the summaries of the pipelines.
 pub(super) async fn list_visible(
     tx: &mut Tx<'_>,
     visible: &Visible,
@@ -72,13 +74,15 @@ pub(super) async fn list_visible(
                   p.created_by AS "created_by!", p.name AS "name!",
                   p.description AS "description!", p.created_at AS "created_at!",
                   p.icon_name AS "icon_name?", p.icon_color AS "icon_color?",
-                  p.icon_image_id AS "icon_image_id?",
+                  p.icon_image_id AS "icon_image_id?", p.group_id AS "group_id?",
+                  p.position AS "position?", g.position AS "group_position?",
                   l.full_name AS "repository?",
                   coalesce(f.names, '{}') AS "pipelines!: Vec<String>",
                   coalesce(f.failing, 0) AS "failing!",
                   p.id IN (SELECT project_id FROM active) AS "running!",
                   newest.created_at AS "last_job_at?"
            FROM projects p
+           LEFT JOIN project_groups g ON g.id = p.group_id
            LEFT JOIN repository_links l ON l.project_id = p.id
            LEFT JOIN LATERAL (
                SELECT array_agg(pl.name ORDER BY pl.id) AS names,
@@ -122,6 +126,7 @@ pub(super) async fn list_visible(
             icon_name: row.icon_name,
             icon_color: row.icon_color,
             icon_image_id: row.icon_image_id,
+            group_id: row.group_id,
         }
         .into_project(),
         repository: row.repository,
@@ -129,6 +134,8 @@ pub(super) async fn list_visible(
         failing: u32::try_from(row.failing).unwrap_or(u32::MAX),
         running: row.running,
         last_job_at: row.last_job_at,
+        position: row.position,
+        group_position: row.group_position,
     });
     Ok(listed.collect())
 }
@@ -138,7 +145,7 @@ pub(super) async fn find(tx: &mut Tx<'_>, id: ProjectId) -> Result<Option<Projec
     let row = sqlx::query_as!(
         Row,
         "SELECT id, workspace_id, created_by, name, description, created_at, icon_name,
-                icon_color, icon_image_id
+                icon_color, icon_image_id, group_id
          FROM projects WHERE id = $1",
         id.to_db()
     )
@@ -159,7 +166,7 @@ pub(super) async fn update(
         "UPDATE projects SET name = coalesce($2, name), description = coalesce($3, description)
          WHERE id = $1
          RETURNING id, workspace_id, created_by, name, description, created_at, icon_name,
-                   icon_color, icon_image_id",
+                   icon_color, icon_image_id, group_id",
         id.to_db(),
         change.name.as_ref().map(ProjectName::as_str),
         change.description.as_ref().map(ProjectDescription::as_str),
@@ -263,6 +270,8 @@ struct Row {
     icon_color: Option<String>,
     /// The image of the icon, if it has one.
     icon_image_id: Option<uuid::Uuid>,
+    /// The group, if the project has one.
+    group_id: Option<uuid::Uuid>,
 }
 
 impl Row {
@@ -280,6 +289,7 @@ impl Row {
                 self.icon_color,
                 self.icon_image_id.map(ImageId::from_db),
             ),
+            group_id: self.group_id.map(ProjectGroupId::from_db),
         }
     }
 }

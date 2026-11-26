@@ -1,5 +1,6 @@
-//! The list of the projects: the search text, the order and the health filter of a request, the
-//! facts of each project that they read, and one page with the counts of all the pages.
+//! The list of the projects: the search text, the order, the health filter, the section and the
+//! ids of a request, the facts of each project that they read, and one page with the counts of all
+//! the pages.
 
 #[cfg(test)]
 mod tests;
@@ -8,6 +9,7 @@ use std::cmp::Ordering;
 
 use time::OffsetDateTime;
 
+use super::groups::ProjectGroupId;
 use super::{Project, ProjectId};
 use crate::tenancy::workspaces::WorkspaceId;
 use crate::{DomainError, PageRequest};
@@ -45,8 +47,9 @@ impl ProjectSearch {
 /// The order of a project list.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ProjectOrder {
-    /// The order that the members of the workspace set, then the projects with no place,
-    /// oldest first.
+    /// The order that the members of the workspace set: the groups in their order, then the
+    /// projects with no group, and in each the place of each project. The projects with no place
+    /// come after the others of their group, oldest first.
     #[default]
     Position,
     /// The name, with no difference between upper and lower case.
@@ -70,6 +73,15 @@ pub enum ProjectHealth {
     Running,
 }
 
+/// A section of the projects page: the projects of one group, or the projects with no group.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectSection {
+    /// The projects of this group.
+    Group(ProjectGroupId),
+    /// The projects with no group.
+    Ungrouped,
+}
+
 /// The input of a project list: the projects that the caller can see.
 #[derive(Clone, Debug, Default)]
 pub struct ListProjects {
@@ -81,6 +93,10 @@ pub struct ListProjects {
     pub order: ProjectOrder,
     /// Only the projects of this health.
     pub health: ProjectHealth,
+    /// Only the projects of this section, if it is set.
+    pub section: Option<ProjectSection>,
+    /// Only these projects, if the list is not empty.
+    pub ids: Vec<ProjectId>,
     /// The page to return.
     pub page: PageRequest<ProjectId>,
 }
@@ -100,6 +116,10 @@ pub struct ListedProject {
     pub running: bool,
     /// The creation time of the newest job of the project.
     pub last_job_at: Option<OffsetDateTime>,
+    /// The place of the project in its group, if a member set one.
+    pub position: Option<i32>,
+    /// The place of the group of the project in the order of the groups, if it has a group.
+    pub group_position: Option<i32>,
 }
 
 impl ListedProject {
@@ -125,6 +145,29 @@ impl ListedProject {
     fn compare_names(&self, other: &Self) -> Ordering {
         lower(&self.project.name).cmp(&lower(&other.project.name))
     }
+
+    /// Compares two projects in the order of the workspace: the groups in their order, then no
+    /// group, and in each group the places, then no place.
+    fn compare_places(&self, other: &Self) -> Ordering {
+        let group = |listed: &Self| {
+            let id = listed.project.group_id.map(|id| id.to_bytes());
+            (listed.group_position.is_none(), listed.group_position, id)
+        };
+        let place = |listed: &Self| (listed.position.is_none(), listed.position);
+        group(self)
+            .cmp(&group(other))
+            .then_with(|| place(self).cmp(&place(other)))
+    }
+
+    /// Returns `true` when the project is in the section and in the ids of a list.
+    fn is_in(&self, query: &ListProjects) -> bool {
+        let in_section = match query.section {
+            None => true,
+            Some(ProjectSection::Group(group)) => self.project.group_id == Some(group),
+            Some(ProjectSection::Ungrouped) => self.project.group_id.is_none(),
+        };
+        in_section && (query.ids.is_empty() || query.ids.contains(&self.project.id))
+    }
 }
 
 impl ProjectOrder {
@@ -132,7 +175,7 @@ impl ProjectOrder {
     /// which is the order of creation.
     pub fn compare(self, left: &ListedProject, right: &ListedProject) -> Ordering {
         let keys = match self {
-            Self::Position => Ordering::Equal,
+            Self::Position => left.compare_places(right),
             Self::Name => left.compare_names(right),
             Self::LastJob => match (left.last_job_at, right.last_job_at) {
                 (Some(left_at), Some(right_at)) => right_at.cmp(&left_at),
@@ -179,14 +222,14 @@ pub struct ProjectPage {
 }
 
 impl ProjectPage {
-    /// Keeps the projects of the search, counts them, keeps the projects of the health, sorts
-    /// them, and keeps the page after the project of the request. A project that is not in the
-    /// list gives an empty page.
+    /// Keeps the projects of the section, of the ids and of the search, counts them, keeps the
+    /// projects of the health, sorts them, and keeps the page after the project of the request. A
+    /// project that is not in the list gives an empty page.
     pub fn of(all: Vec<ListedProject>, query: &ListProjects) -> Self {
-        // Keep the projects of the search, and count them.
+        // Keep the projects of the section, of the ids and of the search, and count them.
         let found: Vec<_> = all
             .into_iter()
-            .filter(|listed| query.search.keeps(listed))
+            .filter(|listed| listed.is_in(query) && query.search.keeps(listed))
             .collect();
         let count = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
         let counts = ProjectCounts {

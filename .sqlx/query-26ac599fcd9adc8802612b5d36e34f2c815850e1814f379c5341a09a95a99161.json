@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, created_by, name, description, created_at, icon_name,\n                icon_color, icon_image_id\n         FROM projects WHERE id = $1",
+  "query": "SELECT id, workspace_id, created_by, name, description, created_at, icon_name,\n                icon_color, icon_image_id, group_id\n         FROM projects WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -101,6 +101,17 @@
             "name": "icon_image_id"
           }
         }
+      },
+      {
+        "ordinal": 9,
+        "name": "group_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "group_id"
+          }
+        }
       }
     ],
     "parameters": {
@@ -117,8 +128,9 @@
       false,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "af16c27588a5133a89fa3c7723bfc57d2bcf3db975abe55d6438542d16d8b290"
+  "hash": "26ac599fcd9adc8802612b5d36e34f2c815850e1814f379c5341a09a95a99161"
 }

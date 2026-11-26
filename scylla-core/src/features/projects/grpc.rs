@@ -144,6 +144,8 @@ impl ProjectsGrpc {
             search: parse::field(request.query, "query")?,
             order: convert::order(request.order)?,
             health: convert::health(request.health)?,
+            section: convert::section(request.section)?,
+            ids: convert::ids(request.project_ids)?,
             page: parse::optional(request.page, "page")?,
         };
 
@@ -263,6 +265,7 @@ impl ToProto<pb::Project> for Project {
             description: self.description,
             created_at: Some(parse::timestamp(self.created_at)),
             icon: self.icon.map(ToProto::to_proto),
+            group_id: self.group_id.map(ToProto::to_proto),
         }
     }
 }

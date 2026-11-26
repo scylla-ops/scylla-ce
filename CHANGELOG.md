@@ -25,6 +25,12 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   project icons. The server deletes the old image when it gets a new one, when a user deletes the
   account, and when an admin deletes the App. `ListMembers` and the export of an account give the
   photo. The new migration only adds nullable columns.
+- Groups of projects in a workspace. The new migration adds the table `project_groups` and the
+  nullable columns `projects.group_id` and `projects.position`. The owners, the admins and the
+  members of a workspace create, rename, reorder and delete its groups, and the editors of a project
+  also move it to a group. When a group is deleted, its projects go to no group. `ListProjects`
+  finds the projects of one group, the projects with no group, or at most 100 given projects, and
+  the position order uses the place of each project in its group.
 
 ### Fixed
 

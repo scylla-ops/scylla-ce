@@ -2,8 +2,12 @@
 
 use time::{Duration, OffsetDateTime};
 
-use super::{ListProjects, ListedProject, ProjectHealth, ProjectOrder, ProjectPage, ProjectSearch};
+use super::{
+    ListProjects, ListedProject, ProjectHealth, ProjectOrder, ProjectPage, ProjectSearch,
+    ProjectSection,
+};
 use crate::identity::actors::ActorId;
+use crate::projects::groups::ProjectGroupId;
 use crate::projects::{Project, ProjectId};
 use crate::tenancy::workspaces::WorkspaceId;
 use crate::{DomainError, PageRequest, PageSize};
@@ -19,13 +23,29 @@ fn listed(name: &str, failing: u32, running: bool) -> ListedProject {
             description: String::new(),
             created_at: OffsetDateTime::UNIX_EPOCH,
             icon: None,
+            group_id: None,
         },
         repository: None,
         pipelines: Vec::new(),
         failing,
         running,
         last_job_at: None,
+        position: None,
+        group_position: None,
     }
+}
+
+/// Makes a listed project in a group, with the place of the group and its own place.
+fn placed(
+    name: &str,
+    group: Option<(ProjectGroupId, i32)>,
+    position: Option<i32>,
+) -> ListedProject {
+    let mut listed = listed(name, 0, false);
+    listed.project.group_id = group.map(|(id, _)| id);
+    listed.group_position = group.map(|(_, place)| place);
+    listed.position = position;
+    listed
 }
 
 /// Makes the input of a list with a search text, an order and a health.
@@ -184,6 +204,70 @@ fn the_pages_follow_the_order_of_the_request() {
     assert_eq!(first.next_after, Some(first.items[1].id));
     assert_eq!(names(&second), created[2..]);
     assert_eq!(second.next_after, None);
+}
+
+/// The position order puts the groups in their order, then the projects with no group, and in
+/// each the places, then the projects with no place.
+#[test]
+fn the_position_order_puts_the_groups_then_the_places() {
+    // given
+    let first = (ProjectGroupId::generate(), 0);
+    let second = (ProjectGroupId::generate(), 1);
+    let all = vec![
+        placed("loose-last", None, None),
+        placed("second-0", Some(second), Some(0)),
+        placed("first-none", Some(first), None),
+        placed("loose-0", None, Some(0)),
+        placed("first-1", Some(first), Some(1)),
+        placed("first-0", Some(first), Some(0)),
+    ];
+
+    // when
+    let page = ProjectPage::of(all, &query("", ProjectOrder::Position, ProjectHealth::All));
+
+    // then
+    assert_eq!(
+        names(&page),
+        [
+            "first-0",
+            "first-1",
+            "first-none",
+            "second-0",
+            "loose-0",
+            "loose-last"
+        ]
+    );
+}
+
+/// A section keeps the projects of its group, or the projects with no group, and the ids keep
+/// their projects. The counts read only these projects.
+#[test]
+fn the_section_and_the_ids_keep_their_projects() {
+    // given
+    let group = (ProjectGroupId::generate(), 0);
+    let all = vec![
+        placed("in-group", Some(group), None),
+        placed("loose", None, None),
+        placed("other", None, None),
+    ];
+    let pinned = all[2].project.id;
+    let mut grouped = query("", ProjectOrder::Name, ProjectHealth::All);
+    grouped.section = Some(ProjectSection::Group(group.0));
+    let mut ungrouped = query("", ProjectOrder::Name, ProjectHealth::All);
+    ungrouped.section = Some(ProjectSection::Ungrouped);
+    let mut by_ids = query("", ProjectOrder::Name, ProjectHealth::All);
+    by_ids.ids = vec![pinned];
+
+    // when
+    let in_group = ProjectPage::of(all.clone(), &grouped);
+    let with_no_group = ProjectPage::of(all.clone(), &ungrouped);
+    let of_ids = ProjectPage::of(all, &by_ids);
+
+    // then
+    assert_eq!(names(&in_group), ["in-group"]);
+    assert_eq!(names(&with_no_group), ["loose", "other"]);
+    assert_eq!(with_no_group.counts.total, 2);
+    assert_eq!(names(&of_ids), ["other"]);
 }
 
 /// A search text of more than 100 characters is refused.

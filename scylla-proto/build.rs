@@ -56,6 +56,8 @@ const PROTOS: &[&str] = &[
     "scylla/platform/v1/settings_service.proto",
     "scylla/platform/v1/vcs_app_service.proto",
     "scylla/projects/v1/project.proto",
+    "scylla/projects/v1/project_group.proto",
+    "scylla/projects/v1/project_group_service.proto",
     "scylla/projects/v1/project_service.proto",
     "scylla/projects/v1/secret.proto",
     "scylla/projects/v1/secret_service.proto",

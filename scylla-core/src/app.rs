@@ -19,6 +19,7 @@ use crate::features::identity::user_state::UserState;
 use crate::features::integrations::Integrations;
 use crate::features::notifications::Notifications;
 use crate::features::platform::capabilities::Capabilities;
+use crate::features::projects::groups::ProjectGroups;
 use crate::features::projects::pipelines::Pipelines;
 use crate::features::projects::triggers::Triggers;
 use crate::features::projects::Projects;
@@ -46,6 +47,7 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .plugin(Workspaces)
         .plugin(Apps)
         .plugin(Projects)
+        .plugin(ProjectGroups)
         .plugin(Pipelines)
         .plugin(Triggers)
         .plugin(Capabilities)

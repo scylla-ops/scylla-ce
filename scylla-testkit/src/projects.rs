@@ -1,4 +1,7 @@
-//! The `TestApp` helpers of `ProjectService` and of `SecretService`.
+//! The `TestApp` helpers of `ProjectService` and of `SecretService`. The helpers of
+//! `ProjectGroupService` are in `groups`.
+
+mod groups;
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
