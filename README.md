@@ -184,6 +184,8 @@ sudo install -d -o 10001 -g 10001 -m 700 /var/lib/scylla-agent
 docker run -d --name scylla-agent --restart unless-stopped --group-add "$(stat -c %g /var/run/docker.sock)" -e SCYLLA_URL=https://scylla.example.com -e SCYLLA_JOIN_CODE=<join code> -e SCYLLA_AGENT_CONTAINER_RUNTIME=docker -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/scylla-agent:/var/lib/scylla-agent ghcr.io/scylla-ops/scylla-agent:<version>
 ```
 
+In the image, `tini` is PID 1. It reaps the processes that the jobs leave, and it sends the stop signals to the agent. If your image starts `FROM` this image with a different `ENTRYPOINT`, keep `tini` in it, or run the container with `docker run --init` (`init: true` in Compose).
+
 For a server on the same machine as Docker Desktop, the address is `http://host.docker.internal:3000`. On Linux, use `--network host` with `http://127.0.0.1:3000`.
 
 An agent uses HTTP/2 and keeps one stream open. A reverse proxy in front of the server must send HTTP/2 to the server, and it needs a long read timeout. A certificate from a public authority or from an authority of the system works with no setting.

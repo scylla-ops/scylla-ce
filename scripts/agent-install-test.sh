@@ -311,6 +311,13 @@ test_docker() {
   [ -z "$(app_runtime)" ] || die "the shell agent has a runtime"
   run_job "$(sh_node 'echo hello-from-the-image; id -u; git --version; bash --version')" hello-from-the-image
 
+  step "tini is PID 1 and reaps the processes that a job leaves"
+  [ "$(docker exec scylla-agent cat /proc/1/comm)" = tini ] || die "PID 1 of the image is not tini"
+  run_job "$(sh_node '(sleep 1 &); echo an-orphan-process')" an-orphan-process
+  sleep 3
+  [ -z "$(docker exec scylla-agent sh -c 'grep -ls "^State:[[:space:]]*Z" /proc/[0-9]*/status')" ] ||
+    die "a process of the job stays a zombie"
+
   step "a restart and an update use no code"
   docker restart scylla-agent >/dev/null
   until_true "the agent did not come back" 30 connected
