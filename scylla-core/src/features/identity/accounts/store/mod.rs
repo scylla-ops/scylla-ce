@@ -11,6 +11,6 @@ pub(crate) use emails::{
 };
 pub(crate) use passwords::{credentials, password_hash, record_failure, set_password, Lock};
 pub(crate) use users::{
-    delete_user, find_user, insert_user, list_users, lock_user, record_sign_in, set_status,
-    update_profile,
+    avatar_image, delete_user, find_user, insert_user, list_users, lock_user, record_sign_in,
+    set_avatar_image, set_status, update_profile,
 };

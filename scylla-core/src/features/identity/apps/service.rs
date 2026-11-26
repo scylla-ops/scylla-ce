@@ -14,11 +14,12 @@ use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
 
 use super::assertion;
-use super::store::{apps, codes, keys};
+use super::store::{apps, codes, icons, keys};
 use crate::features::activity;
 use crate::features::identity::actors;
 use crate::features::identity::agents::Registry;
 use crate::features::identity::api_tokens;
+use crate::features::platform::images;
 use crate::features::projects::jobs::runs;
 use crate::features::tenancy::roles;
 use crate::infra::secret;
@@ -81,10 +82,14 @@ pub(crate) async fn delete(
     registry: &Registry,
     id: AppId,
 ) -> Result<(), Error> {
-    // Delete the row in one transaction.
+    // Delete the row and the image of its icon in one transaction.
     let mut tx = pool.begin().await?;
+    let image = icons::lock(&mut tx, id).await?.flatten();
     if !apps::delete(&mut tx, id).await? {
         return Err(Error::NotFound("app"));
+    }
+    if let Some(image) = image {
+        images::store::delete(&mut tx, image).await?;
     }
     api_tokens::delete_all(&mut tx, App::actor(id)).await?;
     roles::delete_grants_of(&mut tx, App::actor(id)).await?;

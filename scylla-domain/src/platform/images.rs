@@ -1,5 +1,5 @@
-//! The images that a person uploads, and the custom icon of a resource: a glyph of the icon set
-//! of the web app with a color, or an image.
+//! The images that a person uploads, the custom icon of a resource (a glyph of the icon set of the
+//! web app with a color, or an image), and the avatar of a person.
 
 use crate::{DomainError, Id};
 
@@ -146,6 +146,24 @@ impl Icon {
     }
 }
 
+/// The avatar of a person: an uploaded image, and the color of its initials. A person with
+/// neither shows the initials on the default color.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Avatar {
+    /// The image, if the person has one.
+    pub image: Option<ImageId>,
+    /// The color of the initials, or `None` for the default color.
+    pub color: Option<IconColor>,
+}
+
+impl Avatar {
+    /// Makes the avatar of the two columns of a row. Gives `None` for no image and no valid color.
+    pub fn of_columns(image: Option<ImageId>, color: Option<String>) -> Option<Self> {
+        let color = color.and_then(|color| IconColor::parse(color).ok().flatten());
+        (image.is_some() || color.is_some()).then_some(Self { image, color })
+    }
+}
+
 /// A change of the custom icon of a resource.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IconChange {
@@ -161,7 +179,7 @@ pub enum IconChange {
 mod tests {
     //! Unit tests of the values of an icon.
 
-    use super::{GlyphName, Icon, IconColor, Image, ImageId, Upload};
+    use super::{Avatar, GlyphName, Icon, IconColor, Image, ImageId, Upload};
     use crate::DomainError;
 
     /// A glyph name has lower case letters, digits and dashes, with no dash first.
@@ -252,6 +270,27 @@ mod tests {
         assert_eq!(
             glyph.color.map(|color| color.as_str().to_owned()),
             Some("#00ff00".to_owned())
+        );
+        assert_eq!(none, None);
+    }
+
+    /// A row with an image or a valid color has an avatar, and a bad color is no color.
+    #[test]
+    fn avatar_of_columns_needs_an_image_or_a_color() {
+        // given
+        let image = ImageId::generate();
+
+        // when
+        let with_image = Avatar::of_columns(Some(image), Some("Bad".to_owned()));
+        let with_color = Avatar::of_columns(None, Some("chart-4".to_owned()));
+        let none = Avatar::of_columns(None, Some("Bad".to_owned()));
+
+        // then
+        assert_eq!(with_image.map(|avatar| avatar.image), Some(Some(image)));
+        let color = with_color.and_then(|avatar| avatar.color);
+        assert_eq!(
+            color.map(|color| color.as_str().to_owned()),
+            Some("chart-4".to_owned())
         );
         assert_eq!(none, None);
     }

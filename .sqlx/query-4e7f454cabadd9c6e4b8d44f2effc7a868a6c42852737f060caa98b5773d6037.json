@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,\n                protocol, build, started_at, disabled_at, labels\n         FROM apps WHERE id = $1",
+  "query": "UPDATE apps SET labels = $2 WHERE id = $1\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, protocol, build, started_at, disabled_at, labels, icon_name,\n                   icon_color, icon_image_id",
   "describe": {
     "columns": [
       {
@@ -233,11 +233,45 @@
             "name": "labels"
           }
         }
+      },
+      {
+        "ordinal": 21,
+        "name": "icon_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "icon_name"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "icon_color",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "icon_color"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "icon_image_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "icon_image_id"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -261,8 +295,11 @@
       true,
       true,
       true,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "243fbae5c8de45ab469da179c67783f4b9247c90f29a21d38d5062797a94d2de"
+  "hash": "4e7f454cabadd9c6e4b8d44f2effc7a868a6c42852737f060caa98b5773d6037"
 }

@@ -2,6 +2,7 @@
 
 use scylla_domain::identity::terms::Acceptance;
 use scylla_domain::identity::users::{ProfileChange, SessionId, User};
+use scylla_domain::platform::images::{IconColor, Upload};
 use scylla_proto::accounts::v1 as pb;
 
 use crate::api::parse::{self, ToProto};
@@ -18,6 +19,7 @@ impl ToProto<pb::User> for User {
             status: self.status.as_str().to_owned(),
             instance_admin: self.instance_admin,
             created_at: Some(parse::timestamp(self.created_at)),
+            avatar: self.avatar.map(ToProto::to_proto),
         }
     }
 }
@@ -61,5 +63,25 @@ pub(crate) fn profile_change(
     Ok(ProfileChange {
         display_name,
         handle,
+        ..ProfileChange::default()
     })
+}
+
+/// Reads the new image of an avatar. Empty bytes remove the image.
+pub(crate) fn avatar_image(bytes: Option<Vec<u8>>) -> Result<Option<Option<Upload>>, Error> {
+    bytes
+        .map(|bytes| match bytes.is_empty() {
+            true => Ok(None),
+            false => Upload::parse(bytes).map(Some),
+        })
+        .transpose()
+        .map_err(|error| Error::invalid("avatar_image", error.to_string()))
+}
+
+/// Reads the new color of the initials of an avatar. An empty text gives the default color.
+pub(crate) fn avatar_color(color: Option<String>) -> Result<Option<Option<IconColor>>, Error> {
+    color
+        .map(IconColor::parse)
+        .transpose()
+        .map_err(|error| Error::invalid("avatar_color", error.to_string()))
 }

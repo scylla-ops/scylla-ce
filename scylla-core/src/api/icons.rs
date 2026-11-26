@@ -1,6 +1,9 @@
-//! The conversions of the custom icons between the proto messages and the domain.
+//! The conversions of the custom icons and of the avatars between the proto messages and the
+//! domain.
 
-use scylla_domain::platform::images::{GlyphName, Icon, IconChange, IconColor, IconGlyph, Upload};
+use scylla_domain::platform::images::{
+    Avatar, GlyphName, Icon, IconChange, IconColor, IconGlyph, Upload,
+};
 use scylla_proto::common::v1 as pb;
 use scylla_proto::common::v1::icon::Kind;
 use scylla_proto::common::v1::icon_change::Kind as ChangeKind;
@@ -20,6 +23,18 @@ impl ToProto<pb::Icon> for Icon {
             Self::Image(id) => Kind::ImageId(id.to_proto()),
         };
         pb::Icon { kind: Some(kind) }
+    }
+}
+
+impl ToProto<pb::Avatar> for Avatar {
+    fn to_proto(self) -> pb::Avatar {
+        pb::Avatar {
+            image_id: self.image.map(ToProto::to_proto),
+            color: self
+                .color
+                .map(|color| color.as_str().to_owned())
+                .unwrap_or_default(),
+        }
     }
 }
 

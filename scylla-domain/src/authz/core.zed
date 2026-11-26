@@ -68,6 +68,7 @@ definition workspace {
     permission list_ci_identities = read
     permission remove_ci_identity = manage
     permission set_app_labels = manage
+    permission set_app_icon = manage
     permission get_slot_usage = read
     permission get_agent_metrics = read
     permission create_project = work
@@ -162,6 +163,7 @@ definition app {
     permission list_ci_identities = creator
     permission remove_ci_identity = creator
     permission set_app_labels = nil
+    permission set_app_icon = nil
     permission get_agent_metrics = creator
 }
 

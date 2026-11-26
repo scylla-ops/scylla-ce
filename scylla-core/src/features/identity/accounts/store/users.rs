@@ -3,6 +3,7 @@
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::admins::ListUsers;
 use scylla_domain::identity::users::{ProfileChange, User, UserStatus};
+use scylla_domain::platform::images::{Avatar, IconColor, ImageId};
 use scylla_extension::{Rejection, Tx};
 
 use time::OffsetDateTime;
@@ -29,6 +30,10 @@ struct UserRow {
     instance_admin: bool,
     /// The creation time.
     created_at: OffsetDateTime,
+    /// The image of the avatar.
+    avatar_image_id: Option<Uuid>,
+    /// The color of the initials.
+    avatar_color: Option<String>,
 }
 
 impl From<UserRow> for User {
@@ -41,6 +46,7 @@ impl From<UserRow> for User {
             status: UserStatus::from_name(&row.status),
             instance_admin: row.instance_admin,
             created_at: row.created_at,
+            avatar: Avatar::of_columns(row.avatar_image_id.map(ImageId::from_db), row.avatar_color),
         }
     }
 }
@@ -73,7 +79,7 @@ pub(crate) async fn find_user(tx: &mut Tx<'_>, id: ActorId) -> Result<Option<Use
         r#"SELECT u.id, u.display_name, u.handle, e.email AS "email?", u.status,
                   EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)
                       AS "instance_admin!",
-                  u.created_at
+                  u.created_at, u.avatar_image_id, u.avatar_color
            FROM users u
            LEFT JOIN user_emails e ON e.user_id = u.id AND e.is_primary
            WHERE u.id = $1"#,
@@ -92,7 +98,7 @@ pub(crate) async fn list_users(tx: &mut Tx<'_>, query: &ListUsers) -> Result<Vec
         r#"SELECT u.id, u.display_name, u.handle, e.email AS "email?", u.status,
                   EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)
                       AS "instance_admin!",
-                  u.created_at
+                  u.created_at, u.avatar_image_id, u.avatar_color
            FROM users u
            LEFT JOIN user_emails e ON e.user_id = u.id AND e.is_primary
            WHERE ($1 = ''
@@ -125,26 +131,58 @@ pub(crate) async fn lock_user(tx: &mut Tx<'_>, id: ActorId) -> Result<bool, Erro
     Ok(row.is_some())
 }
 
-/// Changes the display name or the handle of a user. A used handle gives `HANDLE_IN_USE`.
+/// Changes the display name, the handle or the color of the avatar of a user. A used handle gives
+/// `HANDLE_IN_USE`.
 pub(crate) async fn update_profile(
     tx: &mut Tx<'_>,
     id: ActorId,
     change: &ProfileChange,
 ) -> Result<(), Error> {
     let handle = change.handle.as_ref().map(|handle| handle.as_ref());
+    let color = change.avatar_color.as_ref().map(|color| color.as_ref());
     sqlx::query!(
         "UPDATE users
          SET display_name = coalesce($2, display_name),
-             handle = CASE WHEN $3 THEN $4 ELSE handle END
+             handle = CASE WHEN $3 THEN $4 ELSE handle END,
+             avatar_color = CASE WHEN $5 THEN $6 ELSE avatar_color END
          WHERE id = $1",
         id.to_db(),
         change.display_name.as_ref().map(|name| name.as_str()),
         handle.is_some(),
         handle.flatten().map(|handle| handle.as_str()),
+        color.is_some(),
+        color.flatten().map(IconColor::as_str),
     )
     .execute(&mut **tx)
     .await
     .map_err(handle_error)?;
+    Ok(())
+}
+
+/// Returns the image of the avatar of a user, if it has one.
+pub(crate) async fn avatar_image(tx: &mut Tx<'_>, id: ActorId) -> Result<Option<ImageId>, Error> {
+    let image = sqlx::query_scalar!(
+        "SELECT avatar_image_id FROM users WHERE id = $1",
+        id.to_db()
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(image.flatten().map(ImageId::from_db))
+}
+
+/// Sets the image of the avatar of a user. `None` removes it.
+pub(crate) async fn set_avatar_image(
+    tx: &mut Tx<'_>,
+    id: ActorId,
+    image: Option<ImageId>,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "UPDATE users SET avatar_image_id = $2 WHERE id = $1",
+        id.to_db(),
+        image.map(ImageId::to_db),
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -182,12 +220,16 @@ pub(crate) async fn record_sign_in(tx: &mut Tx<'_>, user: ActorId) -> Result<(),
 }
 
 /// Deletes the row of a user: its emails, password, sessions, identities, one-time tokens and
-/// admin row go with it. Its actor stays, so each `created_by` stays valid.
-pub(crate) async fn delete_user(tx: &mut Tx<'_>, id: ActorId) -> Result<(), Error> {
-    sqlx::query!("DELETE FROM users WHERE id = $1", id.to_db())
-        .execute(&mut **tx)
-        .await?;
-    Ok(())
+/// admin row go with it. Its actor stays, so each `created_by` stays valid. Returns the image of
+/// its avatar, if it had one.
+pub(crate) async fn delete_user(tx: &mut Tx<'_>, id: ActorId) -> Result<Option<ImageId>, Error> {
+    let image = sqlx::query_scalar!(
+        "DELETE FROM users WHERE id = $1 RETURNING avatar_image_id",
+        id.to_db()
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(image.flatten().map(ImageId::from_db))
 }
 
 /// Maps the violation of the unique handle to `HANDLE_IN_USE`.

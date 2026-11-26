@@ -6,6 +6,7 @@ use std::fmt;
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId, ActorKind};
+use crate::platform::images::{Avatar, IconColor, Upload};
 use crate::Name;
 use crate::{DomainError, Id};
 
@@ -196,6 +197,8 @@ pub struct User {
     pub instance_admin: bool,
     /// The creation time, set by the database.
     pub created_at: OffsetDateTime,
+    /// The avatar that the user chose, or `None` for the default avatar.
+    pub avatar: Option<Avatar>,
 }
 
 /// The input of a user creation.
@@ -220,6 +223,10 @@ pub struct ProfileChange {
     pub display_name: Option<Name>,
     /// The new handle. `Some(None)` removes the handle.
     pub handle: Option<Option<Handle>>,
+    /// The upload of a new image of the avatar. `Some(None)` removes the image.
+    pub avatar_image: Option<Option<Upload>>,
+    /// The new color of the initials. `Some(None)` gives the default color.
+    pub avatar_color: Option<Option<IconColor>>,
 }
 
 crate::authz! {

@@ -161,6 +161,13 @@ impl AppService for AppsGrpc {
     ) -> Result<Response<pb::SetAppLabelsResponse>, Status> {
         Ok(Response::new(self.set_labels(request).await?))
     }
+
+    async fn set_app_icon(
+        &self,
+        request: Request<pb::SetAppIconRequest>,
+    ) -> Result<Response<pb::SetAppIconResponse>, Status> {
+        Ok(Response::new(self.set_icon(request).await?))
+    }
 }
 
 impl AppsGrpc {

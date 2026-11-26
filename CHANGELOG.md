@@ -19,6 +19,12 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   running ones, and returns their counts. `ListRepositoryLinks` returns the repository links of a
   workspace, or of at most 100 projects, in one call, with no link for a project that the caller
   cannot read. No migration.
+- A photo for each user and an icon for each App. A user sets an image or the color of the initials
+  with `UpdateProfile`. An admin of the workspace sets the icon of an App with `SetAppIcon`: a glyph
+  with a color, an image, or the default icon. The images go through the image service of the
+  project icons. The server deletes the old image when it gets a new one, when a user deletes the
+  account, and when an admin deletes the App. `ListMembers` and the export of an account give the
+  photo. The new migration only adds nullable columns.
 
 ### Fixed
 

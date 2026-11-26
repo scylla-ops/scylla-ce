@@ -1,6 +1,7 @@
 //! The SQL of a list of the access: the owners of a workspace and the profiles of the actors.
 
 use scylla_domain::identity::actors::{ActorId, ActorKind};
+use scylla_domain::platform::images::{Avatar, Icon, ImageId};
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::grants::{AccessEntry, OWNER};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -18,7 +19,8 @@ pub(crate) async fn owners(
     limit: usize,
 ) -> Result<Vec<AccessEntry>, Error> {
     let rows = sqlx::query!(
-        r#"SELECT o.user_id, a.kind, u.display_name, u.handle FROM workspace_owners o
+        r#"SELECT o.user_id, a.kind, u.display_name, u.handle, u.avatar_image_id, u.avatar_color
+           FROM workspace_owners o
            JOIN users u ON u.id = o.user_id
            JOIN actors a ON a.id = o.user_id
            WHERE o.workspace_id = $1 AND ($2::uuid IS NULL OR o.user_id > $2)
@@ -38,6 +40,8 @@ pub(crate) async fn owners(
             display_name: row.display_name,
             handle: row.handle,
             runner: false,
+            avatar: Avatar::of_columns(row.avatar_image_id.map(ImageId::from_db), row.avatar_color),
+            icon: None,
             role: OWNER.to_owned(),
         })
         .collect())
@@ -160,8 +164,8 @@ pub(crate) async fn others_on_scope(
     Ok(found)
 }
 
-/// Returns the kind of each actor, with the display name and the handle of a user, or the name
-/// of an App and if it is an agent. The role of each entry is empty.
+/// Returns the kind of each actor, with the display name, the handle and the avatar of a user, or
+/// the name, the icon and the agent flag of an App. The role of each entry is empty.
 pub(crate) async fn profiles(
     tx: &mut Tx<'_>,
     actors: &[ActorId],
@@ -170,7 +174,10 @@ pub(crate) async fn profiles(
     let rows = sqlx::query!(
         r#"SELECT a.id AS "id!", a.kind AS "kind!",
                   coalesce(u.display_name, p.name) AS "display_name?", u.handle,
-                  coalesce(p.runner, false) AS "runner!"
+                  coalesce(p.runner, false) AS "runner!",
+                  u.avatar_image_id AS "avatar_image_id?", u.avatar_color AS "avatar_color?",
+                  p.icon_name AS "icon_name?", p.icon_color AS "icon_color?",
+                  p.icon_image_id AS "icon_image_id?"
            FROM actors a
            LEFT JOIN users u ON u.id = a.id
            LEFT JOIN apps p ON p.id = a.id
@@ -187,6 +194,12 @@ pub(crate) async fn profiles(
             display_name: row.display_name.unwrap_or_default(),
             handle: row.handle,
             runner: row.runner,
+            avatar: Avatar::of_columns(row.avatar_image_id.map(ImageId::from_db), row.avatar_color),
+            icon: Icon::of_columns(
+                row.icon_name,
+                row.icon_color,
+                row.icon_image_id.map(ImageId::from_db),
+            ),
             role: String::new(),
         })
         .collect())

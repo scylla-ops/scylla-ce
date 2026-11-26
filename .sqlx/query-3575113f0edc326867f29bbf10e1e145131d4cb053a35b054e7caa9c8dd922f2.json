@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO apps (id, workspace_id, name, runner, created_by) VALUES ($1, $2, $3, $4, $5)\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, protocol, build, started_at, disabled_at, labels",
+  "query": "INSERT INTO apps (id, workspace_id, name, runner, created_by) VALUES ($1, $2, $3, $4, $5)\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, protocol, build, started_at, disabled_at, labels, icon_name,\n                   icon_color, icon_image_id",
   "describe": {
     "columns": [
       {
@@ -233,6 +233,39 @@
             "name": "labels"
           }
         }
+      },
+      {
+        "ordinal": 21,
+        "name": "icon_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "icon_name"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "icon_color",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "icon_color"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "icon_image_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "icon_image_id"
+          }
+        }
       }
     ],
     "parameters": {
@@ -265,8 +298,11 @@
       true,
       true,
       true,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "133395645959b1a9d12113fdd230b23f0897b22a6b5fa756f632649a38e74f77"
+  "hash": "3575113f0edc326867f29bbf10e1e145131d4cb053a35b054e7caa9c8dd922f2"
 }

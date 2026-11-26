@@ -1,13 +1,14 @@
-//! The handlers of `AppService` for the life of an App: its delete, its disable, its enable and
-//! the labels of the admins.
+//! The handlers of `AppService` for the life of an App: its delete, its disable, its enable, and
+//! the labels and the icon of the admins.
 
 use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::identity::apps::{App, AppId};
+use scylla_domain::platform::images::IconChange;
 use scylla_proto::apps::v1 as pb;
 use tonic::Request;
 
 use super::grpc::AppsGrpc;
-use super::{labels_service, service};
+use super::{icon_service, labels_service, service};
 use crate::api::parse;
 use crate::Error;
 
@@ -57,6 +58,28 @@ impl AppsGrpc {
         self.authorize(&caller, App::SET_APP_LABELS, id).await?;
         let app = labels_service::set_labels(&self.pool, &self.registry, id, labels).await?;
         Ok(pb::SetAppLabelsResponse {
+            app: self.messages(vec![app]).await?.pop(),
+        })
+    }
+
+    /// Handles `SetAppIcon`: the icon of the admins replaces the icon of the App.
+    pub(super) async fn set_icon(
+        &self,
+        request: Request<pb::SetAppIconRequest>,
+    ) -> Result<pb::SetAppIconResponse, Error> {
+        // Authenticate the caller, then read the request.
+        let caller = self.gate.caller(&request).await?;
+        let request = request.into_inner();
+        let id: AppId = parse::required(request.app_id, "app_id")?;
+        let change = match request.icon {
+            Some(icon) => parse::field(icon, "icon")?,
+            None => IconChange::Default,
+        };
+
+        // Check the route permission, then change the icon.
+        self.authorize(&caller, App::SET_APP_ICON, id).await?;
+        let app = icon_service::set_icon(&self.pool, caller.actor.id, id, change).await?;
+        Ok(pb::SetAppIconResponse {
             app: self.messages(vec![app]).await?.pop(),
         })
     }

@@ -3,7 +3,7 @@
 
 use scylla_domain::authz::Permission;
 use scylla_domain::identity::actors::{Actor, ActorId};
-use scylla_domain::identity::users::{AccountCaller, SessionId, KIND};
+use scylla_domain::identity::users::{AccountCaller, ProfileChange, SessionId, KIND};
 use scylla_extension::{AccessError, Principal};
 use scylla_proto::accounts::v1 as pb;
 use scylla_proto::accounts::v1::profile_service_server::{ProfileService, ProfileServiceServer};
@@ -47,8 +47,12 @@ impl ProfileService for ProfileGrpc {
     ) -> Answer<pb::UpdateProfileResponse> {
         let (_, user) = self.user(&request, AccountCaller::UPDATE_PROFILE).await?;
         let request = request.into_inner();
-        let change = convert::profile_change(request.display_name, request.handle)?;
-        let user = manage::change_profile(&self.ctx.pool, user, &change, None).await?;
+        let change = ProfileChange {
+            avatar_image: convert::avatar_image(request.avatar_image)?,
+            avatar_color: convert::avatar_color(request.avatar_color)?,
+            ..convert::profile_change(request.display_name, request.handle)?
+        };
+        let user = manage::change_profile(&self.ctx.pool, user, change, None).await?;
         Ok(Response::new(pb::UpdateProfileResponse {
             user: Some(user.to_proto()),
         }))
