@@ -268,6 +268,8 @@ pub(super) const AREAS: &[Area] = &[
                 &[
                     Route::of(ProjectHolder::LIST_SECRETS),
                     Route::of(Project::LIST_SECRETS),
+                    Route::of(ProjectHolder::LIST_WORKSPACE_SECRETS),
+                    Route::of(Project::LIST_WORKSPACE_SECRETS),
                 ],
             ),
             cell(

@@ -41,7 +41,11 @@ pub(crate) async fn all(
              AND (cardinality($4::uuid[]) = 0 OR t.project_id = ANY($4))
              AND (cardinality($5::uuid[]) = 0 OR t.pipeline_id = ANY($5))
              AND (cardinality($6::text[]) = 0 OR t.kind = ANY($6))
-             AND (NOT $7 OR t.enabled)"#,
+             AND (NOT $7 OR t.enabled)
+             AND ($8 = ''
+                  OR strpos(lower(t.name), $8) > 0
+                  OR strpos(lower(p.name), $8) > 0
+                  OR strpos(lower(r.name), $8) > 0)"#,
         query.workspace.to_db(),
         query.visible.is_none(),
         &visible,
@@ -49,6 +53,7 @@ pub(crate) async fn all(
         &pipelines,
         &kinds as &[&str],
         query.enabled_only,
+        query.query.as_str(),
     )
     .fetch_all(&mut **tx)
     .await?;

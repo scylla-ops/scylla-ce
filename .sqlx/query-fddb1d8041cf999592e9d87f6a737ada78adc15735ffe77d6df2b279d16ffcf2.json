@@ -1,0 +1,105 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.id, s.project_id, s.name, s.created_by, s.created_at, s.updated_at,\n                p.name AS project_name\n         FROM secrets s JOIN projects p ON p.id = s.project_id\n         WHERE p.workspace_id = $1\n           AND ($2::bool OR s.project_id = ANY($3::uuid[]))\n           AND ($4::uuid IS NULL OR s.id < $4)\n           AND ($5 = '' OR strpos(lower(s.name), $5) > 0 OR strpos(lower(p.name), $5) > 0)\n         ORDER BY s.id DESC\n         LIMIT $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "secrets",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "secrets",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "secrets",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "secrets",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "secrets",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "secrets",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "project_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "UuidArray",
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "fddb1d8041cf999592e9d87f6a737ada78adc15735ffe77d6df2b279d16ffcf2"
+}

@@ -102,6 +102,13 @@ pub(crate) async fn list(
            AND (cardinality($15::text[]) = 0 OR j.origin = ANY($15))
            AND ($16::timestamptz IS NULL OR j.created_at >= $16)
            AND ($17::timestamptz IS NULL OR j.created_at < $17)
+           AND ($18 = ''
+                OR strpos(right(j.id::text, 8), $18) > 0
+                OR strpos(lower(coalesce(s.branch, '')), $18) > 0
+                OR strpos(lower(coalesce(s.tag, '')), $18) > 0
+                OR strpos(lower(coalesce(s.message_title, '')), $18) > 0
+                OR EXISTS (SELECT 1 FROM pipelines p
+                           WHERE p.id = j.pipeline_id AND strpos(lower(p.name), $18) > 0))
          ORDER BY j.id DESC
          LIMIT $5",
         place.pipeline,
@@ -121,6 +128,7 @@ pub(crate) async fn list(
         &origins as &[&str],
         filter.created_after,
         filter.created_before,
+        filter.query.as_str(),
     )
     .fetch_all(&mut **tx)
     .await?;

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT t.id, t.pipeline_id, t.project_id, t.workspace_id, t.created_by, t.name,\n                  t.kind, t.schedule, t.rules, t.inputs, t.enabled, t.next_fire_at,\n                  t.last_fired_at, t.last_status, t.last_error, t.created_at, t.updated_at,\n                  p.name AS pipeline_name, r.name AS project_name,\n                  p.archived_at IS NULL AND p.removed_at IS NULL AS \"active!\"\n           FROM triggers t\n           JOIN pipelines p ON p.id = t.pipeline_id\n           JOIN projects r ON r.id = t.project_id\n           WHERE t.workspace_id = $1\n             AND ($2::bool OR t.project_id = ANY($3::uuid[]))\n             AND (cardinality($4::uuid[]) = 0 OR t.project_id = ANY($4))\n             AND (cardinality($5::uuid[]) = 0 OR t.pipeline_id = ANY($5))\n             AND (cardinality($6::text[]) = 0 OR t.kind = ANY($6))\n             AND (NOT $7 OR t.enabled)",
+  "query": "SELECT t.id, t.pipeline_id, t.project_id, t.workspace_id, t.created_by, t.name,\n                  t.kind, t.schedule, t.rules, t.inputs, t.enabled, t.next_fire_at,\n                  t.last_fired_at, t.last_status, t.last_error, t.created_at, t.updated_at,\n                  p.name AS pipeline_name, r.name AS project_name,\n                  p.archived_at IS NULL AND p.removed_at IS NULL AS \"active!\"\n           FROM triggers t\n           JOIN pipelines p ON p.id = t.pipeline_id\n           JOIN projects r ON r.id = t.project_id\n           WHERE t.workspace_id = $1\n             AND ($2::bool OR t.project_id = ANY($3::uuid[]))\n             AND (cardinality($4::uuid[]) = 0 OR t.project_id = ANY($4))\n             AND (cardinality($5::uuid[]) = 0 OR t.pipeline_id = ANY($5))\n             AND (cardinality($6::text[]) = 0 OR t.kind = ANY($6))\n             AND (NOT $7 OR t.enabled)\n             AND ($8 = ''\n                  OR strpos(lower(t.name), $8) > 0\n                  OR strpos(lower(p.name), $8) > 0\n                  OR strpos(lower(r.name), $8) > 0)",
   "describe": {
     "columns": [
       {
@@ -227,7 +227,8 @@
         "UuidArray",
         "UuidArray",
         "TextArray",
-        "Bool"
+        "Bool",
+        "Text"
       ]
     },
     "nullable": [
@@ -253,5 +254,5 @@
       null
     ]
   },
-  "hash": "1d3f1031b6a94688b32addb21a1e1b56d39587ea73920292a041f8472f9e35f1"
+  "hash": "ba3ed6eeb46753f55ad633b35c088a383cc5916ee321c23d9e4072d5d594d65e"
 }

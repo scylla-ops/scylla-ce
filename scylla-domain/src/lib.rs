@@ -14,6 +14,6 @@ pub mod projects;
 pub mod tenancy;
 
 pub use kernel::{
-    DomainError, Id, Name, Page, PageRequest, PageSize, ResourceKind, Span, TimeZone,
+    DomainError, Id, Name, Page, PageRequest, PageSize, ResourceKind, SearchText, Span, TimeZone,
 };
 pub use scylla_macros::authz;

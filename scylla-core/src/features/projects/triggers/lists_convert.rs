@@ -8,7 +8,7 @@ use scylla_domain::projects::triggers::{
     TriggerOrder, WorkspaceFires, MAX_UPCOMING_DAYS,
 };
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_domain::{Id, Span};
+use scylla_domain::{Id, SearchText, Span};
 use scylla_proto::common::v1::Id as ProtoId;
 use scylla_proto::pipelines::v1 as pb;
 use time::{Duration, OffsetDateTime};
@@ -34,6 +34,8 @@ pub(super) fn summaries_query(
         until,
         since: parse::or(request.since, "since", now - Duration::hours(24))?,
         page: parse::optional(request.page, "page")?,
+        query: SearchText::parse(request.query)
+            .map_err(|error| Error::invalid("query", error.to_string()))?,
     })
 }
 

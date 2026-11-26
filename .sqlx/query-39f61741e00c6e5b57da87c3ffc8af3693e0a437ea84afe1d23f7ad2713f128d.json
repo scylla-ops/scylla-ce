@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT j.id, j.pipeline_id, j.project_id, j.workspace_id, j.created_by, j.rerun_of,\n                j.trigger_id, j.origin, j.status, j.nodes, j.runs, j.agent_id, j.error, j.version,\n                j.created_at, j.started_at, j.finished_at, j.approval, j.approved_by,\n                j.approved_at, j.rejected_by, j.rejected_at, j.checkout, j.pipeline_file,\n                j.file_errors, j.agent_labels\n         FROM jobs j LEFT JOIN job_sources s ON s.job_id = j.id\n         WHERE ($1::uuid IS NULL OR j.pipeline_id = $1)\n           AND ($2::uuid IS NULL OR j.workspace_id = $2)\n           AND ($3::uuid IS NULL OR j.agent_id = $3)\n           AND ($4::uuid IS NULL OR j.id < $4)\n           AND ($6::text IS NULL OR s.branch = $6)\n           AND ($7::text IS NULL OR s.event = $7)\n           AND ($8::text IS NULL OR s.author_login = $8)\n           AND ($9::jsonb IS NULL OR s.pull_requests @> $9)\n           AND ($10::bool OR j.project_id = ANY($11::uuid[]))\n           AND (cardinality($12::uuid[]) = 0 OR j.project_id = ANY($12))\n           AND (cardinality($13::uuid[]) = 0 OR j.pipeline_id = ANY($13))\n           AND (cardinality($14::text[]) = 0 OR j.status = ANY($14))\n           AND (cardinality($15::text[]) = 0 OR j.origin = ANY($15))\n           AND ($16::timestamptz IS NULL OR j.created_at >= $16)\n           AND ($17::timestamptz IS NULL OR j.created_at < $17)\n         ORDER BY j.id DESC\n         LIMIT $5",
+  "query": "SELECT j.id, j.pipeline_id, j.project_id, j.workspace_id, j.created_by, j.rerun_of,\n                j.trigger_id, j.origin, j.status, j.nodes, j.runs, j.agent_id, j.error, j.version,\n                j.created_at, j.started_at, j.finished_at, j.approval, j.approved_by,\n                j.approved_at, j.rejected_by, j.rejected_at, j.checkout, j.pipeline_file,\n                j.file_errors, j.agent_labels\n         FROM jobs j LEFT JOIN job_sources s ON s.job_id = j.id\n         WHERE ($1::uuid IS NULL OR j.pipeline_id = $1)\n           AND ($2::uuid IS NULL OR j.workspace_id = $2)\n           AND ($3::uuid IS NULL OR j.agent_id = $3)\n           AND ($4::uuid IS NULL OR j.id < $4)\n           AND ($6::text IS NULL OR s.branch = $6)\n           AND ($7::text IS NULL OR s.event = $7)\n           AND ($8::text IS NULL OR s.author_login = $8)\n           AND ($9::jsonb IS NULL OR s.pull_requests @> $9)\n           AND ($10::bool OR j.project_id = ANY($11::uuid[]))\n           AND (cardinality($12::uuid[]) = 0 OR j.project_id = ANY($12))\n           AND (cardinality($13::uuid[]) = 0 OR j.pipeline_id = ANY($13))\n           AND (cardinality($14::text[]) = 0 OR j.status = ANY($14))\n           AND (cardinality($15::text[]) = 0 OR j.origin = ANY($15))\n           AND ($16::timestamptz IS NULL OR j.created_at >= $16)\n           AND ($17::timestamptz IS NULL OR j.created_at < $17)\n           AND ($18 = ''\n                OR strpos(right(j.id::text, 8), $18) > 0\n                OR strpos(lower(coalesce(s.branch, '')), $18) > 0\n                OR strpos(lower(coalesce(s.tag, '')), $18) > 0\n                OR strpos(lower(coalesce(s.message_title, '')), $18) > 0\n                OR EXISTS (SELECT 1 FROM pipelines p\n                           WHERE p.id = j.pipeline_id AND strpos(lower(p.name), $18) > 0))\n         ORDER BY j.id DESC\n         LIMIT $5",
   "describe": {
     "columns": [
       {
@@ -308,7 +308,8 @@
         "TextArray",
         "TextArray",
         "Timestamptz",
-        "Timestamptz"
+        "Timestamptz",
+        "Text"
       ]
     },
     "nullable": [
@@ -340,5 +341,5 @@
       false
     ]
   },
-  "hash": "c3e91186d5f9f4297fdd82ef5b4ba8211ea25a1935052deb25dabbe9d102ae85"
+  "hash": "39f61741e00c6e5b57da87c3ffc8af3693e0a437ea84afe1d23f7ad2713f128d"
 }
