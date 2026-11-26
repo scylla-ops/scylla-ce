@@ -1,10 +1,13 @@
 //! The workspaces: the top-level containers. Each project and each agent is in one workspace.
 
+pub mod lists;
+
 use time::OffsetDateTime;
 
 use crate::authz::Resource;
 use crate::identity::actors::{Actor, ActorId};
 use crate::platform::images::{Icon, IconChange};
+use crate::platform::Platform;
 use crate::tenancy::slugs::Slug;
 use crate::{Id, Name, Page, PageRequest, ResourceKind, TimeZone};
 
@@ -136,6 +139,13 @@ crate::authz! {
         permission revoke_invitation = manage;
         /// The route `ResendInvitation` of `InvitationService`: send a new link.
         permission resend_invitation = manage;
+    }
+
+    /// The routes of the workspaces on the whole instance. The instance admins pass them, and a
+    /// role of the platform level gives them through the catalog.
+    extend Platform as WorkspaceAdmin {
+        /// The route `ListAllWorkspaces`: the console of the workspaces of the instance.
+        permission list_all_workspaces = nil;
     }
 
     /// The routes of the workspaces on the caller itself.

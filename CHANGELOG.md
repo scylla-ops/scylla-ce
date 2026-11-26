@@ -74,6 +74,13 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   start a process. The `docker run` commands do not change.
 - A list of role holders (`ListRoleHolders`) gives the avatar of each user and the custom icon of
   each app. Before, a role page showed the default avatar for each holder.
+- An instance admin got each workspace of the instance from `ListWorkspaces`. `ListWorkspaces` and
+  `GetWorkspace` now give the details of each workspace (the first owner, the number of members and
+  projects, the last activity and the role of the caller), `only_with_role` keeps only the
+  workspaces of the caller, and the new route `ListAllWorkspaces` (permission `list_all_workspaces`,
+  area `workspaces.view`) gives one page of all the workspaces with their icons, with a search on
+  the name, the slug and the owner, an order and a total. A normal user gets the same workspaces as
+  before.
 
 ## [0.7.2] - 2026-11-25
 

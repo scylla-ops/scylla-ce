@@ -34,4 +34,5 @@ mod roles;
 mod slugs;
 mod workspace_icons;
 mod workspace_limit;
+mod workspace_lists;
 mod workspaces;

@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT g.scope_id, g.actor_id, r.name\n         FROM role_grants g\n         JOIN roles r ON r.id = g.role_id\n         WHERE g.scope_kind = 'workspace' AND g.scope_id = ANY($1)\n         ORDER BY g.scope_id, lower(r.name), g.actor_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scope_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "role_grants",
+            "name": "scope_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "actor_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "role_grants",
+            "name": "actor_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "roles",
+            "name": "name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7394d76c6202f76d12922a5ecbd0cd7d9bcaa1b7275359bc6c1d53dab1c68282"
+}

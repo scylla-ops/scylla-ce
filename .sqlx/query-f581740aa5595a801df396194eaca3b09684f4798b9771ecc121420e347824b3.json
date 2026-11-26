@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT w.id,\n                  (SELECT count(*) FROM projects p WHERE p.workspace_id = w.id) AS \"projects!\",\n                  (SELECT max(a.created_at) FROM activity a WHERE a.workspace_id = w.id)\n                      AS last_activity_at\n           FROM workspaces w\n           WHERE w.id = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "projects!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_activity_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "f581740aa5595a801df396194eaca3b09684f4798b9771ecc121420e347824b3"
+}

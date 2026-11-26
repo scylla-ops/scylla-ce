@@ -5,6 +5,7 @@ use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::tenancy::grants::{MEMBER_KIND, OWNER};
 use scylla_domain::tenancy::slugs::Slug;
+use scylla_domain::tenancy::workspaces::lists::{AllWorkspacesPage, ListAllWorkspaces};
 use scylla_domain::tenancy::workspaces::{
     ListWorkspaces, NewWorkspace, VisibleWorkspaces, Workspace, WorkspaceChange, WorkspaceId,
     WorkspacePage,
@@ -92,6 +93,22 @@ pub(super) async fn list(
         query.page.size,
         |workspace| workspace.id,
     ))
+}
+
+/// Returns one page of the console of the workspaces, and the number of workspaces on all the
+/// pages. `mine` tells which workspaces the caller owns or has a role in.
+pub(super) async fn list_all(
+    pool: &PgPool,
+    query: ListAllWorkspaces,
+    mine: VisibleWorkspaces,
+) -> Result<AllWorkspacesPage, Error> {
+    let mut tx = pool.begin().await?;
+    let (workspaces, total) = store::list_all(&mut tx, &query, &mine).await?;
+    tx.commit().await?;
+    Ok(AllWorkspacesPage {
+        page: Page::from_overfetch(workspaces, query.page.size, |workspace| workspace.id),
+        total: u32::try_from(total).unwrap_or(u32::MAX),
+    })
 }
 
 /// Changes the name, the slug, the personal token switch, the time zone or the icon of a

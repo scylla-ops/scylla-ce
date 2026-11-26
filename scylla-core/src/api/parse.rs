@@ -9,6 +9,7 @@ use scylla_domain::projects::lists::ProjectSearch;
 use scylla_domain::projects::secrets::{SecretName, SecretValue};
 use scylla_domain::projects::{ProjectDescription, ProjectName};
 use scylla_domain::tenancy::slugs::Slug;
+use scylla_domain::tenancy::workspaces::lists::WorkspaceSearch;
 use scylla_domain::{DomainError, Id, TimeZone};
 use scylla_domain::{PageRequest, PageSize};
 use scylla_proto::common::v1 as pb;
@@ -182,6 +183,12 @@ impl FromProto<String> for ProjectDescription {
 }
 
 impl FromProto<String> for ProjectSearch {
+    fn from_proto(value: String) -> Result<Self, Invalid> {
+        Ok(Self::parse(value)?)
+    }
+}
+
+impl FromProto<String> for WorkspaceSearch {
     fn from_proto(value: String) -> Result<Self, Invalid> {
         Ok(Self::parse(value)?)
     }
