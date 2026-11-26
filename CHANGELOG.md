@@ -7,6 +7,14 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ## [Unreleased]
 
+### Added
+
+- Custom project icons. A project keeps a glyph with a color token or a `#RRGGBB` color, or an
+  uploaded image. The new migration only adds nullable columns. The server re-encodes each uploaded
+  image (PNG, JPEG or WebP, 1 MB max) as a square PNG of 256 px, and the public route `GET
+  /images/{id}` serves it with `nosniff` and a sandbox CSP. The server refuses an SVG. Only a member
+  that can update the project changes its icon. The `image` crate is a new dependency.
+
 ### Fixed
 
 - Account mails with fewer spam signals, and a reference for each sent mail. The HTML body has no

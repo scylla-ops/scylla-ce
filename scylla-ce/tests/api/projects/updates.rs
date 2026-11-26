@@ -141,6 +141,7 @@ async fn update_project_needs_a_known_project(pool: PgPool) {
         project_id: None,
         name: Some("beta".to_owned()),
         description: None,
+        icon: None,
     };
 
     // when

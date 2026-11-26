@@ -23,6 +23,7 @@ const PROTOS: &[&str] = &[
     "scylla/auth/v1/api_token.proto",
     "scylla/auth/v1/token_service.proto",
     "scylla/capabilities/v1/capability_service.proto",
+    "scylla/common/v1/icon.proto",
     "scylla/common/v1/id.proto",
     "scylla/common/v1/page.proto",
     "scylla/dashboards/v1/attention.proto",

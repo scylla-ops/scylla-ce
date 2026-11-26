@@ -193,6 +193,25 @@ pub enum DomainError {
     /// The text is not a SHA-256.
     #[error("must be 64 lower case hexadecimal characters")]
     NotASha256,
+    /// The text is not the name of a glyph of the icon set.
+    #[error(
+        "must be 1 to 64 lower case letters, digits or dashes, with a letter or a digit first"
+    )]
+    NotAGlyphName,
+    /// The text is not the color of an icon.
+    #[error(
+        "must be #rrggbb, or 1 to 32 lower case letters, digits or dashes with a letter first"
+    )]
+    NotAColor,
+    /// The bytes are not an image of a format that the server reads.
+    #[error("must be a PNG, JPEG or WebP image")]
+    NotAnImage,
+    /// The image has too many pixels on a side.
+    #[error("must be at most {max} pixels wide and high")]
+    ImageTooLarge {
+        /// The maximum number of pixels on a side.
+        max: u32,
+    },
     /// The choices of a consent do not fit its action.
     #[error("must accept each purpose for accept all, and refuse each purpose for reject all")]
     NotTheAction,

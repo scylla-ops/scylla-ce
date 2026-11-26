@@ -172,8 +172,8 @@ impl ProjectsGrpc {
         })
     }
 
-    /// Handles `UpdateProject`: a new name or a new description. An unknown project gives
-    /// `PERMISSION_DENIED`, so no caller learns which ids exist.
+    /// Handles `UpdateProject`: a new name, a new description or a new icon. An unknown project
+    /// gives `PERMISSION_DENIED`, so no caller learns which ids exist.
     async fn update(
         &self,
         request: Request<pb::UpdateProjectRequest>,
@@ -191,6 +191,10 @@ impl ProjectsGrpc {
                 .description
                 .map(|description| parse::field(description, "description"))
                 .transpose()?,
+            icon: request
+                .icon
+                .map(|icon| parse::field(icon, "icon"))
+                .transpose()?,
         };
 
         // Check the route permission. An unknown project gets the answer of a refusal.
@@ -203,7 +207,7 @@ impl ProjectsGrpc {
             .await?;
 
         // Change the project.
-        let project = service::update(&self.pool, id, change).await?;
+        let project = service::update(&self.pool, caller.actor.id, id, change).await?;
         Ok(pb::UpdateProjectResponse {
             project: Some(project.to_proto()),
         })
@@ -253,6 +257,7 @@ impl ToProto<pb::Project> for Project {
             name: self.name,
             description: self.description,
             created_at: Some(parse::timestamp(self.created_at)),
+            icon: self.icon.map(ToProto::to_proto),
         }
     }
 }

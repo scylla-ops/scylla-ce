@@ -13,6 +13,7 @@ use time::OffsetDateTime;
 
 use crate::authz::Resource;
 use crate::identity::actors::{Actor, ActorId};
+use crate::platform::images::{Icon, IconChange};
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
 use crate::{DomainError, Name};
 use crate::{Id, ResourceKind};
@@ -42,6 +43,8 @@ pub struct Project {
     pub description: String,
     /// The creation time, set by the database.
     pub created_at: OffsetDateTime,
+    /// The custom icon, or `None` for the default icon.
+    pub icon: Option<Icon>,
 }
 
 /// The description of a project: trimmed, at most `MAX_LEN` characters, on one line or more.
@@ -164,6 +167,8 @@ pub struct ProjectChange {
     pub name: Option<ProjectName>,
     /// The new description. An empty one removes the description.
     pub description: Option<ProjectDescription>,
+    /// The new icon.
+    pub icon: Option<IconChange>,
 }
 
 /// The input of a project list: the projects that the caller can see.

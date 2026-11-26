@@ -19,7 +19,7 @@ pub mod capabilities {
     }
 }
 
-/// The shared messages: the id and the page.
+/// The shared messages: the id, the page and the icon.
 pub mod common {
     /// Version 1.
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
