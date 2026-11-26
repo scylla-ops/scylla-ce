@@ -1,6 +1,8 @@
 //! The images that a person uploads: the square PNG that the server makes from an upload, the
-//! table that keeps it, and the route that gives it to the browsers.
+//! SVG of a glyph avatar that the server draws, the table that keeps them, and the route that
+//! gives them to the browsers.
 
+mod glyph;
 mod http;
 mod raster;
 pub(crate) mod service;

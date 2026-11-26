@@ -51,6 +51,7 @@ impl TestApp {
             handle: handle.map(str::to_owned),
             avatar_image: None,
             avatar_color: None,
+            avatar_glyph: None,
         };
         let response = self
             .profile()

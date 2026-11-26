@@ -9,6 +9,7 @@ use scylla_extension::{AccessError, Tx};
 use tonic::metadata::MetadataMap;
 
 use super::pending_store::{self, NewPendingLink};
+use super::picture_store;
 use super::store::{self, ProviderRow};
 use crate::features::identity::accounts::{
     self, cookie_origin_is_allowed, mails, refused, verify_password, AccountContext, EmailAccount,
@@ -46,6 +47,8 @@ pub(super) struct KnownEmail {
     pub(super) subject: String,
     /// The name that the provider gave.
     pub(super) name: Option<String>,
+    /// The address of the photo that the provider gave.
+    pub(super) picture: Option<String>,
 }
 
 /// Makes the refusal of a known email that a link cannot use.
@@ -78,6 +81,7 @@ pub(super) async fn start(
         user,
         email: known.email.as_str(),
         display_name: known.name.as_deref(),
+        picture: known.picture.as_deref(),
         return_to,
     };
     pending_store::insert_pending_link(&mut tx, &secret::hash(&token), &row).await?;
@@ -141,9 +145,11 @@ pub(crate) async fn link_with_password(
     if !pending_store::delete_pending_link(&mut tx, &hash).await? {
         return Err(Error::NotFound("pending link"));
     }
-    let provider = &row.provider;
+    let (provider, picture) = (&row.provider, row.picture.as_deref());
     match store::user_of(&mut tx, provider.id, &row.subject).await? {
-        Some(owner) if owner == user => {}
+        Some(owner) if owner == user => {
+            picture_store::set_picture(&mut tx, provider.id, &row.subject, picture).await?;
+        }
         Some(_) => {
             let message = "another account uses this identity";
             return Err(refused("IDENTITY_IN_USE", message));
@@ -151,7 +157,7 @@ pub(crate) async fn link_with_password(
         None => {
             refuse_a_second_identity(&mut tx, provider, user).await?;
             let email = Some(row.email.as_str());
-            store::link(&mut tx, provider.id, &row.subject, user, email).await?;
+            store::link(&mut tx, provider.id, &row.subject, user, email, picture).await?;
             let fact = kinds::about(kinds::IDENTITY_LINKED, user)
                 .param("provider", provider.display_name.clone());
             notifications::emit(&mut tx, fact).await?;

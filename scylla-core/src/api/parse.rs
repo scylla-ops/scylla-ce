@@ -9,6 +9,7 @@ use scylla_domain::projects::lists::ProjectSearch;
 use scylla_domain::projects::secrets::{SecretName, SecretValue};
 use scylla_domain::projects::{ProjectDescription, ProjectName};
 use scylla_domain::tenancy::slugs::Slug;
+use scylla_domain::tenancy::workspaces::lists::WorkspaceSearch;
 use scylla_domain::{DomainError, Id, TimeZone};
 use scylla_domain::{PageRequest, PageSize};
 use scylla_proto::common::v1 as pb;
@@ -40,6 +41,14 @@ impl Invalid {
         Self {
             sub_field: Some(sub_field),
             reason: reason.to_string(),
+        }
+    }
+
+    /// Moves the error into a field of a larger value: `path` gives the new path of the field.
+    pub fn inside(self, path: fn(&str) -> &'static str) -> Self {
+        Self {
+            sub_field: Some(path(self.sub_field.unwrap_or_default())),
+            reason: self.reason,
         }
     }
 
@@ -182,6 +191,12 @@ impl FromProto<String> for ProjectDescription {
 }
 
 impl FromProto<String> for ProjectSearch {
+    fn from_proto(value: String) -> Result<Self, Invalid> {
+        Ok(Self::parse(value)?)
+    }
+}
+
+impl FromProto<String> for WorkspaceSearch {
     fn from_proto(value: String) -> Result<Self, Invalid> {
         Ok(Self::parse(value)?)
     }

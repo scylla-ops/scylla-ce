@@ -7,7 +7,8 @@ use time::OffsetDateTime;
 
 use crate::identity::actors::ActorId;
 use crate::projects::ProjectId;
-use crate::{DomainError, Id, Page, PageRequest};
+use crate::tenancy::workspaces::WorkspaceId;
+use crate::{DomainError, Id, Page, PageRequest, SearchText};
 
 /// The id of a secret.
 pub type SecretId = Id<Secret>;
@@ -110,6 +111,32 @@ pub struct ListSecrets {
 
 /// One page of secrets, in name order.
 pub type SecretPage = Page<Secret, SecretName>;
+
+/// The input of a list of the secrets of a workspace: newest first.
+#[derive(Clone, Debug)]
+pub struct ListWorkspaceSecrets {
+    /// The workspace.
+    pub workspace: WorkspaceId,
+    /// The projects whose secrets the caller can list, or `None` for each project of the
+    /// workspace.
+    pub visible: Option<Vec<ProjectId>>,
+    /// Only the secrets whose name or project name holds this text. Empty gives each secret.
+    pub query: SearchText,
+    /// The page to return: the secrets before the id of the token.
+    pub page: PageRequest<SecretId>,
+}
+
+/// A secret of a list of a workspace, with the name of its project.
+#[derive(Clone, Debug)]
+pub struct WorkspaceSecret {
+    /// The secret, with no value.
+    pub secret: Secret,
+    /// The display name of the project of the secret.
+    pub project_name: String,
+}
+
+/// One page of the secrets of a workspace, newest first.
+pub type WorkspaceSecretPage = Page<WorkspaceSecret, SecretId>;
 
 #[cfg(test)]
 mod tests {

@@ -5,7 +5,8 @@
 use scylla_domain::activity::Kind;
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::projects::secrets::{
-    ListSecrets, NewSecret, Secret, SecretId, SecretName, SecretPage, SecretValue,
+    ListSecrets, ListWorkspaceSecrets, NewSecret, Secret, SecretId, SecretName, SecretPage,
+    SecretValue, WorkspaceSecretPage,
 };
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -76,6 +77,20 @@ pub(super) async fn list(pool: &PgPool, query: ListSecrets) -> Result<SecretPage
     tx.commit().await?;
     Ok(Page::from_overfetch(secrets, query.page.size, |secret| {
         secret.name.clone()
+    }))
+}
+
+/// Returns one page of the secrets of a workspace that the query keeps, newest first, with no
+/// value.
+pub(super) async fn list_workspace(
+    pool: &PgPool,
+    query: ListWorkspaceSecrets,
+) -> Result<WorkspaceSecretPage, Error> {
+    let mut tx = pool.begin().await?;
+    let secrets = store::list_workspace(&mut tx, &query).await?;
+    tx.commit().await?;
+    Ok(Page::from_overfetch(secrets, query.page.size, |found| {
+        found.secret.id
     }))
 }
 

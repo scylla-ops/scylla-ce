@@ -11,7 +11,8 @@ use scylla_proto::projects::v1::secret_service_client::SecretServiceClient;
 use scylla_proto::projects::v1::{
     CreateProjectRequest, CreateSecretRequest, CreateSecretResponse, DeleteProjectRequest,
     DeleteSecretRequest, GetProjectRequest, ListProjectsRequest, ListProjectsResponse,
-    ListSecretsRequest, ListSecretsResponse, Project, UpdateProjectRequest, UpdateSecretRequest,
+    ListSecretsRequest, ListSecretsResponse, ListWorkspaceSecretsRequest,
+    ListWorkspaceSecretsResponse, Project, UpdateProjectRequest, UpdateSecretRequest,
     UpdateSecretResponse,
 };
 use tonic::transport::Channel;
@@ -230,6 +231,26 @@ impl TestApp {
     ) -> Result<Vec<String>, Status> {
         let page = self.list_secrets(actor, project_id, 100, "").await?;
         Ok(page.secrets.into_iter().map(|secret| secret.name).collect())
+    }
+
+    /// Calls `ListWorkspaceSecrets` as `actor` for one page of the secrets of a workspace that
+    /// match `query`.
+    pub async fn list_workspace_secrets(
+        &self,
+        actor: ActorId,
+        workspace: WorkspaceId,
+        query: &str,
+        size: i32,
+        token: &str,
+    ) -> Result<ListWorkspaceSecretsResponse, Status> {
+        let request = ListWorkspaceSecretsRequest {
+            workspace_id: Some(id(workspace.to_string())),
+            query: query.to_owned(),
+            page: Some(page(size, token)),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.secrets().list_workspace_secrets(request).await?;
+        Ok(response.into_inner())
     }
 
     /// Returns a client of `SecretService`.

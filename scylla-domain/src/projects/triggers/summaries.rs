@@ -10,7 +10,7 @@ use crate::projects::jobs::JobStatus;
 use crate::projects::pipelines::{PipelineId, TriggerType};
 use crate::projects::ProjectId;
 use crate::tenancy::workspaces::WorkspaceId;
-use crate::{Page, PageRequest};
+use crate::{Page, PageRequest, SearchText};
 
 /// The most upcoming fires of one trigger.
 pub const MAX_UPCOMING_FIRES: usize = 48;
@@ -51,6 +51,9 @@ pub struct ListWorkspaceTriggers {
     pub since: OffsetDateTime,
     /// The page to return.
     pub page: PageRequest<TriggerId>,
+    /// Only the triggers whose name, pipeline name or project name holds this text. Empty gives
+    /// each trigger.
+    pub query: SearchText,
 }
 
 /// A trigger with its next fires and its recent results.

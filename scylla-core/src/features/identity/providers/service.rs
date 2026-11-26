@@ -21,7 +21,7 @@ use crate::infra::secret;
 use crate::Error;
 
 /// The kind of a provider, with its settings.
-enum Kind {
+pub(super) enum Kind {
     /// An OpenID Connect provider.
     Oidc(OidcSettings),
     /// GitHub or GitHub Enterprise Server.
@@ -260,7 +260,7 @@ pub(crate) async fn list_enabled(pool: &PgPool) -> Result<Vec<ProviderRow>, Erro
 }
 
 /// Reads the kind and the settings of a provider.
-fn kind(provider: &ProviderRow) -> Result<Kind, Error> {
+pub(super) fn kind(provider: &ProviderRow) -> Result<Kind, Error> {
     let settings = provider.settings.clone();
     let invalid = |error: serde_json::Error| {
         Error::Internal(format!(

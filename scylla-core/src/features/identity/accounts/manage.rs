@@ -42,15 +42,15 @@ pub(crate) async fn change_profile(
     mut change: ProfileChange,
     email: Option<&Email>,
 ) -> Result<User, Error> {
-    // Make the PNG of a new image of the avatar, then lock the user and change its profile.
-    let image = avatar::prepare(change.avatar_image.take()).await?;
+    // Make the PNG or the SVG of a new image of the avatar, then lock the user and change it.
+    let image = avatar::prepare(change.avatar_image.take(), change.avatar_glyph.take()).await?;
     let mut tx = pool.begin().await?;
     if !store::lock_user(&mut tx, user).await? {
         return Err(Error::NotFound("user"));
     }
     store::update_profile(&mut tx, user, &change).await?;
-    if let Some(png) = image {
-        avatar::set_image(&mut tx, user, png).await?;
+    if let Some(image) = image {
+        avatar::set_image(&mut tx, user, image).await?;
     }
 
     // Replace the email, unless another user has it, then read the user after the change.

@@ -1,5 +1,7 @@
-# At each change of the agent: its lint and its unit tests on macOS and Windows. The Linux checks
-# (lint, unit tests, tests against the real server) run in Scylla: .scylla/pipelines/ci.yaml.
+# At each change of the agent: its lint and its unit tests on macOS. The Linux checks (lint, unit
+# tests, tests against the real server) run in Scylla: .scylla/pipelines/ci.yaml. The Windows
+# checks run in Scylla on the Windows agent of the workspace: .scylla/pipelines/agent-windows.yaml.
+# The macOS leg moves to Scylla when a Mac agent joins.
 name: agent
 
 on:
@@ -29,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-2025]
+        os: [macos-15]
     steps:
       - uses: actions/checkout@v5
         with:

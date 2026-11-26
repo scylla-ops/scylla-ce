@@ -245,8 +245,23 @@ impl ToProto<pb::UserEntry> for UserEntry {
                     builtin: role.builtin,
                 })
                 .collect(),
-            workspaces: self.workspaces,
+            workspaces: self
+                .workspaces
+                .iter()
+                .map(|workspace| workspace.name.clone())
+                .collect(),
             last_sign_in_at: self.last_sign_in_at.map(parse::timestamp),
+            workspace_details: self
+                .workspaces
+                .into_iter()
+                .map(|workspace| pb::UserWorkspace {
+                    workspace_id: Some(workspace.id.to_proto()),
+                    name: workspace.name,
+                    icon: workspace.icon.map(ToProto::to_proto),
+                    owner: workspace.owner,
+                    owner_name: workspace.owner_name.unwrap_or_default(),
+                })
+                .collect(),
         }
     }
 }

@@ -1,12 +1,15 @@
 # The Linux checks of the agent of scylla-ce, run by the CI agent of the workspace Scylla Ops.
-# GitHub shows the result as the check run `scylla/ci`. The macOS and Windows checks stay in
-# .github/workflows/agent.yml until Scylla agents can choose their jobs by label.
+# GitHub shows the result as the check run `scylla/ci`. The label `linux` keeps these jobs off the
+# Windows agent of the workspace. The Windows checks are in agent-windows.yaml, and the macOS
+# checks stay in .github/workflows/agent.yml until a Mac agent joins.
 version: 1
 name: CI
 on:
   push:
     branches: [main, "v*.*.*"]
   pull_request: {}
+agent:
+  labels: [linux]
 checkout:
   submodules: true
 nodes:

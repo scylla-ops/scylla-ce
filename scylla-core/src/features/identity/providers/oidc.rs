@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 use url::Url;
 
 use super::calls::{send, send_exchange, unavailable};
-use super::ExternalIdentity;
+use super::{picture, ExternalIdentity};
 use crate::Error;
 
 /// The settings of an OIDC provider, in its JSON.
@@ -27,7 +27,7 @@ pub struct OidcSettings {
     pub scopes: Vec<String>,
 }
 
-/// The scopes of a sign-in: the identity, the email and the name.
+/// The scopes of a sign-in: the identity, the email, the name and the photo.
 fn default_scopes() -> Vec<String> {
     ["openid", "email", "profile"].map(str::to_owned).to_vec()
 }
@@ -46,6 +46,9 @@ struct Claims {
     /// The name of the person.
     #[serde(default)]
     name: Option<String>,
+    /// The address of the photo of the person.
+    #[serde(default)]
+    picture: Option<String>,
     /// The nonce of the sign-in.
     #[serde(default)]
     nonce: Option<String>,
@@ -190,6 +193,7 @@ impl OidcClients {
             email_verified: claims.email_verified.unwrap_or(false),
             email: claims.email,
             name: claims.name,
+            picture: picture::address(claims.picture),
         })
     }
 

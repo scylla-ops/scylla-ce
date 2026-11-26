@@ -245,6 +245,10 @@ impl ToProto<pb::Notification> for Notification {
                         }
                     }),
                 }),
+            workspace_icon: self.workspace_icon.map(ToProto::to_proto),
+            actor_kind: self.actor_kind.unwrap_or_default(),
+            actor_avatar: self.actor_avatar.map(ToProto::to_proto),
+            actor_icon: self.actor_icon.map(ToProto::to_proto),
         }
     }
 }

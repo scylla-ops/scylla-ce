@@ -21,6 +21,8 @@ pub(super) struct NewPendingLink<'a> {
     pub(super) email: &'a str,
     /// The name that the provider gave.
     pub(super) display_name: Option<&'a str>,
+    /// The address of the photo that the provider gave.
+    pub(super) picture: Option<&'a str>,
     /// Where the browser goes at the end.
     pub(super) return_to: &'a str,
 }
@@ -37,6 +39,8 @@ pub(super) struct PendingLink {
     pub(super) email: String,
     /// The name that the provider gave.
     pub(super) display_name: Option<String>,
+    /// The address of the photo that the provider gave.
+    pub(super) picture: Option<String>,
     /// Where the browser goes at the end.
     pub(super) return_to: String,
 }
@@ -52,14 +56,15 @@ pub(super) async fn insert_pending_link(
         .await?;
     sqlx::query!(
         "INSERT INTO pending_links (token_hash, provider_id, subject, user_id, email,
-                                    display_name, return_to, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now() + interval '10 minutes')",
+                                    display_name, picture_url, return_to, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now() + interval '10 minutes')",
         token_hash,
         link.provider.to_db(),
         link.subject,
         link.user.to_db(),
         link.email,
         link.display_name,
+        link.picture,
         link.return_to,
     )
     .execute(&mut **tx)
@@ -76,7 +81,7 @@ pub(super) async fn find_pending_link(
         r#"SELECT p.id, p.slug, p.kind, p.display_name AS provider_name,
                   p.settings AS "settings: Json<serde_json::Value>",
                   p.client_secret, p.allow_sign_up, p.enabled,
-                  l.subject, l.user_id, l.email, l.display_name, l.return_to
+                  l.subject, l.user_id, l.email, l.display_name, l.picture_url, l.return_to
            FROM pending_links l JOIN identity_providers p ON p.id = l.provider_id
            WHERE l.token_hash = $1 AND l.expires_at > now() AND p.enabled"#,
         token_hash
@@ -98,6 +103,7 @@ pub(super) async fn find_pending_link(
         user: ActorId::from_db(row.user_id),
         email: row.email,
         display_name: row.display_name,
+        picture: row.picture_url,
         return_to: row.return_to,
     }))
 }

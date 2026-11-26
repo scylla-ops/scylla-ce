@@ -34,16 +34,28 @@ impl TestApp {
         Ok(response.into_inner().groups)
     }
 
-    /// Calls `CreateProjectGroup` as `actor`, in `workspace`.
+    /// Calls `CreateProjectGroup` as `actor`, in `workspace`, with the default color.
     pub async fn create_project_group(
         &self,
         actor: ActorId,
         workspace: WorkspaceId,
         name: &str,
     ) -> Result<ProjectGroup, Status> {
+        self.create_colored_group(actor, workspace, name, "").await
+    }
+
+    /// Calls `CreateProjectGroup` as `actor`, in `workspace`, with a color. Empty: the default.
+    pub async fn create_colored_group(
+        &self,
+        actor: ActorId,
+        workspace: WorkspaceId,
+        name: &str,
+        color: &str,
+    ) -> Result<ProjectGroup, Status> {
         let request = CreateProjectGroupRequest {
             workspace_id: Some(id(workspace.to_string())),
             name: name.to_owned(),
+            color: color.to_owned(),
         };
         let request = self.authed(actor, request).await;
         let response = self.project_groups().create_project_group(request).await?;
@@ -62,6 +74,25 @@ impl TestApp {
             group_id: Some(id(group)),
             name: name.map(str::to_owned),
             position,
+            color: None,
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.project_groups().update_project_group(request).await?;
+        Ok(response.into_inner().group.expect("group in response"))
+    }
+
+    /// Calls `UpdateProjectGroup` as `actor` with the color only. Empty: the default color.
+    pub async fn set_group_color(
+        &self,
+        actor: ActorId,
+        group: &str,
+        color: &str,
+    ) -> Result<ProjectGroup, Status> {
+        let request = UpdateProjectGroupRequest {
+            group_id: Some(id(group)),
+            name: None,
+            position: None,
+            color: Some(color.to_owned()),
         };
         let request = self.authed(actor, request).await;
         let response = self.project_groups().update_project_group(request).await?;

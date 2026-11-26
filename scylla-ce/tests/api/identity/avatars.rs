@@ -41,7 +41,7 @@ pub(super) async fn image_count(app: &TestApp) -> i64 {
 }
 
 /// Makes a user with a password, signs it in, and returns its id and its access token.
-async fn signed_in(app: &TestApp, email: &str) -> (ActorId, String) {
+pub(super) async fn signed_in(app: &TestApp, email: &str) -> (ActorId, String) {
     let user = app.user_with(email, Some(PASSWORD)).await;
     let token = app.sign_in(email, PASSWORD).await.unwrap().token.unwrap();
     (user, token.value)
@@ -172,6 +172,36 @@ async fn list_members_shows_the_avatars(pool: PgPool) {
     let data: Value = serde_json::from_str(&export.json).unwrap();
     assert_eq!(data["account"]["avatar_color"], "chart-3");
     assert_eq!(data["account"]["avatar_image_id"], Value::Null);
+}
+
+/// The holders of a role show the avatar of each user.
+#[sqlx::test(migrations = false)]
+async fn list_role_holders_shows_the_avatars(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let (owner, _) = signed_in(&app, "ava@example.com").await;
+    let (member, member_token) = signed_in(&app, "bo@example.com").await;
+    let workspace = app.workspace_of(owner).await;
+    app.grant(&[Workspace::MEMBER.of(workspace, member)]).await;
+    let initials = app.set_avatar(&member_token, None, Some("#3366CC")).await;
+
+    // when
+    let holders = app
+        .role_holders(owner, "workspace-member", Some(&workspace.to_string()))
+        .await
+        .unwrap();
+
+    // then
+    let holder = holders
+        .holders
+        .iter()
+        .find(|holder| text(&holder.actor_id) == member.to_string());
+    let avatar = holder.and_then(|holder| holder.avatar.clone());
+    assert_eq!(avatar, initials.unwrap().avatar);
+    assert_eq!(
+        avatar.map(|avatar| avatar.color),
+        Some("#3366cc".to_owned())
+    );
 }
 
 /// A deletion of the account deletes the image of its avatar.

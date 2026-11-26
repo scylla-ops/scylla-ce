@@ -35,6 +35,7 @@ fn context(pool: PgPool) -> IntegrationContext {
             web_origins: Vec::new(),
             trust_forwarded: false,
             mail_sender: "no-reply@localhost".to_owned(),
+            local_pictures: false,
         }),
         wake: Arc::default(),
     }

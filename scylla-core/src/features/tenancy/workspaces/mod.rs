@@ -2,7 +2,9 @@
 //! `WorkspaceService`.
 
 mod convert;
+mod details;
 mod grpc;
+mod listing;
 mod plugin;
 mod service;
 mod store;

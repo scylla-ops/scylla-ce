@@ -1,0 +1,48 @@
+# The Windows checks of the agent of scylla-ce: clippy, then the unit tests of scylla-agent. The
+# Windows agent of the workspace Scylla Ops (a native agent on the PC of the user, not a container)
+# runs them, and GitHub shows the result as the check run `scylla/agent-windows`. The Linux checks
+# are in ci.yaml. The macOS checks stay in .github/workflows/agent.yml until a Mac agent joins.
+#
+# The pipeline files have no path filter: this file runs on each push to main or to a version
+# branch and on each pull request, also when the agent did not change. The Cargo target folder
+# stays between the jobs, so a run with no change of the agent is short.
+#
+# What the Windows agent needs:
+# - On the PATH of the agent: Git for Windows (git and its sh), cargo of rustup (Rust stable with
+#   clippy) and protoc.
+# - Its work folder outside the user folder, which has an accent that protoc refuses:
+#   C:\scylla\.ops\win-agent\work.
+# - The file C:/scylla/.ops/win-agent/env.sh, which each node sources. A job gets a clean
+#   environment: the PATH and the system variables of the agent, and HOME and USERPROFILE in the
+#   folder of the job. The other variables of the agent do not get to the job. The file exports:
+#   RUSTUP_HOME and CARGO_HOME (the folders of rustup and cargo), CARGO_TARGET_DIR (a folder that
+#   stays between the jobs, another one for a job of a fork: SCYLLA_GIT_FORK is true), and PROTOC
+#   and PROTOC_INCLUDE (protoc and its include folder, with no accent in the paths).
+version: 1
+name: Agent on Windows
+on:
+  push:
+    branches: [main, "v*.*.*"]
+  pull_request: {}
+agent:
+  labels: [windows]
+checkout:
+  submodules: true
+nodes:
+  - id: clippy
+    timeout_seconds: 3600
+    env:
+      SQLX_OFFLINE: "true"
+    script: |
+      set -eu
+      . C:/scylla/.ops/win-agent/env.sh
+      cargo clippy --locked -p scylla-agent --all-targets -- -D warnings
+  - id: unit
+    needs: [clippy]
+    timeout_seconds: 3600
+    env:
+      SQLX_OFFLINE: "true"
+    script: |
+      set -eu
+      . C:/scylla/.ops/win-agent/env.sh
+      cargo test --locked -p scylla-agent --lib --bins

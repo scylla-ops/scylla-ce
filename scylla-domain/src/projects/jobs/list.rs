@@ -8,7 +8,7 @@ use crate::integrations::sources::SourceEvent;
 use crate::projects::pipelines::PipelineId;
 use crate::projects::ProjectId;
 use crate::tenancy::workspaces::WorkspaceId;
-use crate::{Page, PageRequest};
+use crate::{Page, PageRequest, SearchText};
 
 /// The most project ids or pipeline ids in a job list.
 pub const MAX_LIST_IDS: usize = 100;
@@ -58,6 +58,9 @@ pub struct JobFilter {
     pub created_before: Option<OffsetDateTime>,
     /// Only the jobs with one of these origins. Empty gives each origin.
     pub origins: Vec<JobOrigin>,
+    /// Only the jobs whose number (the last 8 characters of the id), branch, tag, commit title or
+    /// pipeline name holds this text. Empty gives each job.
+    pub query: SearchText,
 }
 
 /// The input of a job list: newest first.

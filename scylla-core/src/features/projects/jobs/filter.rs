@@ -2,6 +2,7 @@
 
 use scylla_domain::integrations::sources::GitRef;
 use scylla_domain::projects::jobs::{JobFilter, JobOrigin, JobStatus};
+use scylla_domain::SearchText;
 use scylla_proto::pipelines::v1 as pb;
 use time::OffsetDateTime;
 
@@ -56,6 +57,7 @@ impl FromProto<pb::JobFilter> for JobFilter {
             created_after: time(value.created_after, "created_after")?,
             created_before: time(value.created_before, "created_before")?,
             origins,
+            query: SearchText::parse(value.query).map_err(|error| Invalid::at("query", error))?,
         })
     }
 }

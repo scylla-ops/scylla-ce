@@ -5,7 +5,9 @@ use std::collections::{HashMap, HashSet};
 
 use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::ActorId;
-use scylla_domain::notifications::{Filter, Notification, NotificationId, Summary, MAX_IDS};
+use scylla_domain::notifications::{
+    Filter, InvitationState, Notification, NotificationId, Summary, MAX_IDS,
+};
 use scylla_domain::platform::Platform;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::{Page, PageRequest};
@@ -103,11 +105,19 @@ async fn delete(pool: &PgPool, user: ActorId, ids: &[Uuid]) -> Result<(), Error>
 }
 
 /// Returns the row with the snapshot of its names, if the row is about the reader: the reader can
-/// have no access to read the names of today.
+/// have no access to read the names of today. Such a row keeps the icon of its workspace only for
+/// an invitation that is open or accepted: the reader is invited to the workspace or is in it.
 fn with_names(mut row: Notification) -> Notification {
     if row.reason == REASON_SUBJECT {
         row.workspace_name = row.params.get(WORKSPACE_NAME).cloned();
         row.project_name = row.params.get(PROJECT_NAME).cloned();
+        let invited = row
+            .invitation
+            .as_ref()
+            .is_some_and(|invitation| !matches!(invitation.state, InvitationState::Expired(_)));
+        if !invited {
+            row.workspace_icon = None;
+        }
     }
     row
 }

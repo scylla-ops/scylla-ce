@@ -80,7 +80,8 @@ pub(super) async fn create(
     Ok(group)
 }
 
-/// Changes the name of a group or its place in the order of the groups, and returns it.
+/// Changes the name or the color of a group, or its place in the order of the groups, and
+/// returns it.
 pub(super) async fn update(
     pool: &PgPool,
     id: ProjectGroupId,
@@ -93,7 +94,7 @@ pub(super) async fn update(
         .ok_or(Error::NotFound("project group"))?;
     store::lock_workspace(&mut tx, workspace).await?;
 
-    // Move the group, then give it its new name.
+    // Move the group, then give it its new name and its new color.
     if let Some(position) = change.position {
         let mut order: Vec<_> = store::list(&mut tx, workspace)
             .await?
@@ -105,6 +106,9 @@ pub(super) async fn update(
     }
     if let Some(name) = &change.name {
         store::rename(&mut tx, id, name.as_str()).await?;
+    }
+    if let Some(color) = &change.color {
+        store::set_color(&mut tx, id, color.as_ref()).await?;
     }
     let group = store::find(&mut tx, id)
         .await?

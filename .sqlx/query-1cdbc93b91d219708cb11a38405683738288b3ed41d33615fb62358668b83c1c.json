@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO project_groups (id, workspace_id, created_by, name, position, color)\n         VALUES ($1, $2, $3, $4,\n                 (SELECT coalesce(max(position) + 1, 0) FROM project_groups\n                  WHERE workspace_id = $2),\n                 $5)\n         RETURNING created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "project_groups",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1cdbc93b91d219708cb11a38405683738288b3ed41d33615fb62358668b83c1c"
+}

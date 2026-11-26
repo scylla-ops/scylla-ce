@@ -10,6 +10,7 @@ use scylla_extension::{Rejection, Tx};
 use time::OffsetDateTime;
 
 use super::owners;
+use super::row::Row;
 use crate::Error;
 
 /// The unique constraint of the slugs.
@@ -45,6 +46,7 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, new: &NewWorkspace) -> Result<Worksp
         created_at,
         personal_tokens_enabled: true,
         time_zone: TimeZone::UTC.as_str().to_owned(),
+        icon: None,
     })
 }
 
@@ -110,8 +112,9 @@ async fn try_insert(
 pub(crate) async fn find(tx: &mut Tx<'_>, id: WorkspaceId) -> Result<Option<Workspace>, Error> {
     let row = sqlx::query_as!(
         Row,
-        "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone FROM workspaces
-         WHERE id = $1",
+        "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone, icon_name,
+                icon_color, icon_image_id
+         FROM workspaces WHERE id = $1",
         id.to_db()
     )
     .fetch_optional(&mut **tx)
@@ -123,8 +126,9 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: WorkspaceId) -> Result<Option<Work
 pub(crate) async fn find_by_slug(tx: &mut Tx<'_>, slug: &Slug) -> Result<Option<Workspace>, Error> {
     let row = sqlx::query_as!(
         Row,
-        "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone FROM workspaces
-         WHERE slug = $1",
+        "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone, icon_name,
+                icon_color, icon_image_id
+         FROM workspaces WHERE slug = $1",
         slug.as_str()
     )
     .fetch_optional(&mut **tx)
@@ -153,7 +157,9 @@ pub(crate) async fn list_visible(
     let granted: Vec<_> = visible.granted.iter().map(|id| id.to_db()).collect();
     let rows = sqlx::query_as!(
         Row,
-        "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone FROM workspaces
+        "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone, icon_name,
+                icon_color, icon_image_id
+         FROM workspaces
          WHERE ($5
                 OR id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)
                 OR id = ANY($2))
@@ -184,7 +190,8 @@ pub(crate) async fn update(
              personal_tokens_enabled = coalesce($4, personal_tokens_enabled),
              time_zone = coalesce($5, time_zone)
          WHERE id = $1
-         RETURNING id, name, slug, created_at, personal_tokens_enabled, time_zone",
+         RETURNING id, name, slug, created_at, personal_tokens_enabled, time_zone, icon_name,
+                   icon_color, icon_image_id",
         id.to_db(),
         change.name.as_ref().map(WorkspaceName::as_str),
         change.slug.as_ref().map(Slug::as_str),
@@ -224,8 +231,9 @@ pub(crate) async fn has_content(tx: &mut Tx<'_>, workspace: WorkspaceId) -> Resu
     Ok(found)
 }
 
-/// Deletes workspaces, with their owners and their invitations.
+/// Deletes workspaces, with their owners, their invitations and the images of their icons.
 pub(crate) async fn delete_all(tx: &mut Tx<'_>, ids: &[WorkspaceId]) -> Result<(), Error> {
+    // Delete the roles on the workspaces.
     let ids: Vec<_> = ids.iter().map(|id| id.to_db()).collect();
     crate::features::tenancy::grants::store::delete_on_scopes(tx, &ids)
         .await
@@ -233,7 +241,16 @@ pub(crate) async fn delete_all(tx: &mut Tx<'_>, ids: &[WorkspaceId]) -> Result<(
             crate::Error::Database(error) => error,
             error => sqlx::Error::Protocol(error.to_string()),
         })?;
-    sqlx::query!("DELETE FROM workspaces WHERE id = ANY($1)", &ids)
+
+    // Delete the workspaces, then the images of their icons.
+    let images = sqlx::query_scalar!(
+        "DELETE FROM workspaces WHERE id = ANY($1) RETURNING icon_image_id",
+        &ids
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    let images: Vec<_> = images.into_iter().flatten().collect();
+    sqlx::query!("DELETE FROM images WHERE id = ANY($1)", &images)
         .execute(&mut **tx)
         .await?;
     Ok(())
@@ -258,36 +275,6 @@ pub(crate) async fn refusing_personal_tokens(
     .fetch_all(&mut **tx)
     .await?;
     Ok(ids.into_iter().map(WorkspaceId::from_db).collect())
-}
-
-/// A row of the `workspaces` table.
-struct Row {
-    /// The id.
-    id: uuid::Uuid,
-    /// The display name.
-    name: String,
-    /// The slug.
-    slug: String,
-    /// The creation time.
-    created_at: OffsetDateTime,
-    /// The personal token switch.
-    personal_tokens_enabled: bool,
-    /// The name of the time zone.
-    time_zone: String,
-}
-
-impl Row {
-    /// Makes the workspace of the row.
-    fn into_workspace(self) -> Workspace {
-        Workspace {
-            id: WorkspaceId::from_db(self.id),
-            name: self.name,
-            slug: self.slug,
-            created_at: self.created_at,
-            personal_tokens_enabled: self.personal_tokens_enabled,
-            time_zone: self.time_zone,
-        }
-    }
 }
 
 /// The refusal of a slug that another workspace uses.

@@ -1,11 +1,13 @@
 //! The `TestApp` helpers of `WorkspaceService`.
 
 use scylla_domain::identity::actors::ActorId;
+use scylla_proto::common::v1::IconChange;
 use scylla_proto::workspaces::v1::get_workspace_request::Workspace as Named;
 use scylla_proto::workspaces::v1::workspace_service_client::WorkspaceServiceClient;
 use scylla_proto::workspaces::v1::{
-    CreateWorkspaceRequest, DeleteWorkspaceRequest, GetWorkspaceRequest, ListWorkspacesRequest,
-    UpdateWorkspaceRequest, Workspace,
+    CreateWorkspaceRequest, DeleteWorkspaceRequest, GetWorkspaceRequest, GetWorkspaceResponse,
+    ListAllWorkspacesRequest, ListAllWorkspacesResponse, ListWorkspacesRequest,
+    ListWorkspacesResponse, UpdateWorkspaceRequest, Workspace,
 };
 use tonic::transport::Channel;
 use tonic::Status;
@@ -86,6 +88,7 @@ impl TestApp {
             slug: slug.map(str::to_owned),
             personal_tokens_enabled: None,
             time_zone: None,
+            icon: None,
         };
         let request = self.authed(actor, request).await;
         let response = self.workspaces().update_workspace(request).await?;
@@ -108,6 +111,30 @@ impl TestApp {
             slug: None,
             personal_tokens_enabled: None,
             time_zone: Some(time_zone.to_owned()),
+            icon: None,
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.workspaces().update_workspace(request).await?;
+        Ok(response
+            .into_inner()
+            .workspace
+            .expect("workspace in response"))
+    }
+
+    /// Calls `UpdateWorkspace` as `actor` with the icon only.
+    pub async fn set_workspace_icon(
+        &self,
+        actor: ActorId,
+        workspace: &str,
+        icon: IconChange,
+    ) -> Result<Workspace, Status> {
+        let request = UpdateWorkspaceRequest {
+            workspace_id: Some(id(workspace)),
+            name: None,
+            slug: None,
+            personal_tokens_enabled: None,
+            time_zone: None,
+            icon: Some(icon),
         };
         let request = self.authed(actor, request).await;
         let response = self.workspaces().update_workspace(request).await?;
@@ -130,16 +157,52 @@ impl TestApp {
     /// Calls `ListWorkspaces` as `actor` for one page of 100, and returns the names of the
     /// workspaces in list order.
     pub async fn visible_workspaces(&self, actor: ActorId) -> Result<Vec<String>, Status> {
-        let request = ListWorkspacesRequest {
-            page: Some(page(100, "")),
-        };
-        let request = self.authed(actor, request).await;
-        let response = self.workspaces().list_workspaces(request).await?;
-        let workspaces = response.into_inner().workspaces;
+        let workspaces = self.list_workspaces(actor, false).await?.workspaces;
         Ok(workspaces
             .into_iter()
             .map(|workspace| workspace.name)
             .collect())
+    }
+
+    /// Calls `ListWorkspaces` as `actor` for one page of 100. `only_with_role` keeps only the
+    /// workspaces where the actor has a role.
+    pub async fn list_workspaces(
+        &self,
+        actor: ActorId,
+        only_with_role: bool,
+    ) -> Result<ListWorkspacesResponse, Status> {
+        let request = ListWorkspacesRequest {
+            page: Some(page(100, "")),
+            only_with_role,
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.workspaces().list_workspaces(request).await?;
+        Ok(response.into_inner())
+    }
+
+    /// Calls `ListAllWorkspaces` as `actor`.
+    pub async fn list_all_workspaces(
+        &self,
+        actor: ActorId,
+        request: ListAllWorkspacesRequest,
+    ) -> Result<ListAllWorkspacesResponse, Status> {
+        let request = self.authed(actor, request).await;
+        let response = self.workspaces().list_all_workspaces(request).await?;
+        Ok(response.into_inner())
+    }
+
+    /// Calls `GetWorkspace` as `actor` with an id, and returns the whole answer.
+    pub async fn get_workspace_with_details(
+        &self,
+        actor: ActorId,
+        workspace: &str,
+    ) -> Result<GetWorkspaceResponse, Status> {
+        let request = GetWorkspaceRequest {
+            workspace: Some(Named::WorkspaceId(id(workspace))),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.workspaces().get_workspace(request).await?;
+        Ok(response.into_inner())
     }
 
     /// Calls `GetWorkspace` as `actor` with an id or a slug.
