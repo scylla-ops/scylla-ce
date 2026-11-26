@@ -144,12 +144,13 @@ fn the_schema_has_the_keys_of_the_file() {
     // then
     assert_eq!(schema["title"], "Scylla pipeline file");
     assert_eq!(schema["additionalProperties"], false);
-    let keys: Vec<_> = schema["properties"]
+    let mut keys: Vec<_> = schema["properties"]
         .as_object()
         .unwrap()
         .keys()
         .cloned()
         .collect();
+    keys.sort();
     assert_eq!(
         keys,
         ["agent", "checkout", "name", "nodes", "on", "version"]

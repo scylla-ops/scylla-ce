@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE apps\n         SET disabled_at = CASE WHEN $2 THEN coalesce(disabled_at, now()) END\n         WHERE id = $1\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, protocol, build, started_at, disabled_at, labels, icon_name,\n                   icon_color, icon_image_id",
+  "query": "INSERT INTO apps (id, workspace_id, name, runner, created_by) VALUES ($1, $2, $3, $4, $5)\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, protocol, build, started_at, disabled_at, labels, icon_name,\n                   icon_color, icon_image_id,\n                   (SELECT i.glyph FROM images i WHERE i.id = apps.icon_image_id) AS \"icon_glyph?\"",
   "describe": {
     "columns": [
       {
@@ -266,12 +266,21 @@
             "name": "icon_image_id"
           }
         }
+      },
+      {
+        "ordinal": 24,
+        "name": "icon_glyph?",
+        "type_info": "Jsonb",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Bool"
+        "Uuid",
+        "Text",
+        "Bool",
+        "Uuid"
       ]
     },
     "nullable": [
@@ -298,8 +307,9 @@
       false,
       true,
       true,
-      true
+      true,
+      null
     ]
   },
-  "hash": "981cbdfee853d7930a5dc92550963eea6be9545c59f5d3844319c9b6f6a4f327"
+  "hash": "c0d7156d4a7020b2816d59db190db577d319918546d22f4e996aa6ed4acb000f"
 }

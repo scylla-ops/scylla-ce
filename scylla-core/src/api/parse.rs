@@ -44,6 +44,14 @@ impl Invalid {
         }
     }
 
+    /// Moves the error into a field of a larger value: `path` gives the new path of the field.
+    pub fn inside(self, path: fn(&str) -> &'static str) -> Self {
+        Self {
+            sub_field: Some(path(self.sub_field.unwrap_or_default())),
+            reason: self.reason,
+        }
+    }
+
     /// Makes the request error, with the path of the field.
     fn into_error(self, field: &'static str) -> Error {
         match self.sub_field {

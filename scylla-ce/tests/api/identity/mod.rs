@@ -24,6 +24,7 @@ mod console;
 mod data_export;
 mod deletion;
 mod disable;
+mod glyph_avatars;
 mod handles;
 mod idp;
 mod install;

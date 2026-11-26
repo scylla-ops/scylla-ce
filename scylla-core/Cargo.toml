@@ -17,6 +17,7 @@ chacha20poly1305.workspace = true
 chrono.workspace = true
 clap.workspace = true
 croner.workspace = true
+dicebear-core.workspace = true
 ed25519-dalek.workspace = true
 getrandom.workspace = true
 hex.workspace = true

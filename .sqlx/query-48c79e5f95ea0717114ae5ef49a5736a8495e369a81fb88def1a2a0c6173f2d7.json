@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT u.id, u.display_name, u.handle, e.email AS \"email?\", u.status,\n                  EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)\n                      AS \"instance_admin!\",\n                  u.created_at, u.avatar_image_id, u.avatar_color\n           FROM users u\n           LEFT JOIN user_emails e ON e.user_id = u.id AND e.is_primary\n           WHERE ($1 = ''\n                  OR strpos(lower(u.display_name), lower($1)) > 0\n                  OR strpos(coalesce(u.handle, ''), lower($1)) > 0\n                  OR strpos(coalesce(e.email, ''), lower($1)) > 0)\n             AND (NOT $4\n                  OR EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)\n                  OR EXISTS (SELECT 1 FROM role_grants g\n                             WHERE g.actor_id = u.id AND g.scope_kind = 'platform'))\n             AND ($2::uuid IS NULL OR u.id > $2)\n           ORDER BY u.id\n           LIMIT $3",
+  "query": "SELECT u.id, u.display_name, u.handle, e.email AS \"email?\", u.status,\n                  EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)\n                      AS \"instance_admin!\",\n                  u.created_at, u.avatar_image_id, u.avatar_color,\n                  (SELECT i.glyph FROM images i WHERE i.id = u.avatar_image_id)\n                      AS \"avatar_glyph?\"\n           FROM users u\n           LEFT JOIN user_emails e ON e.user_id = u.id AND e.is_primary\n           WHERE ($1 = ''\n                  OR strpos(lower(u.display_name), lower($1)) > 0\n                  OR strpos(coalesce(u.handle, ''), lower($1)) > 0\n                  OR strpos(coalesce(e.email, ''), lower($1)) > 0)\n             AND (NOT $4\n                  OR EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)\n                  OR EXISTS (SELECT 1 FROM role_grants g\n                             WHERE g.actor_id = u.id AND g.scope_kind = 'platform'))\n             AND ($2::uuid IS NULL OR u.id > $2)\n           ORDER BY u.id\n           LIMIT $3",
   "describe": {
     "columns": [
       {
@@ -96,6 +96,12 @@
             "name": "avatar_color"
           }
         }
+      },
+      {
+        "ordinal": 9,
+        "name": "avatar_glyph?",
+        "type_info": "Jsonb",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -115,8 +121,9 @@
       null,
       false,
       true,
-      true
+      true,
+      null
     ]
   },
-  "hash": "4c217319476826548c717b4c0879d677c9b4f3bc4032a1dc30939c6978d8a44b"
+  "hash": "48c79e5f95ea0717114ae5ef49a5736a8495e369a81fb88def1a2a0c6173f2d7"
 }

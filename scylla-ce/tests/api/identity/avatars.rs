@@ -41,7 +41,7 @@ pub(super) async fn image_count(app: &TestApp) -> i64 {
 }
 
 /// Makes a user with a password, signs it in, and returns its id and its access token.
-async fn signed_in(app: &TestApp, email: &str) -> (ActorId, String) {
+pub(super) async fn signed_in(app: &TestApp, email: &str) -> (ActorId, String) {
     let user = app.user_with(email, Some(PASSWORD)).await;
     let token = app.sign_in(email, PASSWORD).await.unwrap().token.unwrap();
     (user, token.value)

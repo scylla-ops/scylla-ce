@@ -3,7 +3,7 @@
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::admins::ListUsers;
 use scylla_domain::identity::users::{ProfileChange, User, UserStatus};
-use scylla_domain::platform::images::{Avatar, IconColor, ImageId};
+use scylla_domain::platform::images::{Avatar, GlyphAvatar, IconColor, ImageId};
 use scylla_extension::{Rejection, Tx};
 
 use time::OffsetDateTime;
@@ -34,6 +34,8 @@ struct UserRow {
     avatar_image_id: Option<Uuid>,
     /// The color of the initials.
     avatar_color: Option<String>,
+    /// The options of the glyph avatar of the image, if it is one.
+    avatar_glyph: Option<serde_json::Value>,
 }
 
 impl From<UserRow> for User {
@@ -46,7 +48,8 @@ impl From<UserRow> for User {
             status: UserStatus::from_name(&row.status),
             instance_admin: row.instance_admin,
             created_at: row.created_at,
-            avatar: Avatar::of_columns(row.avatar_image_id.map(ImageId::from_db), row.avatar_color),
+            avatar: Avatar::of_columns(row.avatar_image_id.map(ImageId::from_db), row.avatar_color)
+                .map(|avatar| avatar.with_glyph(row.avatar_glyph.and_then(GlyphAvatar::of_json))),
         }
     }
 }
@@ -79,7 +82,9 @@ pub(crate) async fn find_user(tx: &mut Tx<'_>, id: ActorId) -> Result<Option<Use
         r#"SELECT u.id, u.display_name, u.handle, e.email AS "email?", u.status,
                   EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)
                       AS "instance_admin!",
-                  u.created_at, u.avatar_image_id, u.avatar_color
+                  u.created_at, u.avatar_image_id, u.avatar_color,
+                  (SELECT i.glyph FROM images i WHERE i.id = u.avatar_image_id)
+                      AS "avatar_glyph?"
            FROM users u
            LEFT JOIN user_emails e ON e.user_id = u.id AND e.is_primary
            WHERE u.id = $1"#,
@@ -98,7 +103,9 @@ pub(crate) async fn list_users(tx: &mut Tx<'_>, query: &ListUsers) -> Result<Vec
         r#"SELECT u.id, u.display_name, u.handle, e.email AS "email?", u.status,
                   EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)
                       AS "instance_admin!",
-                  u.created_at, u.avatar_image_id, u.avatar_color
+                  u.created_at, u.avatar_image_id, u.avatar_color,
+                  (SELECT i.glyph FROM images i WHERE i.id = u.avatar_image_id)
+                      AS "avatar_glyph?"
            FROM users u
            LEFT JOIN user_emails e ON e.user_id = u.id AND e.is_primary
            WHERE ($1 = ''

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,\n                protocol, build, started_at, disabled_at, labels, icon_name, icon_color,\n                icon_image_id\n         FROM apps\n         WHERE workspace_id = $1\n           AND ($2::boolean IS NULL OR runner = $2)\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
+  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,\n                protocol, build, started_at, disabled_at, labels, icon_name, icon_color,\n                icon_image_id,\n                (SELECT i.glyph FROM images i WHERE i.id = apps.icon_image_id) AS \"icon_glyph?\"\n         FROM apps WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -266,14 +266,17 @@
             "name": "icon_image_id"
           }
         }
+      },
+      {
+        "ordinal": 24,
+        "name": "icon_glyph?",
+        "type_info": "Jsonb",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Bool",
-        "Uuid",
-        "Int8"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -300,8 +303,9 @@
       false,
       true,
       true,
-      true
+      true,
+      null
     ]
   },
-  "hash": "76491bbcf18710752f664367781c7b1d0eb8fbb67b1131a62f641188dbc2e0d6"
+  "hash": "f38dccb1e27707ea43e92c123bb1652dd16b2ad62d155873a8e22b045158e831"
 }

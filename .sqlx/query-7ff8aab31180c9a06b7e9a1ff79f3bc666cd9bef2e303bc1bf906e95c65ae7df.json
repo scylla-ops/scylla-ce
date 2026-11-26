@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,\n                arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,\n                protocol, build, started_at, disabled_at, labels, icon_name, icon_color,\n                icon_image_id\n         FROM apps WHERE id = $1",
+  "query": "UPDATE apps SET labels = $2 WHERE id = $1\n         RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,\n                   os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,\n                   features, protocol, build, started_at, disabled_at, labels, icon_name,\n                   icon_color, icon_image_id,\n                   (SELECT i.glyph FROM images i WHERE i.id = apps.icon_image_id) AS \"icon_glyph?\"",
   "describe": {
     "columns": [
       {
@@ -266,11 +266,18 @@
             "name": "icon_image_id"
           }
         }
+      },
+      {
+        "ordinal": 24,
+        "name": "icon_glyph?",
+        "type_info": "Jsonb",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -297,8 +304,9 @@
       false,
       true,
       true,
-      true
+      true,
+      null
     ]
   },
-  "hash": "8ece0c4d9b76d754c8cc9dd6b8f3c841b0c6d1e2a266edea3a442dbbc2b1bbdc"
+  "hash": "7ff8aab31180c9a06b7e9a1ff79f3bc666cd9bef2e303bc1bf906e95c65ae7df"
 }

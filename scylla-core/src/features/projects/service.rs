@@ -85,6 +85,10 @@ pub(super) async fn update(
         Some(IconChange::Image(upload)) => Some(NewIcon::Png(
             images::service::square_png(upload, "icon.image").await?,
         )),
+        Some(change @ IconChange::GlyphAvatar(_)) => {
+            images::service::refuse_glyph_avatar(&change)?;
+            None
+        }
     };
 
     // Change the icon, then the other fields, in one transaction.

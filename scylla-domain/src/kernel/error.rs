@@ -203,6 +203,18 @@ pub enum DomainError {
         "must be #rrggbb, or 1 to 32 lower case letters, digits or dashes with a letter first"
     )]
     NotAColor,
+    /// The text is not a shape of a glyph avatar.
+    #[error("must be variant01 to variant35, or scylla")]
+    NotAGlyphShape,
+    /// The text is not a hex color.
+    #[error("must be #rrggbb")]
+    NotAHexColor,
+    /// The number is not an angle in degrees.
+    #[error("must be from -360 to 360")]
+    NotAnAngle,
+    /// The paint of a glyph avatar has a wrong number of colors for its fill.
+    #[error("must have 1 color for a solid fill, or 2 to 4 colors for a gradient")]
+    GlyphColorCount,
     /// The bytes are not an image of a format that the server reads.
     #[error("must be a PNG, JPEG or WebP image")]
     NotAnImage,

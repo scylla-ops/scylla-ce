@@ -123,7 +123,10 @@ pub(super) async fn update(
 ) -> Result<Workspace, Error> {
     // Make the PNG of a new image before the transaction, as the decode takes time.
     let icon = match change.icon.take() {
-        Some(icon) => Some(images::service::new_icon(icon, "icon.image").await?),
+        Some(icon) => {
+            images::service::refuse_glyph_avatar(&icon)?;
+            Some(images::service::new_icon(icon, "icon.image").await?)
+        }
         None => None,
     };
 

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT u.id, u.display_name, u.handle, e.email AS \"email?\", u.status,\n                  EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)\n                      AS \"instance_admin!\",\n                  u.created_at, u.avatar_image_id, u.avatar_color\n           FROM users u\n           LEFT JOIN user_emails e ON e.user_id = u.id AND e.is_primary\n           WHERE u.id = $1",
+  "query": "SELECT u.id, u.display_name, u.handle, e.email AS \"email?\", u.status,\n                  EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)\n                      AS \"instance_admin!\",\n                  u.created_at, u.avatar_image_id, u.avatar_color,\n                  (SELECT i.glyph FROM images i WHERE i.id = u.avatar_image_id)\n                      AS \"avatar_glyph?\"\n           FROM users u\n           LEFT JOIN user_emails e ON e.user_id = u.id AND e.is_primary\n           WHERE u.id = $1",
   "describe": {
     "columns": [
       {
@@ -96,6 +96,12 @@
             "name": "avatar_color"
           }
         }
+      },
+      {
+        "ordinal": 9,
+        "name": "avatar_glyph?",
+        "type_info": "Jsonb",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -112,8 +118,9 @@
       null,
       false,
       true,
-      true
+      true,
+      null
     ]
   },
-  "hash": "716542d2d5d2caf6e10d82a42afe87b370a71a0cef760fe76b3f3482ca7d9488"
+  "hash": "6e285e8fc39fadb09c06da2925b21fde91c571db5619d92e0a2587ccc3c5b7c7"
 }

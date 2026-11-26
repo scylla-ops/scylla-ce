@@ -52,6 +52,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   `#RRGGBB` color, or an uploaded image, as a project does: only a member who can update the
   workspace changes it, and the server deletes the old image. A project group keeps a folder color
   (a color token or `#RRGGBB`); a bad color gives INVALID_ARGUMENT.
+- Glyph avatars for people and Apps. The server checks the options, draws the SVG with
+  `dicebear-core` 11 and the shared style file (the 35 shapes of "Glyphs" and the Scylla head),
+  keeps it in the images store (`image/svg+xml`, served from `/images/{id}` with the strict headers)
+  and keeps the options in `images.glyph` for a new edit. A project or a workspace refuses a glyph
+  avatar. The migration adds the column `images.glyph`.
 
 ### Changed
 

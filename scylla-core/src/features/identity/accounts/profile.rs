@@ -47,7 +47,9 @@ impl ProfileService for ProfileGrpc {
     ) -> Answer<pb::UpdateProfileResponse> {
         let (_, user) = self.user(&request, AccountCaller::UPDATE_PROFILE).await?;
         let request = request.into_inner();
+        let with_image = request.avatar_image.is_some();
         let change = ProfileChange {
+            avatar_glyph: convert::avatar_glyph(request.avatar_glyph, with_image)?,
             avatar_image: convert::avatar_image(request.avatar_image)?,
             avatar_color: convert::avatar_color(request.avatar_color)?,
             ..convert::profile_change(request.display_name, request.handle)?

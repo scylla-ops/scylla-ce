@@ -32,7 +32,7 @@ pub(crate) async fn set_icon(
             glyph.color.as_ref().map(|color| color.as_str()),
             None,
         ),
-        Some(Icon::Image(image)) => (None, None, Some(image.to_db())),
+        Some(Icon::Image(image) | Icon::GlyphAvatar(image, _)) => (None, None, Some(image.to_db())),
     };
     sqlx::query!(
         "UPDATE workspaces SET icon_name = $2, icon_color = $3, icon_image_id = $4 WHERE id = $1",

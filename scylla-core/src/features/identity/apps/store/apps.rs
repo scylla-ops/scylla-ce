@@ -1,15 +1,16 @@
 //! The SQL of the `apps` table.
 
-use scylla_domain::identity::actors::ActorId;
+mod row;
+
 use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::identity::apps::{App, AppId, Host, NewApp};
-use scylla_domain::platform::images::{Icon, ImageId};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::PageRequest;
 use scylla_extension::Tx;
-use time::OffsetDateTime;
 
 use crate::Error;
+
+use row::Row;
 
 /// The foreign key from an App to its workspace.
 const WORKSPACE_FOREIGN_KEY: &str = "apps_workspace_id_fkey";
@@ -23,7 +24,8 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, id: AppId, new: &NewApp) -> Result<A
          RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
                    os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,
                    features, protocol, build, started_at, disabled_at, labels, icon_name,
-                   icon_color, icon_image_id",
+                   icon_color, icon_image_id,
+                   (SELECT i.glyph FROM images i WHERE i.id = apps.icon_image_id) AS \"icon_glyph?\"",
         id.to_db(),
         new.workspace_id.to_db(),
         new.name.as_str(),
@@ -48,7 +50,8 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: AppId) -> Result<Option<App>, sqlx
         "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,
                 arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,
                 protocol, build, started_at, disabled_at, labels, icon_name, icon_color,
-                icon_image_id
+                icon_image_id,
+                (SELECT i.glyph FROM images i WHERE i.id = apps.icon_image_id) AS \"icon_glyph?\"
          FROM apps WHERE id = $1",
         id.to_db(),
     )
@@ -69,7 +72,8 @@ pub(crate) async fn list(
         "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,
                 arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,
                 protocol, build, started_at, disabled_at, labels, icon_name, icon_color,
-                icon_image_id
+                icon_image_id,
+                (SELECT i.glyph FROM images i WHERE i.id = apps.icon_image_id) AS \"icon_glyph?\"
          FROM apps
          WHERE workspace_id = $1
            AND ($2::boolean IS NULL OR runner = $2)
@@ -120,7 +124,8 @@ pub(crate) async fn set_disabled(
          RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
                    os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,
                    features, protocol, build, started_at, disabled_at, labels, icon_name,
-                   icon_color, icon_image_id",
+                   icon_color, icon_image_id,
+                   (SELECT i.glyph FROM images i WHERE i.id = apps.icon_image_id) AS \"icon_glyph?\"",
         id.to_db(),
         disabled,
     )
@@ -142,7 +147,8 @@ pub(crate) async fn set_labels(
          RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
                    os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,
                    features, protocol, build, started_at, disabled_at, labels, icon_name,
-                   icon_color, icon_image_id",
+                   icon_color, icon_image_id,
+                   (SELECT i.glyph FROM images i WHERE i.id = apps.icon_image_id) AS \"icon_glyph?\"",
         id.to_db(),
         &labels.texts(),
     )
@@ -205,93 +211,4 @@ pub(crate) async fn capacity(
     .fetch_one(&mut **tx)
     .await?;
     Ok(u32::try_from(sum).unwrap_or(u32::MAX))
-}
-
-/// A row of the `apps` table.
-struct Row {
-    /// The id.
-    id: uuid::Uuid,
-    /// The workspace.
-    workspace_id: uuid::Uuid,
-    /// The display name.
-    name: String,
-    /// `true` for an agent.
-    runner: bool,
-    /// The author.
-    created_by: uuid::Uuid,
-    /// The creation time.
-    created_at: OffsetDateTime,
-    /// The last seen time.
-    last_seen_at: Option<OffsetDateTime>,
-    /// The version of the agent.
-    version: Option<String>,
-    /// The operating system.
-    os: Option<String>,
-    /// The CPU architecture.
-    arch: Option<String>,
-    /// The host name.
-    hostname: Option<String>,
-    /// The number of CPUs.
-    cpu_count: Option<i32>,
-    /// The memory in bytes.
-    memory_bytes: Option<i64>,
-    /// The capacity.
-    capacity: i32,
-    /// The container runtime.
-    container_runtime: Option<String>,
-    /// The features of the agent.
-    features: Vec<String>,
-    /// The protocol of the agent.
-    protocol: i32,
-    /// The commit of the build of the agent.
-    build: Option<String>,
-    /// The start of the process of the agent.
-    started_at: Option<OffsetDateTime>,
-    /// The time of the disable.
-    disabled_at: Option<OffsetDateTime>,
-    /// The labels that the admins gave.
-    labels: Vec<String>,
-    /// The name of the glyph of the icon, if it has one.
-    icon_name: Option<String>,
-    /// The color of the glyph of the icon, if it has one.
-    icon_color: Option<String>,
-    /// The image of the icon, if it has one.
-    icon_image_id: Option<uuid::Uuid>,
-}
-
-impl Row {
-    /// Makes the App of the row. An App with no version has no host yet.
-    fn into_app(self) -> App {
-        let host = self.version.map(|version| Host {
-            version,
-            os: self.os.unwrap_or_default(),
-            arch: self.arch.unwrap_or_default(),
-            hostname: self.hostname.unwrap_or_default(),
-            cpu_count: self.cpu_count.unwrap_or_default().max(0) as u32,
-            memory_bytes: self.memory_bytes.unwrap_or_default().max(0) as u64,
-            capacity: self.capacity.max(1) as u32,
-            container_runtime: self.container_runtime,
-            features: self.features,
-            protocol: self.protocol.max(0) as u32,
-            build: self.build,
-            started_at: self.started_at,
-        });
-        App {
-            id: AppId::from_db(self.id),
-            workspace_id: WorkspaceId::from_db(self.workspace_id),
-            name: self.name,
-            runner: self.runner,
-            created_by: ActorId::from_db(self.created_by),
-            created_at: self.created_at,
-            last_seen_at: self.last_seen_at,
-            host,
-            disabled_at: self.disabled_at,
-            labels: AgentLabels::of_checked(self.labels),
-            icon: Icon::of_columns(
-                self.icon_name,
-                self.icon_color,
-                self.icon_image_id.map(ImageId::from_db),
-            ),
-        }
-    }
 }
