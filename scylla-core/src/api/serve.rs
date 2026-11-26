@@ -26,13 +26,13 @@ use crate::features::identity::{admins, apps, personal_tokens};
 use crate::features::integrations::{self, IntegrationContext};
 use crate::features::notifications::{self, PgNotifier};
 use crate::features::platform::retention::{self, RetentionSettings};
-use crate::features::platform::{consent, legal, settings};
+use crate::features::platform::{consent, legal, mail_settings, settings};
 use crate::features::projects::jobs::{self, housekeeping};
 use crate::features::projects::triggers::webhook::{self, Webhooks};
 use crate::features::projects::triggers::{self, schedule};
 use crate::features::projects::{pipelines, secrets};
 use crate::features::tenancy::{dashboards, invitations};
-use crate::infra::mail::{self, LogMailer};
+use crate::infra::mail::{self, InstanceMailer, LogMailer};
 use crate::infra::secret::Sealer;
 use crate::infra::{db, dev_keys, logs::LogClientIp, vcs::VcsOptions};
 use crate::{Config, Error};
@@ -48,7 +48,8 @@ pub struct ServeOptions {
     pub cors_origins: Vec<String>,
     /// The settings of the accounts and of the sessions.
     pub accounts: AccountSettings,
-    /// The mailer of the account mails.
+    /// The default mailer of the account mails. The relay of the mail settings of the instance
+    /// replaces it.
     pub mailer: Arc<dyn Mailer>,
     /// The key of the secrets that the server reads back: the client secrets of the identity
     /// providers and the values of the secrets of the projects.
@@ -175,7 +176,7 @@ pub async fn serve(
         schema: edition.authz_model().clone(),
         pool: pool.clone(),
         gate: Arc::clone(&gate),
-        mailer: options.mailer,
+        mailer: Arc::new(InstanceMailer::new(options.mailer)),
         settings: Arc::new(options.accounts),
         sealer: options.sealer.clone(),
         grants: edition.grants(),
@@ -195,6 +196,7 @@ pub async fn serve(
     routes.add_service(personal_tokens::server(ctx.clone()));
     routes.add_service(settings::server(pool.clone(), Arc::clone(&gate)));
     routes.add_service(legal::server(pool.clone(), Arc::clone(&gate)));
+    routes.add_service(mail_settings::server(ctx.clone()));
     routes.add_service(consent::server(&pool, &gate, ctx.settings.trust_forwarded));
     routes.add_service(invitations::server(ctx.clone()));
     routes.add_service(secrets::server(
@@ -222,7 +224,6 @@ pub async fn serve(
 
     // Start the background tasks of the core, then the tasks of the edition.
     let mut tasks = vec![
-        accounts::mails::spawn(pool.clone(), Arc::clone(&ctx.mailer)),
         housekeeping::spawn(pool.clone(), share(), options.log_retention),
         retention::spawn(pool.clone(), options.retention),
         schedule::spawn(vcs.clone()),
@@ -257,6 +258,11 @@ pub async fn serve(
     if let Some(app) = super::web::app(options.web_dir.as_deref(), edition.web_files(), &vcs) {
         router = router.fallback_service(app);
     }
+
+    // Read the relay of the mail settings, then start the outbox, which sends with it.
+    mail_settings::load(&ctx).await;
+    let mailer = Arc::<InstanceMailer>::clone(&ctx.mailer);
+    tasks.push(accounts::mails::spawn(pool.clone(), mailer));
 
     // At the stop signal, report `NOT_SERVING` first.
     let stop = async move {

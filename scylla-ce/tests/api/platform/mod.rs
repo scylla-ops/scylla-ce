@@ -1,7 +1,7 @@
 //! The tests of the platform: capabilities, health, reflection, gRPC-Web, the HTTP/JSON gateway,
-//! the legal settings, the consent, TLS, the route rule, the logs, the client IP address of the
-//! logs, the retention, the tasks of an edition, the files of the web app and the pool of the
-//! test server.
+//! the legal settings, the mail settings, the consent, TLS, the route rule, the logs, the client
+//! IP address of the logs, the retention, the tasks of an edition, the files of the web app and
+//! the pool of the test server.
 
 mod capabilities;
 mod client_ip;
@@ -12,6 +12,8 @@ mod import;
 mod json;
 mod legal;
 mod logs;
+mod mail_relay;
+mod mail_settings;
 mod reflection;
 mod retention;
 mod routes;

@@ -7,6 +7,15 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ## [Unreleased]
 
+### Fixed
+
+- Account mails with fewer spam signals, and a reference for each sent mail. The HTML body has no
+  hidden preheader and no filler of invisible characters. The SMTP mailer gives the host of
+  `SCYLLA_APP_URL` in `EHLO`, not `[127.0.0.1]` (a name in the path of `SCYLLA_SMTP_URL` wins). The
+  log line `mail.sent` has the `Message-ID` of the mail and the answer of the mail server with its
+  queue id. For the editions, `Mailer::send_traced` (with a default body) returns this
+  `MailReceipt`, and `SmtpMailer::new_for_app` gives the host of the web app in `EHLO`.
+
 ## [0.7.2] - 2026-11-25
 
 ### Added

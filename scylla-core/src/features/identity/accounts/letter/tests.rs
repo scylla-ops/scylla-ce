@@ -4,6 +4,7 @@ use time::{OffsetDateTime, UtcOffset};
 
 use super::content::{clock, LOGO_DARK_ID, LOGO_ID};
 use super::html::escape;
+use super::style::CANVAS;
 use super::{Action, Badge, Fact, Letter, NotYou, Part};
 
 /// Returns the time of a count of seconds after the Unix epoch.
@@ -16,7 +17,6 @@ fn at(seconds: i64) -> OffsetDateTime {
 fn letter() -> Letter {
     Letter {
         subject: "Join <team>".to_owned(),
-        preheader: "Join the workspace <team>.".to_owned(),
         badge: Badge::INVITATION,
         title: "Join <team>".to_owned(),
         lead: vec![Part::strong("Ann & Bob"), Part::plain(" invited you.")],
@@ -70,8 +70,8 @@ fn compose_writes_the_text_body() {
     assert_eq!(mail.subject, "Join <team>");
 }
 
-/// The HTML body escapes each value, hides the preheader, has the colors of the dark theme in
-/// its style sheet, and shows the logo of the mail with its alt text.
+/// The HTML body escapes each value, has the colors of the dark theme in its style sheet, and
+/// shows the logo of the mail with its alt text.
 #[test]
 fn compose_writes_the_html_body_with_the_logo() {
     // when
@@ -83,7 +83,6 @@ fn compose_writes_the_html_body_with_the_logo() {
     assert!(!html.contains("<team>") && !html.contains("Hello,"));
     assert!(html.contains(">Join &lt;team&gt;</h1>"));
     assert!(html.contains(">Ann &amp; Bob</strong> invited you.</p>"));
-    assert!(html.contains("mso-hide:all;opacity:0;"));
     assert!(html.contains(r#"<meta name="color-scheme" content="light dark">"#));
     assert!(html.contains("@media (prefers-color-scheme: dark)"));
     assert!(html.contains(&format!(r#"src="cid:{LOGO_ID}""#)));
@@ -95,6 +94,27 @@ fn compose_writes_the_html_body_with_the_logo() {
         .images
         .iter()
         .all(|image| image.content_type == "image/png" && image.bytes.starts_with(b"\x89PNG")));
+}
+
+/// The HTML body hides no text: no filler of invisible characters, no tiny text, and no text in
+/// the color of the canvas, which spam filters count.
+#[test]
+fn compose_hides_no_text_in_the_html_body() {
+    // when
+    let html = letter().compose().html;
+
+    // then
+    assert!(
+        !html.contains("&#847;") && !html.contains("&zwnj;"),
+        "{html}"
+    );
+    assert!(
+        !html.contains("opacity:0") && !html.contains("font-size:1px"),
+        "{html}"
+    );
+    let canvas = format!("color:{CANVAS}");
+    let backgrounds = html.matches(&format!("background-{canvas}")).count();
+    assert_eq!(html.matches(&canvas).count(), backgrounds, "{html}");
 }
 
 /// A one-time link is the button and a copy as text. Another link is the button only.

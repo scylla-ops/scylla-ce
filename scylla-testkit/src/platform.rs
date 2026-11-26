@@ -1,8 +1,9 @@
 //! The `TestApp` helpers of the platform RPCs: the capabilities, the legal settings, the consent,
-//! the health check and the gRPC reflection. `Legacy` gives the tests of the import an old
-//! database.
+//! the health check and the gRPC reflection, and of the mail settings in `mail_settings`.
+//! `Legacy` gives the tests of the import an old database.
 
 mod legacy;
+mod mail_settings;
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_proto::capabilities::v1::capability_service_client::CapabilityServiceClient;
@@ -22,6 +23,7 @@ use tonic_reflection::pb::{v1, v1alpha};
 use crate::TestApp;
 
 pub use legacy::Legacy;
+pub use mail_settings::local_relay;
 
 impl TestApp {
     /// Calls `GetCapabilities`, with no token.
