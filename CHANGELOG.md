@@ -9,11 +9,27 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ### Added
 
+- The mail relay of an instance, set at runtime (`MailSettingsService`). An instance admin sets the
+  SMTP relay of the server: host, port, security (TLS, STARTTLS, or none for a local relay), user
+  name, password and sender. The next send uses it with no restart, also for a mail that waits in
+  the outbox, and `ListSignInMethods` gives its sender. The password is write-only and sealed with
+  `SCYLLA_SECRET_KEY` (`SECRET_KEY_MISSING` with no key). With no relay of the instance, the server
+  keeps its default: `SCYLLA_SMTP_URL` and `SCYLLA_MAIL_FROM`, else a log of the mails.
+  `ResetMailSettings` removes the relay. `SendTestMail` sends one test mail at once and returns the
+  answer of the relay or its error. Only an instance admin, or a role of the instance with the
+  permission `instance_settings.manage`, uses these routes. A relay that the server cannot use at
+  its start keeps the mails in the outbox, and settings that it cannot read do not stop its start.
+  The log has the new events `mail.settings_changed`, `mail.settings_reset`,
+  `mail.settings_unusable` and `mail.tested`, and `mail.sent`, `mail.failed` and `mail.dropped` add
+  the host of the relay, never its user name or its password. The new migration only adds the table
+  `mail_settings`. For the editions, `Mailer::relay` (with a default body) gives the host of the
+  mail server for the log.
 - Custom project icons. A project keeps a glyph with a color token or a `#RRGGBB` color, or an
-  uploaded image. The new migration only adds nullable columns. The server re-encodes each uploaded
-  image (PNG, JPEG or WebP, 1 MB max) as a square PNG of 256 px, and the public route `GET
-  /images/{id}` serves it with `nosniff` and a sandbox CSP. The server refuses an SVG. Only a member
-  that can update the project changes its icon. The `image` crate is a new dependency.
+  uploaded image. The new migration adds the table `images` and nullable columns of `projects`. The
+  server re-encodes each uploaded image (PNG, JPEG or WebP, 1 MB max) as a square PNG of 256 px, and
+  the public route `GET /images/{id}` serves it with `nosniff` and a sandbox CSP. The server refuses
+  an SVG. Only a member that can update the project changes its icon. The `image` crate is a new
+  dependency.
 - `ListProjects` searches the projects of a workspace in their name, description, repository and
   pipeline names, sorts them (position, name, last job, failed first), keeps only the failing or the
   running ones, and returns their counts. `ListRepositoryLinks` returns the repository links of a
@@ -23,8 +39,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   with `UpdateProfile`. An admin of the workspace sets the icon of an App with `SetAppIcon`: a glyph
   with a color, an image, or the default icon. The images go through the image service of the
   project icons. The server deletes the old image when it gets a new one, when a user deletes the
-  account, and when an admin deletes the App. `ListMembers` and the export of an account give the
-  photo. The new migration only adds nullable columns.
+  account, and when an admin deletes the App. `ListMembers` gives the photo of a user and the icon
+  of an App, and the export of an account gives the photo. The new migration only adds nullable
+  columns.
 - Groups of projects in a workspace. The new migration adds the table `project_groups` and the
   nullable columns `projects.group_id` and `projects.position`. The owners, the admins and the
   members of a workspace create, rename, reorder and delete its groups, and the editors of a project
