@@ -53,6 +53,14 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   workspace changes it, and the server deletes the old image. A project group keeps a folder color
   (a color token or `#RRGGBB`); a bad color gives INVALID_ARGUMENT.
 
+### Changed
+
+- The Windows checks of the agent (clippy and the unit tests of `scylla-agent`) run in Scylla, on a
+  Windows agent (`.scylla/pipelines/agent-windows.yaml`, check run `scylla/agent-windows`), not in
+  GitHub Actions. The pipeline files of the Linux checks ask the label `linux`, so the Windows agent
+  does not take their jobs. Only the macOS checks of the agent and the release stay in GitHub
+  Actions.
+
 ### Fixed
 
 - Account mails with fewer spam signals, and a reference for each sent mail. The HTML body has no

@@ -1,11 +1,12 @@
 //! Unit tests of the pipeline files: the read, the errors and their places, the warnings, the
-//! export and the lookup.
+//! export, the lookup and the files of this repository.
 
 mod agent;
 mod errors;
 mod export;
 mod lookup;
 mod read;
+mod repository;
 mod warnings;
 
 use super::{parse, FileError, FileFormat, FileKey, FilePipeline, Location};
