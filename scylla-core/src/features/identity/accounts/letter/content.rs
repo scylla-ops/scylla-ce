@@ -196,8 +196,6 @@ pub(crate) struct Letter {
     pub(crate) instance: String,
     /// The subject.
     pub(crate) subject: String,
-    /// The text that a client shows after the subject in a list of mails.
-    pub(crate) preheader: String,
     /// The badge above the title.
     pub(crate) badge: Badge,
     /// The title.
@@ -223,7 +221,6 @@ impl Letter {
             to: to.to_owned(),
             instance: instance.to_owned(),
             subject: String::new(),
-            preheader: String::new(),
             badge: Badge::ACCOUNT,
             title: String::new(),
             lead: Vec::new(),

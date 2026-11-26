@@ -138,7 +138,11 @@ impl AccountService for AccountsGrpc {
                 })
                 .collect(),
             sign_up_mode: self.ctx.settings.sign_up_mode.as_str().to_owned(),
-            mail_sender: self.ctx.settings.mail_sender.clone(),
+            mail_sender: self
+                .ctx
+                .mailer
+                .sender()
+                .unwrap_or_else(|| self.ctx.settings.mail_sender.clone()),
         }))
     }
 

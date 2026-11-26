@@ -148,6 +148,9 @@ pub enum DomainError {
     /// The text is not an http or https URL.
     #[error("must be an http or https URL")]
     NotAnUrl,
+    /// The text is not a host name or an IP address.
+    #[error("must be a host name or an IP address: letters, digits, dots, dashes or colons")]
+    NotAHost,
     /// The text is not the path of a repository.
     #[error("must be owner/repo or group/project")]
     NotARepository,

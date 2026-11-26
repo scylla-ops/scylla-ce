@@ -4,10 +4,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use scylla_domain::authz::Schema;
-use scylla_extension::{Gate, Grants, Hooks, Mailer};
+use scylla_extension::{Gate, Grants, Hooks};
 use sqlx::PgPool;
 
-use crate::infra::mail;
+use crate::infra::mail::{self, InstanceMailer};
 use crate::infra::secret::Sealer;
 use crate::{Config, SignUpMode};
 
@@ -26,7 +26,8 @@ pub struct AccountSettings {
     pub web_origins: Vec<String>,
     /// `true` if the IP address of a sign-in comes from the last `X-Forwarded-For` address.
     pub trust_forwarded: bool,
-    /// The email address that the mails come from, which the sign-in page shows.
+    /// The email address that the mails of the default mailer come from. The sign-in page shows
+    /// it when the mail settings of the instance have no relay.
     pub mail_sender: String,
 }
 
@@ -128,8 +129,8 @@ pub struct AccountContext {
     pub pool: PgPool,
     /// The access gate, which signs the tokens and writes the roles.
     pub gate: Arc<dyn Gate>,
-    /// The mailer.
-    pub mailer: Arc<dyn Mailer>,
+    /// The mailer of the instance: the relay of the mail settings, else the default mailer.
+    pub mailer: Arc<InstanceMailer>,
     /// The settings.
     pub settings: Arc<AccountSettings>,
     /// The key of the secrets, if the settings give one.

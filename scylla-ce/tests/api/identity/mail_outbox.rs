@@ -73,7 +73,8 @@ async fn logged(logs: &Logs, event: &str) -> String {
 }
 
 /// A sign-up puts the link in the outbox, and the task sends it. The sent mail keeps no content:
-/// only its kind, its masked recipient, its state and its attempts.
+/// only its kind, its masked recipient, its state and its attempts. Its log line has the
+/// `Message-ID` and the answer of the mail server, with the recipient masked.
 #[sqlx::test(migrations = false)]
 async fn sign_up_sends_the_link_from_the_outbox_and_clears_it(pool: PgPool) {
     // given
@@ -93,6 +94,13 @@ async fn sign_up_sends_the_link_from_the_outbox_and_clears_it(pool: PgPool) {
     assert!(mails[0].body.contains("/verify-email#token="));
     let text = logged(&logs, "mail.sent").await;
     assert!(text.contains("\"attempts\":1"), "{text}");
+    assert!(
+        text.contains("\"message_id\":\"<1@mailbox.test>\""),
+        "{text}"
+    );
+    let reply = "250 2.0.0 Ok: queued as 1 for <o***@example.com>";
+    assert!(text.contains(&format!("\"reply\":\"{reply}\"")), "{text}");
+    assert!(text.contains("\"relay\":\"mailbox.test\""), "{text}");
     assert!(!text.contains(EMAIL), "{text}");
 }
 
@@ -137,6 +145,7 @@ async fn sign_up_drops_the_link_after_a_permanent_error(pool: PgPool) {
     assert!(app.mails.to(EMAIL).await.is_empty());
     let text = logged(&logs, "mail.dropped").await;
     assert!(text.contains("\"to\":\"o***@example.com\""), "{text}");
+    assert!(text.contains("\"relay\":\"mailbox.test\""), "{text}");
     assert!(!text.contains(EMAIL) && !text.contains("#token="), "{text}");
 }
 

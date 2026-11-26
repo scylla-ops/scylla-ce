@@ -1,5 +1,5 @@
 //! The HTML body of an account mail: centered tables with inline styles, which each mail client
-//! shows, the style sheet of the dark theme, and a hidden preheader. Each value is escaped.
+//! shows, and the style sheet of the dark theme. Each value is escaped.
 
 use super::content::{Action, Badge, Fact, Letter, NotYou, Part, Tone, LOGO_DARK_ID, LOGO_ID};
 use super::legal;
@@ -7,9 +7,6 @@ use super::style::{
     BAND, BORDER, CANVAS, CARD, DISPLAY, FOREGROUND, MONO, MUTED, ON_PRIMARY, PRIMARY, SANS, SHEET,
     WARNING,
 };
-
-/// The blank characters after the preheader, so a client shows no text of the body after it.
-const FILLER: &str = "&#847;&zwnj;&nbsp;";
 
 /// The start of a table for the layout.
 const TABLE: &str =
@@ -32,7 +29,6 @@ pub(super) fn body(letter: &Letter) -> String {
 
     // Put the logo, the card and the footer in the middle of the canvas.
     let subject = escape(&letter.subject);
-    let preheader = escape(&letter.preheader);
     let (to, instance) = (escape(&letter.to), escape(&letter.instance));
     let footer = format!(
         "{}Sent to {to} by the Scylla instance at {instance}.</p>{}{}</p>{}",
@@ -41,7 +37,7 @@ pub(super) fn body(letter: &Letter) -> String {
         escape(&letter.reason),
         legal::html(&letter.legal),
     );
-    let (logo, filler) = (logo(), FILLER.repeat(60));
+    let logo = logo();
     format!(
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
@@ -49,8 +45,6 @@ pub(super) fn body(letter: &Letter) -> String {
          <meta name=\"supported-color-schemes\" content=\"light dark\">\n\
          <title>{subject}</title>\n<style>{SHEET}</style>\n</head>\n\
          <body class=\"canvas\" style=\"margin:0;padding:0;background-color:{CANVAS};\">\n\
-         <div style=\"display:none;max-height:0;max-width:0;overflow:hidden;mso-hide:all;\
-         opacity:0;font-size:1px;line-height:1px;color:{CANVAS};\">{preheader}{filler}</div>\n\
          {TABLE} class=\"canvas\" style=\"background-color:{CANVAS};\"><tr>\
          <td align=\"center\" style=\"padding:48px 16px;\">\n\
          <!--[if mso]><table role=\"presentation\" width=\"560\" align=\"center\"><tr><td>\

@@ -16,7 +16,6 @@ const SECURITY: &str =
 pub(crate) fn email_changed(ctx: &AccountContext, old: &str, new: &str) -> Letter {
     Letter {
         subject: "The email of your Scylla account changed".to_owned(),
-        preheader: format!("Your account now signs in with {new}, not with this email."),
         badge: Badge::SECURITY,
         title: "Your email changed".to_owned(),
         lead: vec![
@@ -45,7 +44,6 @@ pub(crate) fn password_changed(ctx: &AccountContext, to: &str, from: Option<&Cli
     facts.extend(from.map(|client| Fact::new("From", client.describe())));
     Letter {
         subject: "Your Scylla password changed".to_owned(),
-        preheader: format!("The password of {to} changed. Not you? Reset it now."),
         badge: Badge::SECURITY,
         title: "Your password changed".to_owned(),
         lead: vec![
@@ -69,7 +67,6 @@ pub(crate) fn password_changed(ctx: &AccountContext, to: &str, from: Option<&Cli
 pub(crate) fn identity_linked(ctx: &AccountContext, to: &str, provider: &str) -> Letter {
     Letter {
         subject: format!("A new sign-in method on your Scylla account: {provider}"),
-        preheader: format!("You can now sign in with {provider}. Not you? Remove it now."),
         badge: Badge::SECURITY,
         title: format!("New sign-in method: {provider}"),
         lead: vec![
@@ -95,9 +92,6 @@ pub(crate) fn identity_linked(ctx: &AccountContext, to: &str, provider: &str) ->
 pub(crate) fn identity_unlinked(ctx: &AccountContext, to: &str, provider: &str) -> Letter {
     Letter {
         subject: format!("A sign-in method left your Scylla account: {provider}"),
-        preheader: format!(
-            "You can no longer sign in with {provider}. Your other methods still work."
-        ),
         badge: Badge::SECURITY,
         title: format!("{provider} was removed"),
         lead: vec![
@@ -124,7 +118,6 @@ pub(crate) fn token_created(ctx: &AccountContext, to: &str, token: &ApiTokenInfo
     let name = token.name.as_str();
     Letter {
         subject: format!("A new personal token on your Scylla account: {name}"),
-        preheader: format!("The token {name} can now act as your account. Not you? Revoke it now."),
         badge: Badge::SECURITY,
         title: "New personal token".to_owned(),
         lead: vec![
@@ -159,8 +152,6 @@ pub(crate) fn session_reuse(ctx: &AccountContext, to: &str, session: &Client) ->
     facts.push(Fact::time("Closed", OffsetDateTime::now_utc()));
     Letter {
         subject: "A Scylla session of your account closed".to_owned(),
-        preheader: "An old token of one of your sessions came back, so Scylla closed the session."
-            .to_owned(),
         badge: Badge::ALERT,
         title: "We closed a session".to_owned(),
         lead: vec![Part::plain(
@@ -188,9 +179,6 @@ pub(crate) fn account_locked(
 ) -> Letter {
     Letter {
         subject: format!("Your Scylla account is locked until {}", clock(until)),
-        preheader: "Too many wrong passwords. Sign in again after the lock, or choose a new \
-                    password."
-            .to_owned(),
         badge: Badge::ALERT,
         title: "Your account is locked".to_owned(),
         lead: vec![
