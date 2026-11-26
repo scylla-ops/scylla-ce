@@ -49,6 +49,8 @@ impl TestApp {
         let request = pb::UpdateProfileRequest {
             display_name: display_name.map(str::to_owned),
             handle: handle.map(str::to_owned),
+            avatar_image: None,
+            avatar_color: None,
         };
         let response = self
             .profile()

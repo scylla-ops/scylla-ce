@@ -1,0 +1,119 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.id, u.display_name, u.handle, e.email AS \"email?\", u.status,\n                  EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)\n                      AS \"instance_admin!\",\n                  u.created_at, u.avatar_image_id, u.avatar_color\n           FROM users u\n           LEFT JOIN user_emails e ON e.user_id = u.id AND e.is_primary\n           WHERE u.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "handle",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "handle"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "email?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "user_emails",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "instance_admin!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "avatar_image_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "avatar_image_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "avatar_color",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "avatar_color"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      null,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "716542d2d5d2caf6e10d82a42afe87b370a71a0cef760fe76b3f3482ca7d9488"
+}

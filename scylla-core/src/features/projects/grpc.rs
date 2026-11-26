@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
+use scylla_domain::projects::lists::ListProjects;
 use scylla_domain::projects::{
-    ListProjects, NewProject, Project, ProjectCaller, ProjectChange, ProjectHolder, ProjectId,
-    Visible,
+    NewProject, Project, ProjectCaller, ProjectChange, ProjectHolder, ProjectId, Visible,
 };
 use scylla_domain::tenancy::catalog;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -14,7 +14,7 @@ use scylla_proto::projects::v1::project_service_server::{ProjectService, Project
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
-use super::service;
+use super::{convert, service};
 use crate::api::parse::{self, ToProto};
 use crate::Error;
 
@@ -127,7 +127,8 @@ impl ProjectsGrpc {
     }
 
     /// Handles `ListProjects`: the projects that the caller can see, of all their workspaces or
-    /// of the workspace of the request.
+    /// of the workspace of the request, with the search, the health and the order of the
+    /// request.
     async fn list(
         &self,
         request: Request<pb::ListProjectsRequest>,
@@ -140,6 +141,11 @@ impl ProjectsGrpc {
                 .workspace_id
                 .map(|id| parse::field::<_, WorkspaceId>(id, "workspace_id"))
                 .transpose()?,
+            search: parse::field(request.query, "query")?,
+            order: convert::order(request.order)?,
+            health: convert::health(request.health)?,
+            section: convert::section(request.section)?,
+            ids: convert::ids(request.project_ids)?,
             page: parse::optional(request.page, "page")?,
         };
 
@@ -169,11 +175,12 @@ impl ProjectsGrpc {
         Ok(pb::ListProjectsResponse {
             projects: page.items.into_iter().map(ToProto::to_proto).collect(),
             page: Some(page.next_after.to_proto()),
+            counts: Some(page.counts.to_proto()),
         })
     }
 
-    /// Handles `UpdateProject`: a new name or a new description. An unknown project gives
-    /// `PERMISSION_DENIED`, so no caller learns which ids exist.
+    /// Handles `UpdateProject`: a new name, a new description or a new icon. An unknown project
+    /// gives `PERMISSION_DENIED`, so no caller learns which ids exist.
     async fn update(
         &self,
         request: Request<pb::UpdateProjectRequest>,
@@ -191,6 +198,10 @@ impl ProjectsGrpc {
                 .description
                 .map(|description| parse::field(description, "description"))
                 .transpose()?,
+            icon: request
+                .icon
+                .map(|icon| parse::field(icon, "icon"))
+                .transpose()?,
         };
 
         // Check the route permission. An unknown project gets the answer of a refusal.
@@ -203,7 +214,7 @@ impl ProjectsGrpc {
             .await?;
 
         // Change the project.
-        let project = service::update(&self.pool, id, change).await?;
+        let project = service::update(&self.pool, caller.actor.id, id, change).await?;
         Ok(pb::UpdateProjectResponse {
             project: Some(project.to_proto()),
         })
@@ -253,6 +264,8 @@ impl ToProto<pb::Project> for Project {
             name: self.name,
             description: self.description,
             created_at: Some(parse::timestamp(self.created_at)),
+            icon: self.icon.map(ToProto::to_proto),
+            group_id: self.group_id.map(ToProto::to_proto),
         }
     }
 }

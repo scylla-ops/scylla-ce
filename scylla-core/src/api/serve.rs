@@ -26,7 +26,7 @@ use crate::features::identity::{admins, apps, personal_tokens};
 use crate::features::integrations::{self, IntegrationContext};
 use crate::features::notifications::{self, PgNotifier};
 use crate::features::platform::retention::{self, RetentionSettings};
-use crate::features::platform::{consent, legal, mail_settings, settings};
+use crate::features::platform::{consent, images, legal, mail_settings, settings};
 use crate::features::projects::jobs::{self, housekeeping};
 use crate::features::projects::triggers::webhook::{self, Webhooks};
 use crate::features::projects::triggers::{self, schedule};
@@ -249,6 +249,7 @@ pub async fn serve(
     let gateway = super::json::router(grpc.clone(), edition.descriptor_sets());
     let mut router = grpc
         .merge(providers::router(providers).layer(log))
+        .merge(images::router(pool.clone()).layer(log))
         .merge(webhook::router(webhooks).layer(log))
         .merge(install.layer(log))
         .merge(vcs_routes.layer(log))

@@ -5,6 +5,7 @@ use time::OffsetDateTime;
 use crate::identity::actors::{Actor, ActorId, ActorKind};
 use crate::identity::agents::AgentLabels;
 pub use crate::identity::agents::Host;
+use crate::platform::images::Icon;
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
 use crate::{Id, Name, Page, PageRequest};
 
@@ -49,6 +50,8 @@ pub struct App {
     pub disabled_at: Option<OffsetDateTime>,
     /// The labels that the admins gave to the App.
     pub labels: AgentLabels,
+    /// The custom icon that the admins gave to the App, or `None` for the default icon.
+    pub icon: Option<Icon>,
 }
 
 impl App {
@@ -155,6 +158,8 @@ crate::authz! {
         /// The route `SetAppLabels`: the admins of the workspace only, not the creator, so the
         /// machine of an agent cannot choose its jobs.
         permission set_app_labels = nil;
+        /// The route `SetAppIcon`: the admins of the workspace only, not the creator.
+        permission set_app_icon = nil;
     }
 
     /// The routes of the Apps on their workspace.
@@ -199,5 +204,7 @@ crate::authz! {
         permission remove_ci_identity = manage;
         /// The route `SetAppLabels`, on each App of this workspace.
         permission set_app_labels = manage;
+        /// The route `SetAppIcon`, on each App of this workspace.
+        permission set_app_icon = manage;
     }
 }

@@ -1,0 +1,126 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.id AS \"id!\", a.kind AS \"kind!\",\n                  coalesce(u.display_name, p.name) AS \"display_name?\", u.handle,\n                  coalesce(p.runner, false) AS \"runner!\",\n                  u.avatar_image_id AS \"avatar_image_id?\", u.avatar_color AS \"avatar_color?\",\n                  p.icon_name AS \"icon_name?\", p.icon_color AS \"icon_color?\",\n                  p.icon_image_id AS \"icon_image_id?\"\n           FROM actors a\n           LEFT JOIN users u ON u.id = a.id\n           LEFT JOIN apps p ON p.id = a.id\n           WHERE a.id = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "actors",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "actors",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name?",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "handle",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "handle"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "runner!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "avatar_image_id?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "avatar_image_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "avatar_color?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "avatar_color"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "icon_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "icon_name"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "icon_color?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "icon_color"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "icon_image_id?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "apps",
+            "name": "icon_image_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null,
+      true,
+      null,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "0661131aa88eaba174e2c186e2eaf38bda10a8456fcba133052a22fb11ea84a9"
+}

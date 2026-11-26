@@ -25,6 +25,7 @@ definition actor {
     permission delete_dashboard = nil
     permission list_attention_items = nil
     permission list_activity = nil
+    permission list_repository_links = nil
 }
 
 definition workspace {
@@ -67,6 +68,7 @@ definition workspace {
     permission list_ci_identities = read
     permission remove_ci_identity = manage
     permission set_app_labels = manage
+    permission set_app_icon = manage
     permission get_slot_usage = read
     permission get_agent_metrics = read
     permission create_project = work
@@ -78,6 +80,11 @@ definition workspace {
     permission update_secret = manage
     permission delete_secret = manage
     permission list_secrets = work
+    permission list_project_groups = read
+    permission create_project_group = work
+    permission update_project_group = work
+    permission delete_project_group = work
+    permission move_project = work
     permission run_jobs = runner
     permission create_pipeline = work
     permission get_pipeline = read
@@ -132,6 +139,7 @@ definition workspace {
     permission delete_vcs_connection = manage
     permission get_delivery_stats = read
     permission get_repository_link = read
+    permission list_repository_links = read
     permission list_refs = read
     permission list_merge_blocks = read
     permission list_connection_repositories = work
@@ -160,6 +168,7 @@ definition app {
     permission list_ci_identities = creator
     permission remove_ci_identity = creator
     permission set_app_labels = nil
+    permission set_app_icon = nil
     permission get_agent_metrics = creator
 }
 
@@ -182,6 +191,7 @@ definition project {
     permission grant = admin
     permission revoke = admin
     permission list_access = view
+    permission move_project = edit
     permission run_jobs = runner
     permission create_pipeline = edit
     permission get_pipeline = view
@@ -220,6 +230,7 @@ definition project {
     permission list_trigger_fires = view
     permission get_trigger_fire_stats = view
     permission get_repository_link = view
+    permission list_repository_links = view
     permission list_refs = view
     permission list_merge_blocks = view
     permission list_connection_repositories = edit

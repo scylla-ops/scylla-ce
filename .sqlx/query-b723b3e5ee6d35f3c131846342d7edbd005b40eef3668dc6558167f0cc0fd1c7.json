@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM projects\n         WHERE workspace_id = $1 AND group_id IS NOT DISTINCT FROM $2::uuid\n         ORDER BY position NULLS LAST, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b723b3e5ee6d35f3c131846342d7edbd005b40eef3668dc6558167f0cc0fd1c7"
+}

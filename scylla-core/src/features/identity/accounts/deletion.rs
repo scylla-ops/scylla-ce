@@ -1,7 +1,7 @@
-//! The deletion of a user: its account rows, its workspace ownerships, its personal tokens and the
-//! rows of the edition in one transaction, then its roles in SpiceDB. Its actor stays, so each
-//! `created_by` stays valid, and its acceptances of the terms stay as the proof, with the hash of
-//! its email.
+//! The deletion of a user: its account rows, the image of its avatar, its workspace ownerships, its
+//! personal tokens and the rows of the edition in one transaction, then its roles in SpiceDB. Its
+//! actor stays, so each `created_by` stays valid, and its acceptances of the terms stay as the
+//! proof, with the hash of its email.
 
 use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::ActorId;
@@ -10,6 +10,7 @@ use scylla_extension::{Rejection, Tx, UserContext};
 
 use super::{store, AccountContext};
 use crate::features::identity::{admins, api_tokens, terms};
+use crate::features::platform::images;
 use crate::features::tenancy::{grants, roles, workspaces};
 use crate::Error;
 
@@ -53,7 +54,9 @@ pub(crate) async fn delete_user(
     api_tokens::delete_all(&mut tx, user).await?;
     roles::delete_grants_of(&mut tx, user).await?;
     terms::keep_as_proof(&mut tx, user, email.as_deref()).await?;
-    store::delete_user(&mut tx, user).await?;
+    if let Some(image) = store::delete_user(&mut tx, user).await? {
+        images::store::delete(&mut tx, image).await?;
+    }
 
     // Let the edition remove its rows of the user, then commit.
     let hook = UserContext::new(user, by);

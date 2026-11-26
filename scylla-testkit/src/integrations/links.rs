@@ -6,8 +6,8 @@ use scylla_domain::identity::actors::ActorId;
 use scylla_proto::integrations::v1::repository_service_client::RepositoryServiceClient;
 use scylla_proto::integrations::v1::{
     GetRepositoryLinkRequest, GitRefKind, LinkRepositoryRequest, ListRefsRequest, ListRefsResponse,
-    RepositoryLink, TestDeliveryRequest, TestDeliveryResponse, UnlinkRepositoryRequest,
-    UpdateRepositoryLinkRequest,
+    ListRepositoryLinksRequest, RepositoryLink, TestDeliveryRequest, TestDeliveryResponse,
+    UnlinkRepositoryRequest, UpdateRepositoryLinkRequest,
 };
 use serde_json::{json, Value};
 use tonic::transport::Channel;
@@ -35,6 +35,23 @@ impl TestApp {
         let request = self.authed(actor, request).await;
         let response = self.repositories().get_repository_link(request).await?;
         Ok(response.into_inner().link)
+    }
+
+    /// Calls `ListRepositoryLinks` as `actor`, for a workspace and the projects of a filter, and
+    /// returns the links.
+    pub async fn list_repository_links(
+        &self,
+        actor: ActorId,
+        workspace: &str,
+        projects: &[&str],
+    ) -> Result<Vec<RepositoryLink>, Status> {
+        let request = ListRepositoryLinksRequest {
+            workspace_id: Some(id(workspace)),
+            project_ids: projects.iter().map(|project| id(*project)).collect(),
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.repositories().list_repository_links(request).await?;
+        Ok(response.into_inner().links)
     }
 
     /// Calls `LinkRepository` as `actor`.

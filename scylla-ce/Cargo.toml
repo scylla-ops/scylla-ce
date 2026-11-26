@@ -20,6 +20,7 @@ axum.workspace = true
 base64.workspace = true
 biscuit-auth.workspace = true
 ed25519-dalek.workspace = true
+image.workspace = true
 jsonwebtoken.workspace = true
 prost.workspace = true
 prost-types.workspace = true

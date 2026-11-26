@@ -1,7 +1,9 @@
-//! The projects feature: the `projects` table and `ProjectService`. The secrets, the pipelines,
-//! the jobs and the triggers of the projects are in `secrets`, `pipelines`, `jobs` and
-//! `triggers`.
+//! The projects feature: the `projects` table and `ProjectService`. The groups, the secrets, the
+//! pipelines, the jobs and the triggers of the projects are in `groups`, `secrets`, `pipelines`,
+//! `jobs` and `triggers`.
 
+mod convert;
+pub(crate) mod groups;
 mod grpc;
 pub(crate) mod jobs;
 pub(crate) mod pipelines;

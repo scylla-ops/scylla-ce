@@ -1,8 +1,12 @@
-//! The `TestApp` helpers of `ProjectService` and of `SecretService`.
+//! The `TestApp` helpers of `ProjectService` and of `SecretService`. The helpers of
+//! `ProjectGroupService` are in `groups`.
+
+mod groups;
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_proto::common::v1 as common;
+use scylla_proto::common::v1::IconChange;
 use scylla_proto::projects::v1::secret_service_client::SecretServiceClient;
 use scylla_proto::projects::v1::{
     CreateProjectRequest, CreateSecretRequest, CreateSecretResponse, DeleteProjectRequest,
@@ -69,8 +73,8 @@ impl TestApp {
         token: &str,
     ) -> Result<ListProjectsResponse, Status> {
         let request = ListProjectsRequest {
-            workspace_id: None,
             page: Some(page(size, token)),
+            ..ListProjectsRequest::default()
         };
         let request = self.authed(actor, request).await;
         Ok(self
@@ -94,11 +98,23 @@ impl TestApp {
                 size: 100,
                 token: String::new(),
             }),
+            ..ListProjectsRequest::default()
         };
         let request = self.authed(actor, request).await;
         let response = self.projects.clone().list_projects(request).await?;
         let projects = response.into_inner().projects;
         Ok(projects.into_iter().map(|project| project.name).collect())
+    }
+
+    /// Calls `ListProjects` as `actor` with a request: a search, an order, a health, a page.
+    pub async fn search_projects(
+        &self,
+        actor: ActorId,
+        request: ListProjectsRequest,
+    ) -> Result<ListProjectsResponse, Status> {
+        let request = self.authed(actor, request).await;
+        let response = self.projects.clone().list_projects(request).await?;
+        Ok(response.into_inner())
     }
 
     /// Calls `UpdateProject` as `actor`. A field that is `None` does not change.
@@ -113,6 +129,25 @@ impl TestApp {
             project_id: Some(id(project_id)),
             name: name.map(str::to_owned),
             description: description.map(str::to_owned),
+            icon: None,
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.projects.clone().update_project(request).await?;
+        Ok(response.into_inner().project.expect("project in response"))
+    }
+
+    /// Calls `UpdateProject` as `actor` with a new icon only.
+    pub async fn set_project_icon(
+        &self,
+        actor: ActorId,
+        project_id: &str,
+        icon: IconChange,
+    ) -> Result<Project, Status> {
+        let request = UpdateProjectRequest {
+            project_id: Some(id(project_id)),
+            name: None,
+            description: None,
+            icon: Some(icon),
         };
         let request = self.authed(actor, request).await;
         let response = self.projects.clone().update_project(request).await?;

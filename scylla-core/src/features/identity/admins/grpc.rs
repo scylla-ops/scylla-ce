@@ -108,7 +108,7 @@ impl UserAdminService for UserAdminGrpc {
             .transpose()?;
 
         // Change the user, and answer with it.
-        let user = accounts::change_profile(&self.ctx.pool, user, &change, email.as_ref()).await?;
+        let user = accounts::change_profile(&self.ctx.pool, user, change, email.as_ref()).await?;
         Ok(Response::new(pb::UpdateUserResponse {
             user: Some(user.to_proto()),
         }))

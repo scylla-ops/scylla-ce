@@ -9,7 +9,7 @@ use sqlx::PgPool;
 use tracing::Instrument;
 
 use super::one_time::{self, Purpose};
-use super::{deletion, mails, password, refused, store, AccountContext};
+use super::{avatar, deletion, mails, password, refused, store, AccountContext};
 use crate::features::identity::providers::{self, IdentityInfo};
 use crate::features::identity::sessions::{self, Client};
 use crate::features::notifications::{self, kinds};
@@ -33,21 +33,25 @@ pub(crate) async fn list_users(pool: &PgPool, query: ListUsers) -> Result<UserPa
     Ok(Page::from_overfetch(users, query.page.size, |user| user.id))
 }
 
-/// Changes the display name, the handle, and the email if one is given. A new email replaces
-/// the old one, is verified, and stops each open link of the user. Returns the user after the
-/// change.
+/// Changes the display name, the handle, the avatar, and the email if one is given. A new email
+/// replaces the old one, is verified, and stops each open link of the user. A new image of the
+/// avatar replaces the old one, which goes. Returns the user after the change.
 pub(crate) async fn change_profile(
     pool: &PgPool,
     user: ActorId,
-    change: &ProfileChange,
+    mut change: ProfileChange,
     email: Option<&Email>,
 ) -> Result<User, Error> {
-    // Lock the user, and change its profile.
+    // Make the PNG of a new image of the avatar, then lock the user and change its profile.
+    let image = avatar::prepare(change.avatar_image.take()).await?;
     let mut tx = pool.begin().await?;
     if !store::lock_user(&mut tx, user).await? {
         return Err(Error::NotFound("user"));
     }
-    store::update_profile(&mut tx, user, change).await?;
+    store::update_profile(&mut tx, user, &change).await?;
+    if let Some(png) = image {
+        avatar::set_image(&mut tx, user, png).await?;
+    }
 
     // Replace the email, unless another user has it, then read the user after the change.
     if let Some(email) = email {

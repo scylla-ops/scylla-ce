@@ -3,6 +3,7 @@
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::agents::AgentLabels;
 use scylla_domain::identity::apps::{App, AppId, Host, NewApp};
+use scylla_domain::platform::images::{Icon, ImageId};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::PageRequest;
 use scylla_extension::Tx;
@@ -21,7 +22,8 @@ pub(crate) async fn insert(tx: &mut Tx<'_>, id: AppId, new: &NewApp) -> Result<A
         "INSERT INTO apps (id, workspace_id, name, runner, created_by) VALUES ($1, $2, $3, $4, $5)
          RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
                    os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,
-                   features, protocol, build, started_at, disabled_at, labels",
+                   features, protocol, build, started_at, disabled_at, labels, icon_name,
+                   icon_color, icon_image_id",
         id.to_db(),
         new.workspace_id.to_db(),
         new.name.as_str(),
@@ -45,7 +47,8 @@ pub(crate) async fn find(tx: &mut Tx<'_>, id: AppId) -> Result<Option<App>, sqlx
         Row,
         "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,
                 arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,
-                protocol, build, started_at, disabled_at, labels
+                protocol, build, started_at, disabled_at, labels, icon_name, icon_color,
+                icon_image_id
          FROM apps WHERE id = $1",
         id.to_db(),
     )
@@ -65,7 +68,8 @@ pub(crate) async fn list(
         Row,
         "SELECT id, workspace_id, name, runner, created_by, created_at, last_seen_at, version, os,
                 arch, hostname, cpu_count, memory_bytes, capacity, container_runtime, features,
-                protocol, build, started_at, disabled_at, labels
+                protocol, build, started_at, disabled_at, labels, icon_name, icon_color,
+                icon_image_id
          FROM apps
          WHERE workspace_id = $1
            AND ($2::boolean IS NULL OR runner = $2)
@@ -115,7 +119,8 @@ pub(crate) async fn set_disabled(
          WHERE id = $1
          RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
                    os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,
-                   features, protocol, build, started_at, disabled_at, labels",
+                   features, protocol, build, started_at, disabled_at, labels, icon_name,
+                   icon_color, icon_image_id",
         id.to_db(),
         disabled,
     )
@@ -136,7 +141,8 @@ pub(crate) async fn set_labels(
         "UPDATE apps SET labels = $2 WHERE id = $1
          RETURNING id, workspace_id, name, runner, created_by, created_at, last_seen_at, version,
                    os, arch, hostname, cpu_count, memory_bytes, capacity, container_runtime,
-                   features, protocol, build, started_at, disabled_at, labels",
+                   features, protocol, build, started_at, disabled_at, labels, icon_name,
+                   icon_color, icon_image_id",
         id.to_db(),
         &labels.texts(),
     )
@@ -245,6 +251,12 @@ struct Row {
     disabled_at: Option<OffsetDateTime>,
     /// The labels that the admins gave.
     labels: Vec<String>,
+    /// The name of the glyph of the icon, if it has one.
+    icon_name: Option<String>,
+    /// The color of the glyph of the icon, if it has one.
+    icon_color: Option<String>,
+    /// The image of the icon, if it has one.
+    icon_image_id: Option<uuid::Uuid>,
 }
 
 impl Row {
@@ -275,6 +287,11 @@ impl Row {
             host,
             disabled_at: self.disabled_at,
             labels: AgentLabels::of_checked(self.labels),
+            icon: Icon::of_columns(
+                self.icon_name,
+                self.icon_color,
+                self.icon_image_id.map(ImageId::from_db),
+            ),
         }
     }
 }

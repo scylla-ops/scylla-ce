@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 
 use super::connections::{ConnectionState, DeliveryMode, VcsConnectionId};
 use super::named;
-use crate::identity::actors::ActorId;
+use crate::identity::actors::{Actor, ActorId};
 use crate::projects::{Project, ProjectId};
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
 
@@ -77,6 +77,8 @@ crate::authz! {
     extend Project as RepositoryAccess {
         /// The route `GetRepositoryLink`, on this project.
         permission get_repository_link = view;
+        /// The route `ListRepositoryLinks`: the link of this project is in the list.
+        permission list_repository_links = view;
         /// The route `ListRefs`, on this project.
         permission list_refs = view;
         /// The route `ListMergeBlocks`, on this project.
@@ -99,6 +101,9 @@ crate::authz! {
     extend Workspace as RepositoryHolder {
         /// The route `GetRepositoryLink`, on each project of this workspace.
         permission get_repository_link = read;
+        /// The route `ListRepositoryLinks`: the links of the projects of this workspace are in
+        /// the list.
+        permission list_repository_links = read;
         /// The route `ListRefs`, on each project of this workspace.
         permission list_refs = read;
         /// The route `ListMergeBlocks`, on each project of this workspace.
@@ -116,5 +121,11 @@ crate::authz! {
         permission test_delivery = work;
         /// The route `SetMergeBlock`, on each project of this workspace.
         permission set_merge_block = work;
+    }
+
+    /// The routes of the repository links on the caller itself.
+    extend Actor as RepositoryCaller {
+        /// The route `ListRepositoryLinks`: each caller lists the links that it can read.
+        permission list_repository_links = nil;
     }
 }

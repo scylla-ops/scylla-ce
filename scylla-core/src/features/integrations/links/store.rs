@@ -5,7 +5,7 @@ use scylla_domain::identity::actors::ActorId;
 use scylla_domain::integrations::connections::{ConnectionState, DeliveryMode, VcsConnectionId};
 use scylla_domain::integrations::links::{GitLabRole, PipelineSource, RepositoryLink};
 use scylla_domain::integrations::VcsProvider;
-use scylla_domain::projects::ProjectId;
+use scylla_domain::projects::{ProjectId, Visible};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::Tx;
 
@@ -89,7 +89,17 @@ pub(super) struct Unlinked {
 
 /// Returns the link of a project with its connection, or `None` for a project with no link.
 pub(crate) async fn find(tx: &mut Tx<'_>, project: ProjectId) -> Result<Option<Linked>, Error> {
-    let row = sqlx::query!(
+    Ok(find_all(tx, &[project]).await?.pop())
+}
+
+/// Returns the links of some projects with their connections, oldest project first. A project
+/// with no link has no item.
+pub(super) async fn find_all(
+    tx: &mut Tx<'_>,
+    projects: &[ProjectId],
+) -> Result<Vec<Linked>, Error> {
+    let ids: Vec<_> = projects.iter().map(|id| id.to_db()).collect();
+    let rows = sqlx::query!(
         "SELECT l.project_id, l.workspace_id, l.connection_id, l.external_id, l.full_name,
                 l.web_url, l.default_branch, l.private, l.role, l.pipeline_source,
                 l.reports_enabled, l.delivery_mode, l.poll_interval_seconds,
@@ -97,53 +107,87 @@ pub(crate) async fn find(tx: &mut Tx<'_>, project: ProjectId) -> Result<Option<L
                 c.provider, c.account, c.state AS connection_state,
                 c.state_reason AS connection_reason
          FROM repository_links l JOIN vcs_connections c ON c.id = l.connection_id
-         WHERE l.project_id = $1",
-        project.to_db(),
+         WHERE l.project_id = ANY($1)
+         ORDER BY l.project_id",
+        &ids,
     )
-    .fetch_optional(&mut **tx)
+    .fetch_all(&mut **tx)
     .await?;
-    let Some(row) = row else {
-        return Ok(None);
-    };
     let unknown = |what: &str| Error::Internal(format!("unknown {what} of a repository link"));
-    let state = ConnectionState::parse(&row.state).ok_or_else(|| unknown("state"))?;
-    let connection = ConnectionState::parse(&row.connection_state);
-    let connection = connection.ok_or_else(|| unknown("connection state"))?;
-    let (state, state_reason) = match connection {
-        ConnectionState::Active => (state, row.state_reason),
-        _ => (connection, row.connection_reason),
-    };
-    let role = row.role.as_deref().map(GitLabRole::parse);
-    let link = RepositoryLink {
-        project_id: ProjectId::from_db(row.project_id),
-        workspace_id: WorkspaceId::from_db(row.workspace_id),
-        connection_id: VcsConnectionId::from_db(row.connection_id),
-        external_id: row.external_id,
-        full_name: row.full_name,
-        web_url: row.web_url,
-        default_branch: row.default_branch,
-        private: row.private,
-        role: role
-            .map(|role| role.ok_or_else(|| unknown("role")))
-            .transpose()?,
-        pipeline_source: PipelineSource::parse(&row.pipeline_source)
-            .ok_or_else(|| unknown("pipeline source"))?,
-        reports_enabled: row.reports_enabled,
-        delivery_mode: DeliveryMode::parse(&row.delivery_mode)
-            .ok_or_else(|| unknown("delivery mode"))?,
-        poll_interval_seconds: u32::try_from(row.poll_interval_seconds)
-            .map_err(|_| unknown("poll interval"))?,
-        last_event_at: row.last_event_at,
-        state,
-        state_reason,
-        created_by: ActorId::from_db(row.created_by),
-        created_at: row.created_at,
-    };
-    Ok(Some(Linked {
-        link,
-        provider: VcsProvider::parse(&row.provider).ok_or_else(|| unknown("provider"))?,
-        account: row.account,
-    }))
+    let linked = rows.into_iter().map(|row| {
+        let state = ConnectionState::parse(&row.state).ok_or_else(|| unknown("state"))?;
+        let connection = ConnectionState::parse(&row.connection_state);
+        let connection = connection.ok_or_else(|| unknown("connection state"))?;
+        let (state, state_reason) = match connection {
+            ConnectionState::Active => (state, row.state_reason),
+            _ => (connection, row.connection_reason),
+        };
+        let role = row.role.as_deref().map(GitLabRole::parse);
+        let link = RepositoryLink {
+            project_id: ProjectId::from_db(row.project_id),
+            workspace_id: WorkspaceId::from_db(row.workspace_id),
+            connection_id: VcsConnectionId::from_db(row.connection_id),
+            external_id: row.external_id,
+            full_name: row.full_name,
+            web_url: row.web_url,
+            default_branch: row.default_branch,
+            private: row.private,
+            role: role
+                .map(|role| role.ok_or_else(|| unknown("role")))
+                .transpose()?,
+            pipeline_source: PipelineSource::parse(&row.pipeline_source)
+                .ok_or_else(|| unknown("pipeline source"))?,
+            reports_enabled: row.reports_enabled,
+            delivery_mode: DeliveryMode::parse(&row.delivery_mode)
+                .ok_or_else(|| unknown("delivery mode"))?,
+            poll_interval_seconds: u32::try_from(row.poll_interval_seconds)
+                .map_err(|_| unknown("poll interval"))?,
+            last_event_at: row.last_event_at,
+            state,
+            state_reason,
+            created_by: ActorId::from_db(row.created_by),
+            created_at: row.created_at,
+        };
+        Ok(Linked {
+            link,
+            provider: VcsProvider::parse(&row.provider).ok_or_else(|| unknown("provider"))?,
+            account: row.account,
+        })
+    });
+    linked.collect()
+}
+
+/// Returns the projects of a workspace that have a link and that a caller can see, oldest
+/// first. With ids in the filter, only these projects.
+pub(super) async fn visible(
+    tx: &mut Tx<'_>,
+    workspace: WorkspaceId,
+    projects: &[ProjectId],
+    visible: &Visible,
+) -> Result<Vec<ProjectId>, Error> {
+    let filter: Vec<_> = projects.iter().map(|id| id.to_db()).collect();
+    let workspaces: Vec<_> = visible.workspaces.iter().map(|id| id.to_db()).collect();
+    let shared: Vec<_> = visible.projects.iter().map(|id| id.to_db()).collect();
+    let ids = sqlx::query_scalar!(
+        "SELECT l.project_id FROM repository_links l
+         WHERE l.workspace_id = $1
+           AND (cardinality($2::uuid[]) = 0 OR l.project_id = ANY($2))
+           AND ($3
+                OR l.workspace_id IN (SELECT o.workspace_id FROM workspace_owners o
+                                      WHERE o.user_id = $4)
+                OR l.workspace_id = ANY($5)
+                OR l.project_id = ANY($6))
+         ORDER BY l.project_id",
+        workspace.to_db(),
+        &filter,
+        visible.all,
+        visible.caller.to_db(),
+        &workspaces,
+        &shared,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(ids.into_iter().map(ProjectId::from_db).collect())
 }
 
 /// Returns `true` when a project has a link.

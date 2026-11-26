@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE apps SET icon_name = $2, icon_color = $3, icon_image_id = $4 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c29b1ee07bba7e53c8385fa547c380e0c28ce75f28b515539e174f58d28c67d0"
+}

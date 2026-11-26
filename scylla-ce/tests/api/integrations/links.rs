@@ -1,10 +1,12 @@
 //! The tests of the repository links: the link of a GitHub repository and of a GitLab project
-//! with its webhook, the changes, the unlink, the branches and the tags, and the access.
+//! with its webhook, the changes, the unlink, the branches and the tags, the list of the links
+//! of a workspace, and the access.
 
 mod access;
 mod changes;
 mod github;
 mod gitlab;
+mod lists;
 mod live;
 mod refs;
 

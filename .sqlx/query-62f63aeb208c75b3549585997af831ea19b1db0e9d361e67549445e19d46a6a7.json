@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT l.project_id FROM repository_links l\n         WHERE l.workspace_id = $1\n           AND (cardinality($2::uuid[]) = 0 OR l.project_id = ANY($2))\n           AND ($3\n                OR l.workspace_id IN (SELECT o.workspace_id FROM workspace_owners o\n                                      WHERE o.user_id = $4)\n                OR l.workspace_id = ANY($5)\n                OR l.project_id = ANY($6))\n         ORDER BY l.project_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "project_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "project_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "Bool",
+        "Uuid",
+        "UuidArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "62f63aeb208c75b3549585997af831ea19b1db0e9d361e67549445e19d46a6a7"
+}
