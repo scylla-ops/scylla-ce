@@ -40,6 +40,9 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   log line `mail.sent` has the `Message-ID` of the mail and the answer of the mail server with its
   queue id. For the editions, `Mailer::send_traced` (with a default body) returns this
   `MailReceipt`, and `SmtpMailer::new_for_app` gives the host of the web app in `EHLO`.
+- The agent image runs `tini` as PID 1. It reaps the processes that the jobs leave, so an agent that
+  runs for a long time no longer fills the process table with zombie processes and then fails to
+  start a process. The `docker run` commands do not change.
 
 ## [0.7.2] - 2026-11-25
 
