@@ -168,4 +168,9 @@ impl Mailer for Mailbox {
             reply: Some(format!("250 2.0.0 Ok: queued as {count} for <{to}>")),
         })
     }
+
+    /// Gives the host of the test mail server, for the log.
+    fn relay(&self) -> Option<String> {
+        Some("mailbox.test".to_owned())
+    }
 }

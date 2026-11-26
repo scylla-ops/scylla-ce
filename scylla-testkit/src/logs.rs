@@ -46,6 +46,13 @@ impl Logs {
     pub fn lines(&self) -> Vec<String> {
         self.text().lines().map(str::to_owned).collect()
     }
+
+    /// Turns each event on again for the capture. When another thread logs an event for the first
+    /// time while a capture starts, `tracing` can keep the event off for each thread. Call it
+    /// after the set up of a test, just before the action that logs.
+    pub fn rearm(&self) {
+        tracing::callsite::rebuild_interest_cache();
+    }
 }
 
 /// A writer that keeps the text of the lines.

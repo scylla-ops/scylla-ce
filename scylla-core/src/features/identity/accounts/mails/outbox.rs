@@ -74,10 +74,12 @@ async fn pass(pool: &PgPool, mailer: &dyn Mailer) -> Result<(), Error> {
     Ok(())
 }
 
-/// Sends one mail, keeps the result, and logs it with the kind, the masked recipient and the
-/// number of attempts. A sent mail also logs its `Message-ID` and the answer of the mail server.
+/// Sends one mail, keeps the result, and logs it with the kind, the masked recipient, the number
+/// of attempts and the host of the mail server. A sent mail also logs its `Message-ID` and the
+/// answer of the mail server.
 async fn deliver(pool: &PgPool, mailer: &dyn Mailer, claimed: &Claimed) -> Result<(), Error> {
     // Send the mail. A content that the outbox cannot read is a permanent error.
+    let relay = mailer.relay();
     let result = match claimed.mail() {
         Ok(mail) => {
             let address = mail.to.clone();
@@ -97,7 +99,11 @@ async fn deliver(pool: &PgPool, mailer: &dyn Mailer, claimed: &Claimed) -> Resul
     };
 
     // Keep a sent mail, with no content.
-    let (kind, to) = (claimed.kind.as_str(), claimed.recipient.as_str());
+    let (kind, to, relay) = (
+        claimed.kind.as_str(),
+        claimed.recipient.as_str(),
+        relay.as_deref(),
+    );
     let attempts = claimed.attempts + 1;
     let error = match result {
         Ok(MailReceipt { message_id, reply }) => {
@@ -105,7 +111,15 @@ async fn deliver(pool: &PgPool, mailer: &dyn Mailer, claimed: &Claimed) -> Resul
             store::sent(&mut tx, claimed.id).await?;
             tx.commit().await?;
             let (message_id, reply) = (message_id.as_deref(), reply.as_deref());
-            tracing::info!(event = "mail.sent", kind, to, attempts, message_id, reply);
+            tracing::info!(
+                event = "mail.sent",
+                kind,
+                to,
+                attempts,
+                relay,
+                message_id,
+                reply
+            );
             return Ok(());
         }
         Err(error) => error,
@@ -117,6 +131,7 @@ async fn deliver(pool: &PgPool, mailer: &dyn Mailer, claimed: &Claimed) -> Resul
         kind,
         to,
         attempts,
+        relay,
         error = error.reason
     );
     let now = OffsetDateTime::now_utc();
@@ -129,7 +144,7 @@ async fn deliver(pool: &PgPool, mailer: &dyn Mailer, claimed: &Claimed) -> Resul
         } else {
             "too old"
         };
-        tracing::warn!(event = "mail.dropped", kind, to, attempts, reason);
+        tracing::warn!(event = "mail.dropped", kind, to, attempts, relay, reason);
         return Ok(());
     }
     store::retry(&mut tx, claimed.id, now + wait(claimed.attempts)).await?;

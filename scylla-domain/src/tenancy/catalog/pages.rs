@@ -1,13 +1,14 @@
 //! The pages and the actions of the web app, with the routes that each one calls with no other
 //! check. A test holds the catalog to them: a role that opens a page can use it.
 
-use super::{areas, complete, find, Level, Route, VIEW_ALL_WORKSPACES};
+use super::Route;
 use crate::identity::admins::UserAdminHolder;
 use crate::identity::apps::AppHolder;
 use crate::integrations::apps::VcsAppHolder;
 use crate::integrations::connections::VcsConnectionHolder;
 use crate::integrations::links::{RepositoryAccess, RepositoryHolder};
 use crate::platform::legal::LegalHolder;
+use crate::platform::mail::MailSettingsHolder;
 use crate::platform::SettingsHolder;
 use crate::projects::pipelines::PipelineAccess;
 use crate::projects::triggers::TriggerAccess;
@@ -54,6 +55,16 @@ const PAGES: &[Page] = &[
         name: "the legal and privacy page of the instance",
         opens: Route::of(SettingsHolder::UPDATE_INSTANCE_SETTINGS),
         needs: &[Route::of(LegalHolder::UPDATE_LEGAL_SETTINGS)],
+    },
+    Page {
+        name: "the mail page of the instance",
+        opens: Route::of(SettingsHolder::UPDATE_INSTANCE_SETTINGS),
+        needs: &[
+            Route::of(MailSettingsHolder::GET_MAIL_SETTINGS),
+            Route::of(MailSettingsHolder::UPDATE_MAIL_SETTINGS),
+            Route::of(MailSettingsHolder::RESET_MAIL_SETTINGS),
+            Route::of(MailSettingsHolder::SEND_TEST_MAIL),
+        ],
     },
     Page {
         name: "the Git providers of the instance",
@@ -238,63 +249,4 @@ const PAGES: &[Page] = &[
     },
 ];
 
-/// Returns `true` if two routes are the same permission on the same definition.
-fn same(one: &Route, other: &Route) -> bool {
-    one.definition == other.definition && one.permission == other.permission
-}
-
-/// A role with one permission and what it needs can use each page and action that it opens. A
-/// role of the instance with a permission of a workspace or of a project also finds each workspace.
-#[test]
-fn a_role_that_opens_a_page_calls_each_route_of_the_page() {
-    let roles = [
-        (Level::Platform, Level::Platform),
-        (Level::Platform, Level::Workspace),
-        (Level::Platform, Level::Project),
-        (Level::Workspace, Level::Workspace),
-        (Level::Workspace, Level::Project),
-        (Level::Project, Level::Project),
-    ];
-    for (level, of) in roles {
-        for permission in areas()
-            .filter(|area| area.level == of && !area.machine)
-            .flat_map(|area| area.permissions)
-        {
-            // given
-            let held = complete(level, false, &[permission.id.to_owned()]).expect("valid");
-            let routes: Vec<&Route> = held
-                .iter()
-                .filter_map(|id| find(id))
-                .flat_map(|(_, cell)| cell.routes)
-                .collect();
-            let holds = |route: &Route| routes.iter().any(|held| same(held, route));
-
-            // when
-            let missing: Vec<String> = PAGES
-                .iter()
-                .filter(|page| holds(&page.opens))
-                .flat_map(|page| {
-                    page.needs
-                        .iter()
-                        .filter(|route| !holds(route))
-                        .map(move |route| format!("{}: {}", page.name, route.permission))
-                })
-                .collect();
-            let in_a_workspace = level == Level::Platform && of != Level::Platform;
-            let finds_workspaces = !in_a_workspace || held.contains(&VIEW_ALL_WORKSPACES);
-
-            // then
-            assert!(
-                missing.is_empty(),
-                "a {} role with {} misses {missing:?}",
-                level.as_str(),
-                permission.id
-            );
-            assert!(
-                finds_workspaces,
-                "a platform role with {} does not find the workspaces",
-                permission.id
-            );
-        }
-    }
-}
+mod tests;

@@ -1,5 +1,6 @@
-//! The test kit: the real server of an edition, with a real gate, a mailbox, a capture of the
-//! log lines, a fake Git provider, and helpers for the core RPCs, grouped by subject.
+//! The test kit: the real server of an edition, with a real gate, a mailbox, a local SMTP relay, a
+//! capture of the log lines, a fake Git provider, and helpers for the core RPCs, grouped by
+//! subject.
 
 mod activity;
 mod app;
@@ -17,6 +18,7 @@ mod pipelines;
 mod platform;
 mod projects;
 mod rpc;
+mod smtp;
 mod tenancy;
 mod trigger_lists;
 mod triggers;
@@ -31,8 +33,9 @@ pub use integrations::{
 pub use logs::Logs;
 pub use mail::Mailbox;
 pub use nodes::{case, exec_node, literal, merge_node, output, rule, switch_node, var};
-pub use platform::Legacy;
+pub use platform::{local_relay, Legacy};
 pub use rpc::{id, text, with_token};
+pub use smtp::{Relayed, SmtpRelay};
 pub use tenancy::{
     dashboard_widgets, env_node, fragment_link, fragment_request, literal_parameter, Role,
     RoleInput,

@@ -2,7 +2,7 @@
 //! in the transaction of the change that makes the mail. The task of the outbox sends it.
 
 use scylla_domain::platform::legal::{DocumentContent, DocumentKind, LegalSettings};
-use scylla_extension::{Mail, Tx};
+use scylla_extension::{Mail, Mailer, Tx};
 
 use super::super::letter::{Legal, Letter};
 use super::super::{AccountContext, AccountSettings};
@@ -26,14 +26,23 @@ pub(crate) async fn queue(
     kind: &'static str,
     letter: Letter,
 ) -> Result<(), Error> {
-    let settings = legal::read(tx).await?;
-    let legal = footer(&settings, &ctx.settings);
-    let mail = Letter { legal, ..letter }.compose();
+    let mail = compose(tx, ctx, letter).await?;
     if !ctx.mailer.delivers() {
         log_only(ctx, kind, mail).await;
         return Ok(());
     }
     store::insert(tx, kind, mail).await
+}
+
+/// Adds the legal links of the instance to a mail, and makes its text and HTML bodies.
+pub(crate) async fn compose(
+    tx: &mut Tx<'_>,
+    ctx: &AccountContext,
+    letter: Letter,
+) -> Result<Mail, Error> {
+    let settings = legal::read(tx).await?;
+    let legal = footer(&settings, &ctx.settings);
+    Ok(Letter { legal, ..letter }.compose())
 }
 
 /// Puts a mail in the outbox in its own transaction, for a mail with no change. The request

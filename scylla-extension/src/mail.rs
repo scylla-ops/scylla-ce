@@ -99,4 +99,10 @@ pub trait Mailer: Send + Sync + 'static {
     fn delivers(&self) -> bool {
         true
     }
+
+    /// Returns the host of the mail server that gets the mails, for the log. It never has a user
+    /// name or a password. The default gives `None`: a mailer with no mail server.
+    fn relay(&self) -> Option<String> {
+        None
+    }
 }

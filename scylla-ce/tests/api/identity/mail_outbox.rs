@@ -100,6 +100,7 @@ async fn sign_up_sends_the_link_from_the_outbox_and_clears_it(pool: PgPool) {
     );
     let reply = "250 2.0.0 Ok: queued as 1 for <o***@example.com>";
     assert!(text.contains(&format!("\"reply\":\"{reply}\"")), "{text}");
+    assert!(text.contains("\"relay\":\"mailbox.test\""), "{text}");
     assert!(!text.contains(EMAIL), "{text}");
 }
 
@@ -144,6 +145,7 @@ async fn sign_up_drops_the_link_after_a_permanent_error(pool: PgPool) {
     assert!(app.mails.to(EMAIL).await.is_empty());
     let text = logged(&logs, "mail.dropped").await;
     assert!(text.contains("\"to\":\"o***@example.com\""), "{text}");
+    assert!(text.contains("\"relay\":\"mailbox.test\""), "{text}");
     assert!(!text.contains(EMAIL) && !text.contains("#token="), "{text}");
 }
 
