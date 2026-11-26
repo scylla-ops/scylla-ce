@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE external_identities SET picture_url = $3 WHERE provider_id = $1 AND subject = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "47787a6b6451a0f3a0fb48d314d8498c8663c8b81fda96a504dd04c5e4bb080a"
+}

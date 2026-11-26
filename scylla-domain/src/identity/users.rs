@@ -250,6 +250,8 @@ crate::authz! {
         permission list_identities = nil;
         /// The route `UnlinkIdentity`.
         permission unlink_identity = nil;
+        /// The route `ImportAvatar`.
+        permission import_avatar = nil;
         /// The route `ListSessions`.
         permission list_sessions = nil;
         /// The route `RevokeSession`.

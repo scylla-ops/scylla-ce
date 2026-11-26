@@ -18,6 +18,7 @@ mod service;
 mod store;
 mod verification;
 
+pub(crate) use avatar::keep_photo;
 pub use context::{AccountContext, AccountSettings};
 pub(crate) use convert::{profile_change, session};
 pub(crate) use credentials::verify_password;

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT p.id, p.slug, p.kind, p.display_name AS provider_name,\n                  p.settings AS \"settings: Json<serde_json::Value>\",\n                  p.client_secret, p.allow_sign_up, p.enabled,\n                  l.subject, l.user_id, l.email, l.display_name, l.return_to\n           FROM pending_links l JOIN identity_providers p ON p.id = l.provider_id\n           WHERE l.token_hash = $1 AND l.expires_at > now() AND p.enabled",
+  "query": "SELECT p.id, p.slug, p.kind, p.display_name AS provider_name,\n                  p.settings AS \"settings: Json<serde_json::Value>\",\n                  p.client_secret, p.allow_sign_up, p.enabled,\n                  l.subject, l.user_id, l.email, l.display_name, l.picture_url, l.return_to\n           FROM pending_links l JOIN identity_providers p ON p.id = l.provider_id\n           WHERE l.token_hash = $1 AND l.expires_at > now() AND p.enabled",
   "describe": {
     "columns": [
       {
@@ -137,6 +137,17 @@
       },
       {
         "ordinal": 12,
+        "name": "picture_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_links",
+            "name": "picture_url"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
         "name": "return_to",
         "type_info": "Text",
         "origin": {
@@ -165,8 +176,9 @@
       false,
       false,
       true,
+      true,
       false
     ]
   },
-  "hash": "3bde348fc50fd0fafca77b70b3255779ecda2fe9fe529e3f0ff3f2594ee20a5e"
+  "hash": "25f65ad310d718b6b2f8a250ca5a3cb4d59d7c0fc063c93da765e3184b05e6be"
 }

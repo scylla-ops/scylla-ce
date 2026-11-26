@@ -9,7 +9,7 @@ use scylla_proto::accounts::v1 as pb;
 use scylla_proto::accounts::v1::profile_service_server::{ProfileService, ProfileServiceServer};
 use tonic::{Request, Response, Status};
 
-use super::{convert, manage, AccountContext};
+use super::{avatar, convert, manage, AccountContext};
 use crate::api::parse::{self, ToProto};
 use crate::features::identity::{data_export, sessions, terms};
 use crate::Error;
@@ -122,6 +122,7 @@ impl ProfileService for ProfileGrpc {
                     subject: identity.subject,
                     email: identity.email.unwrap_or_default(),
                     linked_at: Some(parse::timestamp(identity.linked_at)),
+                    has_picture: identity.has_picture,
                 })
                 .collect(),
             has_password,
@@ -137,6 +138,18 @@ impl ProfileService for ProfileGrpc {
         let ctx = &self.ctx;
         manage::unlink_identity(ctx, user, &request.provider, &request.subject).await?;
         Ok(Response::new(pb::UnlinkIdentityResponse {}))
+    }
+
+    async fn import_avatar(
+        &self,
+        request: Request<pb::ImportAvatarRequest>,
+    ) -> Answer<pb::ImportAvatarResponse> {
+        let (_, user) = self.user(&request, AccountCaller::IMPORT_AVATAR).await?;
+        let request = request.into_inner();
+        let user = avatar::import(&self.ctx, user, &request.provider, &request.subject).await?;
+        Ok(Response::new(pb::ImportAvatarResponse {
+            user: Some(user.to_proto()),
+        }))
     }
 
     async fn list_sessions(

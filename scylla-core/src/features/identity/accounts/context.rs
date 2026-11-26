@@ -29,6 +29,9 @@ pub struct AccountSettings {
     /// The email address that the mails of the default mailer come from. The sign-in page shows
     /// it when the mail settings of the instance have no relay.
     pub mail_sender: String,
+    /// `true` lets the photo of an identity provider come over HTTP and from a loopback or private
+    /// address: for the tests and a local provider only. No setting of the server sets it.
+    pub local_pictures: bool,
 }
 
 impl Default for AccountSettings {
@@ -44,6 +47,7 @@ impl Default for AccountSettings {
             web_origins: Vec::new(),
             trust_forwarded: false,
             mail_sender: "no-reply@localhost".to_owned(),
+            local_pictures: false,
         }
     }
 }
@@ -59,6 +63,7 @@ impl AccountSettings {
             web_origins: config.cors_origins.clone(),
             trust_forwarded: config.trust_forwarded_headers,
             mail_sender: mail::address_of(&config.mail_from),
+            local_pictures: false,
         }
     }
 

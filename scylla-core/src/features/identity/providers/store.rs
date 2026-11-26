@@ -40,6 +40,8 @@ pub struct IdentityInfo {
     pub email: Option<String>,
     /// The time of the link.
     pub linked_at: OffsetDateTime,
+    /// `true` if the provider gave a photo of the person at the last sign-in or link.
+    pub has_picture: bool,
 }
 
 /// A sign-in that waits for the callback of its provider.
@@ -143,21 +145,23 @@ pub(super) async fn user_of(
     Ok(user.map(ActorId::from_db))
 }
 
-/// Links an identity to a user.
+/// Links an identity to a user, with the address of the photo that the provider gave.
 pub(super) async fn link(
     tx: &mut Tx<'_>,
     provider: ProviderId,
     subject: &str,
     user: ActorId,
     email: Option<&str>,
+    picture: Option<&str>,
 ) -> Result<(), Error> {
     sqlx::query!(
-        "INSERT INTO external_identities (provider_id, subject, user_id, email)
-         VALUES ($1, $2, $3, $4)",
+        "INSERT INTO external_identities (provider_id, subject, user_id, email, picture_url)
+         VALUES ($1, $2, $3, $4, $5)",
         provider.to_db(),
         subject,
         user.to_db(),
         email,
+        picture,
     )
     .execute(&mut **tx)
     .await?;
@@ -170,9 +174,10 @@ pub(crate) async fn identities_of(
     user: ActorId,
 ) -> Result<Vec<IdentityInfo>, Error> {
     let rows = sqlx::query!(
-        "SELECT p.slug, i.subject, i.email, i.linked_at
-         FROM external_identities i JOIN identity_providers p ON p.id = i.provider_id
-         WHERE i.user_id = $1 ORDER BY p.slug, i.subject",
+        r#"SELECT p.slug, i.subject, i.email, i.linked_at,
+                  i.picture_url IS NOT NULL AS "has_picture!"
+           FROM external_identities i JOIN identity_providers p ON p.id = i.provider_id
+           WHERE i.user_id = $1 ORDER BY p.slug, i.subject"#,
         user.to_db()
     )
     .fetch_all(&mut **tx)
@@ -184,6 +189,7 @@ pub(crate) async fn identities_of(
             subject: row.subject,
             email: row.email,
             linked_at: row.linked_at,
+            has_picture: row.has_picture,
         })
         .collect())
 }

@@ -10,4 +10,6 @@ pub(crate) struct ExternalIdentity {
     pub(crate) email_verified: bool,
     /// The name of the person, if the provider gave one.
     pub(crate) name: Option<String>,
+    /// The address of the photo of the person, if the provider gave one.
+    pub(crate) picture: Option<String>,
 }
