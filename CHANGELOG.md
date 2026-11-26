@@ -14,6 +14,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   image (PNG, JPEG or WebP, 1 MB max) as a square PNG of 256 px, and the public route `GET
   /images/{id}` serves it with `nosniff` and a sandbox CSP. The server refuses an SVG. Only a member
   that can update the project changes its icon. The `image` crate is a new dependency.
+- `ListProjects` searches the projects of a workspace in their name, description, repository and
+  pipeline names, sorts them (position, name, last job, failed first), keeps only the failing or the
+  running ones, and returns their counts. `ListRepositoryLinks` returns the repository links of a
+  workspace, or of at most 100 projects, in one call, with no link for a project that the caller
+  cannot read. No migration.
 
 ### Fixed
 

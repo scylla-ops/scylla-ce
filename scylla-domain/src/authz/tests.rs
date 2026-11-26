@@ -7,7 +7,7 @@ use crate::identity::agents::{AgentAccess, AgentCaller, AgentHolder};
 use crate::identity::apps::{App, AppHolder};
 use crate::identity::user_state::UserStateCaller;
 use crate::integrations::connections::VcsConnectionHolder;
-use crate::integrations::links::{RepositoryAccess, RepositoryHolder};
+use crate::integrations::links::{RepositoryAccess, RepositoryCaller, RepositoryHolder};
 use crate::notifications::NotificationCaller;
 use crate::projects::pipelines::{PipelineAccess, PipelineCaller, PipelineHolder};
 use crate::projects::triggers::{TriggerAccess, TriggerCaller, TriggerHolder};
@@ -60,6 +60,7 @@ fn core() -> Schema {
         VcsConnectionHolder::part(),
         RepositoryAccess::part(),
         RepositoryHolder::part(),
+        RepositoryCaller::part(),
     ];
     for part in parts {
         schema.add(part).expect("core part fits");

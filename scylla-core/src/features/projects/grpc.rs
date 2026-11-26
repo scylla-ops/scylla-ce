@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
+use scylla_domain::projects::lists::ListProjects;
 use scylla_domain::projects::{
-    ListProjects, NewProject, Project, ProjectCaller, ProjectChange, ProjectHolder, ProjectId,
-    Visible,
+    NewProject, Project, ProjectCaller, ProjectChange, ProjectHolder, ProjectId, Visible,
 };
 use scylla_domain::tenancy::catalog;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -14,7 +14,7 @@ use scylla_proto::projects::v1::project_service_server::{ProjectService, Project
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
-use super::service;
+use super::{convert, service};
 use crate::api::parse::{self, ToProto};
 use crate::Error;
 
@@ -127,7 +127,8 @@ impl ProjectsGrpc {
     }
 
     /// Handles `ListProjects`: the projects that the caller can see, of all their workspaces or
-    /// of the workspace of the request.
+    /// of the workspace of the request, with the search, the health and the order of the
+    /// request.
     async fn list(
         &self,
         request: Request<pb::ListProjectsRequest>,
@@ -140,6 +141,9 @@ impl ProjectsGrpc {
                 .workspace_id
                 .map(|id| parse::field::<_, WorkspaceId>(id, "workspace_id"))
                 .transpose()?,
+            search: parse::field(request.query, "query")?,
+            order: convert::order(request.order)?,
+            health: convert::health(request.health)?,
             page: parse::optional(request.page, "page")?,
         };
 
@@ -169,6 +173,7 @@ impl ProjectsGrpc {
         Ok(pb::ListProjectsResponse {
             projects: page.items.into_iter().map(ToProto::to_proto).collect(),
             page: Some(page.next_after.to_proto()),
+            counts: Some(page.counts.to_proto()),
         })
     }
 

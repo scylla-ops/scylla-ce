@@ -70,8 +70,8 @@ impl TestApp {
         token: &str,
     ) -> Result<ListProjectsResponse, Status> {
         let request = ListProjectsRequest {
-            workspace_id: None,
             page: Some(page(size, token)),
+            ..ListProjectsRequest::default()
         };
         let request = self.authed(actor, request).await;
         Ok(self
@@ -95,11 +95,23 @@ impl TestApp {
                 size: 100,
                 token: String::new(),
             }),
+            ..ListProjectsRequest::default()
         };
         let request = self.authed(actor, request).await;
         let response = self.projects.clone().list_projects(request).await?;
         let projects = response.into_inner().projects;
         Ok(projects.into_iter().map(|project| project.name).collect())
+    }
+
+    /// Calls `ListProjects` as `actor` with a request: a search, an order, a health, a page.
+    pub async fn search_projects(
+        &self,
+        actor: ActorId,
+        request: ListProjectsRequest,
+    ) -> Result<ListProjectsResponse, Status> {
+        let request = self.authed(actor, request).await;
+        let response = self.projects.clone().list_projects(request).await?;
+        Ok(response.into_inner())
     }
 
     /// Calls `UpdateProject` as `actor`. A field that is `None` does not change.

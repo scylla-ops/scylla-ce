@@ -2,7 +2,8 @@
 //! connection of a link. One transaction for each call.
 
 use scylla_domain::integrations::connections::{VcsConnection, VcsConnectionId};
-use scylla_domain::projects::ProjectId;
+use scylla_domain::projects::{ProjectId, Visible};
+use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::Rejection;
 
 pub(super) use super::store::Changes;
@@ -22,6 +23,21 @@ pub(super) async fn get(
     let linked = store::find(&mut tx, project).await?;
     tx.commit().await?;
     Ok(linked)
+}
+
+/// Returns the links of the projects of a workspace that a caller can see, oldest project first:
+/// only the projects of the filter when it has ids.
+pub(super) async fn list(
+    ctx: &IntegrationContext,
+    workspace: WorkspaceId,
+    projects: &[ProjectId],
+    visible: &Visible,
+) -> Result<Vec<Linked>, Error> {
+    let mut tx = ctx.pool.begin().await?;
+    let ids = store::visible(&mut tx, workspace, projects, visible).await?;
+    let links = store::find_all(&mut tx, &ids).await?;
+    tx.commit().await?;
+    Ok(links)
 }
 
 /// Returns the link of a project. A project with no link gives `NO_REPOSITORY_LINK`.

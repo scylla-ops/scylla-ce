@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT l.project_id, l.workspace_id, l.connection_id, l.external_id, l.full_name,\n                l.web_url, l.default_branch, l.private, l.role, l.pipeline_source,\n                l.reports_enabled, l.delivery_mode, l.poll_interval_seconds,\n                l.last_event_at, l.state, l.state_reason, l.created_by, l.created_at,\n                c.provider, c.account, c.state AS connection_state,\n                c.state_reason AS connection_reason\n         FROM repository_links l JOIN vcs_connections c ON c.id = l.connection_id\n         WHERE l.project_id = $1",
+  "query": "SELECT l.project_id, l.workspace_id, l.connection_id, l.external_id, l.full_name,\n                l.web_url, l.default_branch, l.private, l.role, l.pipeline_source,\n                l.reports_enabled, l.delivery_mode, l.poll_interval_seconds,\n                l.last_event_at, l.state, l.state_reason, l.created_by, l.created_at,\n                c.provider, c.account, c.state AS connection_state,\n                c.state_reason AS connection_reason\n         FROM repository_links l JOIN vcs_connections c ON c.id = l.connection_id\n         WHERE l.project_id = ANY($1)\n         ORDER BY l.project_id",
   "describe": {
     "columns": [
       {
@@ -248,7 +248,7 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "UuidArray"
       ]
     },
     "nullable": [
@@ -276,5 +276,5 @@
       true
     ]
   },
-  "hash": "72168f3f003afbdb5a5b7c4d7a11b3cd41504425a568ad992d2765f6e6e9396b"
+  "hash": "4e317da2ac0dc33d0cfa882158cfa66ccf22cbad073a848a733a7ce77eba2c12"
 }

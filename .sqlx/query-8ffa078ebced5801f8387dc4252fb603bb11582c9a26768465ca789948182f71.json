@@ -1,0 +1,173 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH active AS (\n               SELECT DISTINCT project_id FROM jobs\n               WHERE status IN ('awaiting_approval', 'pending', 'running')\n                 AND ($4::uuid IS NULL OR workspace_id = $4)\n           )\n           SELECT p.id AS \"id!\", p.workspace_id AS \"workspace_id!\",\n                  p.created_by AS \"created_by!\", p.name AS \"name!\",\n                  p.description AS \"description!\", p.created_at AS \"created_at!\",\n                  p.icon_name AS \"icon_name?\", p.icon_color AS \"icon_color?\",\n                  p.icon_image_id AS \"icon_image_id?\",\n                  l.full_name AS \"repository?\",\n                  coalesce(f.names, '{}') AS \"pipelines!: Vec<String>\",\n                  coalesce(f.failing, 0) AS \"failing!\",\n                  p.id IN (SELECT project_id FROM active) AS \"running!\",\n                  newest.created_at AS \"last_job_at?\"\n           FROM projects p\n           LEFT JOIN repository_links l ON l.project_id = p.id\n           LEFT JOIN LATERAL (\n               SELECT array_agg(pl.name ORDER BY pl.id) AS names,\n                      count(*) FILTER (WHERE last.status <> 'completed') AS failing\n               FROM pipelines pl\n               LEFT JOIN LATERAL (\n                   SELECT j.status FROM jobs j\n                   LEFT JOIN job_sources s ON s.job_id = j.id\n                   WHERE j.pipeline_id = pl.id AND j.finished_at IS NOT NULL\n                     AND (l.project_id IS NULL OR s.branch = l.default_branch)\n                   ORDER BY j.id DESC LIMIT 1\n               ) last ON true\n               WHERE pl.project_id = p.id AND (pl.source = 'editor' OR pl.archived_at IS NULL)\n           ) f ON true\n           LEFT JOIN LATERAL (\n               SELECT j.created_at FROM jobs j WHERE j.project_id = p.id\n               ORDER BY j.created_at DESC LIMIT 1\n           ) newest ON true\n           WHERE ($5\n                  OR p.workspace_id IN (SELECT o.workspace_id FROM workspace_owners o\n                                        WHERE o.user_id = $1)\n                  OR p.workspace_id = ANY($2)\n                  OR p.id = ANY($3))\n             AND ($4::uuid IS NULL OR p.workspace_id = $4)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "created_by!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "name!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "description!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "icon_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "icon_name"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "icon_color?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "icon_color"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "icon_image_id?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "icon_image_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "repository?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repository_links",
+            "name": "full_name"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "pipelines!: Vec<String>",
+        "type_info": "TextArray",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "failing!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "running!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "last_job_at?",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "UuidArray",
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      null,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "8ffa078ebced5801f8387dc4252fb603bb11582c9a26768465ca789948182f71"
+}

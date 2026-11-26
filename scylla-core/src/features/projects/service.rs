@@ -3,11 +3,9 @@
 use scylla_domain::authz::{Object, Resource};
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::platform::images::{Icon, IconChange, ImageId};
-use scylla_domain::projects::{
-    ListProjects, NewProject, Project, ProjectChange, ProjectId, ProjectPage, Visible, KIND,
-};
+use scylla_domain::projects::lists::{ListProjects, ProjectPage};
+use scylla_domain::projects::{NewProject, Project, ProjectChange, ProjectId, Visible, KIND};
 use scylla_domain::tenancy::workspaces::WorkspaceId;
-use scylla_domain::Page;
 use scylla_extension::{CreateContext, DeleteContext, Gate, Hooks, Tx, WorkspaceFuture};
 use sqlx::PgPool;
 
@@ -58,18 +56,17 @@ pub(super) async fn get(pool: &PgPool, id: ProjectId) -> Result<Option<Project>,
     Ok(project)
 }
 
-/// Returns one page of the projects that a caller can see, oldest first.
+/// Returns one page of the projects that a caller can see, with the counts of the projects that
+/// the search keeps.
 pub(super) async fn list(
     pool: &PgPool,
     query: ListProjects,
     visible: Visible,
 ) -> Result<ProjectPage, Error> {
     let mut tx = pool.begin().await?;
-    let projects = store::list_visible(&mut tx, &visible, query.workspace_id, query.page).await?;
+    let all = store::list_visible(&mut tx, &visible, query.workspace_id).await?;
     tx.commit().await?;
-    Ok(Page::from_overfetch(projects, query.page.size, |project| {
-        project.id
-    }))
+    Ok(ProjectPage::of(all, &query))
 }
 
 /// Changes the name, the description or the icon of a project, and returns it. The last change

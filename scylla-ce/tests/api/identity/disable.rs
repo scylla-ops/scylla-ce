@@ -12,10 +12,7 @@ use crate::{app, assert_code};
 
 /// Returns `Ok` if a token can call a route that each actor can call.
 async fn try_token(app: &TestApp, token: &str) -> Result<(), Status> {
-    let list = ListProjectsRequest {
-        workspace_id: None,
-        page: None,
-    };
+    let list = ListProjectsRequest::default();
     app.projects
         .clone()
         .list_projects(with_token(token, list))

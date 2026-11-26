@@ -2,6 +2,7 @@
 //! the jobs and the triggers of the projects are in `secrets`, `pipelines`, `jobs` and
 //! `triggers`.
 
+mod convert;
 mod grpc;
 pub(crate) mod jobs;
 pub(crate) mod pipelines;

@@ -104,9 +104,11 @@ pub(super) const PROJECT: &[Area] = &[Area {
             &["project.view"],
             &[
                 Route::of(RepositoryHolder::GET_REPOSITORY_LINK),
+                Route::of(RepositoryHolder::LIST_REPOSITORY_LINKS),
                 Route::of(RepositoryHolder::LIST_REFS),
                 Route::of(RepositoryHolder::LIST_MERGE_BLOCKS),
                 Route::of(RepositoryAccess::GET_REPOSITORY_LINK),
+                Route::of(RepositoryAccess::LIST_REPOSITORY_LINKS),
                 Route::of(RepositoryAccess::LIST_REFS),
                 Route::of(RepositoryAccess::LIST_MERGE_BLOCKS),
             ],

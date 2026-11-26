@@ -25,6 +25,7 @@ definition actor {
     permission delete_dashboard = nil
     permission list_attention_items = nil
     permission list_activity = nil
+    permission list_repository_links = nil
 }
 
 definition workspace {
@@ -132,6 +133,7 @@ definition workspace {
     permission delete_vcs_connection = manage
     permission get_delivery_stats = read
     permission get_repository_link = read
+    permission list_repository_links = read
     permission list_refs = read
     permission list_merge_blocks = read
     permission list_connection_repositories = work
@@ -220,6 +222,7 @@ definition project {
     permission list_trigger_fires = view
     permission get_trigger_fire_stats = view
     permission get_repository_link = view
+    permission list_repository_links = view
     permission list_refs = view
     permission list_merge_blocks = view
     permission list_connection_repositories = edit

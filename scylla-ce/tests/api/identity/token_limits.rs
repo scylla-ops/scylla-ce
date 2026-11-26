@@ -25,10 +25,7 @@ struct Calls<'a> {
 impl Calls<'_> {
     /// Calls `ListProjects`.
     async fn list(&self) -> Result<(), Status> {
-        let request = ListProjectsRequest {
-            workspace_id: None,
-            page: None,
-        };
+        let request = ListProjectsRequest::default();
         let mut client = self.app.projects.clone();
         client
             .list_projects(with_token(&self.token, request))

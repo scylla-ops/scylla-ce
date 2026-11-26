@@ -6,7 +6,7 @@ use scylla_domain::identity::api_tokens::TokenOwner;
 use scylla_domain::identity::users::AccountCaller;
 use scylla_domain::integrations::apps::VcsAppHolder;
 use scylla_domain::integrations::connections::VcsConnectionHolder;
-use scylla_domain::integrations::links::{RepositoryAccess, RepositoryHolder};
+use scylla_domain::integrations::links::{RepositoryAccess, RepositoryCaller, RepositoryHolder};
 use scylla_domain::platform::consent::ConsentCaller;
 use scylla_domain::platform::legal::LegalHolder;
 use scylla_domain::platform::mail::MailSettingsHolder;
@@ -60,5 +60,6 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .authz::<VcsConnectionHolder>()
         .authz::<RepositoryAccess>()
         .authz::<RepositoryHolder>()
+        .authz::<RepositoryCaller>()
         .plugin(Integrations)
 }

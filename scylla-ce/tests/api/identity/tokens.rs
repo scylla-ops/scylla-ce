@@ -97,10 +97,7 @@ async fn an_attenuated_token_allows_only_its_operations(pool: PgPool) {
         &token,
         r#"check if operation("scylla.projects.v1.ProjectService/ListProjects");"#,
     );
-    let list = ListProjectsRequest {
-        workspace_id: None,
-        page: None,
-    };
+    let list = ListProjectsRequest::default();
     let mut client = app.projects.clone();
 
     // when

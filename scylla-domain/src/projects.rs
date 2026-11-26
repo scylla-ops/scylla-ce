@@ -1,9 +1,11 @@
 //! The projects: the unit of work in a workspace. Their secrets, pipelines, jobs and triggers
 //! are in `secrets`, `pipelines`, `jobs` and `triggers`, the pipeline files of a repository in
-//! `pipeline_files`, and the rules of the Git triggers in `git_rules`.
+//! `pipeline_files`, the rules of the Git triggers in `git_rules`, and the search, the order and
+//! the pages of the project list in `lists`.
 
 pub mod git_rules;
 pub mod jobs;
+pub mod lists;
 pub mod pipeline_files;
 pub mod pipelines;
 pub mod secrets;
@@ -17,7 +19,6 @@ use crate::platform::images::{Icon, IconChange};
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
 use crate::{DomainError, Name};
 use crate::{Id, ResourceKind};
-use crate::{Page, PageRequest};
 
 /// The kind of a project, for the hooks: the name of its definition.
 pub const KIND: ResourceKind = ResourceKind::new(Project::NAME);
@@ -171,15 +172,6 @@ pub struct ProjectChange {
     pub icon: Option<IconChange>,
 }
 
-/// The input of a project list: the projects that the caller can see.
-#[derive(Clone, Copy, Debug)]
-pub struct ListProjects {
-    /// Only the projects of this workspace, if it is set.
-    pub workspace_id: Option<WorkspaceId>,
-    /// The page to return.
-    pub page: PageRequest<ProjectId>,
-}
-
 /// What a caller can see: all the projects of some workspaces, and some other projects.
 #[derive(Clone, Debug)]
 pub struct Visible {
@@ -192,6 +184,3 @@ pub struct Visible {
     /// `true` if a role on the instance shows each project to the caller.
     pub all: bool,
 }
-
-/// One page of projects.
-pub type ProjectPage = Page<Project, ProjectId>;
