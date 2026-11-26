@@ -81,6 +81,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   area `workspaces.view`) gives one page of all the workspaces with their icons, with a search on
   the name, the slug and the owner, an order and a total. A normal user gets the same workspaces as
   before.
+- A notification gives the icon of its workspace and the avatar or the icon of the actor. A row
+  about the reader gives no workspace icon without an open invitation, because an image id opens the
+  image. A row of `ListUsers` gives each workspace with its icon, whether the user owns it, and the
+  name of the first owner.
 
 ## [0.7.2] - 2026-11-25
 

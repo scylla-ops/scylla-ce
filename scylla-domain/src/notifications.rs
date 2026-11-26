@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use time::OffsetDateTime;
 
 use crate::identity::actors::Actor;
+use crate::platform::images::{Avatar, Icon};
 use crate::projects::ProjectId;
 use crate::tenancy::invitations::InvitationId;
 use crate::tenancy::workspaces::WorkspaceId;
@@ -59,6 +60,14 @@ pub struct Notification {
     pub done_at: Option<OffsetDateTime>,
     /// The invitation of the row, as it is now.
     pub invitation: Option<RowInvitation>,
+    /// The icon of the workspace, if it has a custom icon.
+    pub workspace_icon: Option<Icon>,
+    /// The kind of the actor, if the actor still exists.
+    pub actor_kind: Option<String>,
+    /// The avatar that the actor chose, if it is a user.
+    pub actor_avatar: Option<Avatar>,
+    /// The custom icon of the actor, if it is an App.
+    pub actor_icon: Option<Icon>,
 }
 
 /// The invitation of a row.

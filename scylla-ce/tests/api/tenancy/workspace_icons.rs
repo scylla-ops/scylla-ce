@@ -157,3 +157,54 @@ async fn delete_workspace_deletes_the_image_of_its_icon(pool: PgPool) {
     assert_eq!(get_image(&app, &image).await.status(), 404);
     assert_eq!(image_count(&app).await, 0);
 }
+
+/// The console of the users gives each workspace of a user with its icon, and the first owner of
+/// each workspace that the user does not own.
+#[sqlx::test(migrations = false)]
+async fn list_users_gives_the_icon_and_the_owner_of_each_workspace(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let admin = app.admin().await;
+    let owner = app.user().await;
+    let member = app.user().await;
+    let workspace = app.workspace_of(owner).await.to_string();
+    let personal = app.workspace_of(member).await.to_string();
+    app.set_workspace_icon(owner, &workspace, glyph("rocket", "#A1B2C3"))
+        .await
+        .unwrap();
+    let viewer = scylla_testkit::Role::on("workspace", &workspace, "viewer");
+    app.grant_role(owner, viewer, &member.to_string())
+        .await
+        .unwrap();
+
+    // when
+    let page = scylla_proto::common::v1::PageRequest::default();
+    let users = app.list_users(admin, "", page).await.unwrap().users;
+
+    // then
+    let entry = users
+        .iter()
+        .find(|entry| text(&entry.user.as_ref().unwrap().id) == member.to_string())
+        .unwrap();
+    let details = &entry.workspace_details;
+    assert_eq!(details.len(), 2);
+    assert_eq!(entry.workspaces.len(), 2);
+    let shared = details
+        .iter()
+        .find(|detail| text(&detail.workspace_id) == workspace)
+        .unwrap();
+    let own = details
+        .iter()
+        .find(|detail| text(&detail.workspace_id) == personal)
+        .unwrap();
+    let expected = Some(Kind::Glyph(IconGlyph {
+        name: "rocket".to_owned(),
+        color: "#a1b2c3".to_owned(),
+    }));
+    assert_eq!(shared.icon.clone().and_then(|icon| icon.kind), expected);
+    assert!(!shared.owner);
+    assert_eq!(shared.owner_name, "Test User");
+    assert_eq!(own.icon, None);
+    assert!(own.owner);
+    assert_eq!(own.owner_name, "");
+}
