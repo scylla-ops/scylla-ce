@@ -64,6 +64,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - The agent image runs `tini` as PID 1. It reaps the processes that the jobs leave, so an agent that
   runs for a long time no longer fills the process table with zombie processes and then fails to
   start a process. The `docker run` commands do not change.
+- A list of role holders (`ListRoleHolders`) gives the avatar of each user and the custom icon of
+  each app. Before, a role page showed the default avatar for each holder.
 
 ## [0.7.2] - 2026-11-25
 

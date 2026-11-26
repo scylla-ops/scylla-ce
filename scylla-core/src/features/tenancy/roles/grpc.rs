@@ -186,6 +186,8 @@ impl RolesGrpc {
                     scope_name: role.scope.name,
                     granted_at: role.granted_at.map(timestamp),
                     runner: profile.runner,
+                    avatar: profile.avatar.map(ToProto::to_proto),
+                    icon: profile.icon.map(ToProto::to_proto),
                 })
                 .collect(),
             total: u32::try_from(total).unwrap_or(u32::MAX),
