@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspaces WHERE id = ANY($1) RETURNING icon_image_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "icon_image_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "icon_image_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "a61d5ecc263d11f13ecc03fdac8ef41eab0fd991b70e2e29de19e7d224ff3ccb"
+}

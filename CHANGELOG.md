@@ -48,6 +48,10 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   also move it to a group. When a group is deleted, its projects go to no group. `ListProjects`
   finds the projects of one group, the projects with no group, or at most 100 given projects, and
   the position order uses the place of each project in its group.
+- Workspace icons and group folder colors. A workspace keeps a glyph with a color token or a
+  `#RRGGBB` color, or an uploaded image, as a project does: only a member who can update the
+  workspace changes it, and the server deletes the old image. A project group keeps a folder color
+  (a color token or `#RRGGBB`); a bad color gives INVALID_ARGUMENT.
 
 ### Fixed
 

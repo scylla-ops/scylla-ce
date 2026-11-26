@@ -19,6 +19,7 @@ use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
 use super::service;
+use crate::api::icons;
 use crate::api::parse::{self, ToProto};
 use crate::Error;
 
@@ -115,6 +116,7 @@ impl ProjectGroupsGrpc {
             workspace_id: parse::required(request.workspace_id, "workspace_id")?,
             created_by: caller.actor.id,
             name: parse::field(request.name, "name")?,
+            color: icons::color(request.color, "color")?,
         };
 
         // Check the route permission on the workspace, then create the group.
@@ -126,8 +128,8 @@ impl ProjectGroupsGrpc {
         })
     }
 
-    /// Handles `UpdateProjectGroup`: a new name or a new place. An unknown group gives
-    /// `PERMISSION_DENIED`.
+    /// Handles `UpdateProjectGroup`: a new name, a new color or a new place. An unknown group
+    /// gives `PERMISSION_DENIED`.
     async fn update(
         &self,
         request: Request<pb::UpdateProjectGroupRequest>,
@@ -144,6 +146,10 @@ impl ProjectGroupsGrpc {
             position: request
                 .position
                 .map(|position| usize::try_from(position).unwrap_or(usize::MAX)),
+            color: request
+                .color
+                .map(|color| icons::color(color, "color"))
+                .transpose()?,
         };
 
         // Check the route permission, then change the group.
@@ -242,6 +248,10 @@ impl ToProto<pb::ProjectGroup> for ProjectGroup {
             created_by: Some(self.created_by.to_proto()),
             name: self.name,
             created_at: Some(parse::timestamp(self.created_at)),
+            color: self
+                .color
+                .map(|color| color.as_str().to_owned())
+                .unwrap_or_default(),
         }
     }
 }

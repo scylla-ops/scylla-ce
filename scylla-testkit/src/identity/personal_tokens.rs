@@ -122,6 +122,7 @@ impl TestApp {
             slug: None,
             personal_tokens_enabled: Some(enabled),
             time_zone: None,
+            icon: None,
         };
         let request = self.authed(actor, request).await;
         let mut client = WorkspaceServiceClient::new(self.channel.clone());

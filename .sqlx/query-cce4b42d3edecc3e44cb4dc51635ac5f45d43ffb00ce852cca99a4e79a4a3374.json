@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone FROM workspaces\n         WHERE slug = $1",
+  "query": "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone, icon_name,\n                icon_color, icon_image_id\n         FROM workspaces WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -68,11 +68,44 @@
             "name": "time_zone"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "icon_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "icon_name"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "icon_color",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "icon_color"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "icon_image_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "icon_image_id"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -81,8 +114,11 @@
       false,
       false,
       false,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "13a6e0560c8c2d33b401b80a0130700b09c9ac8147a23ebfa27d6a48c4da010e"
+  "hash": "cce4b42d3edecc3e44cb4dc51635ac5f45d43ffb00ce852cca99a4e79a4a3374"
 }

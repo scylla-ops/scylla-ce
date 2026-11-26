@@ -4,6 +4,7 @@ use time::OffsetDateTime;
 
 use crate::authz::Resource;
 use crate::identity::actors::{Actor, ActorId};
+use crate::platform::images::{Icon, IconChange};
 use crate::tenancy::slugs::Slug;
 use crate::{Id, Name, Page, PageRequest, ResourceKind, TimeZone};
 
@@ -31,6 +32,8 @@ pub struct Workspace {
     pub personal_tokens_enabled: bool,
     /// The name of the time zone of the workspace, `UTC` for a new workspace.
     pub time_zone: String,
+    /// The custom icon of the workspace, or `None` for the default icon.
+    pub icon: Option<Icon>,
 }
 
 /// How a new workspace gets its slug.
@@ -64,6 +67,8 @@ pub struct WorkspaceChange {
     pub personal_tokens_enabled: Option<bool>,
     /// The new time zone.
     pub time_zone: Option<TimeZone>,
+    /// The new icon. A new image replaces the old image of the workspace.
+    pub icon: Option<IconChange>,
 }
 
 /// What a caller can read: the workspaces that it owns, and the workspaces where it has a role.
@@ -108,7 +113,7 @@ crate::authz! {
         permission get_workspace = read;
         /// The route `ListWorkspaces`: a workspace that the caller can read is in its list.
         permission list_workspaces = read;
-        /// The route `UpdateWorkspace`: change the name and the slug.
+        /// The route `UpdateWorkspace`: change the name, the slug and the icon.
         permission update_workspace = manage;
         /// The route `DeleteWorkspace`: delete an empty workspace. No relation gives it.
         permission delete_workspace = nil;

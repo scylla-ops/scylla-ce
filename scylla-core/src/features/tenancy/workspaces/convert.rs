@@ -14,6 +14,7 @@ impl ToProto<pb::Workspace> for Workspace {
             created_at: Some(parse::timestamp(self.created_at)),
             personal_tokens_enabled: self.personal_tokens_enabled,
             time_zone: self.time_zone,
+            icon: self.icon.map(ToProto::to_proto),
         }
     }
 }

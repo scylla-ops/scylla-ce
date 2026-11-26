@@ -210,8 +210,8 @@ impl WorkspacesGrpc {
         })
     }
 
-    /// Handles `UpdateWorkspace`: a new name, slug, personal token switch or time zone. An unknown
-    /// workspace gets the answer of a refusal.
+    /// Handles `UpdateWorkspace`: a new name, slug, personal token switch, time zone or icon. An
+    /// unknown workspace gets the answer of a refusal.
     async fn update(
         &self,
         request: Request<pb::UpdateWorkspaceRequest>,
@@ -234,6 +234,10 @@ impl WorkspacesGrpc {
                 .time_zone
                 .map(|zone| parse::field(zone, "time_zone"))
                 .transpose()?,
+            icon: request
+                .icon
+                .map(|icon| parse::field(icon, "icon"))
+                .transpose()?,
         };
 
         // Check the route permission on a workspace that exists, then change it.
@@ -242,7 +246,7 @@ impl WorkspacesGrpc {
             return Err(AccessError::denied(&caller, &check).into());
         }
         self.gate.authorize(&caller, check).await?;
-        let workspace = service::update(&self.pool, id, change).await?;
+        let workspace = service::update(&self.pool, caller.actor.id, id, change).await?;
         Ok(pb::UpdateWorkspaceResponse {
             workspace: Some(workspace.to_proto()),
         })

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, created_by, name, created_at FROM project_groups\n         WHERE workspace_id = $1 ORDER BY position, id",
+  "query": "SELECT id, workspace_id, created_by, name, created_at, color FROM project_groups\n         WHERE workspace_id = $1 ORDER BY position, id",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,17 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "color",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "project_groups",
+            "name": "color"
+          }
+        }
       }
     ],
     "parameters": {
@@ -69,8 +80,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "9044530fbb913733e24b2edc90f216fa77ee68a8d9ea4a232955552a46c4c503"
+  "hash": "7697c1cb3ca1eab40519a6e0768decb2485ab8ff4367e619cae452f3380ddf26"
 }

@@ -1,9 +1,13 @@
-//! The SQL of the `workspaces` and `workspace_owners` tables. Each function runs in the
-//! transaction of the caller.
+//! The SQL of the `workspaces` and `workspace_owners` tables, and of the icons of the
+//! workspaces. Each function runs in the transaction of the caller.
 
+mod icons;
 mod limit;
 mod owners;
+mod row;
 mod workspaces;
+
+pub(crate) use icons::{lock_icon, set_icon};
 
 pub(crate) use limit::{count_for, counted_for, has_no_limit, lock_creator};
 

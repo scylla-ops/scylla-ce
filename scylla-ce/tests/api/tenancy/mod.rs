@@ -1,4 +1,4 @@
-//! The tests of tenancy: workspaces, their slugs, owners and deletion, invitations, roles, the
+//! The tests of tenancy: workspaces, their slugs, icons, owners and deletion, invitations, roles, the
 //! list of the access, the permissions of a caller, the permission model, and the saved layouts
 //! of the dashboard, and the library.
 
@@ -32,5 +32,6 @@ mod role_levels;
 mod role_moves;
 mod roles;
 mod slugs;
+mod workspace_icons;
 mod workspace_limit;
 mod workspaces;

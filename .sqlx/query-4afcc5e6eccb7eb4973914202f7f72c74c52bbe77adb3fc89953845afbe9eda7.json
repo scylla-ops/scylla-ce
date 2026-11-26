@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone FROM workspaces\n         WHERE id = $1",
+  "query": "SELECT id, name, slug, created_at, personal_tokens_enabled, time_zone, icon_name,\n                icon_color, icon_image_id\n         FROM workspaces\n         WHERE ($5\n                OR id IN (SELECT workspace_id FROM workspace_owners WHERE user_id = $1)\n                OR id = ANY($2))\n           AND ($3::uuid IS NULL OR id > $3)\n         ORDER BY id\n         LIMIT $4",
   "describe": {
     "columns": [
       {
@@ -68,11 +68,48 @@
             "name": "time_zone"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "icon_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "icon_name"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "icon_color",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "icon_color"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "icon_image_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "icon_image_id"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "UuidArray",
+        "Uuid",
+        "Int8",
+        "Bool"
       ]
     },
     "nullable": [
@@ -81,8 +118,11 @@
       false,
       false,
       false,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "d8051b83bd2dd4d2628f96cb1daa5478eec58ed7f48141e383be6d848d038f38"
+  "hash": "4afcc5e6eccb7eb4973914202f7f72c74c52bbe77adb3fc89953845afbe9eda7"
 }

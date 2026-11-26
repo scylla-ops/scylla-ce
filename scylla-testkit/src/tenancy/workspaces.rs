@@ -1,6 +1,7 @@
 //! The `TestApp` helpers of `WorkspaceService`.
 
 use scylla_domain::identity::actors::ActorId;
+use scylla_proto::common::v1::IconChange;
 use scylla_proto::workspaces::v1::get_workspace_request::Workspace as Named;
 use scylla_proto::workspaces::v1::workspace_service_client::WorkspaceServiceClient;
 use scylla_proto::workspaces::v1::{
@@ -86,6 +87,7 @@ impl TestApp {
             slug: slug.map(str::to_owned),
             personal_tokens_enabled: None,
             time_zone: None,
+            icon: None,
         };
         let request = self.authed(actor, request).await;
         let response = self.workspaces().update_workspace(request).await?;
@@ -108,6 +110,30 @@ impl TestApp {
             slug: None,
             personal_tokens_enabled: None,
             time_zone: Some(time_zone.to_owned()),
+            icon: None,
+        };
+        let request = self.authed(actor, request).await;
+        let response = self.workspaces().update_workspace(request).await?;
+        Ok(response
+            .into_inner()
+            .workspace
+            .expect("workspace in response"))
+    }
+
+    /// Calls `UpdateWorkspace` as `actor` with the icon only.
+    pub async fn set_workspace_icon(
+        &self,
+        actor: ActorId,
+        workspace: &str,
+        icon: IconChange,
+    ) -> Result<Workspace, Status> {
+        let request = UpdateWorkspaceRequest {
+            workspace_id: Some(id(workspace)),
+            name: None,
+            slug: None,
+            personal_tokens_enabled: None,
+            time_zone: None,
+            icon: Some(icon),
         };
         let request = self.authed(actor, request).await;
         let response = self.workspaces().update_workspace(request).await?;

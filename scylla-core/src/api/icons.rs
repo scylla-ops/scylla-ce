@@ -1,5 +1,5 @@
-//! The conversions of the custom icons and of the avatars between the proto messages and the
-//! domain.
+//! The conversions of the custom icons, of their colors and of the avatars between the proto
+//! messages and the domain.
 
 use scylla_domain::platform::images::{
     Avatar, GlyphName, Icon, IconChange, IconColor, IconGlyph, Upload,
@@ -9,6 +9,12 @@ use scylla_proto::common::v1::icon::Kind;
 use scylla_proto::common::v1::icon_change::Kind as ChangeKind;
 
 use super::parse::{FromProto, Invalid, ToProto};
+use crate::Error;
+
+/// Reads a color of the web app or a hex color. An empty text is no color: the default color.
+pub(crate) fn color(text: String, field: &'static str) -> Result<Option<IconColor>, Error> {
+    IconColor::parse(text).map_err(|error| Error::invalid(field, error.to_string()))
+}
 
 impl ToProto<pb::Icon> for Icon {
     fn to_proto(self) -> pb::Icon {

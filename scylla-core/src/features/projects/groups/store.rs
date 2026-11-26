@@ -2,6 +2,7 @@
 //! the transaction of the caller.
 
 use scylla_domain::identity::actors::ActorId;
+use scylla_domain::platform::images::IconColor;
 use scylla_domain::projects::groups::{NewProjectGroup, ProjectGroup, ProjectGroupId};
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -30,15 +31,17 @@ pub(super) async fn lock_workspace(tx: &mut Tx<'_>, workspace: WorkspaceId) -> R
 pub(super) async fn insert(tx: &mut Tx<'_>, new: &NewProjectGroup) -> Result<ProjectGroup, Error> {
     let id = ProjectGroupId::generate();
     let created_at = sqlx::query_scalar!(
-        "INSERT INTO project_groups (id, workspace_id, created_by, name, position)
+        "INSERT INTO project_groups (id, workspace_id, created_by, name, position, color)
          VALUES ($1, $2, $3, $4,
                  (SELECT coalesce(max(position) + 1, 0) FROM project_groups
-                  WHERE workspace_id = $2))
+                  WHERE workspace_id = $2),
+                 $5)
          RETURNING created_at",
         id.to_db(),
         new.workspace_id.to_db(),
         new.created_by.to_db(),
         new.name.as_str(),
+        new.color.as_ref().map(IconColor::as_str),
     )
     .fetch_one(&mut **tx)
     .await
@@ -54,6 +57,7 @@ pub(super) async fn insert(tx: &mut Tx<'_>, new: &NewProjectGroup) -> Result<Pro
         created_by: new.created_by,
         name: new.name.as_str().to_owned(),
         created_at,
+        color: new.color.clone(),
     })
 }
 
@@ -64,7 +68,7 @@ pub(super) async fn list(
 ) -> Result<Vec<ProjectGroup>, Error> {
     let rows = sqlx::query_as!(
         Row,
-        "SELECT id, workspace_id, created_by, name, created_at FROM project_groups
+        "SELECT id, workspace_id, created_by, name, created_at, color FROM project_groups
          WHERE workspace_id = $1 ORDER BY position, id",
         workspace.to_db()
     )
@@ -80,7 +84,8 @@ pub(super) async fn find(
 ) -> Result<Option<ProjectGroup>, Error> {
     let row = sqlx::query_as!(
         Row,
-        "SELECT id, workspace_id, created_by, name, created_at FROM project_groups WHERE id = $1",
+        "SELECT id, workspace_id, created_by, name, created_at, color FROM project_groups
+         WHERE id = $1",
         id.to_db()
     )
     .fetch_optional(&mut **tx)
@@ -108,6 +113,22 @@ pub(super) async fn rename(tx: &mut Tx<'_>, id: ProjectGroupId, name: &str) -> R
         "UPDATE project_groups SET name = $2 WHERE id = $1",
         id.to_db(),
         name
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Gives a group a new color. `None` gives the default color.
+pub(super) async fn set_color(
+    tx: &mut Tx<'_>,
+    id: ProjectGroupId,
+    color: Option<&IconColor>,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "UPDATE project_groups SET color = $2 WHERE id = $1",
+        id.to_db(),
+        color.map(IconColor::as_str),
     )
     .execute(&mut **tx)
     .await?;
@@ -186,6 +207,8 @@ struct Row {
     name: String,
     /// The creation time.
     created_at: OffsetDateTime,
+    /// The color of the folder, if it has one.
+    color: Option<String>,
 }
 
 impl Row {
@@ -197,6 +220,9 @@ impl Row {
             created_by: ActorId::from_db(self.created_by),
             name: self.name,
             created_at: self.created_at,
+            color: self
+                .color
+                .and_then(|color| IconColor::parse(color).ok().flatten()),
         }
     }
 }

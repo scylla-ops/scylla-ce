@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE workspaces SET name = coalesce($2, name), slug = coalesce($3, slug),\n             personal_tokens_enabled = coalesce($4, personal_tokens_enabled),\n             time_zone = coalesce($5, time_zone)\n         WHERE id = $1\n         RETURNING id, name, slug, created_at, personal_tokens_enabled, time_zone",
+  "query": "UPDATE workspaces SET name = coalesce($2, name), slug = coalesce($3, slug),\n             personal_tokens_enabled = coalesce($4, personal_tokens_enabled),\n             time_zone = coalesce($5, time_zone)\n         WHERE id = $1\n         RETURNING id, name, slug, created_at, personal_tokens_enabled, time_zone, icon_name,\n                   icon_color, icon_image_id",
   "describe": {
     "columns": [
       {
@@ -68,6 +68,39 @@
             "name": "time_zone"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "icon_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "icon_name"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "icon_color",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "icon_color"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "icon_image_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "icon_image_id"
+          }
+        }
       }
     ],
     "parameters": {
@@ -85,8 +118,11 @@
       false,
       false,
       false,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "8db7dad06e73a805b7327785a73433846b6744dee3b55985b70708ed8ea382f7"
+  "hash": "09d457b6419d6fc676cebc1047360e1f51fa6c0735b80c56ab3e37b8b7f48cbc"
 }
