@@ -12,10 +12,12 @@ use serde_json::{json, Value};
 use super::time;
 use crate::Error;
 
-/// Returns the user with its password date and its admin flag, or `None` for an unknown user.
+/// Returns the user with its password date, its admin flag and its avatar, or `None` for an
+/// unknown user.
 pub(crate) async fn user(tx: &mut Tx<'_>, user: ActorId) -> Result<Option<Value>, Error> {
     let row = sqlx::query!(
         r#"SELECT u.display_name, u.handle, u.status, u.created_at, u.last_sign_in_at,
+                  u.avatar_image_id, u.avatar_color,
                   p.updated_at AS "password_changed_at?",
                   EXISTS (SELECT 1 FROM instance_admins a WHERE a.user_id = u.id)
                       AS "instance_admin!"
@@ -36,6 +38,8 @@ pub(crate) async fn user(tx: &mut Tx<'_>, user: ActorId) -> Result<Option<Value>
             "last_sign_in_at": row.last_sign_in_at.map(time),
             "password_changed_at": row.password_changed_at.map(time),
             "instance_admin": row.instance_admin,
+            "avatar_image_id": row.avatar_image_id.map(|id| id.to_string()),
+            "avatar_color": row.avatar_color,
         })
     }))
 }

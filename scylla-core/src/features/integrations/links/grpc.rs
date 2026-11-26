@@ -39,7 +39,7 @@ pub(super) fn server(ctx: IntegrationContext) -> RepositoryServiceServer<LinksGr
 /// The handler.
 pub(super) struct LinksGrpc {
     /// What the parts of the integration share.
-    ctx: IntegrationContext,
+    pub(super) ctx: IntegrationContext,
 }
 
 #[tonic::async_trait]
@@ -56,6 +56,13 @@ impl RepositoryService for LinksGrpc {
         Ok(Response::new(pb::GetRepositoryLinkResponse {
             link: linked.map(ToProto::to_proto),
         }))
+    }
+
+    async fn list_repository_links(
+        &self,
+        request: Request<pb::ListRepositoryLinksRequest>,
+    ) -> Result<Response<pb::ListRepositoryLinksResponse>, Status> {
+        Ok(Response::new(self.list(request).await?))
     }
 
     async fn link_repository(

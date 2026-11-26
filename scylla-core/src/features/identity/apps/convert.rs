@@ -40,6 +40,7 @@ pub(super) fn app(
         last_sample: last_sample.map(sample),
         labels: app.labels.texts(),
         automatic_labels,
+        icon: app.icon.map(ToProto::to_proto),
     }
 }
 

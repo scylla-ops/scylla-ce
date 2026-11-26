@@ -10,6 +10,7 @@ use crate::integrations::links::{RepositoryAccess, RepositoryHolder};
 use crate::platform::legal::LegalHolder;
 use crate::platform::mail::MailSettingsHolder;
 use crate::platform::SettingsHolder;
+use crate::projects::groups::{ProjectGroupAccess, ProjectGroupHolder};
 use crate::projects::pipelines::PipelineAccess;
 use crate::projects::triggers::TriggerAccess;
 use crate::projects::{Project, ProjectHolder};
@@ -103,6 +104,27 @@ const PAGES: &[Page] = &[
         name: "the new project of the projects page",
         opens: Route::of(ProjectHolder::CREATE_PROJECT),
         needs: &[Route::of(ProjectHolder::LIST_PROJECTS)],
+    },
+    Page {
+        name: "the groups of the projects page",
+        opens: Route::of(ProjectHolder::LIST_PROJECTS),
+        needs: &[Route::of(ProjectGroupHolder::LIST_PROJECT_GROUPS)],
+    },
+    Page {
+        name: "the groups and the order of the projects page",
+        opens: Route::of(ProjectHolder::UPDATE_PROJECT),
+        needs: &[
+            Route::of(ProjectGroupHolder::LIST_PROJECT_GROUPS),
+            Route::of(ProjectGroupHolder::CREATE_PROJECT_GROUP),
+            Route::of(ProjectGroupHolder::UPDATE_PROJECT_GROUP),
+            Route::of(ProjectGroupHolder::DELETE_PROJECT_GROUP),
+            Route::of(ProjectGroupHolder::MOVE_PROJECT),
+        ],
+    },
+    Page {
+        name: "the move of a project in the order of the projects page",
+        opens: Route::of(Project::UPDATE_PROJECT),
+        needs: &[Route::of(ProjectGroupAccess::MOVE_PROJECT)],
     },
     Page {
         name: "the library of the workspace and the page of a fragment",

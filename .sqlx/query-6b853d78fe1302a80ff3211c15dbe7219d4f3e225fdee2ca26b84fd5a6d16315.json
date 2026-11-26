@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE project_groups g SET position = (o.n - 1)::integer\n         FROM unnest($1::uuid[]) WITH ORDINALITY AS o(id, n)\n         WHERE g.id = o.id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6b853d78fe1302a80ff3211c15dbe7219d4f3e225fdee2ca26b84fd5a6d16315"
+}

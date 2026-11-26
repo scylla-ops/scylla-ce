@@ -7,6 +7,31 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ## [Unreleased]
 
+### Added
+
+- Custom project icons. A project keeps a glyph with a color token or a `#RRGGBB` color, or an
+  uploaded image. The new migration only adds nullable columns. The server re-encodes each uploaded
+  image (PNG, JPEG or WebP, 1 MB max) as a square PNG of 256 px, and the public route `GET
+  /images/{id}` serves it with `nosniff` and a sandbox CSP. The server refuses an SVG. Only a member
+  that can update the project changes its icon. The `image` crate is a new dependency.
+- `ListProjects` searches the projects of a workspace in their name, description, repository and
+  pipeline names, sorts them (position, name, last job, failed first), keeps only the failing or the
+  running ones, and returns their counts. `ListRepositoryLinks` returns the repository links of a
+  workspace, or of at most 100 projects, in one call, with no link for a project that the caller
+  cannot read. No migration.
+- A photo for each user and an icon for each App. A user sets an image or the color of the initials
+  with `UpdateProfile`. An admin of the workspace sets the icon of an App with `SetAppIcon`: a glyph
+  with a color, an image, or the default icon. The images go through the image service of the
+  project icons. The server deletes the old image when it gets a new one, when a user deletes the
+  account, and when an admin deletes the App. `ListMembers` and the export of an account give the
+  photo. The new migration only adds nullable columns.
+- Groups of projects in a workspace. The new migration adds the table `project_groups` and the
+  nullable columns `projects.group_id` and `projects.position`. The owners, the admins and the
+  members of a workspace create, rename, reorder and delete its groups, and the editors of a project
+  also move it to a group. When a group is deleted, its projects go to no group. `ListProjects`
+  finds the projects of one group, the projects with no group, or at most 100 given projects, and
+  the position order uses the place of each project in its group.
+
 ### Fixed
 
 - Account mails with fewer spam signals, and a reference for each sent mail. The HTML body has no

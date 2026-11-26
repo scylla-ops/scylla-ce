@@ -282,6 +282,8 @@ impl ToProto<pb::Member> for Member {
             handle: self.profile.handle.unwrap_or_default(),
             runner: self.profile.runner,
             roles: self.roles.into_iter().map(ToProto::to_proto).collect(),
+            avatar: self.profile.avatar.map(ToProto::to_proto),
+            icon: self.profile.icon.map(ToProto::to_proto),
         }
     }
 }

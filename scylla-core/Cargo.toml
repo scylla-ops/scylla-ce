@@ -23,6 +23,7 @@ hex.workspace = true
 hmac.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
+image.workspace = true
 jsonwebtoken.workspace = true
 lettre.workspace = true
 prost-types.workspace = true

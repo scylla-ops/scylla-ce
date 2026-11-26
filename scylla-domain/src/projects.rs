@@ -1,9 +1,12 @@
 //! The projects: the unit of work in a workspace. Their secrets, pipelines, jobs and triggers
 //! are in `secrets`, `pipelines`, `jobs` and `triggers`, the pipeline files of a repository in
-//! `pipeline_files`, and the rules of the Git triggers in `git_rules`.
+//! `pipeline_files`, the rules of the Git triggers in `git_rules`, the search, the order and the
+//! pages of the project list in `lists`, and the groups and the order of the projects in `groups`.
 
 pub mod git_rules;
+pub mod groups;
 pub mod jobs;
+pub mod lists;
 pub mod pipeline_files;
 pub mod pipelines;
 pub mod secrets;
@@ -13,10 +16,11 @@ use time::OffsetDateTime;
 
 use crate::authz::Resource;
 use crate::identity::actors::{Actor, ActorId};
+use crate::platform::images::{Icon, IconChange};
+use crate::projects::groups::ProjectGroupId;
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
 use crate::{DomainError, Name};
 use crate::{Id, ResourceKind};
-use crate::{Page, PageRequest};
 
 /// The kind of a project, for the hooks: the name of its definition.
 pub const KIND: ResourceKind = ResourceKind::new(Project::NAME);
@@ -42,6 +46,10 @@ pub struct Project {
     pub description: String,
     /// The creation time, set by the database.
     pub created_at: OffsetDateTime,
+    /// The custom icon, or `None` for the default icon.
+    pub icon: Option<Icon>,
+    /// The group of the project in its workspace, or `None` for no group.
+    pub group_id: Option<ProjectGroupId>,
 }
 
 /// The description of a project: trimmed, at most `MAX_LEN` characters, on one line or more.
@@ -164,15 +172,8 @@ pub struct ProjectChange {
     pub name: Option<ProjectName>,
     /// The new description. An empty one removes the description.
     pub description: Option<ProjectDescription>,
-}
-
-/// The input of a project list: the projects that the caller can see.
-#[derive(Clone, Copy, Debug)]
-pub struct ListProjects {
-    /// Only the projects of this workspace, if it is set.
-    pub workspace_id: Option<WorkspaceId>,
-    /// The page to return.
-    pub page: PageRequest<ProjectId>,
+    /// The new icon.
+    pub icon: Option<IconChange>,
 }
 
 /// What a caller can see: all the projects of some workspaces, and some other projects.
@@ -187,6 +188,3 @@ pub struct Visible {
     /// `true` if a role on the instance shows each project to the caller.
     pub all: bool,
 }
-
-/// One page of projects.
-pub type ProjectPage = Page<Project, ProjectId>;

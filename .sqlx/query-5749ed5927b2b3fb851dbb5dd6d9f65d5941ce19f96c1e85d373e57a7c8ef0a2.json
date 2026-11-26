@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT icon_image_id FROM projects WHERE id = $1 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "icon_image_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "icon_image_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "5749ed5927b2b3fb851dbb5dd6d9f65d5941ce19f96c1e85d373e57a7c8ef0a2"
+}

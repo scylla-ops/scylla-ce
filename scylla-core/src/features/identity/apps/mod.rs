@@ -6,6 +6,7 @@ mod ci;
 mod ci_service;
 mod convert;
 mod grpc;
+mod icon_service;
 mod keys;
 mod labels_service;
 mod lifecycle;

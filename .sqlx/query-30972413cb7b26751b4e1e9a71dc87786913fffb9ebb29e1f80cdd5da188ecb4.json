@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE projects SET icon_name = $2, icon_color = $3, icon_image_id = $4 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "30972413cb7b26751b4e1e9a71dc87786913fffb9ebb29e1f80cdd5da188ecb4"
+}

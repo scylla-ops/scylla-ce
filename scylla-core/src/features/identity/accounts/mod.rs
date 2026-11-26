@@ -1,6 +1,7 @@
 //! The accounts feature: users with a profile, a handle and an email, passwords, the one-time
 //! links of the mails, the deletion of a user, `AccountService` and `ProfileService`.
 
+mod avatar;
 mod context;
 mod convert;
 mod credentials;

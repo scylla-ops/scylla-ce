@@ -16,10 +16,7 @@ use crate::{app, assert_code, UNKNOWN_ID};
 
 /// Returns `Ok` if a token can call a route that each actor can call.
 async fn try_token(app: &TestApp, token: &str) -> Result<(), Status> {
-    let list = ListProjectsRequest {
-        workspace_id: None,
-        page: None,
-    };
+    let list = ListProjectsRequest::default();
     let mut client = app.projects.clone();
     client.list_projects(with_token(token, list)).await?;
     Ok(())

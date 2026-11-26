@@ -6,7 +6,7 @@ use scylla_domain::identity::api_tokens::TokenOwner;
 use scylla_domain::identity::users::AccountCaller;
 use scylla_domain::integrations::apps::VcsAppHolder;
 use scylla_domain::integrations::connections::VcsConnectionHolder;
-use scylla_domain::integrations::links::{RepositoryAccess, RepositoryHolder};
+use scylla_domain::integrations::links::{RepositoryAccess, RepositoryCaller, RepositoryHolder};
 use scylla_domain::platform::consent::ConsentCaller;
 use scylla_domain::platform::legal::LegalHolder;
 use scylla_domain::platform::mail::MailSettingsHolder;
@@ -19,6 +19,7 @@ use crate::features::identity::user_state::UserState;
 use crate::features::integrations::Integrations;
 use crate::features::notifications::Notifications;
 use crate::features::platform::capabilities::Capabilities;
+use crate::features::projects::groups::ProjectGroups;
 use crate::features::projects::pipelines::Pipelines;
 use crate::features::projects::triggers::Triggers;
 use crate::features::projects::Projects;
@@ -46,6 +47,7 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .plugin(Workspaces)
         .plugin(Apps)
         .plugin(Projects)
+        .plugin(ProjectGroups)
         .plugin(Pipelines)
         .plugin(Triggers)
         .plugin(Capabilities)
@@ -60,5 +62,6 @@ pub fn edition(name: &'static str) -> EditionBuilder {
         .authz::<VcsConnectionHolder>()
         .authz::<RepositoryAccess>()
         .authz::<RepositoryHolder>()
+        .authz::<RepositoryCaller>()
         .plugin(Integrations)
 }

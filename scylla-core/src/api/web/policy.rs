@@ -48,8 +48,9 @@ pub(super) async fn add(State(headers): State<Headers>, request: Request, next: 
     response
 }
 
-/// Makes the policy: the own origin, the inline scripts of the page, the API, and the hosts of
-/// the avatars, which the app shows and which a capture of the page reads.
+/// Makes the policy: the own origin, the inline scripts of the page, the API (its calls, and the
+/// uploaded images of its route `/images/{id}`), and the hosts of the avatars, which the app
+/// shows and which a capture of the page reads.
 fn policy(index: &str, api_url: &str, vcs: &VcsOptions) -> String {
     let scripts = inline_scripts(index);
     let images = image_hosts(vcs);
@@ -59,7 +60,7 @@ fn policy(index: &str, api_url: &str, vcs: &VcsOptions) -> String {
         "default-src 'self'".to_owned(),
         format!("script-src 'self'{}", list(&scripts)),
         "style-src 'self' 'unsafe-inline'".to_owned(),
-        format!("img-src 'self' data: blob:{}", list(&images)),
+        format!("img-src 'self' data: blob:{}{}", list(&api), list(&images)),
         "font-src 'self' data:".to_owned(),
         format!("connect-src 'self'{}{}", list(&api), list(&images)),
         format!("form-action 'self'{}", list(&github)),
@@ -171,8 +172,8 @@ mod tests {
         assert!(policy.contains("object-src 'none'"));
     }
 
-    /// The images come from the own origin and from the hosts of the avatars of github.com,
-    /// gitlab.com and Gravatar. The calls go to the API and to these hosts.
+    /// The images come from the own origin, from the API and from the hosts of the avatars of
+    /// github.com, gitlab.com and Gravatar. The calls go to the API and to these hosts.
     #[test]
     fn policy_allows_the_hosts_of_the_avatars_and_the_api() {
         // given
@@ -186,7 +187,7 @@ mod tests {
                      https://secure.gravatar.com";
         assert_eq!(
             directive(&policy, "img-src"),
-            format!("img-src 'self' data: blob: {hosts}")
+            format!("img-src 'self' data: blob: https://api.example.com {hosts}")
         );
         assert_eq!(
             directive(&policy, "connect-src"),

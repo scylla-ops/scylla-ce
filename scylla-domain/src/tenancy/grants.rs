@@ -3,6 +3,7 @@
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId, ActorKind};
+use crate::platform::images::{Avatar, Icon};
 use crate::projects::Project;
 use crate::tenancy::catalog::Level;
 use crate::tenancy::roles::RoleId;
@@ -31,6 +32,10 @@ pub struct AccessEntry {
     pub handle: Option<String>,
     /// True for an App that runs jobs: an agent.
     pub runner: bool,
+    /// The avatar that a user chose. `None` for an App and for the default avatar.
+    pub avatar: Option<Avatar>,
+    /// The custom icon of an App. `None` for a user and for the default icon.
+    pub icon: Option<Icon>,
     /// The role.
     pub role: String,
 }

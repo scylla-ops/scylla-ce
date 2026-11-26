@@ -5,6 +5,7 @@ use std::fmt;
 use prost_types::Timestamp;
 use scylla_domain::identity::user_state::StateKey;
 use scylla_domain::identity::users::{Email, Handle, Password};
+use scylla_domain::projects::lists::ProjectSearch;
 use scylla_domain::projects::secrets::{SecretName, SecretValue};
 use scylla_domain::projects::{ProjectDescription, ProjectName};
 use scylla_domain::tenancy::slugs::Slug;
@@ -175,6 +176,12 @@ impl FromProto<String> for ProjectName {
 }
 
 impl FromProto<String> for ProjectDescription {
+    fn from_proto(value: String) -> Result<Self, Invalid> {
+        Ok(Self::parse(value)?)
+    }
+}
+
+impl FromProto<String> for ProjectSearch {
     fn from_proto(value: String) -> Result<Self, Invalid> {
         Ok(Self::parse(value)?)
     }

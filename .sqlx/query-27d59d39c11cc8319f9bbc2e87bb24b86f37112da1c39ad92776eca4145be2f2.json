@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM projects WHERE id = $1 RETURNING workspace_id, icon_image_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "icon_image_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "icon_image_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "27d59d39c11cc8319f9bbc2e87bb24b86f37112da1c39ad92776eca4145be2f2"
+}
