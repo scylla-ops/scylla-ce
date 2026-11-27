@@ -12,7 +12,8 @@ use crate::projects::{Project, ProjectId};
 use crate::tenancy::workspaces::WorkspaceId;
 use crate::{DomainError, PageRequest, PageSize};
 
-/// Makes a listed project with a name, its count of failing pipelines and its running state.
+/// Makes a listed project with a name, its count of failing pipelines and its running state,
+/// with no job that waits.
 fn listed(name: &str, failing: u32, running: bool) -> ListedProject {
     ListedProject {
         project: Project {
@@ -29,6 +30,7 @@ fn listed(name: &str, failing: u32, running: bool) -> ListedProject {
         pipelines: Vec::new(),
         failing,
         running,
+        pending: false,
         last_job_at: None,
         position: None,
         group_position: None,
@@ -96,7 +98,8 @@ fn the_search_reads_the_names_the_repository_and_the_pipelines() {
     assert_eq!(page.counts.total, 4);
 }
 
-/// The counts read the projects of the search, and the health filter does not change them.
+/// The counts read the projects of the search, and the health filter does not change them. A
+/// project with a job that waits is pending, not running.
 #[test]
 fn the_counts_ignore_the_health_filter() {
     // given
@@ -104,36 +107,41 @@ fn the_counts_ignore_the_health_filter() {
     red.pipelines = vec!["CI".to_owned(), "E2E".to_owned()];
     let mut busy = listed("busy", 0, true);
     busy.pipelines = vec!["Deploy".to_owned()];
-    let all = vec![red, busy, listed("calm", 0, false)];
+    let mut waiting = listed("waiting", 0, false);
+    waiting.pending = true;
+    let all = vec![red, busy, waiting, listed("calm", 0, false)];
 
     // when
-    let failed = ProjectPage::of(
-        all.clone(),
-        &query("", ProjectOrder::Name, ProjectHealth::Failed),
+    let of = |health| ProjectPage::of(all.clone(), &query("", ProjectOrder::Name, health));
+    let (failed, running, pending) = (
+        of(ProjectHealth::Failed),
+        of(ProjectHealth::Running),
+        of(ProjectHealth::Pending),
     );
-    let running = ProjectPage::of(all, &query("", ProjectOrder::Name, ProjectHealth::Running));
 
     // then
     assert_eq!(names(&failed), ["red"]);
     assert_eq!(names(&running), ["busy"]);
+    assert_eq!(names(&pending), ["waiting"]);
     assert_eq!(failed.counts, running.counts);
+    assert_eq!(failed.counts, pending.counts);
+    let counts = failed.counts;
     assert_eq!(
-        (
-            failed.counts.total,
-            failed.counts.failed,
-            failed.counts.running
-        ),
-        (3, 1, 1)
+        (counts.total, counts.failed, counts.running, counts.pending),
+        (4, 1, 1, 1)
     );
-    assert_eq!(failed.counts.pipelines, 3);
+    assert_eq!(counts.pipelines, 3);
 }
 
-/// Failed first puts the failing projects first, then the running projects, then the others,
-/// each group by name.
+/// Failed first puts the failing projects first, then the running projects, then the pending
+/// projects, then the others, each group by name.
 #[test]
 fn failed_first_puts_the_failing_then_the_running_projects_first() {
     // given
+    let mut waiting = listed("c-waiting", 0, false);
+    waiting.pending = true;
     let all = vec![
+        waiting,
         listed("b-calm", 0, false),
         listed("z-busy", 0, true),
         listed("y-red", 1, true),
@@ -150,7 +158,7 @@ fn failed_first_puts_the_failing_then_the_running_projects_first() {
     // then
     assert_eq!(
         names(&page),
-        ["x-red", "y-red", "z-busy", "a-calm", "b-calm"]
+        ["x-red", "y-red", "z-busy", "c-waiting", "a-calm", "b-calm"]
     );
 }
 

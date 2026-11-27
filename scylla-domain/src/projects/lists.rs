@@ -56,8 +56,8 @@ pub enum ProjectOrder {
     Name,
     /// The project with the newest job first. No job comes last.
     LastJob,
-    /// The failing projects, then the running projects, then the others. In each group, the
-    /// name.
+    /// The failing projects, then the projects with a job that runs, then the projects with a job
+    /// that waits, then the others. In each group, the name.
     FailedFirst,
 }
 
@@ -69,8 +69,10 @@ pub enum ProjectHealth {
     All,
     /// Only the projects with at least one failing pipeline.
     Failed,
-    /// Only the projects with a job that runs or waits.
+    /// Only the projects with a job that runs.
     Running,
+    /// Only the projects with a job that waits for an agent or for an approval.
+    Pending,
 }
 
 /// A section of the projects page: the projects of one group, or the projects with no group.
@@ -112,8 +114,10 @@ pub struct ListedProject {
     pub pipelines: Vec<String>,
     /// The number of pipelines whose last ended job did not complete.
     pub failing: u32,
-    /// `true` when a job of the project runs or waits.
+    /// `true` when a job of the project runs.
     pub running: bool,
+    /// `true` when a job of the project waits for an agent or for an approval.
+    pub pending: bool,
     /// The creation time of the newest job of the project.
     pub last_job_at: Option<OffsetDateTime>,
     /// The place of the project in its group, if a member set one.
@@ -129,15 +133,18 @@ impl ListedProject {
             ProjectHealth::All => true,
             ProjectHealth::Failed => self.failing > 0,
             ProjectHealth::Running => self.running,
+            ProjectHealth::Pending => self.pending,
         }
     }
 
-    /// Returns the group of the order with the failing projects first: failing, running, other.
+    /// Returns the group of the order with the failing projects first: failing, running,
+    /// pending, other.
     fn health_group(&self) -> u8 {
-        match (self.failing > 0, self.running) {
-            (true, _) => 0,
-            (false, true) => 1,
-            (false, false) => 2,
+        match (self.failing > 0, self.running, self.pending) {
+            (true, _, _) => 0,
+            (false, true, _) => 1,
+            (false, false, true) => 2,
+            (false, false, false) => 3,
         }
     }
 
@@ -203,10 +210,12 @@ pub struct ProjectCounts {
     pub total: u32,
     /// The number of projects with at least one failing pipeline.
     pub failed: u32,
-    /// The number of projects with a job that runs or waits.
+    /// The number of projects with a job that runs.
     pub running: u32,
     /// The number of pipelines of these projects.
     pub pipelines: u32,
+    /// The number of projects with a job that waits for an agent or for an approval.
+    pub pending: u32,
 }
 
 /// One page of projects, with the counts of the projects that the search keeps.
@@ -237,6 +246,7 @@ impl ProjectPage {
             failed: count(found.iter().filter(|listed| listed.failing > 0).count()),
             running: count(found.iter().filter(|listed| listed.running).count()),
             pipelines: count(found.iter().map(|listed| listed.pipelines.len()).sum()),
+            pending: count(found.iter().filter(|listed| listed.pending).count()),
         };
 
         // Keep the projects of the health, then sort them.

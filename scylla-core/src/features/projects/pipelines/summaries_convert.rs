@@ -54,6 +54,8 @@ pub(super) fn response(page: SummaryPage) -> pb::ListPipelineSummariesResponse {
 }
 
 impl ToProto<pb::PipelineSummary> for PipelineSummary {
+    // The deprecated `active` stays filled for the clients that do not read `live_status` yet.
+    #[expect(deprecated)]
     fn to_proto(self) -> pb::PipelineSummary {
         pb::PipelineSummary {
             pipeline_id: Some(self.pipeline_id.to_proto()),
@@ -68,7 +70,11 @@ impl ToProto<pb::PipelineSummary> for PipelineSummary {
                 .last_ended
                 .map_or(pb::JobStatus::Unspecified, jobs_convert::status)
                 .into(),
-            active: self.active,
+            active: self.live.is_some(),
+            live_status: self
+                .live
+                .map_or(pb::JobStatus::Unspecified, jobs_convert::status)
+                .into(),
             trigger_kinds: self
                 .trigger_kinds
                 .into_iter()
