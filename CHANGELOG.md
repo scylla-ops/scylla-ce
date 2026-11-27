@@ -7,6 +7,8 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-11-27
+
 ### Added
 
 - The mail relay of an instance, set at runtime (`MailSettingsService`). An instance admin sets the
@@ -362,7 +364,8 @@ place: read the **Breaking** entries of Changed before you move from 0.6.
   each released migration, and a test fails when a released migration changes or goes, or when a
   migration has a CR. The SpiceDB schema also only grows.
 
-[Unreleased]: https://github.com/scylla-ops/scylla-ce/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/scylla-ops/scylla-ce/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/scylla-ops/scylla-ce/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/scylla-ops/scylla-ce/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/scylla-ops/scylla-ce/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/scylla-ops/scylla-ce/compare/v0.6.0...v0.7.0
