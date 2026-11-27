@@ -3,9 +3,9 @@
 # runs them, and GitHub shows the result as the check run `scylla/agent-windows`. The Linux checks
 # are in ci.yaml. The macOS checks stay in .github/workflows/agent.yml until a Mac agent joins.
 #
-# The pipeline files have no path filter: this file runs on each push to main or to a version
-# branch and on each pull request, also when the agent did not change. The Cargo target folder
-# stays between the jobs, so a run with no change of the agent is short.
+# The pipeline files have no path filter: this file runs on each push to main and on each pull
+# request, also when the agent did not change. The Cargo target folder stays between the jobs, so
+# a run with no change of the agent is short.
 #
 # What the Windows agent needs:
 # - On the PATH of the agent: Git for Windows (git and its sh), cargo of rustup (Rust stable with
@@ -22,7 +22,7 @@ version: 1
 name: Agent on Windows
 on:
   push:
-    branches: [main, "v*.*.*"]
+    branches: [main]
   pull_request: {}
 agent:
   labels: [windows]

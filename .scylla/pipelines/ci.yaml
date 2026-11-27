@@ -6,7 +6,7 @@ version: 1
 name: CI
 on:
   push:
-    branches: [main, "v*.*.*"]
+    branches: [main]
   pull_request: {}
 agent:
   labels: [linux]
