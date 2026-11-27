@@ -4,11 +4,9 @@
 use std::sync::Arc;
 
 use scylla_domain::identity::users;
-use scylla_domain::tenancy::catalog;
 use scylla_domain::tenancy::slugs::Slug;
 use scylla_domain::tenancy::workspaces::{
-    ListWorkspaces, NewSlug, NewWorkspace, VisibleWorkspaces, Workspace, WorkspaceCaller,
-    WorkspaceChange, WorkspaceId,
+    NewSlug, NewWorkspace, Workspace, WorkspaceCaller, WorkspaceChange, WorkspaceId,
 };
 use scylla_domain::Name;
 use scylla_extension::{AccessError, Gate, Principal};
@@ -58,6 +56,13 @@ impl WorkspaceService for WorkspacesGrpc {
         request: Request<pb::ListWorkspacesRequest>,
     ) -> Result<Response<pb::ListWorkspacesResponse>, Status> {
         Ok(Response::new(self.list(request).await?))
+    }
+
+    async fn list_all_workspaces(
+        &self,
+        request: Request<pb::ListAllWorkspacesRequest>,
+    ) -> Result<Response<pb::ListAllWorkspacesResponse>, Status> {
+        Ok(Response::new(self.list_all(request).await?))
     }
 
     async fn update_workspace(
@@ -112,8 +117,8 @@ impl WorkspacesGrpc {
         })
     }
 
-    /// Handles `GetWorkspace`, by id or by slug. An unknown workspace gives
-    /// `PERMISSION_DENIED`, as a refusal does. A slug is public: it is in the URLs.
+    /// Handles `GetWorkspace`, by id or by slug, with the details of the workspace. An unknown
+    /// workspace gives `PERMISSION_DENIED`, as a refusal does. A slug is public: it is in the URLs.
     async fn get(
         &self,
         request: Request<pb::GetWorkspaceRequest>,
@@ -138,8 +143,13 @@ impl WorkspacesGrpc {
             }
             Named::Slug(slug) => self.get_by_slug(&caller, slug).await?,
         };
+
+        // Add the details of the workspace.
+        let sees_all = self.sees_all(&caller).await?;
+        let details = self.details_of(&caller, &[workspace.id], sees_all).await?;
         Ok(pb::GetWorkspaceResponse {
             workspace: Some(workspace.to_proto()),
+            details: details.into_iter().next(),
         })
     }
 
@@ -164,54 +174,8 @@ impl WorkspacesGrpc {
         }
     }
 
-    /// Handles `ListWorkspaces`: the workspaces that the caller owns or where it has a role.
-    async fn list(
-        &self,
-        request: Request<pb::ListWorkspacesRequest>,
-    ) -> Result<pb::ListWorkspacesResponse, Error> {
-        // Authenticate the caller, then read the request.
-        let caller = self.gate.caller(&request).await?;
-        let query = ListWorkspaces {
-            page: parse::optional(request.into_inner().page, "page")?,
-        };
-
-        // Check the route permission on the caller: the list shows only what it can read.
-        self.gate
-            .authorize(
-                &caller,
-                WorkspaceCaller::LIST_WORKSPACES.on(caller.actor.id),
-            )
-            .await?;
-
-        // Find the workspaces where the caller has a role. A failed lookup gives none.
-        let granted = self
-            .gate
-            .granted(&caller, Workspace::LIST_WORKSPACES)
-            .await
-            .unwrap_or_else(|error| {
-                tracing::warn!(%error, "a lookup failed: the list shows only the owned workspaces");
-                Vec::new()
-            });
-
-        // Read one page of these workspaces and of the workspaces that the caller owns.
-        let all = self
-            .gate
-            .holds_on_instance(&caller, catalog::VIEW_ALL_WORKSPACES)
-            .await?;
-        let visible = VisibleWorkspaces {
-            caller: caller.actor.id,
-            granted,
-            all,
-        };
-        let page = service::list(&self.pool, query, visible).await?;
-        Ok(pb::ListWorkspacesResponse {
-            workspaces: page.items.into_iter().map(ToProto::to_proto).collect(),
-            page: Some(page.next_after.to_proto()),
-        })
-    }
-
-    /// Handles `UpdateWorkspace`: a new name, slug, personal token switch or time zone. An unknown
-    /// workspace gets the answer of a refusal.
+    /// Handles `UpdateWorkspace`: a new name, slug, personal token switch, time zone or icon. An
+    /// unknown workspace gets the answer of a refusal.
     async fn update(
         &self,
         request: Request<pb::UpdateWorkspaceRequest>,
@@ -234,6 +198,10 @@ impl WorkspacesGrpc {
                 .time_zone
                 .map(|zone| parse::field(zone, "time_zone"))
                 .transpose()?,
+            icon: request
+                .icon
+                .map(|icon| parse::field(icon, "icon"))
+                .transpose()?,
         };
 
         // Check the route permission on a workspace that exists, then change it.
@@ -242,7 +210,7 @@ impl WorkspacesGrpc {
             return Err(AccessError::denied(&caller, &check).into());
         }
         self.gate.authorize(&caller, check).await?;
-        let workspace = service::update(&self.pool, id, change).await?;
+        let workspace = service::update(&self.pool, caller.actor.id, id, change).await?;
         Ok(pb::UpdateWorkspaceResponse {
             workspace: Some(workspace.to_proto()),
         })

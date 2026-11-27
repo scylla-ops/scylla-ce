@@ -1,5 +1,5 @@
-//! A fake identity provider for the tests, with OIDC and GitHub endpoints. It accepts each
-//! sign-in at once, for the person that the test sets.
+//! A fake identity provider for the tests, with OIDC and GitHub endpoints and the photos of the
+//! persons. It accepts each sign-in at once, for the person that the test sets.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -68,6 +68,8 @@ struct Inner {
     refusal: Mutex<Option<String>>,
     /// The error of the next code exchange.
     exchange_refusal: Mutex<Option<String>>,
+    /// The address of the photo that the provider gives.
+    picture: Mutex<Option<String>>,
 }
 
 /// A fake identity provider on a free port.
@@ -92,6 +94,7 @@ impl Idp {
             grants: Mutex::new(HashMap::new()),
             refusal: Mutex::new(None),
             exchange_refusal: Mutex::new(None),
+            picture: Mutex::new(None),
         }));
         let router = Router::new()
             .route("/.well-known/openid-configuration", get(discovery))
@@ -102,6 +105,7 @@ impl Idp {
             .route("/login/oauth/access_token", post(github_token))
             .route("/user", get(github_user))
             .route("/user/emails", get(github_emails))
+            .route("/avatars/u/7", get(photo))
             .with_state(idp.clone());
         tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         idp
@@ -115,6 +119,12 @@ impl Idp {
     /// Sets the person of the next sign-in.
     pub(crate) fn sign_in_as(&self, person: Person) {
         *self.0.person.lock().unwrap() = person;
+    }
+
+    /// Sets the address of the photo that the provider gives. `{url}` is the URL of the provider.
+    pub(crate) fn give_picture(&self, picture: Option<&str>) {
+        let picture = picture.map(|picture| picture.replace("{url}", &self.0.url));
+        *self.0.picture.lock().unwrap() = picture;
     }
 
     /// Makes the next sign-in at the provider end with this error.
@@ -160,6 +170,9 @@ impl Idp {
         });
         if let Some(nonce) = nonce {
             claims["nonce"] = json!(nonce);
+        }
+        if let Some(picture) = self.0.picture.lock().unwrap().clone() {
+            claims["picture"] = json!(picture);
         }
         let mut header = Header::new(Algorithm::EdDSA);
         header.kid = Some(KID.to_owned());
@@ -253,10 +266,16 @@ async fn github_token(
     }
 }
 
-/// Serves the GitHub user of the access token.
-async fn github_user(headers: axum::http::HeaderMap) -> Json<Value> {
-    let sub = bearer(&headers);
-    Json(json!({ "id": sub.len() * 1000 + 7, "login": sub, "name": null }))
+/// Serves the GitHub user of the access token, with the photo of the provider.
+async fn github_user(State(idp): State<Idp>, headers: axum::http::HeaderMap) -> Json<Value> {
+    let (sub, avatar) = (bearer(&headers), idp.0.picture.lock().unwrap().clone());
+    Json(json!({ "id": sub.len() * 1000 + 7, "login": sub, "name": null, "avatar_url": avatar }))
+}
+
+/// Serves a photo.
+async fn photo() -> Response {
+    let png = super::avatars::png(40, 30);
+    ([(header::CONTENT_TYPE, "image/png")], png).into_response()
 }
 
 /// Serves the emails of the GitHub user: the person of the provider.

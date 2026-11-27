@@ -5,7 +5,7 @@ use scylla_proto::accounts::v1 as accounts;
 use scylla_proto::accounts::v1::profile_service_client::ProfileServiceClient;
 use scylla_proto::apps::v1::app_service_client::AppServiceClient;
 use scylla_proto::apps::v1::{App, SetAppIconRequest};
-use scylla_proto::common::v1::IconChange;
+use scylla_proto::common::v1::{GlyphAvatar, IconChange};
 use tonic::Status;
 
 use crate::{id, with_token, TestApp};
@@ -24,9 +24,45 @@ impl TestApp {
             handle: None,
             avatar_image: image,
             avatar_color: color.map(str::to_owned),
+            avatar_glyph: None,
         };
         let mut client = ProfileServiceClient::new(self.channel.clone());
         let response = client.update_profile(with_token(token, request)).await?;
+        Ok(response.into_inner().user.expect("user in response"))
+    }
+
+    /// Calls `UpdateProfile` with an access token and a new glyph avatar, with an image or not.
+    pub async fn set_avatar_glyph(
+        &self,
+        token: &str,
+        glyph: GlyphAvatar,
+        image: Option<Vec<u8>>,
+    ) -> Result<accounts::User, Status> {
+        let request = accounts::UpdateProfileRequest {
+            display_name: None,
+            handle: None,
+            avatar_image: image,
+            avatar_color: None,
+            avatar_glyph: Some(glyph),
+        };
+        let mut client = ProfileServiceClient::new(self.channel.clone());
+        let response = client.update_profile(with_token(token, request)).await?;
+        Ok(response.into_inner().user.expect("user in response"))
+    }
+
+    /// Calls `ImportAvatar` with an access token, and returns the user.
+    pub async fn import_avatar(
+        &self,
+        token: &str,
+        provider: &str,
+        subject: &str,
+    ) -> Result<accounts::User, Status> {
+        let request = accounts::ImportAvatarRequest {
+            provider: provider.to_owned(),
+            subject: subject.to_owned(),
+        };
+        let mut client = ProfileServiceClient::new(self.channel.clone());
+        let response = client.import_avatar(with_token(token, request)).await?;
         Ok(response.into_inner().user.expect("user in response"))
     }
 

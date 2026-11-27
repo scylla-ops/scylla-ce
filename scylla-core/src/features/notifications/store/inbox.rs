@@ -6,6 +6,7 @@ use scylla_domain::identity::actors::ActorId;
 use scylla_domain::notifications::{
     Filter, InvitationState, Notification, NotificationId, RowInvitation, Summary, UNREAD_CAP,
 };
+use scylla_domain::platform::images::{Avatar, Icon, ImageId};
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::invitations::InvitationId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
@@ -52,7 +53,14 @@ pub(crate) async fn list(
                   n.params AS "params: Json<BTreeMap<String, String>>", n.occurrences,
                   n.needs_action, n.first_at, n.last_at, n.read_at, n.done_at,
                   COALESCE(u.display_name, a.name) AS actor_name,
+                  CASE WHEN u.id IS NOT NULL THEN 'user' WHEN a.id IS NOT NULL THEN 'app' END
+                      AS actor_kind,
+                  u.avatar_image_id AS "avatar_image_id?", u.avatar_color AS "avatar_color?",
+                  a.icon_name AS "actor_icon_name?", a.icon_color AS "actor_icon_color?",
+                  a.icon_image_id AS "actor_icon_image_id?",
                   w.slug AS "workspace_slug?", w.name AS "workspace_name?",
+                  w.icon_name AS "workspace_icon_name?", w.icon_color AS "workspace_icon_color?",
+                  w.icon_image_id AS "workspace_icon_image_id?",
                   p.name AS "project_name?",
                   i.id AS "invitation_id?", i.role AS "invitation_role?",
                   i.accepted_at AS "invitation_accepted_at?",
@@ -114,6 +122,21 @@ pub(crate) async fn list(
                 read_at: row.read_at,
                 done_at: row.done_at,
                 invitation,
+                workspace_icon: Icon::of_columns(
+                    row.workspace_icon_name,
+                    row.workspace_icon_color,
+                    row.workspace_icon_image_id.map(ImageId::from_db),
+                ),
+                actor_kind: row.actor_kind,
+                actor_avatar: Avatar::of_columns(
+                    row.avatar_image_id.map(ImageId::from_db),
+                    row.avatar_color,
+                ),
+                actor_icon: Icon::of_columns(
+                    row.actor_icon_name,
+                    row.actor_icon_color,
+                    row.actor_icon_image_id.map(ImageId::from_db),
+                ),
             }
         })
         .collect())

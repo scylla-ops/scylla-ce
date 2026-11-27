@@ -1,10 +1,12 @@
 //! The list of the console of the users: each user with its instance roles, its workspaces and its
 //! last sign-in.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use scylla_domain::identity::actors::ActorId;
-use scylla_domain::identity::admins::{InstanceRole, ListUsers, UserEntries, UserEntry};
+use scylla_domain::identity::admins::{
+    InstanceRole, ListUsers, UserEntries, UserEntry, UserWorkspace,
+};
 use scylla_domain::tenancy::roles::{builtin, INSTANCE_ADMIN};
 use scylla_domain::tenancy::workspaces::{Workspace, WorkspaceId};
 use scylla_domain::Page;
@@ -33,6 +35,44 @@ async fn granted_workspaces(
     granted
 }
 
+/// Returns the workspaces that a user owns or has a role in, in name order, with the first owner
+/// of each workspace that the user does not own.
+fn workspaces_of(
+    user: ActorId,
+    owned: &[(ActorId, WorkspaceId)],
+    granted: Option<&Vec<WorkspaceId>>,
+    facts: &HashMap<WorkspaceId, store::WorkspaceFacts>,
+) -> Vec<UserWorkspace> {
+    let own: HashSet<WorkspaceId> = owned
+        .iter()
+        .filter(|(owner, _)| *owner == user)
+        .map(|(_, id)| *id)
+        .collect();
+    let ids: HashSet<WorkspaceId> = own
+        .iter()
+        .chain(granted.into_iter().flatten())
+        .copied()
+        .collect();
+    let mut workspaces: Vec<UserWorkspace> = ids
+        .into_iter()
+        .filter_map(|id| {
+            let facts = facts.get(&id)?;
+            let owner = own.contains(&id);
+            Some(UserWorkspace {
+                id,
+                name: facts.name.clone(),
+                icon: facts.icon.clone(),
+                owner,
+                owner_name: facts.owner_name.clone().filter(|_| !owner),
+            })
+        })
+        .collect();
+    workspaces.sort_by(|a, b| {
+        (a.name.as_str(), a.id.to_string()).cmp(&(b.name.as_str(), b.id.to_string()))
+    });
+    workspaces
+}
+
 /// Returns one page of the console of the users.
 pub(super) async fn list(ctx: &AccountContext, query: ListUsers) -> Result<UserEntries, Error> {
     // Read the page, and the workspaces of its users in the permission system.
@@ -40,13 +80,14 @@ pub(super) async fn list(ctx: &AccountContext, query: ListUsers) -> Result<UserE
     let page = accounts::list_users(&ctx.pool, query).await?;
     let users: Vec<ActorId> = page.items.iter().map(|user| user.id).collect();
     let granted = granted_workspaces(ctx, &users).await;
-    let granted_ids: Vec<WorkspaceId> = granted.values().flatten().copied().collect();
 
-    // Read the facts of the users of the page.
+    // Read the facts of the users of the page, and of their workspaces.
     let mut tx = ctx.pool.begin().await?;
     let roles = store::platform_roles(&mut tx, &users).await?;
     let owned = store::owned_workspaces(&mut tx, &users).await?;
-    let names = store::workspace_names(&mut tx, &granted_ids).await?;
+    let mut ids: Vec<WorkspaceId> = granted.values().flatten().copied().collect();
+    ids.extend(owned.iter().map(|(_, id)| *id));
+    let facts = store::workspace_facts(&mut tx, &ids).await?;
     let sign_ins = store::last_sign_ins(&mut tx, &users).await?;
     let (total, total_with_instance_role) = store::totals(&mut tx, text.trim()).await?;
     tx.commit().await?;
@@ -70,18 +111,7 @@ pub(super) async fn list(ctx: &AccountContext, query: ListUsers) -> Result<UserE
                     .filter(|(holder, _)| *holder == user.id)
                     .map(|(_, role)| role.clone()),
             );
-            let mut workspaces: HashMap<WorkspaceId, String> = owned
-                .iter()
-                .filter(|(owner, _, _)| *owner == user.id)
-                .map(|(_, id, name)| (*id, name.clone()))
-                .collect();
-            for id in granted.get(&user.id).into_iter().flatten() {
-                if let Some(name) = names.get(id) {
-                    workspaces.insert(*id, name.clone());
-                }
-            }
-            let mut workspaces: Vec<String> = workspaces.into_values().collect();
-            workspaces.sort();
+            let workspaces = workspaces_of(user.id, &owned, granted.get(&user.id), &facts);
             UserEntry {
                 last_sign_in_at: sign_ins.get(&user.id).copied(),
                 user,

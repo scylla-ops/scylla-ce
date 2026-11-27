@@ -109,7 +109,7 @@ fn image_hosts(vcs: &VcsOptions) -> Vec<String> {
 
 /// Returns the hosts of the avatars of a GitHub: the avatar host of github.com, or the server of
 /// a GitHub Enterprise and its subdomain `avatars`.
-fn github_avatars(web_url: &str) -> Vec<String> {
+pub(crate) fn github_avatars(web_url: &str) -> Vec<String> {
     let Ok(url) = Url::parse(web_url) else {
         return vec![GITHUB_AVATARS.to_owned()];
     };

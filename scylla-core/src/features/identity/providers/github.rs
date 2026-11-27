@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::calls::{send, send_exchange};
-use super::ExternalIdentity;
+use super::{picture, ExternalIdentity};
 use crate::Error;
 
 /// The settings of a GitHub provider, in its JSON. GitHub Enterprise Server has other URLs.
@@ -48,6 +48,9 @@ struct GitHubUser {
     /// The name, if the user set one.
     #[serde(default)]
     name: Option<String>,
+    /// The address of the avatar.
+    #[serde(default)]
+    avatar_url: Option<String>,
 }
 
 /// An email of the user in the API.
@@ -129,5 +132,6 @@ pub(super) async fn identity(
         email_verified: email.is_some(),
         email,
         name: Some(user.name.unwrap_or(user.login)),
+        picture: picture::address(user.avatar_url),
     })
 }

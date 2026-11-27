@@ -1,5 +1,5 @@
-//! The tests of the projects: their life, their changes, their list, their groups and their order,
-//! their icons, their secrets,
+//! The tests of the projects: their life, their changes, their list, their groups, their colors and
+//! their order, their icons, their secrets and the text searches,
 //! their pipelines and jobs, the jobs on the agents, the labels of the agents that they need,
 //! their number and their stats, the summaries, the job figures, the busy slots, the triggers and
 //! the open items of the dashboard, and the roles that reach them.
@@ -11,9 +11,10 @@ mod conditions;
 mod disabled;
 mod fragment_links;
 mod git_contract;
+mod group_colors;
 mod groups;
 mod held;
-mod icons;
+pub(crate) mod icons;
 mod job_lists;
 mod job_stats;
 mod job_stats_scopes;
@@ -29,7 +30,9 @@ mod placement;
 mod project_lists;
 mod runs;
 mod scopes;
+mod searches;
 mod secret_access;
+mod secret_lists;
 mod secrets;
 mod slots;
 mod stats;

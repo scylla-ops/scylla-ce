@@ -6,6 +6,7 @@ use crate::platform::legal::LegalHolder;
 use crate::platform::mail::MailSettingsHolder;
 use crate::platform::SettingsHolder;
 use crate::tenancy::roles::RoleAdmin;
+use crate::tenancy::workspaces::WorkspaceAdmin;
 
 /// The areas of this level.
 pub(super) const AREAS: &[Area] = &[
@@ -62,7 +63,7 @@ pub(super) const AREAS: &[Area] = &[
             action: "view",
             depends_on: &["workspace.view"],
             implicit: false,
-            routes: &[],
+            routes: &[Route::of(WorkspaceAdmin::LIST_ALL_WORKSPACES)],
         }],
     },
     Area {

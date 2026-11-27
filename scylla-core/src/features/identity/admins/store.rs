@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::identity::admins::InstanceRole;
+use scylla_domain::platform::images::{Icon, ImageId};
 use scylla_domain::tenancy::roles::RoleId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_extension::Tx;
@@ -107,16 +108,14 @@ pub(super) async fn platform_roles(
         .collect())
 }
 
-/// Returns the workspaces that each user owns, with their names.
+/// Returns the workspaces that each user owns.
 pub(super) async fn owned_workspaces(
     tx: &mut Tx<'_>,
     users: &[ActorId],
-) -> Result<Vec<(ActorId, WorkspaceId, String)>, Error> {
+) -> Result<Vec<(ActorId, WorkspaceId)>, Error> {
     let ids: Vec<_> = users.iter().map(|user| user.to_db()).collect();
     let rows = sqlx::query!(
-        "SELECT o.user_id, w.id, w.name
-         FROM workspace_owners o JOIN workspaces w ON w.id = o.workspace_id
-         WHERE o.user_id = ANY($1)",
+        "SELECT user_id, workspace_id FROM workspace_owners WHERE user_id = ANY($1)",
         &ids,
     )
     .fetch_all(&mut **tx)
@@ -124,24 +123,53 @@ pub(super) async fn owned_workspaces(
     Ok(rows
         .into_iter()
         .map(|row| {
-            let workspace = WorkspaceId::from_db(row.id);
-            (ActorId::from_db(row.user_id), workspace, row.name)
+            let workspace = WorkspaceId::from_db(row.workspace_id);
+            (ActorId::from_db(row.user_id), workspace)
         })
         .collect())
 }
 
-/// Returns the names of workspaces, by id.
-pub(super) async fn workspace_names(
+/// What the console shows of a workspace: its name, its icon and its first owner.
+pub(super) struct WorkspaceFacts {
+    /// The name.
+    pub(super) name: String,
+    /// The custom icon, if it has one.
+    pub(super) icon: Option<Icon>,
+    /// The display name of the first owner, if the workspace has an owner.
+    pub(super) owner_name: Option<String>,
+}
+
+/// Returns the name, the icon and the first owner of workspaces, by id.
+pub(super) async fn workspace_facts(
     tx: &mut Tx<'_>,
     workspaces: &[WorkspaceId],
-) -> Result<HashMap<WorkspaceId, String>, Error> {
+) -> Result<HashMap<WorkspaceId, WorkspaceFacts>, Error> {
     let ids: Vec<_> = workspaces.iter().map(|id| id.to_db()).collect();
-    let rows = sqlx::query!("SELECT id, name FROM workspaces WHERE id = ANY($1)", &ids)
-        .fetch_all(&mut **tx)
-        .await?;
+    let rows = sqlx::query!(
+        r#"SELECT w.id, w.name, w.icon_name, w.icon_color, w.icon_image_id,
+                  (SELECT u.display_name FROM workspace_owners o JOIN users u ON u.id = o.user_id
+                   WHERE o.workspace_id = w.id
+                   ORDER BY o.created_at, o.user_id LIMIT 1) AS "owner_name?"
+           FROM workspaces w WHERE w.id = ANY($1)"#,
+        &ids,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
     Ok(rows
         .into_iter()
-        .map(|row| (WorkspaceId::from_db(row.id), row.name))
+        .map(|row| {
+            let icon = Icon::of_columns(
+                row.icon_name,
+                row.icon_color,
+                row.icon_image_id.map(ImageId::from_db),
+            );
+            let facts = WorkspaceFacts {
+                name: row.name,
+                icon,
+                owner_name: row.owner_name,
+            };
+            (WorkspaceId::from_db(row.id), facts)
+        })
         .collect())
 }
 

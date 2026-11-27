@@ -5,6 +5,7 @@ use scylla_domain::authz::Object;
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::tenancy::grants::{MEMBER_KIND, OWNER};
 use scylla_domain::tenancy::slugs::Slug;
+use scylla_domain::tenancy::workspaces::lists::{AllWorkspacesPage, ListAllWorkspaces};
 use scylla_domain::tenancy::workspaces::{
     ListWorkspaces, NewWorkspace, VisibleWorkspaces, Workspace, WorkspaceChange, WorkspaceId,
     WorkspacePage,
@@ -16,7 +17,7 @@ use sqlx::PgPool;
 use super::store;
 use crate::features::activity;
 use crate::features::notifications::{self, kinds};
-use crate::features::platform::settings;
+use crate::features::platform::{images, settings};
 use crate::features::projects::triggers::schedule;
 use crate::Error;
 
@@ -94,15 +95,53 @@ pub(super) async fn list(
     ))
 }
 
-/// Changes the name, the slug, the personal token switch or the time zone of a workspace, and
-/// returns it. A slug in use gives `SLUG_IN_USE`. A new time zone computes again the next fire of
-/// each cron trigger of the workspace.
+/// Returns one page of the console of the workspaces, and the number of workspaces on all the
+/// pages. `mine` tells which workspaces the caller owns or has a role in.
+pub(super) async fn list_all(
+    pool: &PgPool,
+    query: ListAllWorkspaces,
+    mine: VisibleWorkspaces,
+) -> Result<AllWorkspacesPage, Error> {
+    let mut tx = pool.begin().await?;
+    let (workspaces, total) = store::list_all(&mut tx, &query, &mine).await?;
+    tx.commit().await?;
+    Ok(AllWorkspacesPage {
+        page: Page::from_overfetch(workspaces, query.page.size, |workspace| workspace.id),
+        total: u32::try_from(total).unwrap_or(u32::MAX),
+    })
+}
+
+/// Changes the name, the slug, the personal token switch, the time zone or the icon of a
+/// workspace, and returns it. A slug in use gives `SLUG_IN_USE`. A new time zone computes again
+/// the next fire of each cron trigger of the workspace. A new image replaces the old image of the
+/// workspace, which goes.
 pub(super) async fn update(
     pool: &PgPool,
+    actor: ActorId,
     id: WorkspaceId,
-    change: WorkspaceChange,
+    mut change: WorkspaceChange,
 ) -> Result<Workspace, Error> {
+    // Make the PNG of a new image before the transaction, as the decode takes time.
+    let icon = match change.icon.take() {
+        Some(icon) => {
+            images::service::refuse_glyph_avatar(&icon)?;
+            Some(images::service::new_icon(icon, "icon.image").await?)
+        }
+        None => None,
+    };
+
+    // Change the icon, then the other fields, in one transaction.
     let mut tx = pool.begin().await?;
+    if let Some(icon) = icon {
+        let old = store::lock_icon(&mut tx, id)
+            .await?
+            .ok_or(Error::NotFound("workspace"))?;
+        let icon = images::service::keep_icon(&mut tx, actor, icon).await?;
+        store::set_icon(&mut tx, id, icon.as_ref()).await?;
+        if let Some(old) = old {
+            images::store::delete(&mut tx, old).await?;
+        }
+    }
     let workspace = store::update(&mut tx, id, &change)
         .await?
         .ok_or(Error::NotFound("workspace"))?;

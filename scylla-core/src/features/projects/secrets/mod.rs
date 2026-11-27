@@ -1,6 +1,7 @@
 //! The secrets feature: the `secrets` table of the projects and `SecretService`.
 
 mod grpc;
+mod lists;
 mod service;
 mod store;
 

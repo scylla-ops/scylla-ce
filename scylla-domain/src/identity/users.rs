@@ -6,7 +6,7 @@ use std::fmt;
 use time::OffsetDateTime;
 
 use crate::identity::actors::{Actor, ActorId, ActorKind};
-use crate::platform::images::{Avatar, IconColor, Upload};
+use crate::platform::images::{Avatar, GlyphAvatar, IconColor, Upload};
 use crate::Name;
 use crate::{DomainError, Id};
 
@@ -227,6 +227,8 @@ pub struct ProfileChange {
     pub avatar_image: Option<Option<Upload>>,
     /// The new color of the initials. `Some(None)` gives the default color.
     pub avatar_color: Option<Option<IconColor>>,
+    /// A new glyph avatar, which the server draws as the new image of the avatar.
+    pub avatar_glyph: Option<GlyphAvatar>,
 }
 
 crate::authz! {
@@ -250,6 +252,8 @@ crate::authz! {
         permission list_identities = nil;
         /// The route `UnlinkIdentity`.
         permission unlink_identity = nil;
+        /// The route `ImportAvatar`.
+        permission import_avatar = nil;
         /// The route `ListSessions`.
         permission list_sessions = nil;
         /// The route `RevokeSession`.

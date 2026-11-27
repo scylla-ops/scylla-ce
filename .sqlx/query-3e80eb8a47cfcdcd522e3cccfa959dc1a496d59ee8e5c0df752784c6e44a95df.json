@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT picture_url FROM external_identities\n         WHERE user_id = $1 AND provider_id = $2 AND subject = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "picture_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "external_identities",
+            "name": "picture_url"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "3e80eb8a47cfcdcd522e3cccfa959dc1a496d59ee8e5c0df752784c6e44a95df"
+}

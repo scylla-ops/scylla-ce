@@ -30,9 +30,9 @@ pub(crate) fn server(
 /// The handler.
 pub(crate) struct SecretsGrpc {
     /// The database pool.
-    pool: PgPool,
+    pub(super) pool: PgPool,
     /// The access gate.
-    gate: Arc<dyn Gate>,
+    pub(super) gate: Arc<dyn Gate>,
     /// The key of the secrets, if the settings give one.
     sealer: Option<Arc<Sealer>>,
 }
@@ -65,6 +65,13 @@ impl SecretService for SecretsGrpc {
         request: Request<pb::ListSecretsRequest>,
     ) -> Result<Response<pb::ListSecretsResponse>, Status> {
         Ok(Response::new(self.list(request).await?))
+    }
+
+    async fn list_workspace_secrets(
+        &self,
+        request: Request<pb::ListWorkspaceSecretsRequest>,
+    ) -> Result<Response<pb::ListWorkspaceSecretsResponse>, Status> {
+        Ok(Response::new(self.list_workspace(request).await?))
     }
 }
 

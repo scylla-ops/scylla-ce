@@ -17,7 +17,7 @@ use crate::{app, assert_invalid_field, UNKNOWN_ID};
 const MAX_UPLOAD: usize = 1_048_576;
 
 /// Makes a change to a glyph with a color.
-fn glyph(name: &str, color: &str) -> IconChange {
+pub(crate) fn glyph(name: &str, color: &str) -> IconChange {
     IconChange {
         kind: Some(ChangeKind::Glyph(IconGlyph {
             name: name.to_owned(),
@@ -27,14 +27,14 @@ fn glyph(name: &str, color: &str) -> IconChange {
 }
 
 /// Makes a change to an image of these bytes.
-fn image(bytes: Vec<u8>) -> IconChange {
+pub(crate) fn image(bytes: Vec<u8>) -> IconChange {
     IconChange {
         kind: Some(ChangeKind::Image(bytes)),
     }
 }
 
 /// Writes a PNG of `width` by `height` pixels of one color.
-fn png(width: u32, height: u32) -> Vec<u8> {
+pub(crate) fn png(width: u32, height: u32) -> Vec<u8> {
     let picture = RgbaImage::from_pixel(width, height, Rgba([200, 40, 90, 255]));
     let mut bytes = Cursor::new(Vec::new());
     picture.write_to(&mut bytes, ImageFormat::Png).unwrap();
@@ -42,7 +42,7 @@ fn png(width: u32, height: u32) -> Vec<u8> {
 }
 
 /// Gives the id of the image of an icon.
-fn image_id(icon: Option<scylla_proto::common::v1::Icon>) -> String {
+pub(crate) fn image_id(icon: Option<scylla_proto::common::v1::Icon>) -> String {
     match icon.and_then(|icon| icon.kind) {
         Some(Kind::ImageId(id)) => id.value,
         other => panic!("an image, not {other:?}"),
@@ -50,14 +50,14 @@ fn image_id(icon: Option<scylla_proto::common::v1::Icon>) -> String {
 }
 
 /// Sends `GET /images/{id}` to the server of a test.
-async fn get_image(app: &TestApp, id: &str) -> reqwest::Response {
+pub(crate) async fn get_image(app: &TestApp, id: &str) -> reqwest::Response {
     reqwest::get(format!("http://{}/images/{id}", app.addr))
         .await
         .unwrap()
 }
 
 /// Counts the rows of the images.
-async fn image_count(app: &TestApp) -> i64 {
+pub(crate) async fn image_count(app: &TestApp) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM images")
         .fetch_one(&app.pool)
         .await

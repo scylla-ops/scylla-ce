@@ -71,7 +71,7 @@ pub(crate) async fn emails(tx: &mut Tx<'_>, user: ActorId) -> Result<Vec<Value>,
 /// Returns the identities of a user at the identity providers, oldest first.
 pub(crate) async fn identities(tx: &mut Tx<'_>, user: ActorId) -> Result<Vec<Value>, Error> {
     let rows = sqlx::query!(
-        "SELECT p.slug, p.display_name, e.subject, e.email, e.linked_at
+        "SELECT p.slug, p.display_name, e.subject, e.email, e.picture_url, e.linked_at
          FROM external_identities e
          JOIN identity_providers p ON p.id = e.provider_id
          WHERE e.user_id = $1
@@ -88,6 +88,7 @@ pub(crate) async fn identities(tx: &mut Tx<'_>, user: ActorId) -> Result<Vec<Val
                 "provider_name": row.display_name,
                 "subject": row.subject,
                 "email": row.email,
+                "picture_url": row.picture_url,
                 "linked_at": time(row.linked_at),
             })
         })

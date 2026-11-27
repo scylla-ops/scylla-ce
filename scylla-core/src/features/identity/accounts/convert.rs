@@ -2,7 +2,7 @@
 
 use scylla_domain::identity::terms::Acceptance;
 use scylla_domain::identity::users::{ProfileChange, SessionId, User};
-use scylla_domain::platform::images::{IconColor, Upload};
+use scylla_domain::platform::images::{GlyphAvatar, IconColor, Upload};
 use scylla_proto::accounts::v1 as pb;
 
 use crate::api::parse::{self, ToProto};
@@ -76,6 +76,22 @@ pub(crate) fn avatar_image(bytes: Option<Vec<u8>>) -> Result<Option<Option<Uploa
         })
         .transpose()
         .map_err(|error| Error::invalid("avatar_image", error.to_string()))
+}
+
+/// Reads a new glyph avatar. It cannot come with a new image.
+pub(crate) fn avatar_glyph(
+    glyph: Option<scylla_proto::common::v1::GlyphAvatar>,
+    with_image: bool,
+) -> Result<Option<GlyphAvatar>, Error> {
+    if glyph.is_some() && with_image {
+        return Err(Error::invalid(
+            "avatar_glyph",
+            "must not come with avatar_image",
+        ));
+    }
+    glyph
+        .map(|glyph| parse::field(glyph, "avatar_glyph"))
+        .transpose()
 }
 
 /// Reads the new color of the initials of an avatar. An empty text gives the default color.

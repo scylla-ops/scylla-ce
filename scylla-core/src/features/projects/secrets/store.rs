@@ -2,7 +2,9 @@
 //! is sealed before it comes here: the store never sees it in clear.
 
 use scylla_domain::identity::actors::ActorId;
-use scylla_domain::projects::secrets::{NewSecret, Secret, SecretId, SecretName};
+use scylla_domain::projects::secrets::{
+    ListWorkspaceSecrets, NewSecret, Secret, SecretId, SecretName, WorkspaceSecret,
+};
 use scylla_domain::projects::ProjectId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
 use scylla_domain::PageRequest;
@@ -101,6 +103,56 @@ pub(super) async fn list(
     .fetch_all(&mut **tx)
     .await?;
     rows.into_iter().map(Row::into_secret).collect()
+}
+
+/// Returns the secrets of a workspace that the query keeps, before the id of the page, newest
+/// first, with the names of their projects and one extra row.
+pub(super) async fn list_workspace(
+    tx: &mut Tx<'_>,
+    query: &ListWorkspaceSecrets,
+) -> Result<Vec<WorkspaceSecret>, Error> {
+    let visible: Vec<uuid::Uuid> = query
+        .visible
+        .iter()
+        .flatten()
+        .map(|id| id.to_db())
+        .collect();
+    let rows = sqlx::query!(
+        "SELECT s.id, s.project_id, s.name, s.created_by, s.created_at, s.updated_at,
+                p.name AS project_name
+         FROM secrets s JOIN projects p ON p.id = s.project_id
+         WHERE p.workspace_id = $1
+           AND ($2::bool OR s.project_id = ANY($3::uuid[]))
+           AND ($4::uuid IS NULL OR s.id < $4)
+           AND ($5 = '' OR strpos(lower(s.name), $5) > 0 OR strpos(lower(p.name), $5) > 0)
+         ORDER BY s.id DESC
+         LIMIT $6",
+        query.workspace.to_db(),
+        query.visible.is_none(),
+        &visible,
+        query.page.after.map(SecretId::to_db),
+        query.query.as_str(),
+        query.page.size.get() as i64 + 1,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            let secret = Row {
+                id: row.id,
+                project_id: row.project_id,
+                name: row.name,
+                created_by: row.created_by,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+            }
+            .into_secret()?;
+            Ok(WorkspaceSecret {
+                secret,
+                project_name: row.project_name,
+            })
+        })
+        .collect()
 }
 
 /// Returns the project of a secret and the workspace of that project, or `None` if no secret

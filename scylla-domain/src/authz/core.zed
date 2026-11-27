@@ -5,6 +5,7 @@ definition actor {
     permission decline_invitation = nil
     permission open_stream = nil
     permission list_projects = nil
+    permission list_workspace_secrets = nil
     permission list_pipeline_summaries = nil
     permission list_workspace_jobs = nil
     permission get_job_stats = nil
@@ -80,6 +81,7 @@ definition workspace {
     permission update_secret = manage
     permission delete_secret = manage
     permission list_secrets = work
+    permission list_workspace_secrets = work
     permission list_project_groups = read
     permission create_project_group = work
     permission update_project_group = work
@@ -188,6 +190,7 @@ definition project {
     permission update_secret = delete
     permission delete_secret = delete
     permission list_secrets = edit
+    permission list_workspace_secrets = edit
     permission grant = admin
     permission revoke = admin
     permission list_access = view

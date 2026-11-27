@@ -3,6 +3,8 @@
 
 use scylla_domain::identity::actors::ActorId;
 use scylla_domain::tenancy::workspaces::WorkspaceId;
+use scylla_proto::common::v1::icon::Kind;
+use scylla_proto::common::v1::IconGlyph;
 use scylla_proto::notifications::v1::notification_invitation::State;
 use scylla_testkit::{text, TestApp};
 use sqlx::PgPool;
@@ -10,6 +12,7 @@ use tonic::Code;
 
 use super::{kinds_of, row_of};
 use crate::identity::accounts::assert_refused;
+use crate::projects::icons::glyph;
 use crate::{app, assert_code};
 
 /// A workspace, its owner, an invited user, and the id of the invitation.
@@ -186,4 +189,67 @@ async fn a_resend_opens_a_row_that_the_end_of_the_validity_closed(pool: PgPool) 
     assert!(open.needs_action);
     let state = open.invitation.and_then(|invitation| invitation.state);
     assert!(matches!(state, Some(State::Open(_))));
+}
+
+/// The row of an invitation gives the icon of the workspace and the avatar of the person who
+/// invited.
+#[sqlx::test(migrations = false)]
+async fn an_invitation_row_shows_the_workspace_icon_and_the_inviter(pool: PgPool) {
+    // given
+    let app = app(pool.clone()).await;
+    let Invited {
+        owner,
+        user,
+        workspace,
+        ..
+    } = invited(&app).await;
+    let icon = glyph("rocket", "#A1B2C3");
+    app.set_workspace_icon(owner, &workspace.to_string(), icon)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET avatar_color = 'chart-3' WHERE id = $1")
+        .bind(owner.to_db())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // when
+    let row = row_of(&app, user, "invitation.received").await;
+
+    // then
+    let expected = Some(Kind::Glyph(IconGlyph {
+        name: "rocket".to_owned(),
+        color: "#a1b2c3".to_owned(),
+    }));
+    assert_eq!(row.workspace_icon.and_then(|icon| icon.kind), expected);
+    assert_eq!(row.actor_kind, "user");
+    let color = row.actor_avatar.map(|avatar| avatar.color);
+    assert_eq!(color, Some("chart-3".to_owned()));
+    assert_eq!(row.actor_icon, None);
+}
+
+/// A row about the reader with no invitation gives no icon of the workspace: the reader can have
+/// no access to the workspace now.
+#[sqlx::test(migrations = false)]
+async fn a_row_about_the_reader_gives_no_workspace_icon(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let workspace = app.workspace_of(owner).await.to_string();
+    let user = app.user().await;
+    app.set_workspace_icon(owner, &workspace, glyph("rocket", "#A1B2C3"))
+        .await
+        .unwrap();
+    let viewer = scylla_testkit::Role::on("workspace", &workspace, "viewer");
+    app.grant_role(owner, viewer, &user.to_string())
+        .await
+        .unwrap();
+
+    // when
+    let row = row_of(&app, user, "role.granted").await;
+
+    // then
+    assert_eq!(row.reason, "subject");
+    assert_eq!(row.workspace_icon, None);
+    assert_eq!(row.actor_kind, "user");
 }

@@ -1,6 +1,7 @@
-//! What an identity of a provider does: sign in its user, make a new user, wait for the password
-//! of the account with its email, or link to the signed-in user. A known email is never linked
-//! automatically.
+//! What an identity of a provider does: sign in its user, make a new user with the photo of the
+//! provider, wait for the password of the account with its email, or link to the signed-in user.
+//! A known email is never linked automatically. Each sign-in and link keeps the address of the
+//! photo that the provider gives.
 
 use scylla_domain::identity::actors::{Actor, ActorId};
 use scylla_domain::identity::users::{Email, NewUser, UserStatus, KIND};
@@ -8,7 +9,7 @@ use scylla_domain::Name;
 
 use super::pending::{self, KnownEmail};
 use super::store::{self, ProviderRow};
-use super::ExternalIdentity;
+use super::{picture, picture_store, ExternalIdentity};
 use crate::features::identity::accounts::{self, mails, refused, AccountContext};
 use crate::features::identity::sessions::{self, Client, Opened};
 use crate::features::notifications::{self, kinds};
@@ -80,6 +81,8 @@ async fn find(
         if status != Some(UserStatus::Active) {
             return Err(refused("ACCOUNT_INACTIVE", "the account is not active"));
         }
+        let picture = identity.picture.as_deref();
+        picture_store::set_picture(&mut tx, provider.id, &identity.subject, picture).await?;
         accounts::record_sign_in(&mut tx, user).await?;
         let opened = sessions::open(&mut tx, user, &methods, client, ttl).await?;
         tx.commit().await?;
@@ -103,6 +106,7 @@ async fn find(
                 email: email.clone(),
                 subject: identity.subject,
                 name: identity.name,
+                picture: identity.picture,
             }));
         }
     }
@@ -123,7 +127,7 @@ async fn find(
         SignUpMode::Open => None,
     };
 
-    // Make the user with its identity, and open its session.
+    // Make the user with its identity, open its session, and import the photo of the provider.
     let new = NewUser {
         display_name: display_name(identity.name, &email),
         email,
@@ -132,13 +136,22 @@ async fn find(
         password: None,
     };
     let actor = accounts::insert_user(&mut tx, &new, None).await?;
-    let email = Some(new.email.as_str());
-    store::link(&mut tx, provider.id, &identity.subject, actor.id, email).await?;
+    let (email, picture) = (Some(new.email.as_str()), identity.picture.as_deref());
+    store::link(
+        &mut tx,
+        provider.id,
+        &identity.subject,
+        actor.id,
+        email,
+        picture,
+    )
+    .await?;
     accounts::record_sign_in(&mut tx, actor.id).await?;
     let opened = sessions::open(&mut tx, actor.id, &methods, client, ttl).await?;
     tx.commit().await?;
     accounts::created(actor.id, &new.email, false);
     accounts::signed_in(actor.id, &provider.slug, opened.session);
+    picture::import_at_sign_up(ctx, provider, actor.id, picture).await;
 
     // Accept the invitation of the email.
     if let Some(invitation) = invitation {
@@ -155,10 +168,12 @@ pub(super) async fn link(
     identity: ExternalIdentity,
     user: ActorId,
 ) -> Result<(), Error> {
-    let mut added = false;
+    let (mut added, picture) = (false, identity.picture.as_deref());
     let mut tx = ctx.pool.begin().await?;
     match store::user_of(&mut tx, provider.id, &identity.subject).await? {
-        Some(owner) if owner == user => {}
+        Some(owner) if owner == user => {
+            picture_store::set_picture(&mut tx, provider.id, &identity.subject, picture).await?;
+        }
         Some(_) => {
             return Err(refused(
                 "IDENTITY_IN_USE",
@@ -167,7 +182,15 @@ pub(super) async fn link(
         }
         None => {
             let email = identity.email.as_deref();
-            store::link(&mut tx, provider.id, &identity.subject, user, email).await?;
+            store::link(
+                &mut tx,
+                provider.id,
+                &identity.subject,
+                user,
+                email,
+                picture,
+            )
+            .await?;
             let fact = kinds::about(kinds::IDENTITY_LINKED, user)
                 .param("provider", provider.display_name.clone());
             notifications::emit(&mut tx, fact).await?;

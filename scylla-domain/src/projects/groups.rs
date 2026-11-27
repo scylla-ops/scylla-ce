@@ -4,6 +4,7 @@
 use time::OffsetDateTime;
 
 use crate::identity::actors::ActorId;
+use crate::platform::images::IconColor;
 use crate::projects::{Project, ProjectId};
 use crate::tenancy::workspaces::{Workspace, WorkspaceId};
 use crate::{Id, Name, PageRequest, ResourceKind};
@@ -30,6 +31,8 @@ pub struct ProjectGroup {
     pub name: String,
     /// The creation time, set by the database.
     pub created_at: OffsetDateTime,
+    /// The color of the folder of the group, or `None` for the default color.
+    pub color: Option<IconColor>,
 }
 
 /// The input of a group creation.
@@ -41,6 +44,8 @@ pub struct NewProjectGroup {
     pub created_by: ActorId,
     /// The display name.
     pub name: ProjectGroupName,
+    /// The color of the folder, or `None` for the default color.
+    pub color: Option<IconColor>,
 }
 
 /// A change of a group. A field that is `None` does not change.
@@ -50,6 +55,8 @@ pub struct ProjectGroupChange {
     pub name: Option<ProjectGroupName>,
     /// The new place of the group in the order of the groups, from 0.
     pub position: Option<usize>,
+    /// The new color of the folder. `Some(None)` gives the default color again.
+    pub color: Option<Option<IconColor>>,
 }
 
 /// A move of a project to a group and to a place there.

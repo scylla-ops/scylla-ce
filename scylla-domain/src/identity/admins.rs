@@ -4,7 +4,9 @@ use crate::identity::actors::ActorId;
 use time::OffsetDateTime;
 
 use crate::identity::users::User;
+use crate::platform::images::Icon;
 use crate::platform::Platform;
+use crate::tenancy::workspaces::WorkspaceId;
 use crate::{Page, PageRequest};
 
 /// One page of users, in id order.
@@ -40,10 +42,25 @@ pub struct UserEntry {
     pub user: User,
     /// The roles of the user on the whole instance.
     pub instance_roles: Vec<InstanceRole>,
-    /// The names of the workspaces that the user owns or has a role in, in name order.
-    pub workspaces: Vec<String>,
+    /// The workspaces that the user owns or has a role in, in name order.
+    pub workspaces: Vec<UserWorkspace>,
     /// The time of the last sign-in.
     pub last_sign_in_at: Option<OffsetDateTime>,
+}
+
+/// A workspace that a user of the console owns or has a role in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserWorkspace {
+    /// The workspace.
+    pub id: WorkspaceId,
+    /// The name of the workspace.
+    pub name: String,
+    /// The custom icon of the workspace, if it has one.
+    pub icon: Option<Icon>,
+    /// `true` if the user is an owner of the workspace.
+    pub owner: bool,
+    /// The display name of the first owner, if the user is not an owner.
+    pub owner_name: Option<String>,
 }
 
 /// One page of the console of the users.

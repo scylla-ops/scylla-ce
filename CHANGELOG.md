@@ -48,6 +48,23 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   also move it to a group. When a group is deleted, its projects go to no group. `ListProjects`
   finds the projects of one group, the projects with no group, or at most 100 given projects, and
   the position order uses the place of each project in its group.
+- Workspace icons and group folder colors. A workspace keeps a glyph with a color token or a
+  `#RRGGBB` color, or an uploaded image, as a project does: only a member who can update the
+  workspace changes it, and the server deletes the old image. A project group keeps a folder color
+  (a color token or `#RRGGBB`); a bad color gives INVALID_ARGUMENT.
+- Glyph avatars for people and Apps. The server checks the options, draws the SVG with
+  `dicebear-core` 11 and the shared style file (the 35 shapes of "Glyphs" and the Scylla head),
+  keeps it in the images store (`image/svg+xml`, served from `/images/{id}` with the strict headers)
+  and keeps the options in `images.glyph` for a new edit. A project or a workspace refuses a glyph
+  avatar. The migration adds the column `images.glyph`.
+
+### Changed
+
+- The Windows checks of the agent (clippy and the unit tests of `scylla-agent`) run in Scylla, on a
+  Windows agent (`.scylla/pipelines/agent-windows.yaml`, check run `scylla/agent-windows`), not in
+  GitHub Actions. The pipeline files of the Linux checks ask the label `linux`, so the Windows agent
+  does not take their jobs. Only the macOS checks of the agent and the release stay in GitHub
+  Actions.
 
 ### Fixed
 
@@ -60,6 +77,19 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
 - The agent image runs `tini` as PID 1. It reaps the processes that the jobs leave, so an agent that
   runs for a long time no longer fills the process table with zombie processes and then fails to
   start a process. The `docker run` commands do not change.
+- A list of role holders (`ListRoleHolders`) gives the avatar of each user and the custom icon of
+  each app. Before, a role page showed the default avatar for each holder.
+- An instance admin got each workspace of the instance from `ListWorkspaces`. `ListWorkspaces` and
+  `GetWorkspace` now give the details of each workspace (the first owner, the number of members and
+  projects, the last activity and the role of the caller), `only_with_role` keeps only the
+  workspaces of the caller, and the new route `ListAllWorkspaces` (permission `list_all_workspaces`,
+  area `workspaces.view`) gives one page of all the workspaces with their icons, with a search on
+  the name, the slug and the owner, an order and a total. A normal user gets the same workspaces as
+  before.
+- A notification gives the icon of its workspace and the avatar or the icon of the actor. A row
+  about the reader gives no workspace icon without an open invitation, because an image id opens the
+  image. A row of `ListUsers` gives each workspace with its icon, whether the user owns it, and the
+  name of the first owner.
 
 ## [0.7.2] - 2026-11-25
 

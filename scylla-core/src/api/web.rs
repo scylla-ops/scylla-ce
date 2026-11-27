@@ -2,7 +2,7 @@
 //! path that is a file gives the file, and another path gives `index.html`, so the routes of the
 //! web app load in the browser. Each answer has the security headers of `policy`.
 
-mod policy;
+pub(crate) mod policy;
 
 use std::fs;
 use std::path::Path;

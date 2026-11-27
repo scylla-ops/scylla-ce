@@ -114,6 +114,9 @@ crate::authz! {
         permission delete_secret = delete;
         /// The route `ListSecrets` of `SecretService`: the names of the secrets, never a value.
         permission list_secrets = edit;
+        /// The route `ListWorkspaceSecrets` of `SecretService`: the secrets of this project are in
+        /// the list of its workspace.
+        permission list_workspace_secrets = edit;
         /// The route `Grant` of `AccessService`: give a role on this project. Only its admins.
         permission grant = admin;
         /// The route `Revoke` of `AccessService`: take back a role on this project.
@@ -143,12 +146,18 @@ crate::authz! {
         permission delete_secret = manage;
         /// The route `ListSecrets` of `SecretService`, in each project of this workspace.
         permission list_secrets = work;
+        /// The route `ListWorkspaceSecrets` of `SecretService`: the secrets of each project of this
+        /// workspace are in the list.
+        permission list_workspace_secrets = work;
     }
 
     /// The routes of the projects on the caller itself.
     extend Actor as ProjectCaller {
         /// The route `ListProjects`: each caller lists the projects that it can see.
         permission list_projects = nil;
+        /// The route `ListWorkspaceSecrets` of `SecretService`: each caller lists the secrets that
+        /// it can see.
+        permission list_workspace_secrets = nil;
     }
 }
 
