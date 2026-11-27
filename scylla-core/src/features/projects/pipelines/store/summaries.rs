@@ -17,8 +17,9 @@ use crate::Error;
 
 /// Returns the summary of each pipeline of a workspace that the caller can see and that the
 /// filters keep, with no recent job: the figures of the recent jobs, the last ended job of the
-/// default branch, the jobs that run or wait, and the triggers that can start a job. In a project
-/// of files, a Git trigger of an editor pipeline can start a job only with the opt-in.
+/// default branch, the state of the jobs that run or wait, and the triggers that can start a
+/// job. In a project of files, a Git trigger of an editor pipeline can start a job only with the
+/// opt-in.
 pub(crate) async fn summaries(
     tx: &mut Tx<'_>,
     query: &ListSummaries,
@@ -30,13 +31,18 @@ pub(crate) async fn summaries(
     let workspaces: Vec<_> = visible.workspaces.iter().map(|id| id.to_db()).collect();
     let shared: Vec<_> = visible.projects.iter().map(|id| id.to_db()).collect();
     let rows = sqlx::query!(
-        r#"WITH active AS (
-               SELECT DISTINCT pipeline_id FROM jobs
+        r#"WITH live AS (
+               SELECT pipeline_id,
+                      CASE WHEN bool_or(status = 'running') THEN 'running'
+                           WHEN bool_or(status = 'pending') THEN 'pending'
+                           ELSE 'awaiting_approval' END AS status
+               FROM jobs
                WHERE workspace_id = $1 AND status IN ('awaiting_approval', 'pending', 'running')
+               GROUP BY pipeline_id
            )
            SELECT p.id, p.name, p.project_id, r.name AS project_name,
                   last.status AS "last_ended?",
-                  p.id IN (SELECT pipeline_id FROM active) AS "active!",
+                  live.status AS "live?",
                   recent.completed AS "completed!", recent.failed AS "failed!", recent.median,
                   coalesce(kinds.names, '{}') AS "kinds!: Vec<String>",
                   fire.id AS "fire_id?", fire.schedule AS "fire_schedule?",
@@ -44,6 +50,7 @@ pub(crate) async fn summaries(
            FROM pipelines p
            JOIN projects r ON r.id = p.project_id
            LEFT JOIN repository_links l ON l.project_id = p.project_id
+           LEFT JOIN live ON live.pipeline_id = p.id
            LEFT JOIN LATERAL (
                SELECT j.status FROM jobs j
                LEFT JOIN job_sources s ON s.job_id = j.id
@@ -127,7 +134,7 @@ pub(crate) async fn summaries(
                 failed: count(row.failed),
                 median: row.median.and_then(Duration::checked_seconds_f64),
                 last_ended: row.last_ended.as_deref().map(status).transpose()?,
-                active: row.active,
+                live: row.live.as_deref().map(status).transpose()?,
                 trigger_kinds,
                 next_fire,
                 source: PipelineSource::parse(&row.source)

@@ -145,8 +145,9 @@ pub struct PipelineSummary {
     /// The state of the last ended job of the default branch, or of the last ended job with no
     /// linked repository.
     pub last_ended: Option<JobStatus>,
-    /// `true` when a job of the pipeline runs or waits.
-    pub active: bool,
+    /// The state of the live jobs: `Running` when a job runs, else `Pending` when a job waits for
+    /// an agent, else `AwaitingApproval`. `None` when no job runs or waits.
+    pub live: Option<JobStatus>,
     /// The kinds of the triggers that can start a job, in the order of their kinds.
     pub trigger_kinds: Vec<TriggerType>,
     /// The next fire of the enabled cron triggers.

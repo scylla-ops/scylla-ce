@@ -33,6 +33,7 @@ pub(super) fn health(raw: i32) -> Result<ProjectHealth, Error> {
         Ok(pb::ProjectHealth::Unspecified | pb::ProjectHealth::All) => Ok(ProjectHealth::All),
         Ok(pb::ProjectHealth::Failed) => Ok(ProjectHealth::Failed),
         Ok(pb::ProjectHealth::Running) => Ok(ProjectHealth::Running),
+        Ok(pb::ProjectHealth::Pending) => Ok(ProjectHealth::Pending),
         Err(_) => Err(Error::invalid("health", "is not a health")),
     }
 }
@@ -66,6 +67,7 @@ impl ToProto<pb::ProjectCounts> for ProjectCounts {
             failed: self.failed,
             running: self.running,
             pipelines: self.pipelines,
+            pending: self.pending,
         }
     }
 }
