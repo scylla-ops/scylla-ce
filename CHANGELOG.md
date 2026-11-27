@@ -82,6 +82,11 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   GitHub Actions. The pipeline files of the Linux checks ask the label `linux`, so the Windows agent
   does not take their jobs. Only the macOS checks of the agent and the release stay in GitHub
   Actions.
+- `ListProjects`: `ProjectCounts.running` and the health `PROJECT_HEALTH_RUNNING` no longer count a
+  project whose jobs only wait for an agent or for an approval. Such a project counts in the new
+  `pending` and has the new health `PROJECT_HEALTH_PENDING`. The order "failing first" puts the
+  projects with a job that runs before the projects with a job that waits. `ListPipelineSummaries`
+  gives the new `live_status` of each pipeline, and still fills the deprecated `active`.
 
 ### Fixed
 

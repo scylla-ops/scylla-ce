@@ -26,7 +26,7 @@ fn summary(
         failed,
         median: median.map(Duration::seconds),
         last_ended,
-        active: false,
+        live: None,
         trigger_kinds: Vec::new(),
         next_fire: None,
         source: PipelineSource::Editor,

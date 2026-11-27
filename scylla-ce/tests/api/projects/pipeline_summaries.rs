@@ -37,7 +37,8 @@ pub(super) async fn named_pipeline(
     pipeline
 }
 
-/// Runs a pipeline and gives its job a state. An ended job ran for `seconds` seconds.
+/// Runs a pipeline and gives its job a state. An ended job ran for `seconds` seconds, a running
+/// job runs since `seconds` seconds, and a job that waits for an approval did not start.
 pub(super) async fn job(
     app: &TestApp,
     owner: ActorId,
@@ -49,8 +50,12 @@ pub(super) async fn job(
     let job = text(&job.id).to_owned();
     if status != "pending" {
         sqlx::query(
-            "UPDATE jobs SET status = $2, started_at = now() - make_interval(secs => $3),
-                             finished_at = now()
+            "UPDATE jobs SET status = $2,
+                    started_at = CASE WHEN $2 = 'awaiting_approval' THEN NULL
+                                      ELSE now() - make_interval(secs => $3) END,
+                    finished_at = CASE WHEN $2 IN ('running', 'awaiting_approval') THEN NULL
+                                       ELSE now() END,
+                    approval = CASE WHEN $2 = 'awaiting_approval' THEN 'waiting' END
              WHERE id = $1::uuid",
         )
         .bind(&job)
@@ -112,7 +117,7 @@ async fn list_pipeline_summaries_gives_the_recent_jobs(pool: PgPool) {
     let median = summary.median_duration.unwrap();
     assert!((median.seconds - 20).abs() <= 1, "{median:?}");
     assert_eq!(summary.last_ended_status, JobStatus::Failed as i32);
-    assert!(summary.active);
+    assert_eq!(summary.live_status, JobStatus::Pending as i32);
     let summary = &short.pipelines[0];
     assert_eq!(summary.recent.len(), 2);
     assert_eq!((summary.completed, summary.failed), (0, 1));
@@ -156,11 +161,57 @@ async fn list_pipeline_summaries_reads_the_default_branch(pool: PgPool) {
     // then
     let summary = &list.pipelines[0];
     assert_eq!(summary.last_ended_status, JobStatus::Completed as i32);
-    assert!(!summary.active);
+    assert_eq!(summary.live_status, JobStatus::Unspecified as i32);
     assert_eq!(list.green, 1);
     assert_eq!(summary.recent[0].branch, "");
     assert_eq!(summary.recent[1].branch, "feature");
     assert_eq!(summary.recent[2].branch, "main");
+}
+
+/// The live state of a pipeline is the state of its jobs that run or wait: running first, then a
+/// wait for an agent, then a wait for an approval. A job that waits for an agent is not running.
+/// The deprecated `active` keeps its meaning for the old clients: a job runs or waits.
+#[sqlx::test(migrations = false)]
+#[expect(deprecated)]
+async fn list_pipeline_summaries_gives_the_live_state(pool: PgPool) {
+    // given
+    let app = app(pool).await;
+    let owner = app.user().await;
+    let workspace = app.workspace_of(owner).await;
+    let project = app.create_project(owner, "alpha").await.unwrap();
+    let project = text(&project.id).to_owned();
+    let busy = named_pipeline(&app, owner, &project, "busy").await;
+    job(&app, owner, &busy, "running", 5.0).await;
+    job(&app, owner, &busy, "pending", 0.0).await;
+    let queued = named_pipeline(&app, owner, &project, "queued").await;
+    job(&app, owner, &queued, "awaiting_approval", 0.0).await;
+    job(&app, owner, &queued, "pending", 0.0).await;
+    let held = named_pipeline(&app, owner, &project, "held").await;
+    job(&app, owner, &held, "awaiting_approval", 0.0).await;
+    let idle = named_pipeline(&app, owner, &project, "idle").await;
+    job(&app, owner, &idle, "orphaned", 1.0).await;
+
+    // when
+    let mut by_name = request(workspace);
+    by_name.order = PipelineSummaryOrder::Name.into();
+    let list = app.list_pipeline_summaries(owner, by_name).await.unwrap();
+
+    // then
+    let live: Vec<_> = list
+        .pipelines
+        .iter()
+        .map(|summary| (summary.name.as_str(), summary.live_status, summary.active))
+        .collect();
+    let states = [
+        ("busy", JobStatus::Running, true),
+        ("held", JobStatus::AwaitingApproval, true),
+        ("idle", JobStatus::Unspecified, false),
+        ("queued", JobStatus::Pending, true),
+    ];
+    assert_eq!(
+        live,
+        states.map(|(name, state, active)| (name, state as i32, active))
+    );
 }
 
 /// A summary gives the kinds of the enabled triggers, of the on section of a pipeline file, and

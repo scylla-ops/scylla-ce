@@ -38,8 +38,8 @@ fn names(list: &ListProjectsResponse) -> Vec<&str> {
 }
 
 /// The search reads the name, the description, the linked repository and the names of the
-/// pipelines. The health keeps the failing or the running projects, and the counts of the search
-/// do not change with the health.
+/// pipelines. The health keeps the failing, the running or the pending projects, and the counts
+/// of the search do not change with the health. A job that waits for an agent is pending.
 #[sqlx::test(migrations = false)]
 async fn list_projects_searches_and_filters_by_health(pool: PgPool) {
     // given
@@ -49,7 +49,8 @@ async fn list_projects_searches_and_filters_by_health(pool: PgPool) {
     let web = app.create_project(owner, "Web").await.unwrap();
     let red = named_pipeline(&app, owner, text(&web.id), "CI").await;
     job(&app, owner, &red, "failed", 3.0).await;
-    named_pipeline(&app, owner, text(&web.id), "E2E").await;
+    let e2e = named_pipeline(&app, owner, text(&web.id), "E2E").await;
+    job(&app, owner, &e2e, "running", 5.0).await;
     let cloud = app.create_project(owner, "cloud").await.unwrap();
     let connection = app
         .insert_github_connection(workspace, owner, 7, "octo")
@@ -77,6 +78,8 @@ async fn list_projects_searches_and_filters_by_health(pool: PgPool) {
     let failed = app.search_projects(owner, failed).await.unwrap();
     let running = request(workspace, "", ProjectOrder::Name, ProjectHealth::Running);
     let running = app.search_projects(owner, running).await.unwrap();
+    let pending = request(workspace, "", ProjectOrder::Name, ProjectHealth::Pending);
+    let pending = app.search_projects(owner, pending).await.unwrap();
     let none = request(workspace, "terraform", ProjectOrder::Name, all);
     let none = app.search_projects(owner, none).await.unwrap();
 
@@ -87,12 +90,14 @@ async fn list_projects_searches_and_filters_by_health(pool: PgPool) {
         failed: 1,
         running: 1,
         pipelines: 3,
+        pending: 1,
     };
     assert_eq!(found.counts, Some(counts));
     assert_eq!(names(&failed), ["Web"]);
     assert_eq!(failed.counts, Some(counts));
-    assert_eq!(names(&running), ["api"]);
+    assert_eq!(names(&running), ["Web"]);
     assert_eq!(running.counts.unwrap().total, 4);
+    assert_eq!(names(&pending), ["api"]);
     assert!(none.projects.is_empty());
     assert_eq!(none.counts, Some(ProjectCounts::default()));
 }

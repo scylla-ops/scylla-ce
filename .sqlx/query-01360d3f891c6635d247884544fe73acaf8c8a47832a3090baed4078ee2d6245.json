@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH active AS (\n               SELECT DISTINCT project_id FROM jobs\n               WHERE status IN ('awaiting_approval', 'pending', 'running')\n                 AND ($4::uuid IS NULL OR workspace_id = $4)\n           )\n           SELECT p.id AS \"id!\", p.workspace_id AS \"workspace_id!\",\n                  p.created_by AS \"created_by!\", p.name AS \"name!\",\n                  p.description AS \"description!\", p.created_at AS \"created_at!\",\n                  p.icon_name AS \"icon_name?\", p.icon_color AS \"icon_color?\",\n                  p.icon_image_id AS \"icon_image_id?\", p.group_id AS \"group_id?\",\n                  p.position AS \"position?\", g.position AS \"group_position?\",\n                  l.full_name AS \"repository?\",\n                  coalesce(f.names, '{}') AS \"pipelines!: Vec<String>\",\n                  coalesce(f.failing, 0) AS \"failing!\",\n                  p.id IN (SELECT project_id FROM active) AS \"running!\",\n                  newest.created_at AS \"last_job_at?\"\n           FROM projects p\n           LEFT JOIN project_groups g ON g.id = p.group_id\n           LEFT JOIN repository_links l ON l.project_id = p.id\n           LEFT JOIN LATERAL (\n               SELECT array_agg(pl.name ORDER BY pl.id) AS names,\n                      count(*) FILTER (WHERE last.status <> 'completed') AS failing\n               FROM pipelines pl\n               LEFT JOIN LATERAL (\n                   SELECT j.status FROM jobs j\n                   LEFT JOIN job_sources s ON s.job_id = j.id\n                   WHERE j.pipeline_id = pl.id AND j.finished_at IS NOT NULL\n                     AND (l.project_id IS NULL OR s.branch = l.default_branch)\n                   ORDER BY j.id DESC LIMIT 1\n               ) last ON true\n               WHERE pl.project_id = p.id AND (pl.source = 'editor' OR pl.archived_at IS NULL)\n           ) f ON true\n           LEFT JOIN LATERAL (\n               SELECT j.created_at FROM jobs j WHERE j.project_id = p.id\n               ORDER BY j.created_at DESC LIMIT 1\n           ) newest ON true\n           WHERE ($5\n                  OR p.workspace_id IN (SELECT o.workspace_id FROM workspace_owners o\n                                        WHERE o.user_id = $1)\n                  OR p.workspace_id = ANY($2)\n                  OR p.id = ANY($3))\n             AND ($4::uuid IS NULL OR p.workspace_id = $4)",
+  "query": "WITH live AS (\n               SELECT project_id, bool_or(status = 'running') AS running,\n                      bool_or(status <> 'running') AS pending\n               FROM jobs WHERE status IN ('awaiting_approval', 'pending', 'running')\n                 AND ($4::uuid IS NULL OR workspace_id = $4)\n               GROUP BY project_id\n           )\n           SELECT p.id AS \"id!\", p.workspace_id AS \"workspace_id!\",\n                  p.created_by AS \"created_by!\", p.name AS \"name!\",\n                  p.description AS \"description!\", p.created_at AS \"created_at!\",\n                  p.icon_name AS \"icon_name?\", p.icon_color AS \"icon_color?\",\n                  p.icon_image_id AS \"icon_image_id?\", p.group_id AS \"group_id?\",\n                  p.position AS \"position?\", g.position AS \"group_position?\",\n                  l.full_name AS \"repository?\",\n                  coalesce(f.names, '{}') AS \"pipelines!: Vec<String>\",\n                  coalesce(f.failing, 0) AS \"failing!\",\n                  coalesce(a.running, false) AS \"running!\", coalesce(a.pending, false) AS \"pending!\",\n                  newest.created_at AS \"last_job_at?\"\n           FROM projects p\n           LEFT JOIN project_groups g ON g.id = p.group_id\n           LEFT JOIN repository_links l ON l.project_id = p.id\n           LEFT JOIN live a ON a.project_id = p.id\n           LEFT JOIN LATERAL (\n               SELECT array_agg(pl.name ORDER BY pl.id) AS names,\n                      count(*) FILTER (WHERE last.status <> 'completed') AS failing\n               FROM pipelines pl\n               LEFT JOIN LATERAL (\n                   SELECT j.status FROM jobs j\n                   LEFT JOIN job_sources s ON s.job_id = j.id\n                   WHERE j.pipeline_id = pl.id AND j.finished_at IS NOT NULL\n                     AND (l.project_id IS NULL OR s.branch = l.default_branch)\n                   ORDER BY j.id DESC LIMIT 1\n               ) last ON true\n               WHERE pl.project_id = p.id AND (pl.source = 'editor' OR pl.archived_at IS NULL)\n           ) f ON true\n           LEFT JOIN LATERAL (\n               SELECT j.created_at FROM jobs j WHERE j.project_id = p.id\n               ORDER BY j.created_at DESC LIMIT 1\n           ) newest ON true\n           WHERE ($5\n                  OR p.workspace_id IN (SELECT o.workspace_id FROM workspace_owners o\n                                        WHERE o.user_id = $1)\n                  OR p.workspace_id = ANY($2)\n                  OR p.id = ANY($3))\n             AND ($4::uuid IS NULL OR p.workspace_id = $4)",
   "describe": {
     "columns": [
       {
@@ -166,6 +166,12 @@
       },
       {
         "ordinal": 16,
+        "name": "pending!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 17,
         "name": "last_job_at?",
         "type_info": "Timestamptz",
         "origin": {
@@ -202,8 +208,9 @@
       null,
       null,
       null,
+      null,
       true
     ]
   },
-  "hash": "35a64f81ab304dd1251a69bfec2333257fb89d8f600223e480189406384e9d4e"
+  "hash": "01360d3f891c6635d247884544fe73acaf8c8a47832a3090baed4078ee2d6245"
 }

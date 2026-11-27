@@ -54,7 +54,7 @@ pub(super) async fn insert(tx: &mut Tx<'_>, new: &NewProject) -> Result<Project,
 
 /// Returns each project that a caller can see, of one workspace or of all, with the facts of
 /// the list: its repository, the names of its pipelines, the number of its failing pipelines,
-/// its jobs that run or wait, its newest job, and its places. A failing pipeline has a last ended
+/// its jobs that run, its jobs that wait, its newest job, and its places. A failing pipeline has a last ended
 /// job, of the default branch of the linked repository, that did not complete. An archived
 /// pipeline from a file does not count, as in the summaries of the pipelines.
 pub(super) async fn list_visible(
@@ -65,10 +65,12 @@ pub(super) async fn list_visible(
     let workspaces: Vec<_> = visible.workspaces.iter().map(|id| id.to_db()).collect();
     let shared: Vec<_> = visible.projects.iter().map(|id| id.to_db()).collect();
     let rows = sqlx::query!(
-        r#"WITH active AS (
-               SELECT DISTINCT project_id FROM jobs
-               WHERE status IN ('awaiting_approval', 'pending', 'running')
+        r#"WITH live AS (
+               SELECT project_id, bool_or(status = 'running') AS running,
+                      bool_or(status <> 'running') AS pending
+               FROM jobs WHERE status IN ('awaiting_approval', 'pending', 'running')
                  AND ($4::uuid IS NULL OR workspace_id = $4)
+               GROUP BY project_id
            )
            SELECT p.id AS "id!", p.workspace_id AS "workspace_id!",
                   p.created_by AS "created_by!", p.name AS "name!",
@@ -79,11 +81,12 @@ pub(super) async fn list_visible(
                   l.full_name AS "repository?",
                   coalesce(f.names, '{}') AS "pipelines!: Vec<String>",
                   coalesce(f.failing, 0) AS "failing!",
-                  p.id IN (SELECT project_id FROM active) AS "running!",
+                  coalesce(a.running, false) AS "running!", coalesce(a.pending, false) AS "pending!",
                   newest.created_at AS "last_job_at?"
            FROM projects p
            LEFT JOIN project_groups g ON g.id = p.group_id
            LEFT JOIN repository_links l ON l.project_id = p.id
+           LEFT JOIN live a ON a.project_id = p.id
            LEFT JOIN LATERAL (
                SELECT array_agg(pl.name ORDER BY pl.id) AS names,
                       count(*) FILTER (WHERE last.status <> 'completed') AS failing
@@ -133,6 +136,7 @@ pub(super) async fn list_visible(
         pipelines: row.pipelines,
         failing: u32::try_from(row.failing).unwrap_or(u32::MAX),
         running: row.running,
+        pending: row.pending,
         last_job_at: row.last_job_at,
         position: row.position,
         group_position: row.group_position,
