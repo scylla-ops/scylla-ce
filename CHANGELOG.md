@@ -57,6 +57,23 @@ the reason for each choice. An entry marked **Breaking** changes what a deploy o
   keeps it in the images store (`image/svg+xml`, served from `/images/{id}` with the strict headers)
   and keeps the options in `images.glyph` for a new edit. A project or a workspace refuses a glyph
   avatar. The migration adds the column `images.glyph`.
+- The photo of the provider as the avatar. At a sign-up with GitHub or OIDC, the server downloads
+  the photo of the provider one time (the GitHub `avatar_url`, the OIDC claim `picture`) and keeps
+  it as the profile photo, through the image service of the uploads. A failed download goes to the
+  log (`account.avatar_import_failed`), and the account keeps the initials. `ImportAvatar` downloads
+  the photo of a linked identity again when the user asks and replaces the current photo, and
+  `ListIdentities` gives `has_picture`. The download goes only to a public address over HTTPS, with
+  no redirect, no proxy and no credential, in 5 seconds and 1 MB at most, and keeps only a PNG, JPEG
+  or WebP image. A GitHub photo comes only from an avatar host of the configured GitHub. The new
+  migration only adds the nullable columns `external_identities.picture_url` and
+  `pending_links.picture_url`.
+- Search for the search bar of the web app. `ListPipelineJobs` and `ListWorkspaceJobs` find the jobs
+  by number (the last 8 characters of the id), branch, tag, commit title or pipeline name
+  (`JobFilter.query`), and `ListWorkspaceTriggers` finds the triggers by name, pipeline name or
+  project name. The new route `ListWorkspaceSecrets` (permission `list_workspace_secrets`) gives one
+  page of the secrets of a workspace, with no value and with the name of their project, only in the
+  projects where the caller can list the secrets: a caller with no role gets an empty list. A search
+  text has 100 characters at most, else INVALID_ARGUMENT. No migration.
 
 ### Changed
 
